@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"e:\\\\Devlopment\\\\MISFrontend\" | Where-Object { -not $_.PSIsContainer } | Select-Object Name, Extension)",
+      "PowerShell(Remove-Item \"e:\\\\Devlopment\\\\MISFrontend\\\\.env\" -Confirm:$false)"
+    ]
+  }
+}

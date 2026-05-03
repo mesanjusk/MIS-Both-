@@ -1,0 +1,240 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --crm-primary: #2563eb;
+  --crm-primary-dark: #1e3a8a;
+  --crm-secondary: #0f766e;
+  --crm-accent: #14b8a6;
+  --crm-bg: #eef3f8;
+  --crm-bg-soft: #f8fafc;
+  --crm-surface: #ffffff;
+  --crm-surface-soft: #f8fafc;
+  --crm-border: #dbe5ef;
+  --crm-text: #0f172a;
+  --crm-muted: #64748b;
+  --crm-sidebar: #0b1220;
+  --crm-sidebar-2: #10243f;
+  --wa-bg: #efeae2;
+  --wa-panel: #ffffff;
+  --wa-header: #f0f2f5;
+  --wa-green: #25d366;
+  --wa-green-dark: #128c7e;
+  font-family: Inter, 'Segoe UI', Roboto, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--crm-bg);
+  color: var(--crm-text);
+}
+
+body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+.MuiContainer-root {
+  max-width: none !important;
+}
+
+.form-control,
+input.form-control,
+select.form-control,
+textarea.form-control,
+.form-select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--crm-border);
+  border-radius: 12px !important;
+  padding: 7px 11px;
+  font-size: 13px;
+  color: var(--crm-text);
+  background: rgba(255, 255, 255, 0.96);
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+.form-control:focus,
+.form-select:focus {
+  outline: none;
+  border-color: var(--crm-primary);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  background-color: #fff;
+}
+
+.btn,
+button.btn {
+  border-radius: 12px;
+  font-weight: 800;
+  min-height: 36px;
+}
+
+.table,
+table.table,
+.table-bordered,
+.table-striped {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--crm-surface);
+  border: 1px solid var(--crm-border);
+  border-radius: 16px;
+  overflow: hidden;
+  font-size: 12.5px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.table th,
+.table td,
+table th,
+table td {
+  border-bottom: 1px solid #e8eff5;
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.table th,
+table th {
+  background: #f8fafc;
+  color: var(--crm-muted);
+  font-weight: 850;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table tbody tr:hover,
+table tbody tr:hover {
+  background: rgba(37, 99, 235, 0.035);
+}
+
+.card,
+.modal-content {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.94));
+  border: 1px solid var(--crm-border);
+  border-radius: 18px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.07);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 1300;
+}
+
+.modal-content {
+  padding: 16px;
+  width: min(96vw, 680px);
+}
+
+.text-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overflow-safe,
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-shell {
+  width: 100%;
+}
+
+.dashboard-glass {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(219, 229, 239, 0.9);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.whatsapp-wallpaper {
+  background-color: var(--wa-bg);
+  background-image:
+    radial-gradient(rgba(17, 27, 33, 0.045) 1px, transparent 1px),
+    radial-gradient(rgba(17, 27, 33, 0.03) 1px, transparent 1px);
+  background-size: 22px 22px, 34px 34px;
+  background-position: 0 0, 11px 11px;
+}
+
+@media (max-width: 768px) {
+  .table,
+  table.table,
+  .table-bordered,
+  .table-striped {
+    font-size: 11.8px;
+    border-radius: 14px;
+  }
+
+  .table th,
+  .table td,
+  table th,
+  table td {
+    padding: 7px 8px;
+  }
+
+  .card,
+  .modal-content {
+    border-radius: 16px;
+  }
+}
+
+@media print {
+  .no-print,
+  .btn,
+  .MuiFab-root,
+  .MuiBottomNavigation-root,
+  .MuiDrawer-root,
+  .MuiAppBar-root {
+    display: none !important;
+  }
+
+  @page {
+    margin: 0;
+  }
+
+  body {
+    margin: 1cm;
+    background: #fff;
+  }
+}

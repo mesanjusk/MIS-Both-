@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "build": {
+    "env": {
+      "VITE_API_LOCAL": "http://localhost:5000",
+      "VITE_API_SERVER": "https://misbackend-e078.onrender.com",
+      "VITE_SOCKET_URL": "https://misbackend-e078.onrender.com",
+      "VITE_API_BASE": "https://misbackend-e078.onrender.com"
+    }
+  }
+}

@@ -26,7 +26,7 @@ import axios from '../apiClient.js';
 import EditTask from './editTask';
 import AddTask from '../Pages/addTask';
 import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
-import { EmptyState, LoadingState } from '../components/ui';
+import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function TaskReport() {
   const [tasks, setTasks] = useState([]);

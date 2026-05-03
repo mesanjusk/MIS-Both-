@@ -24,8 +24,8 @@ import {
   WHATSAPP_TEMPLATES,
   buildAmountPaidParameters,
 } from '../constants/whatsappTemplates';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddTransaction1({ onClose }) {
   const navigate = useNavigate();

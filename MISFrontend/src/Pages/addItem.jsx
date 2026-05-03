@@ -16,8 +16,8 @@ import {
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import AddIcon from '@mui/icons-material/Add';
 import axios from '../apiClient.js';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 const ITEM_TYPES = [
   { value: 'finished_item', label: 'Finished Item' },

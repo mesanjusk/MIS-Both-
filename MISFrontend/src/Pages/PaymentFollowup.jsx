@@ -22,8 +22,8 @@ import {
   buildFollowupDueTodayParameters,
   buildFollowupFriendlyParameters,
 } from '../constants/whatsappTemplates';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 const todayISO = () => new Date().toLocaleDateString('en-CA');
 

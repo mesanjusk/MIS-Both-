@@ -23,7 +23,7 @@ import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 import PropTypes from 'prop-types';
 import toast, { Toaster } from 'react-hot-toast';
-import { FullscreenAddFormLayout, compactCardSx, compactFieldSx } from '../components/ui';
+import { FullscreenAddFormLayout, compactCardSx, compactFieldSx } from '../Components/ui';
 import { fetchCustomers } from '../services/customerService';
 import { addTransaction } from '../services/transactionService';
 

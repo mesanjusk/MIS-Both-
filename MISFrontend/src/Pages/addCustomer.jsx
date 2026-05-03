@@ -18,8 +18,8 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import axios from '../apiClient.js';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddCustomer({ onClose }) {
   const navigate = useNavigate();

@@ -27,7 +27,7 @@ import { deleteUser, fetchUsers } from '../services/userService.js';
 import EditUser from './editUser';
 import AddUser from '../Pages/addUser';
 import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
-import { EmptyState, LoadingState } from '../components/ui';
+import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function UserReport() {
   const [users, setUsers] = useState([]);

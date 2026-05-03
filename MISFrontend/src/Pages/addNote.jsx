@@ -3,8 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Paper, Stack, TextField, Typography } from '@mui/material';
 import { addNote } from '../services/noteService.js';
 import { fetchCustomers } from '../services/customerService.js';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddNote({ onClose, order }) {
   const navigate = useNavigate();

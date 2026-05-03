@@ -26,7 +26,7 @@ import axios from '../apiClient.js';
 import EditItem from './editItem';
 import AddItem from '../Pages/addItem';
 import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
-import { EmptyState, LoadingState } from '../components/ui';
+import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function ItemReport() {
   const [items, setItems] = useState([]);

@@ -21,8 +21,8 @@ import {
   buildAmountReceivedParameters,
 } from '../constants/whatsappTemplates';
 import { sendAdminAlertText } from '../utils/whatsapp';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddTransaction({ editMode, existingData, onClose, onSuccess }) {
   const navigate = useNavigate();

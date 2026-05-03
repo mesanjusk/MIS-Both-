@@ -18,11 +18,11 @@ import toast, { Toaster } from 'react-hot-toast';
 import { extractPhoneNumber, normalizeWhatsAppPhone } from '../utils/whatsapp.js';
 import {
   FullscreenAddFormLayout,
-} from '../components/ui';
+} from '../Components/ui';
 import {
   compactCardSx,
   compactFieldSx,
-} from '../components/ui/addFormStyles';
+} from '../Components/ui/addFormStyles';
 import {
   DEFAULT_TEMPLATE_LANGUAGE,
   WHATSAPP_TEMPLATES,

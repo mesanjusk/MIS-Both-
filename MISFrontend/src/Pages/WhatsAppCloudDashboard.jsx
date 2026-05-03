@@ -16,7 +16,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
 import { parseApiError } from '../utils/parseApiError';
-import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../components/ui';
+import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
 
 const MessagesPanel = lazy(() => import('../components/whatsappCloud/MessagesPanel'));
 const SendMessagePanel = lazy(() => import('../components/whatsappCloud/SendMessagePanel'));

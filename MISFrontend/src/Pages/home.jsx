@@ -15,7 +15,7 @@ import UserTask from './userTask';
 import PendingTasks from './PendingTasks';
 import AllAttandance from './AllAttandance';
 import TaskUpdate from './taskUpdate';
-import { PageContainer, SectionCard } from '../components/ui';
+import { PageContainer, SectionCard } from '../Components/ui';
 
 export default function Home() {
   const navigate = useNavigate();

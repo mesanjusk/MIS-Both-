@@ -19,8 +19,8 @@ import {
   WHATSAPP_TEMPLATES,
   buildTaskAssignedParameters,
 } from '../constants/whatsappTemplates';
-import { FullscreenAddFormLayout } from '../components/ui';
-import { compactCardSx, compactFieldSx } from '../components/ui/addFormStyles';
+import { FullscreenAddFormLayout } from '../Components/ui';
+import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddUsertask() {
   const navigate = useNavigate();

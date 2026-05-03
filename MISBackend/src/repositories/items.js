@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const bomComponentSchema = new mongoose.Schema(
+const bomComponentschema = new mongoose.Schema(
   {
     componentItemUuid: { type: String, default: "" },
     componentItemName: { type: String, required: true, trim: true },
@@ -53,7 +53,7 @@ const ItemsSchema = new mongoose.Schema(
     preferredUserGroups: { type: [String], default: [] },
     preferredUserNames: { type: [String], default: [] },
     description: { type: String, default: "" },
-    bom: { type: [bomComponentSchema], default: [] },
+    bom: { type: [bomComponentschema], default: [] },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

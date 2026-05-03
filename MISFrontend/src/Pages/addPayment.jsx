@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient.js';
-import SimpleEntityCreateForm from '../components/forms/SimpleEntityCreateForm';
+import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 
 export default function AddPayment() {
   const navigate = useNavigate();

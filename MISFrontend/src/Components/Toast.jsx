@@ -8,7 +8,7 @@ function emit(payload) {
   listeners.forEach((listener) => listener(payload));
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
+// eslint-disable-next-line react-refresh/only-export-Components
 export function toast(message, variant = 'info') {
   emit({ message, variant });
 }

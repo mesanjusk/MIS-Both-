@@ -68,7 +68,7 @@ const sendTextMessage = async ({ accountId, userId, to, body, customerLastMessag
   });
 };
 
-const sendTemplateMessage = async ({ accountId, userId, to, templateName, languageCode, components = [] }) => {
+const sendTemplateMessage = async ({ accountId, userId, to, templateName, languageCode, Components = [] }) => {
   const account = await ensureAccountOwnership(accountId, userId);
   const { accessToken } = await refreshTokenIfNeeded(account);
 
@@ -83,7 +83,7 @@ const sendTemplateMessage = async ({ accountId, userId, to, templateName, langua
       template: {
         name: templateName,
         language: { code: languageCode || 'en_US' },
-        components,
+        Components,
       },
     },
   });

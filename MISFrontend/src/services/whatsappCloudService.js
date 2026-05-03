@@ -7,7 +7,7 @@ export const buildTemplatePayload = ({ to, template }) => {
     to,
     template_name: template?.name,
     language: template?.language,
-    components: [
+    Components: [
       {
         type: 'body',
         parameters: parameters.map((value) => ({

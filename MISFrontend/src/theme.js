@@ -90,7 +90,7 @@ export function createAppTheme(themeKey = 'whatsapp') {
       caption: { fontSize: '0.75rem' },
       button: { fontWeight: 700 },
     },
-    components: {
+    Components: {
       MuiCssBaseline: {
         styleOverrides: {
           html: { height: '100%' },

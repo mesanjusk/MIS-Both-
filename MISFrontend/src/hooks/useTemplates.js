@@ -20,8 +20,8 @@ const normalizeTemplates = (response) => {
   return (list || [])
     .filter(Boolean)
     .map((template) => {
-      const components = Array.isArray(template?.components) ? template.components : [];
-      const bodyComponent = components.find((component) =>
+      const Components = Array.isArray(template?.Components) ? template.Components : [];
+      const bodyComponent = Components.find((component) =>
         String(component?.type || '').toUpperCase() === 'BODY'
       );
 

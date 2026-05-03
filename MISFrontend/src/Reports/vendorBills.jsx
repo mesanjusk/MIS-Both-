@@ -20,7 +20,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import { getWithFallback } from '../utils/api.js';
 import { useNavigate, useLocation } from 'react-router-dom';
 import BillUpdate from '../Reports/billUpdate';
-import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
+import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
 import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function VendorBills() {

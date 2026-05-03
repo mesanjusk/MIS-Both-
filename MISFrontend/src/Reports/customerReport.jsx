@@ -26,7 +26,7 @@ import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import { deleteCustomer, fetchCustomers } from '../services/customerService.js';
 import EditCustomer from './editCustomer';
 import AddCustomer from '../Pages/addCustomer';
-import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
+import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
 import { EmptyState, LoadingState } from '../Components/ui';
 
 const formatDate = (value) => {

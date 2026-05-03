@@ -460,7 +460,7 @@ const dispatchMediaMessage = async ({ to, type, link, caption = '', filename = '
   return data;
 };
 
-const dispatchTemplateMessage = async ({ to, templateName, language = 'en_US', components = [] }) => {
+const dispatchTemplateMessage = async ({ to, templateName, language = 'en_US', Components = [] }) => {
   const normalizedTo = normalizePhone(to);
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
 
@@ -472,7 +472,7 @@ const dispatchTemplateMessage = async ({ to, templateName, language = 'en_US', c
       template: {
         name: templateName,
         language: { code: language },
-        components,
+        Components,
       },
     },
     { fallbackMessage: 'Failed to send WhatsApp template message' }
@@ -703,7 +703,7 @@ const sendAutoReplyForIncomingMessage = async (incomingPayload) => {
       to: incomingPayload.from,
       templateName: reply,
       language: matchedRule?.templateLanguage || 'en_US',
-      components: [],
+      Components: [],
     });
     return;
   }
@@ -981,18 +981,18 @@ const sendTemplate = asyncHandler(async (req, res) => {
     to,
     template_name,
     language = 'en_US',
-    components = [],
+    Components = [],
   } = req.body;
 
   if (!to || !template_name) {
     throw new AppError('to and template_name are required', 400);
   }
 
-  if (!components.length) {
+  if (!Components.length) {
     throw new AppError('Template parameters missing', 400);
   }
 
-  const finalComponents = components.map((comp) => {
+  const finalComponents = Components.map((comp) => {
     if (comp.type === 'body') {
       return {
         ...comp,
@@ -1006,7 +1006,7 @@ const sendTemplate = asyncHandler(async (req, res) => {
     to,
     templateName: template_name,
     language,
-    components: finalComponents,
+    Components: finalComponents,
   });
 
   return res.status(200).json({ success: true, data });
@@ -1134,7 +1134,7 @@ const sendMessage = asyncHandler(async (req, res) => {
       to,
       templateName,
       language: req.body.language || 'en_US',
-      components: Array.isArray(req.body.components) ? req.body.components : [],
+      Components: Array.isArray(req.body.Components) ? req.body.Components : [],
     });
   } else if (type === 'flow') {
     const flowId = String(req.body.flowId || '').trim();

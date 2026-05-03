@@ -107,7 +107,7 @@ export default function AddTransaction() {
         to: cleanPhone,
         template_name: WHATSAPP_TEMPLATES.OPENING_BALANCE_PAYABLE,
         language: DEFAULT_TEMPLATE_LANGUAGE,
-        components: [{
+        Components: [{
           type: 'body',
           parameters: buildOpeningBalancePayableParameters({
             customerName: customerLabel,

@@ -4,7 +4,7 @@ import axios from "../apiClient";
 import { toast, LoadingSpinner } from "../Components";
 import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderDnD } from "../hooks/useOrderDnD";
-import OrderBoard from "../components/orders/OrderBoard";
+import OrderBoard from "../Components/orders/OrderBoard";
 
 const STAGES = ["Enquiry", "Design", "Printing", "Finishing", "Ready", "Delivered"];
 

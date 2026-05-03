@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from "react-router-dom";
-import ChatSidebar from '../components/whatsapp/ChatSidebar.jsx';
-import ChatWindow from '../components/whatsapp/ChatWindow.jsx';
+import ChatSidebar from '../Components/whatsapp/ChatSidebar.jsx';
+import ChatWindow from '../Components/whatsapp/ChatWindow.jsx';
 import useWhatsAppChat from '../hooks/useWhatsAppChat.js';
 
 export default function WhatsAppClient() {

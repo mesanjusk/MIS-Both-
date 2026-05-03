@@ -108,7 +108,7 @@ function TabButton({ label, icon, active, onClick }) {
   );
 }
 
-// Sample components for each tab
+// Sample Components for each tab
 function DeliveredTab({ data }) {
   return (
     <div>

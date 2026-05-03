@@ -181,7 +181,7 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
         to: cleanPhone,
         template_name: WHATSAPP_TEMPLATES.AMOUNT_RECEIVED,
         language: DEFAULT_TEMPLATE_LANGUAGE,
-        components: [{
+        Components: [{
           type: 'body',
           parameters: buildAmountReceivedParameters({
             customerName: Customer_name || 'Customer',

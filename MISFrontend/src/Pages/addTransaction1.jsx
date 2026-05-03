@@ -158,7 +158,7 @@ export default function AddTransaction1({ onClose }) {
         to: cleanPhone,
         template_name: WHATSAPP_TEMPLATES.AMOUNT_PAID,
         language: DEFAULT_TEMPLATE_LANGUAGE,
-        components: [{
+        Components: [{
           type: 'body',
           parameters: buildAmountPaidParameters({
             customerName: customerLabel,

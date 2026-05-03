@@ -110,7 +110,7 @@ const sendTemplateMessage = async ({
   to,
   templateName,
   languageCode = 'en_US',
-  components = [],
+  Components = [],
 }) => {
   const account = await ensureAccountOwnership(accountId, userId);
   const accessToken = await refreshTokenIfNeeded(account);
@@ -126,7 +126,7 @@ const sendTemplateMessage = async ({
       template: {
         name: templateName,
         language: { code: languageCode },
-        components,
+        Components,
       },
     },
   });

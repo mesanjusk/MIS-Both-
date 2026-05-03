@@ -670,7 +670,7 @@ export default function AddOrder1({ closeModal }) {
         to: cleanPhone,
         template_name: WHATSAPP_TEMPLATES.ORDER_CONFIRMATION,
         language: DEFAULT_TEMPLATE_LANGUAGE,
-        components: [
+        Components: [
           {
             type: 'body',
             parameters: buildOrderConfirmationParameters({

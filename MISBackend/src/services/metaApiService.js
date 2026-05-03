@@ -122,7 +122,7 @@ const sendMessage = async ({ phoneNumberId, accessToken, payload }) =>
 const fetchTemplates = async ({ wabaId, accessToken }) => {
   const data = [];
   let nextUrl = `${GRAPH_BASE}/${wabaId}/message_templates`;
-  let params = { fields: 'id,name,status,language,category,components', limit: 200 };
+  let params = { fields: 'id,name,status,language,category,Components', limit: 200 };
 
   while (nextUrl) {
     const response = await httpGet(nextUrl, {

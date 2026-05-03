@@ -25,7 +25,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import axios from '../apiClient.js';
 import EditPayment from './editPayment';
 import AddPayment from '../Pages/addPayment';
-import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
+import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
 import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function PaymentReport() {

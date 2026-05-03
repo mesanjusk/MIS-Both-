@@ -18,12 +18,12 @@ import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
 import { parseApiError } from '../utils/parseApiError';
 import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
 
-const MessagesPanel = lazy(() => import('../components/whatsappCloud/MessagesPanel'));
-const SendMessagePanel = lazy(() => import('../components/whatsappCloud/SendMessagePanel'));
-const BulkSender = lazy(() => import('../components/whatsappCloud/BulkSender'));
-const AutoReplyManagementPanel = lazy(() => import('../components/whatsappCloud/AutoReplyManagementPanel'));
-const AnalyticsDashboard = lazy(() => import('../components/whatsappCloud/AnalyticsDashboard'));
-const WhatsAppAttendanceSettings = lazy(() => import('../components/whatsappCloud/WhatsAppAttendanceSettings'));
+const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
+const SendMessagePanel = lazy(() => import('../Components/whatsappCloud/SendMessagePanel'));
+const BulkSender = lazy(() => import('../Components/whatsappCloud/BulkSender'));
+const AutoReplyManagementPanel = lazy(() => import('../Components/whatsappCloud/AutoReplyManagementPanel'));
+const AnalyticsDashboard = lazy(() => import('../Components/whatsappCloud/AnalyticsDashboard'));
+const WhatsAppAttendanceSettings = lazy(() => import('../Components/whatsappCloud/WhatsAppAttendanceSettings'));
 
 const navItems = [
   { key: 'inbox', label: 'Chats' },

@@ -26,7 +26,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import { deleteUser, fetchUsers } from '../services/userService.js';
 import EditUser from './editUser';
 import AddUser from '../Pages/addUser';
-import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../components/reports/ReportShell';
+import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
 import { EmptyState, LoadingState } from '../Components/ui';
 
 export default function UserReport() {

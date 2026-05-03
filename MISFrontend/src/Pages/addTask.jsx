@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FormControl, InputLabel, MenuItem, Select } from '@mui/material';
 import PropTypes from 'prop-types';
 import { addTask, fetchTaskGroups } from '../services/taskService.js';
-import SimpleEntityCreateForm from '../components/forms/SimpleEntityCreateForm';
+import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 
 export default function AddTask({ closeModal }) {
   const navigate = useNavigate();

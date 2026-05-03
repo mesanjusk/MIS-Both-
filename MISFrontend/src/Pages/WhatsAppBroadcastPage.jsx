@@ -1,5 +1,5 @@
 import { Box } from "@mui/material";
-import BulkSender from "../components/whatsappCloud/BulkSender";
+import BulkSender from "../Components/whatsappCloud/BulkSender";
 
 export default function WhatsAppBroadcastPage() {
   return (

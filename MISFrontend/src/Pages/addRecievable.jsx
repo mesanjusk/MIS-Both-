@@ -109,7 +109,7 @@ export default function AddRecievable() {
         to: cleanPhone,
         template_name: WHATSAPP_TEMPLATES.OPENING_BALANCE_RECEIVABLE,
         language: DEFAULT_TEMPLATE_LANGUAGE,
-        components: [{
+        Components: [{
           type: 'body',
           parameters: buildOpeningBalanceReceivableParameters({
             customerName: customerLabel,

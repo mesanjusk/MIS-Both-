@@ -1,5 +1,5 @@
 import { Box } from "@mui/material";
-import SendMessagePanel from "../components/whatsappCloud/SendMessagePanel";
+import SendMessagePanel from "../Components/whatsappCloud/SendMessagePanel";
 
 export default function WhatsAppSendPage() {
   return (

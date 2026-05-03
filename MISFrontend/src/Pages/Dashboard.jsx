@@ -56,7 +56,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
-} from '../components/ui';
+} from '../Components/ui';
 import UpiCollectionSection from '../Components/dashboard/UpiCollectionSection';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
 

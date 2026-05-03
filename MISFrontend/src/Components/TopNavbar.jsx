@@ -1,12 +1,11 @@
 import PropTypes from 'prop-types';
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
   Badge,
   Box,
-  Chip,
   IconButton,
   InputAdornment,
   Menu,
@@ -21,8 +20,6 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
-import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
-import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
@@ -37,16 +34,6 @@ export default function TopNavbar({ onToggleSidebar }) {
   const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
-
-  const tabs = useMemo(
-    () => [
-      { label: 'Home', path: ROUTES.HOME, icon: <HomeRoundedIcon sx={{ fontSize: 16 }} /> },
-      { label: 'Orders', path: '/allOrder', icon: <AssignmentRoundedIcon sx={{ fontSize: 16 }} /> },
-      { label: 'Business', path: ROUTES.BUSINESS_CONTROL, icon: <StoreRoundedIcon sx={{ fontSize: 16 }} /> },
-      { label: 'WhatsApp', path: ROUTES.WHATSAPP, icon: <ChatRoundedIcon sx={{ fontSize: 16 }} /> },
-    ],
-    [],
-  );
 
   useEffect(() => {
     if (!userName) navigate(ROUTES.LOGIN);
@@ -102,36 +89,8 @@ export default function TopNavbar({ onToggleSidebar }) {
           }}
         />
 
-        {/* Nav tabs (xl screens) */}
-        <Stack direction="row" spacing={0.75} sx={{ display: { xs: 'none', xl: 'flex' }, mr: 1 }}>
-          {tabs.map((tab) => (
-            <Chip
-              key={tab.path}
-              clickable
-              size="small"
-              icon={tab.icon}
-              label={
-                <NavLink
-                  style={{ textDecoration: 'none', color: 'inherit', fontWeight: 700, fontSize: '0.78rem' }}
-                  to={tab.path}
-                >
-                  {tab.label}
-                </NavLink>
-              }
-              variant={pathname === tab.path ? 'filled' : 'outlined'}
-              color={pathname === tab.path ? 'primary' : 'default'}
-            />
-          ))}
-        </Stack>
-
-        {/* Live badge */}
-        <Chip
-          size="small"
-          label="Live"
-          color="success"
-          variant="outlined"
-          sx={{ display: { xs: 'none', sm: 'inline-flex' }, fontSize: '0.7rem', height: 22 }}
-        />
+        {/* Spacer */}
+        <Box sx={{ flex: 1 }} />
 
         {/* Notifications */}
         <IconButton size="small" aria-label="notifications">

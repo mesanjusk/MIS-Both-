@@ -1,18 +1,11 @@
 import PropTypes from 'prop-types';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
-  Button,
+  ButtonBase,
   Divider,
-  FormControl,
-  InputLabel,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  MenuItem,
-  Select,
   Stack,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -26,62 +19,132 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
-import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
-import { useThemeConfig } from '../context/ThemeConfigContext.jsx';
+import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 import { ROUTES } from '../constants/routes';
 
 const NAVBAR_HEIGHT = 64;
-const RIGHT_SIDEBAR_WIDTH = 240;
+const RIGHT_SIDEBAR_WIDTH = 80;
 
+/* ── Rail item: icon centred + label below ─────────────────────────── */
+function RailItem({ icon, label, onClick, selected = false, accent }) {
+  const theme = useTheme();
+  const color = accent || theme.palette.primary.main;
+
+  return (
+    <Tooltip title={label} placement="left" arrow>
+      <ButtonBase
+        onClick={onClick}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100%',
+          py: 0.9,
+          gap: 0.35,
+          borderRadius: 2,
+          bgcolor: selected ? alpha(color, 0.12) : 'transparent',
+          color: selected ? color : 'text.secondary',
+          transition: 'background 0.15s, color 0.15s',
+          '&:hover': {
+            bgcolor: alpha(color, 0.08),
+            color,
+          },
+        }}
+      >
+        <Box sx={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}>
+          {icon}
+        </Box>
+        <Typography
+          sx={{
+            fontSize: '0.6rem',
+            fontWeight: 700,
+            lineHeight: 1,
+            color: 'inherit',
+            textAlign: 'center',
+            maxWidth: 64,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </Typography>
+      </ButtonBase>
+    </Tooltip>
+  );
+}
+
+/* ── Section label ─────────────────────────────────────────────────── */
+function SectionLabel({ children }) {
+  return (
+    <Typography
+      sx={{
+        fontSize: '0.55rem',
+        fontWeight: 800,
+        letterSpacing: 0.8,
+        color: 'text.disabled',
+        textTransform: 'uppercase',
+        textAlign: 'center',
+        display: 'block',
+        py: 0.5,
+      }}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+/* ── Right Sidebar ─────────────────────────────────────────────────── */
 export default function RightSidebar({ onNewOrderClick, onCustomize }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
-  const { themeKey, setThemeKey, themeOptions } = useThemeConfig();
 
-  const isSelected = (path) => Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
+  const isSelected = (path) =>
+    Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
 
   const quickActions = [
     {
-      label: 'New Order',
+      label: 'Order',
       icon: <AddShoppingCartRoundedIcon fontSize="small" />,
       onClick: onNewOrderClick,
-      color: 'primary',
+      accent: theme.palette.primary.main,
     },
     {
-      label: 'New Receipt',
+      label: 'Receipt',
       icon: <ReceiptLongRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.RECEIPT),
-      color: 'success',
+      accent: theme.palette.success.main,
     },
     {
-      label: 'New Payment',
+      label: 'Payment',
       icon: <PaymentsRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.PAYMENT),
-      color: 'warning',
+      accent: theme.palette.warning.main,
     },
     {
-      label: 'Add Followup',
+      label: 'Followup',
       icon: <NotificationsActiveRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.FOLLOWUPS),
-      color: 'error',
+      accent: theme.palette.error.main,
     },
     {
-      label: 'New Task',
+      label: 'Task',
       icon: <AddTaskRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.TASKS_NEW),
-      color: 'secondary',
+      accent: theme.palette.secondary.main,
     },
   ];
 
   const quickLinks = [
-    { label: 'All Orders', icon: <AssignmentRoundedIcon sx={{ fontSize: 18 }} />, path: '/allOrder' },
-    { label: 'Business Control', icon: <StoreRoundedIcon sx={{ fontSize: 18 }} />, path: ROUTES.BUSINESS_CONTROL },
-    { label: 'WhatsApp', icon: <ChatRoundedIcon sx={{ fontSize: 18 }} />, path: ROUTES.WHATSAPP },
-    { label: 'Reports', icon: <AssessmentRoundedIcon sx={{ fontSize: 18 }} />, path: '/allTransaction' },
-    { label: 'Attendance', icon: <PeopleRoundedIcon sx={{ fontSize: 18 }} />, path: ROUTES.ATTENDANCE },
-    { label: 'Dispatch Queue', icon: <LocalShippingRoundedIcon sx={{ fontSize: 18 }} />, path: ROUTES.DISPATCH_QUEUE },
+    { label: 'Orders', icon: <AssignmentRoundedIcon fontSize="small" />, path: '/allOrder' },
+    { label: 'Business', icon: <StoreRoundedIcon fontSize="small" />, path: ROUTES.BUSINESS_CONTROL },
+    { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
+    { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: '/allTransaction' },
+    { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },
+    { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.DISPATCH_QUEUE },
   ];
 
   return (
@@ -97,154 +160,52 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
         bgcolor: 'background.paper',
         borderLeft: (t) => `1px solid ${t.palette.divider}`,
         zIndex: 1100,
-        overflowY: 'auto',
-        overflowX: 'hidden',
+        overflow: 'hidden',
       }}
     >
-      {/* Spacer for navbar */}
+      {/* Spacer for fixed navbar */}
       <Box sx={{ height: NAVBAR_HEIGHT, flexShrink: 0 }} />
 
-      {/* Quick Actions header */}
-      <Box sx={{ px: 1.75, pt: 1.5, pb: 0.75 }}>
-        <Typography
-          variant="overline"
-          fontWeight={800}
-          sx={{ fontSize: '0.68rem', letterSpacing: 1, color: 'text.secondary' }}
-        >
-          Quick Actions
-        </Typography>
+      {/* ── Quick Actions (fixed top) ── */}
+      <Box sx={{ px: 0.75, pt: 1, pb: 0.5, flexShrink: 0 }}>
+        <SectionLabel>Actions</SectionLabel>
+        <Stack spacing={0.25}>
+          {quickActions.map((a) => (
+            <RailItem key={a.label} icon={a.icon} label={a.label} onClick={a.onClick} accent={a.accent} />
+          ))}
+        </Stack>
       </Box>
 
-      {/* Quick action buttons */}
-      <Stack spacing={0.6} sx={{ px: 1.25, pb: 1 }}>
-        {quickActions.map((action) => (
-          <Button
-            key={action.label}
-            fullWidth
-            size="small"
-            variant={action.color === 'primary' ? 'contained' : 'outlined'}
-            color={action.color}
-            startIcon={action.icon}
-            onClick={action.onClick}
-            sx={{
-              justifyContent: 'flex-start',
-              fontWeight: 700,
-              fontSize: '0.75rem',
-              py: 0.65,
-              borderRadius: 1.5,
-              textTransform: 'none',
-              ...(action.color !== 'primary' && {
-                bgcolor: (t) => alpha(t.palette[action.color]?.main || t.palette.primary.main, 0.06),
-                '&:hover': {
-                  bgcolor: (t) => alpha(t.palette[action.color]?.main || t.palette.primary.main, 0.14),
-                },
-              }),
-            }}
-          >
-            {action.label}
-          </Button>
-        ))}
-      </Stack>
+      <Divider sx={{ mx: 1 }} />
 
-      <Divider sx={{ mx: 1.25 }} />
-
-      {/* Quick Links header */}
-      <Box sx={{ px: 1.75, pt: 1.25, pb: 0.5 }}>
-        <Typography
-          variant="overline"
-          fontWeight={800}
-          sx={{ fontSize: '0.68rem', letterSpacing: 1, color: 'text.secondary' }}
-        >
-          Quick Links
-        </Typography>
+      {/* ── Quick Links (scrollable middle) ── */}
+      <Box sx={{ px: 0.75, py: 0.5, flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        <SectionLabel>Links</SectionLabel>
+        <Stack spacing={0.25}>
+          {quickLinks.map((l) => (
+            <RailItem
+              key={l.label}
+              icon={l.icon}
+              label={l.label}
+              onClick={() => navigate(l.path)}
+              selected={isSelected(l.path)}
+              accent={theme.palette.primary.main}
+            />
+          ))}
+        </Stack>
       </Box>
 
-      {/* Quick link items */}
-      <List dense disablePadding sx={{ px: 0.75 }}>
-        {quickLinks.map((link) => {
-          const selected = isSelected(link.path);
-          return (
-            <ListItemButton
-              key={link.path}
-              selected={selected}
-              onClick={() => navigate(link.path)}
-              sx={{
-                borderRadius: 1.5,
-                mb: 0.25,
-                py: 0.55,
-                color: selected ? 'primary.main' : 'text.secondary',
-                '&.Mui-selected': {
-                  bgcolor: (t) => alpha(t.palette.primary.main, 0.1),
-                  color: 'primary.main',
-                },
-                '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) },
-              }}
-            >
-              <ListItemIcon
-                sx={{
-                  minWidth: 28,
-                  color: selected ? 'primary.main' : 'text.secondary',
-                }}
-              >
-                {link.icon}
-              </ListItemIcon>
-              <ListItemText
-                primary={link.label}
-                primaryTypographyProps={{
-                  variant: 'body2',
-                  fontWeight: selected ? 700 : 500,
-                  fontSize: '0.78rem',
-                  noWrap: true,
-                }}
-              />
-            </ListItemButton>
-          );
-        })}
-      </List>
+      <Divider sx={{ mx: 1 }} />
 
-      {/* Spacer */}
-      <Box sx={{ flexGrow: 1 }} />
-
-      <Divider sx={{ mx: 1.25, mb: 1 }} />
-
-      {/* Bottom: Customize + Theme */}
-      <Stack spacing={1} sx={{ px: 1.25, pb: 1.75 }}>
-        {typeof onCustomize === 'function' ? (
-          <Button
-            fullWidth
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<DashboardCustomizeRoundedIcon fontSize="small" />}
-            onClick={onCustomize}
-            sx={{
-              justifyContent: 'flex-start',
-              fontWeight: 700,
-              fontSize: '0.75rem',
-              textTransform: 'none',
-              borderRadius: 1.5,
-            }}
-          >
-            Customize Dashboard
-          </Button>
-        ) : null}
-
-        <FormControl size="small" fullWidth>
-          <InputLabel sx={{ fontSize: '0.78rem' }}>Colour Theme</InputLabel>
-          <Select
-            label="Colour Theme"
-            value={themeKey}
-            onChange={(e) => setThemeKey(e.target.value)}
-            sx={{ fontSize: '0.78rem', borderRadius: 1.5 }}
-          >
-            {Object.entries(themeOptions).map(([key, option]) => (
-              <MenuItem value={key} key={key} sx={{ fontSize: '0.78rem' }}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Stack>
+      {/* ── Customize (pinned bottom) ── */}
+      <Box sx={{ px: 0.75, py: 0.75, flexShrink: 0 }}>
+        <RailItem
+          icon={<DashboardCustomizeRoundedIcon fontSize="small" />}
+          label="Customize"
+          onClick={onCustomize}
+          accent={theme.palette.primary.main}
+        />
+      </Box>
     </Box>
   );
 }
@@ -253,7 +214,6 @@ RightSidebar.propTypes = {
   onNewOrderClick: PropTypes.func,
   onCustomize: PropTypes.func,
 };
-
 RightSidebar.defaultProps = {
   onNewOrderClick: null,
   onCustomize: null,

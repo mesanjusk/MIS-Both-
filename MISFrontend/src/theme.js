@@ -1,51 +1,61 @@
 import { alpha, createTheme } from '@mui/material/styles';
 
 export const THEME_PRESETS = {
-  whatsapp: {
-    label: 'WhatsApp Green',
-    primary: '#128c7e',
-    primaryDark: '#0b5f56',
-    primaryLight: '#32b6a6',
-    secondary: '#475569',
-    background: '#f4f7f6',
+  mint: {
+    label: 'Mint Breeze',
+    primary: '#4A9E82',
+    primaryDark: '#2E7A61',
+    primaryLight: '#7ECBB2',
+    secondary: '#6B8F8A',
+    background: '#F2FAF7',
     paper: '#ffffff',
-    border: '#d8e3e0',
+    border: '#C8E8DC',
   },
-  slate: {
-    label: 'Slate Professional',
-    primary: '#334155',
-    primaryDark: '#0f172a',
-    primaryLight: '#64748b',
-    secondary: '#0f766e',
-    background: '#f8fafc',
+  rose: {
+    label: 'Rose Petal',
+    primary: '#C4687E',
+    primaryDark: '#A04E64',
+    primaryLight: '#E09AAA',
+    secondary: '#8F6B72',
+    background: '#FFF5F8',
     paper: '#ffffff',
-    border: '#dbe4ee',
+    border: '#F2C8D2',
   },
-  blue: {
-    label: 'Business Blue',
-    primary: '#2563eb',
-    primaryDark: '#1d4ed8',
-    primaryLight: '#60a5fa',
-    secondary: '#475569',
-    background: '#f5f8ff',
+  sky: {
+    label: 'Sky Mist',
+    primary: '#5189C4',
+    primaryDark: '#3569A0',
+    primaryLight: '#88B4DC',
+    secondary: '#6B7E8F',
+    background: '#F2F7FD',
     paper: '#ffffff',
-    border: '#dbe7ff',
+    border: '#C4D8EE',
   },
-  maroon: {
-    label: 'Maroon Premium',
-    primary: '#9f1239',
-    primaryDark: '#881337',
-    primaryLight: '#fb7185',
-    secondary: '#57534e',
-    background: '#fff7f7',
+  lavender: {
+    label: 'Lavender',
+    primary: '#7B6EC0',
+    primaryDark: '#5C52A0',
+    primaryLight: '#A89CDC',
+    secondary: '#7E6B8F',
+    background: '#F6F4FD',
     paper: '#ffffff',
-    border: '#f3d6dc',
+    border: '#D0C8EE',
+  },
+  peach: {
+    label: 'Peach Dusk',
+    primary: '#C47B52',
+    primaryDark: '#A05C36',
+    primaryLight: '#DCA888',
+    secondary: '#8F7A6B',
+    background: '#FDF6F1',
+    paper: '#ffffff',
+    border: '#EED0B8',
   },
 };
 
-export function createAppTheme(themeKey = 'whatsapp') {
-  const preset = THEME_PRESETS[themeKey] || THEME_PRESETS.whatsapp;
-  const TEXT = '#0f172a';
+export function createAppTheme(themeKey = 'mint') {
+  const preset = THEME_PRESETS[themeKey] || THEME_PRESETS.mint;
+  const TEXT = '#1a2332';
   const TEXT_SECONDARY = '#64748b';
 
   return createTheme({
@@ -59,14 +69,14 @@ export function createAppTheme(themeKey = 'whatsapp') {
       },
       secondary: {
         main: preset.secondary,
-        dark: '#334155',
-        light: '#94a3b8',
+        dark: '#4a5568',
+        light: '#a0aec0',
         contrastText: '#ffffff',
       },
-      success: { main: '#16a34a' },
-      warning: { main: '#d97706' },
-      error: { main: '#dc2626' },
-      info: { main: '#0284c7' },
+      success: { main: '#3a9e6a' },
+      warning: { main: '#c9820a' },
+      error: { main: '#c94040' },
+      info: { main: '#3a7ec9' },
       background: {
         default: preset.background,
         paper: preset.paper,
@@ -90,26 +100,27 @@ export function createAppTheme(themeKey = 'whatsapp') {
       caption: { fontSize: '0.75rem' },
       button: { fontWeight: 700 },
     },
-    Components: {
+    components: {
       MuiCssBaseline: {
         styleOverrides: {
           html: { height: '100%' },
           body: { height: '100%' },
           '#root': { height: '100%' },
-          '*::-webkit-scrollbar': { width: 8, height: 8 },
+          '*::-webkit-scrollbar': { width: 6, height: 6 },
           '*::-webkit-scrollbar-thumb': {
-            backgroundColor: alpha(preset.primary, 0.28),
+            backgroundColor: alpha(preset.primary, 0.22),
             borderRadius: 999,
           },
+          '*::-webkit-scrollbar-track': { background: 'transparent' },
         },
       },
       MuiAppBar: {
         styleOverrides: {
           root: {
-            backgroundColor: alpha('#ffffff', 0.92),
-            backdropFilter: 'blur(10px)',
+            backgroundColor: alpha('#ffffff', 0.94),
+            backdropFilter: 'blur(12px)',
             borderBottom: `1px solid ${preset.border}`,
-            boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)',
+            boxShadow: '0 2px 12px rgba(15, 23, 42, 0.04)',
           },
         },
       },
@@ -117,7 +128,7 @@ export function createAppTheme(themeKey = 'whatsapp') {
         styleOverrides: {
           root: {
             border: `1px solid ${preset.border}`,
-            boxShadow: '0 10px 30px rgba(15, 23, 42, 0.05)',
+            boxShadow: '0 2px 12px rgba(15, 23, 42, 0.04)',
             backgroundImage: 'none',
           },
         },
@@ -127,20 +138,17 @@ export function createAppTheme(themeKey = 'whatsapp') {
         defaultProps: { disableElevation: true },
         styleOverrides: {
           root: {
-            borderRadius: 12,
+            borderRadius: 10,
             textTransform: 'none',
             fontWeight: 700,
-            minHeight: 38,
+            minHeight: 36,
           },
         },
       },
-      MuiChip: { styleOverrides: { root: { borderRadius: 999, fontWeight: 600 } } },
+      MuiChip: { styleOverrides: { root: { borderRadius: 8, fontWeight: 600 } } },
       MuiOutlinedInput: {
         styleOverrides: {
-          root: {
-            borderRadius: 12,
-            backgroundColor: '#fff',
-          },
+          root: { borderRadius: 10, backgroundColor: '#fff' },
         },
       },
       MuiBottomNavigation: {
@@ -156,5 +164,5 @@ export function createAppTheme(themeKey = 'whatsapp') {
   });
 }
 
-export const lightTheme = createAppTheme('whatsapp');
+export const lightTheme = createAppTheme('mint');
 export default lightTheme;

@@ -30,7 +30,7 @@ import axios, { getApiBase } from '../apiClient';
 import { ROUTES } from '../constants/routes';
 
 const LEFT_SIDEBAR_WIDTH = 240;
-const RIGHT_SIDEBAR_WIDTH = 240;
+const RIGHT_SIDEBAR_WIDTH = 80;
 const NAVBAR_HEIGHT = 64;
 
 export const DashboardCustomizeCtx = createContext(null);
@@ -48,6 +48,11 @@ export default function Layout() {
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const openCustomize = useCallback(() => setCustomizeOpen(true), []);
   const closeCustomize = useCallback(() => setCustomizeOpen(false), []);
+
+  /* UPI dialog — controlled here so SpeedDial can trigger it */
+  const [upiOpen, setUpiOpen] = useState(false);
+  const openUpi = useCallback(() => setUpiOpen(true), []);
+  const closeUpi = useCallback(() => setUpiOpen(false), []);
 
   const openGoogleDriveReconnect = () => {
     const baseUrl = getApiBase() || window.location.origin;
@@ -85,13 +90,14 @@ export default function Layout() {
 
   const buttonsList = useMemo(
     () => [
-      { onClick: handleNewOrderClick, label: driveChecking ? 'Checking...' : 'Order' },
+      { onClick: handleNewOrderClick, label: driveChecking ? 'Checking...' : 'New Order' },
       { onClick: () => navigate(ROUTES.RECEIPT), label: 'Receipt' },
       { onClick: () => navigate(ROUTES.PAYMENT), label: 'Payment' },
-      { onClick: () => navigate(ROUTES.FOLLOWUPS), label: 'Followups' },
+      { onClick: () => navigate(ROUTES.FOLLOWUPS), label: 'Followup' },
       { onClick: () => navigate(ROUTES.TASKS_NEW), label: 'Task' },
+      { onClick: openUpi, label: 'Add UPI' },
     ],
-    [navigate, driveChecking, handleNewOrderClick],
+    [navigate, driveChecking, handleNewOrderClick, openUpi],
   );
 
   const bottomNavValue = useMemo(() => {
@@ -110,7 +116,7 @@ export default function Layout() {
   }, [location]);
 
   return (
-    <DashboardCustomizeCtx.Provider value={{ customizeOpen, openCustomize, closeCustomize }}>
+    <DashboardCustomizeCtx.Provider value={{ customizeOpen, openCustomize, closeCustomize, upiOpen, openUpi, closeUpi }}>
       <Box sx={{ height: '100dvh', bgcolor: 'background.default', display: 'flex', overflow: 'hidden' }}>
 
         {/* ── Left Sidebar (fixed 240px on desktop) ── */}

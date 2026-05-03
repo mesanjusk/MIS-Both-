@@ -4,18 +4,22 @@ import { CssBaseline, ThemeProvider } from '@mui/material';
 import { createAppTheme, THEME_PRESETS } from '../theme';
 
 const STORAGE_KEY = 'mis_dashboard_theme_key';
+const DEFAULT_THEME = 'mint';
 const ThemeConfigContext = createContext({
-  themeKey: 'whatsapp',
+  themeKey: DEFAULT_THEME,
   setThemeKey: () => {},
   themeOptions: THEME_PRESETS,
 });
 
 export function AppThemeProvider({ children }) {
-  const [themeKey, setThemeKeyState] = useState(() => localStorage.getItem(STORAGE_KEY) || 'whatsapp');
+  const [themeKey, setThemeKeyState] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return (stored && THEME_PRESETS[stored]) ? stored : DEFAULT_THEME;
+  });
   const theme = useMemo(() => createAppTheme(themeKey), [themeKey]);
 
   const setThemeKey = (next) => {
-    const safeKey = THEME_PRESETS[next] ? next : 'whatsapp';
+    const safeKey = THEME_PRESETS[next] ? next : DEFAULT_THEME;
     localStorage.setItem(STORAGE_KEY, safeKey);
     setThemeKeyState(safeKey);
   };

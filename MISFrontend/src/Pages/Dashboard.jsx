@@ -46,7 +46,7 @@ import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import axios from '../apiClient';
-import SummaryCard from '../components/dashboard/SummaryCard';
+import SummaryCard from '../Components/dashboard/SummaryCard';
 import AllAttandance from './AllAttandance';
 import UserTask from './userTask';
 import { useDashboardData } from '../hooks/useDashboardData';
@@ -647,7 +647,7 @@ export default function Dashboard() {
                 noPad
               >
                 {summaryLoading ? (
-                  <Box sx={{ p: 2 }}><LoadingState label="Loading user-wise task summary" /></Box>
+                  <Box sx={{ p: 2 }}><LoadingState label="Loading user wise task summary" /></Box>
                 ) : (
                   <PanelTable
                     columns={[

@@ -10,6 +10,7 @@ import { ROUTE_ALIASES, ROUTES } from './constants/routes';
 const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
 const Dashboard = lazy(() => import('./Pages/Dashboard'));
+const DashboardV2 = lazy(() => import('./Pages/DashboardV2'));
 const AllAttandance = lazy(() => import('./Pages/AllAttandance'));
 const AttendanceReport = lazy(() => import('./Pages/AttendanceReport'));
 const PendingTasks = lazy(() => import('./Pages/PendingTasks'));
@@ -113,6 +114,7 @@ export default function App() {
           <Route path={ROUTES.LOGIN} element={withSuspense(<Login />)} />
           <Route path={ROUTES.REGISTER} element={withSuspense(<Register />)} />
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
+          <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
           <Route element={<Layout />}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />

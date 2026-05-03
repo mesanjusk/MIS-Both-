@@ -17,6 +17,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -28,6 +29,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Overview',
     items: [
       { label: 'Dashboard', path: ROUTES.HOME, icon: <DashboardRoundedIcon fontSize="small" />, roles: ['all'] },
+      { label: 'New UI Preview ✨', path: ROUTES.DASHBOARD_V2, icon: <AutoAwesomeRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Owner Dashboard', path: ROUTES.OWNER_DASHBOARD, icon: <DashboardRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Attendance', path: ROUTES.ATTENDANCE, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
       { label: 'Attendance Report', path: ROUTES.ATTENDANCE_REPORT, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

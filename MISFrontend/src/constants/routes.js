@@ -4,6 +4,7 @@ export const ROUTES = {
   REGISTER: '/register',
   HOME: '/home',
   DASHBOARD: '/dashboard',
+  DASHBOARD_V2: '/dashboard-v2',
 
   ATTENDANCE: '/attendance',
   ATTENDANCE_REPORT: '/attendance/report',

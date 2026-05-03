@@ -13,18 +13,17 @@ export default function FloatingButtons({ buttonsList = [] }) {
       FabProps={{
         color: 'primary',
         sx: {
-          width: 52,
-          height: 52,
+          width: 50,
+          height: 50,
           boxShadow: (theme) => theme.shadows[9],
-          '&:hover': {
-            boxShadow: (theme) => theme.shadows[12],
-          },
+          '&:hover': { boxShadow: (theme) => theme.shadows[12] },
         },
       }}
       sx={{
         position: 'fixed',
+        /* On desktop shift left of the right sidebar (240px) + gutter (16px) */
         bottom: { xs: 78, md: 26 },
-        right: { xs: 16, md: 24 },
+        right: { xs: 16, lg: 256 },
         zIndex: 1245,
       }}
     >
@@ -37,15 +36,12 @@ export default function FloatingButtons({ buttonsList = [] }) {
           onClick={button.onClick}
           FabProps={{
             sx: {
-              width: 40,
-              height: 40,
+              width: 38,
+              height: 38,
               bgcolor: 'background.paper',
               color: 'text.primary',
               boxShadow: 4,
-              '&:hover': {
-                bgcolor: 'grey.100',
-                boxShadow: 7,
-              },
+              '&:hover': { bgcolor: 'grey.100', boxShadow: 7 },
             },
           }}
           slotProps={{

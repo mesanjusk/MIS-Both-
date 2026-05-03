@@ -370,7 +370,7 @@ export default function Dashboard() {
         {designConfig.sections.followups ? (
           <Grid item xs={12} lg={designConfig.sections.pendingOrders ? 5 : 12}>
             <SectionCard title="Payment Followups" contentSx={{ p: 0.8 }} action={<Button size="small" variant="outlined" startIcon={<ReceiptLongRoundedIcon fontSize="small" />} href="/accounts/followups" sx={{ minHeight: 30, px: 1 }}>Open</Button>}>
-              {followupsLoading ? <LoadingState label="Loading payment followups" /> : (
+              {followupsLoading ? <LoadingState label="Loading payment followup" /> : (
                 <SmallScrollableTable
                   columns={[{ key: 'customer', label: 'Customer' }, { key: 'amount', label: 'Amount', align: 'right' }, { key: 'date', label: 'Date' }]}
                   rows={followupRows}

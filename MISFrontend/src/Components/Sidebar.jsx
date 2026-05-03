@@ -14,21 +14,18 @@ import {
   ListItemIcon,
   ListItemText,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
 import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { ROUTES } from '../constants/routes';
 
-const DRAWER_WIDTH = 286;
-const DRAWER_COLLAPSED = 76;
+const DRAWER_WIDTH = 240;
 
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -45,7 +42,7 @@ const canShowItem = (item, roleKey) => {
   return roles.includes('all') || roles.includes(roleKey) || (roleKey === 'Admin' && !item.hideForAdmin);
 };
 
-export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, onNewOrderClick }) {
+export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
@@ -90,7 +87,6 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
   };
 
   const toggleGroup = (label) => {
-    if (desktopCollapsed) return;
     setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   };
 
@@ -103,110 +99,117 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
   const isSelected = (path) => Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
 
   const drawerContent = (
-    <Stack sx={{ height: '100%', bgcolor: sidebarColors.bg, color: sidebarColors.text, transition: theme.transitions.create(['background-color', 'color']) }}>
-      <Box sx={{ p: desktopCollapsed ? 1 : 1.25 }}>
+    <Stack sx={{ height: '100%', bgcolor: sidebarColors.bg, color: sidebarColors.text }}>
+      {/* Header */}
+      <Box sx={{ p: 1.5 }}>
         <Stack direction="row" alignItems="center" spacing={1.1}>
           <Avatar
             sx={{
               bgcolor: alpha(sidebarColors.text, 0.94),
               color: sidebarColors.bg,
-              width: 38,
-              height: 38,
+              width: 36,
+              height: 36,
               fontWeight: 900,
+              fontSize: '0.9rem',
             }}
           >
             {(userName || 'U').slice(0, 1).toUpperCase()}
           </Avatar>
-          {!desktopCollapsed ? (
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" fontWeight={800} color={sidebarColors.text} noWrap>
-                SK Digital MIS
-              </Typography>
-              <Typography variant="caption" color={sidebarColors.textSoft} noWrap>
-                {roleKey} • {new Date().toLocaleDateString('en-IN')}
-              </Typography>
-            </Box>
-          ) : null}
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" fontWeight={800} color={sidebarColors.text} noWrap>
+              SK Digital MIS
+            </Typography>
+            <Typography variant="caption" color={sidebarColors.textSoft} noWrap>
+              {roleKey} • {new Date().toLocaleDateString('en-IN')}
+            </Typography>
+          </Box>
         </Stack>
 
-        {!desktopCollapsed ? (
-          <Stack direction="row" spacing={0.8} sx={{ mt: 1.2 }}>
-            <Button
-              fullWidth
-              size="small"
-              variant="contained"
-              startIcon={<AddShoppingCartRoundedIcon fontSize="small" />}
-              onClick={() => handleNavigate(ROUTES.ORDERS_NEW)}
-              sx={{
-                bgcolor: sidebarColors.accent,
-                color: sidebarColors.bg,
-                '&:hover': { bgcolor: alpha(sidebarColors.accent, 0.86) },
-              }}
-            >
-              Order
-            </Button>
-            
-          </Stack>
-        ) : null}
+        <Button
+          fullWidth
+          size="small"
+          variant="contained"
+          startIcon={<AddShoppingCartRoundedIcon fontSize="small" />}
+          onClick={() => handleNavigate(ROUTES.ORDERS_NEW)}
+          sx={{
+            mt: 1.25,
+            bgcolor: sidebarColors.accent,
+            color: sidebarColors.bg,
+            fontWeight: 700,
+            '&:hover': { bgcolor: alpha(sidebarColors.accent, 0.86) },
+          }}
+        >
+          New Order
+        </Button>
       </Box>
 
       <Divider sx={{ borderColor: sidebarColors.border }} />
 
+      {/* Nav groups */}
       <List sx={{ py: 0.75, px: 0.75, overflowY: 'auto', flexGrow: 1 }}>
         {groups.map((group) => (
           <Box key={group.label} sx={{ mb: 0.85 }}>
-            {!desktopCollapsed ? (
-              <ListItemButton onClick={() => toggleGroup(group.label)} sx={{ minHeight: 34, borderRadius: 2.5, '&:hover': { bgcolor: sidebarColors.hover } }}>
-                <ListItemText
-                  primary={group.label}
-                  primaryTypographyProps={{
-                    variant: 'caption',
-                    fontWeight: 800,
-                    sx: {
-                      letterSpacing: 0.45,
-                      textTransform: 'uppercase',
-                      color: sidebarColors.textMuted,
-                    },
-                  }}
-                />
-                {openGroups[group.label] ? <ExpandLessRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
-              </ListItemButton>
-            ) : null}
+            <ListItemButton
+              onClick={() => toggleGroup(group.label)}
+              sx={{ minHeight: 30, borderRadius: 2, '&:hover': { bgcolor: sidebarColors.hover } }}
+            >
+              <ListItemText
+                primary={group.label}
+                primaryTypographyProps={{
+                  variant: 'caption',
+                  fontWeight: 800,
+                  sx: { letterSpacing: 0.45, textTransform: 'uppercase', color: sidebarColors.textMuted },
+                }}
+              />
+              {openGroups[group.label]
+                ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />
+                : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />}
+            </ListItemButton>
 
-            <Collapse in={desktopCollapsed || openGroups[group.label]} timeout="auto" unmountOnExit={false}>
+            <Collapse in={openGroups[group.label]} timeout="auto" unmountOnExit={false}>
               {group.items.map((item) => {
                 const selected = isSelected(item.path);
                 return (
-                  <Tooltip key={item.path} title={desktopCollapsed ? item.label : ''} placement="right">
-                    <ListItemButton
-                      selected={selected}
-                      onClick={() => handleNavigate(item.path)}
-                      sx={{
-                        minHeight: 40,
-                        ml: desktopCollapsed ? 0 : 0.5,
-                        mb: 0.55,
-                        borderRadius: 2.5,
-                        color: selected ? sidebarColors.text : sidebarColors.textSoft,
-                        '&.Mui-selected': {
-                          bgcolor: sidebarColors.selected,
+                  <ListItemButton
+                    key={item.path}
+                    selected={selected}
+                    onClick={() => handleNavigate(item.path)}
+                    sx={{
+                      minHeight: 38,
+                      ml: 0.5,
+                      mb: 0.4,
+                      borderRadius: 2,
+                      color: selected ? sidebarColors.text : sidebarColors.textSoft,
+                      '&.Mui-selected': {
+                        bgcolor: sidebarColors.selected,
+                        color: sidebarColors.text,
+                        boxShadow: `inset 0 0 0 1px ${alpha(sidebarColors.text, 0.1)}`,
+                      },
+                      '&.Mui-selected:hover': { bgcolor: alpha(sidebarColors.text, 0.22) },
+                      '&:hover': { bgcolor: sidebarColors.hover },
+                    }}
+                  >
+                    <ListItemIcon sx={{ minWidth: 30, color: selected ? sidebarColors.accent : alpha(sidebarColors.text, 0.78) }}>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={item.label}
+                      primaryTypographyProps={{ variant: 'body2', fontWeight: 700, noWrap: true, sx: { fontSize: '0.78rem' } }}
+                    />
+                    {item.badge ? (
+                      <Chip
+                        label={item.badge}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.62rem',
+                          fontWeight: 800,
+                          bgcolor: alpha(sidebarColors.text, 0.14),
                           color: sidebarColors.text,
-                          boxShadow: `inset 0 0 0 1px ${alpha(sidebarColors.text, 0.1)}`,
-                        },
-                        '&.Mui-selected:hover': { bgcolor: alpha(sidebarColors.text, 0.22) },
-                        '&:hover': { bgcolor: sidebarColors.hover },
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 32, color: selected ? sidebarColors.accent : alpha(sidebarColors.text, 0.78) }}>
-                        {item.icon}
-                      </ListItemIcon>
-                      {!desktopCollapsed ? (
-                        <ListItemText
-                          primary={item.label}
-                          primaryTypographyProps={{ variant: 'body2', fontWeight: 700, noWrap: true }}
-                        />
-                      ) : null}
-                    </ListItemButton>
-                  </Tooltip>
+                        }}
+                      />
+                    ) : null}
+                  </ListItemButton>
                 );
               })}
             </Collapse>
@@ -214,22 +217,17 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
         ))}
       </List>
 
+      {/* Logout */}
       <Box sx={{ p: 1 }}>
-        {!desktopCollapsed ? (
-          <Stack spacing={1} sx={{ mb: 1 }}>
-            
-          </Stack>
-        ) : null}
-
         <Button
           fullWidth
           color="inherit"
           variant="outlined"
           startIcon={<LogoutRoundedIcon fontSize="small" />}
           onClick={handleLogout}
-          sx={{ borderColor: sidebarColors.border, color: sidebarColors.text }}
+          sx={{ borderColor: sidebarColors.border, color: sidebarColors.text, fontSize: '0.8rem' }}
         >
-          {!desktopCollapsed ? 'Logout' : ''}
+          Logout
         </Button>
       </Box>
     </Stack>
@@ -237,17 +235,17 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
 
   return (
     <>
+      {/* Desktop: permanent fixed sidebar */}
       <Drawer
         variant="permanent"
         open
         sx={{
           display: { xs: 'none', md: 'block' },
-          width: desktopCollapsed ? DRAWER_COLLAPSED : DRAWER_WIDTH,
+          width: DRAWER_WIDTH,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: desktopCollapsed ? DRAWER_COLLAPSED : DRAWER_WIDTH,
+            width: DRAWER_WIDTH,
             overflowX: 'hidden',
-            transition: (theme) => theme.transitions.create('width'),
             borderRight: 'none',
           },
         }}
@@ -255,6 +253,7 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
         {drawerContent}
       </Drawer>
 
+      {/* Mobile: temporary drawer */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
@@ -269,14 +268,12 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
 }
 
 Sidebar.propTypes = {
-  desktopCollapsed: PropTypes.bool,
   mobileOpen: PropTypes.bool,
   onCloseMobile: PropTypes.func,
   onNewOrderClick: PropTypes.func,
 };
 
 Sidebar.defaultProps = {
-  desktopCollapsed: false,
   mobileOpen: false,
   onCloseMobile: () => {},
   onNewOrderClick: null,

@@ -17,11 +17,9 @@ import {
   Typography,
 } from '@mui/material';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
-import MenuOpenRoundedIcon from '@mui/icons-material/MenuOpenRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
@@ -34,7 +32,7 @@ const titleFromPath = (pathname = '/home') => {
   return segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
-export default function TopNavbar({ onToggleSidebar, onToggleDesktopCollapse, desktopCollapsed }) {
+export default function TopNavbar({ onToggleSidebar }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
@@ -60,36 +58,38 @@ export default function TopNavbar({ onToggleSidebar, onToggleDesktopCollapse, de
   };
 
   const todayLabel = new Date().toLocaleDateString('en-IN', {
+    weekday: 'short',
     day: '2-digit',
     month: 'short',
+    year: 'numeric',
   });
 
   return (
-    <AppBar position="static" color="inherit" elevation={0}>
+    <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: (t) => `1px solid ${t.palette.divider}` }}>
       <Toolbar sx={{ minHeight: { xs: 58, md: 64 }, px: { xs: 1, md: 1.5 }, gap: 1 }}>
-        <IconButton onClick={onToggleSidebar} sx={{ display: { md: 'none' } }}>
+
+        {/* Mobile sidebar toggle */}
+        <IconButton onClick={onToggleSidebar} size="small" sx={{ display: { md: 'none' } }}>
           <MenuRoundedIcon fontSize="small" />
         </IconButton>
 
-        <IconButton onClick={onToggleDesktopCollapse} sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
-          {desktopCollapsed ? <MenuRoundedIcon fontSize="small" /> : <MenuOpenRoundedIcon fontSize="small" />}
-        </IconButton>
-
-        <Stack sx={{ minWidth: 0, mr: { xs: 0.5, md: 1 } }}>
-          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800 }}>
+        {/* Page title + date */}
+        <Stack sx={{ minWidth: 0, mr: { xs: 0.5, md: 1.5 } }}>
+          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800, lineHeight: 1.2 }}>
             {titleFromPath(pathname)}
           </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: { xs: 'none', sm: 'block' } }}>
             {userGroup || 'Workspace'} • {todayLabel}
           </Typography>
         </Stack>
 
+        {/* Search bar */}
         <TextField
           size="small"
           placeholder="Search customer, order, payment..."
           sx={{
-            display: { xs: 'none', lg: 'flex' },
-            width: { lg: 260, xl: 320 },
+            display: { xs: 'none', md: 'flex' },
+            width: { md: 220, lg: 280, xl: 340 },
             mr: 'auto',
           }}
           InputProps={{
@@ -98,33 +98,51 @@ export default function TopNavbar({ onToggleSidebar, onToggleDesktopCollapse, de
                 <SearchRoundedIcon fontSize="small" />
               </InputAdornment>
             ),
+            sx: { borderRadius: 2, fontSize: '0.82rem' },
           }}
         />
 
-        <Stack direction="row" spacing={0.75} sx={{ display: { xs: 'none', xl: 'flex' } }}>
+        {/* Nav tabs (xl screens) */}
+        <Stack direction="row" spacing={0.75} sx={{ display: { xs: 'none', xl: 'flex' }, mr: 1 }}>
           {tabs.map((tab) => (
             <Chip
               key={tab.path}
               clickable
               size="small"
               icon={tab.icon}
-              label={<NavLink style={{ textDecoration: 'none', color: 'inherit', fontWeight: 700 }} to={tab.path}>{tab.label}</NavLink>}
+              label={
+                <NavLink
+                  style={{ textDecoration: 'none', color: 'inherit', fontWeight: 700, fontSize: '0.78rem' }}
+                  to={tab.path}
+                >
+                  {tab.label}
+                </NavLink>
+              }
               variant={pathname === tab.path ? 'filled' : 'outlined'}
               color={pathname === tab.path ? 'primary' : 'default'}
             />
           ))}
         </Stack>
 
-        <Chip size="small" label="Live" color="success" variant="outlined" sx={{ display: { xs: 'none', sm: 'inline-flex' } }} />
+        {/* Live badge */}
+        <Chip
+          size="small"
+          label="Live"
+          color="success"
+          variant="outlined"
+          sx={{ display: { xs: 'none', sm: 'inline-flex' }, fontSize: '0.7rem', height: 22 }}
+        />
 
-        <IconButton aria-label="notifications">
+        {/* Notifications */}
+        <IconButton size="small" aria-label="notifications">
           <Badge color="primary" variant="dot">
             <NotificationsNoneRoundedIcon fontSize="small" />
           </Badge>
         </IconButton>
 
-        <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)}>
-          <Avatar sx={{ bgcolor: 'primary.main', width: 34, height: 34, fontSize: 12, fontWeight: 800 }}>
+        {/* User avatar + menu */}
+        <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)}>
+          <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.72rem', fontWeight: 800 }}>
             {userName ? userName.slice(0, 2).toUpperCase() : 'NA'}
           </Avatar>
         </IconButton>
@@ -150,10 +168,6 @@ export default function TopNavbar({ onToggleSidebar, onToggleDesktopCollapse, de
             <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Logout
           </MenuItem>
         </Menu>
-
-        <IconButton sx={{ display: { xs: 'inline-flex', md: 'none' } }}>
-          <MoreVertRoundedIcon fontSize="small" />
-        </IconButton>
       </Toolbar>
     </AppBar>
   );
@@ -161,6 +175,4 @@ export default function TopNavbar({ onToggleSidebar, onToggleDesktopCollapse, de
 
 TopNavbar.propTypes = {
   onToggleSidebar: PropTypes.func.isRequired,
-  onToggleDesktopCollapse: PropTypes.func.isRequired,
-  desktopCollapsed: PropTypes.bool.isRequired,
 };

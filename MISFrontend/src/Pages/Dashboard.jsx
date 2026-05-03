@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Avatar,
   Box,
   Button,
   Card,
-  CardContent,
   Chip,
   Dialog,
   DialogContent,
@@ -26,7 +26,6 @@ import {
   TableHead,
   TableRow,
   Typography,
-  Avatar,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
@@ -40,10 +39,8 @@ import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
-import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
-import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import axios from '../apiClient';
 import SummaryCard from '../Components/dashboard/SummaryCard';
@@ -52,15 +49,14 @@ import UserTask from './userTask';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useUserRole } from '../hooks/useUserRole';
 import { useThemeConfig } from '../context/ThemeConfigContext.jsx';
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from '../Components/ui';
+import { EmptyState, ErrorState, LoadingState } from '../Components/ui';
 import UpiCollectionSection from '../Components/dashboard/UpiCollectionSection';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
+import { useDashboardCustomize } from './Layout';
 
+/* ─── Config ───────────────────────────────────────────────────────────── */
 const CONFIG_KEY = 'mis_dashboard_design_config_v2';
+const PANEL_SIZES_KEY = 'mis_resize_sizes_v1';
 const CARD_IDS = ['outstanding', 'readyStuck', 'deliveredUnpaid', 'cash', 'newOrders', 'oldPending', 'delivery', 'revenue', 'receivable', 'enquiry', 'lowStock'];
 const SECTION_IDS = ['attendance', 'assignedTasks', 'pendingOrders', 'followups', 'userWiseTasks', 'lowStockTable'];
 const DEFAULT_CONFIG = {
@@ -68,6 +64,7 @@ const DEFAULT_CONFIG = {
   sections: SECTION_IDS.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
 };
 
+/* ─── Helpers ───────────────────────────────────────────────────────────── */
 const toId = (order) => order?.Order_uuid || order?._id || order?.Order_id;
 const todayDateKey = () => new Date().toISOString().split('T')[0];
 const parseAmount = (value) => { const num = Number(value); return Number.isFinite(num) ? num : 0; };
@@ -122,6 +119,88 @@ function readConfig() {
 }
 function saveConfig(config) { localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); }
 
+/* ─── Panel resize hook ─────────────────────────────────────────────────── */
+function loadPanelSizes() {
+  try { return JSON.parse(localStorage.getItem(PANEL_SIZES_KEY)) || {}; }
+  catch { return {}; }
+}
+function savePanelSizes(rowKey, weights) {
+  const all = loadPanelSizes();
+  localStorage.setItem(PANEL_SIZES_KEY, JSON.stringify({ ...all, [rowKey]: weights }));
+}
+
+function useResizableRow(rowKey, count) {
+  const [weights, setWeights] = useState(() => {
+    const stored = loadPanelSizes()[rowKey];
+    return (stored && stored.length === count) ? stored : Array(count).fill(1);
+  });
+  const containerRef = useRef(null);
+
+  const startDrag = useCallback((handleIdx) => (e) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+    const totalWidth = container.getBoundingClientRect().width;
+    const startX = e.clientX;
+    const startWeights = [...weights];
+    const totalWeight = startWeights.reduce((a, b) => a + b, 0);
+
+    const onMove = (ev) => {
+      const deltaX = ev.clientX - startX;
+      const deltaW = (deltaX / totalWidth) * totalWeight;
+      setWeights((prev) => {
+        const next = [...prev];
+        next[handleIdx] = Math.max(0.15, startWeights[handleIdx] + deltaW);
+        next[handleIdx + 1] = Math.max(0.15, startWeights[handleIdx + 1] - deltaW);
+        return next;
+      });
+    };
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setWeights((current) => { savePanelSizes(rowKey, current); return current; });
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [rowKey, weights]);
+
+  return { weights, containerRef, startDrag };
+}
+
+/* ─── Resize Handle ─────────────────────────────────────────────────────── */
+function ResizeHandle({ onMouseDown }) {
+  return (
+    <Box
+      onMouseDown={onMouseDown}
+      sx={{
+        width: 10,
+        flexShrink: 0,
+        cursor: 'col-resize',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        userSelect: 'none',
+        zIndex: 1,
+        '&:hover .rh-bar': { bgcolor: 'primary.main', opacity: 0.5 },
+        '&:active .rh-bar': { bgcolor: 'primary.main', opacity: 0.8 },
+      }}
+    >
+      <Box
+        className="rh-bar"
+        sx={{
+          width: 3,
+          height: 36,
+          borderRadius: 2,
+          bgcolor: 'divider',
+          transition: 'background-color 0.15s, opacity 0.15s',
+        }}
+      />
+    </Box>
+  );
+}
+
 /* ─── Section Panel ─────────────────────────────────────────────────────── */
 function SectionPanel({ title, icon: Icon, action, children, accent = 'primary', noPad = false }) {
   return (
@@ -142,18 +221,19 @@ function SectionPanel({ title, icon: Icon, action, children, accent = 'primary',
         justifyContent="space-between"
         sx={(theme) => ({
           px: 2,
-          py: 1.25,
+          py: 1.1,
           borderBottom: `1px solid ${theme.palette.divider}`,
           bgcolor: (t) => alpha(t.palette[accent]?.main || t.palette.primary.main, 0.04),
-          minHeight: 52,
+          minHeight: 46,
+          flexShrink: 0,
         })}
       >
         <Stack direction="row" alignItems="center" spacing={1}>
           {Icon ? (
             <Box
               sx={(theme) => ({
-                width: 30,
-                height: 30,
+                width: 28,
+                height: 28,
                 borderRadius: 1.5,
                 display: 'flex',
                 alignItems: 'center',
@@ -162,16 +242,16 @@ function SectionPanel({ title, icon: Icon, action, children, accent = 'primary',
                 color: theme.palette[accent]?.main || theme.palette.primary.main,
               })}
             >
-              <Icon sx={{ fontSize: 17 }} />
+              <Icon sx={{ fontSize: 16 }} />
             </Box>
           ) : null}
-          <Typography variant="subtitle2" fontWeight={700} sx={{ color: 'text.primary' }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ color: 'text.primary', fontSize: '0.82rem' }}>
             {title}
           </Typography>
         </Stack>
         {action || null}
       </Stack>
-      <Box sx={{ flex: 1, overflow: 'hidden', ...(noPad ? {} : { p: { xs: 1.25, md: 1.5 } }) }}>
+      <Box sx={{ flex: 1, overflow: 'auto', ...(noPad ? {} : { p: { xs: 1.25, md: 1.5 } }) }}>
         {children}
       </Box>
     </Card>
@@ -182,12 +262,12 @@ function SectionPanel({ title, icon: Icon, action, children, accent = 'primary',
 function OrderList({ items, emptyLabel }) {
   if (!items?.length) return <EmptyState title={emptyLabel} />;
   return (
-    <Stack spacing={0.75}>
+    <Stack spacing={0.65}>
       {items.map((order) => (
         <Box
           key={toId(order)}
           sx={(theme) => ({
-            p: 1.25,
+            p: 1,
             borderRadius: 1.5,
             border: `1px solid ${theme.palette.divider}`,
             bgcolor: 'background.paper',
@@ -196,25 +276,25 @@ function OrderList({ items, emptyLabel }) {
           })}
         >
           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-            <Stack direction="row" alignItems="center" spacing={1.25} sx={{ minWidth: 0 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
               <Avatar
                 sx={(theme) => ({
-                  width: 32,
-                  height: 32,
+                  width: 28,
+                  height: 28,
                   bgcolor: alpha(theme.palette.primary.main, 0.1),
                   color: 'primary.main',
-                  fontSize: '0.75rem',
+                  fontSize: '0.7rem',
                   fontWeight: 800,
                 })}
               >
                 {(order?.Customer_name || order?.customerName || '?')[0].toUpperCase()}
               </Avatar>
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" fontWeight={700} noWrap>
+                <Typography variant="body2" fontWeight={700} noWrap sx={{ fontSize: '0.78rem' }}>
                   {order?.Customer_name || order?.customerName || 'Unknown'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" noWrap>
-                  Order #{order?.Order_Number || '-'}
+                  #{order?.Order_Number || '-'}
                 </Typography>
               </Box>
             </Stack>
@@ -223,7 +303,7 @@ function OrderList({ items, emptyLabel }) {
               color="primary"
               size="small"
               variant="outlined"
-              sx={{ borderRadius: 1, fontWeight: 600, fontSize: '0.68rem' }}
+              sx={{ borderRadius: 1, fontWeight: 600, fontSize: '0.65rem', height: 20 }}
             />
           </Stack>
         </Box>
@@ -233,44 +313,42 @@ function OrderList({ items, emptyLabel }) {
 }
 
 /* ─── Scrollable Table ──────────────────────────────────────────────────── */
-function PanelTable({ columns, rows, emptyLabel, renderRow, maxHeight = 300 }) {
+function PanelTable({ columns, rows, emptyLabel, renderRow }) {
   return (
-    <Box sx={{ maxHeight, overflow: 'auto' }}>
-      <Table stickyHeader size="small">
-        <TableHead>
+    <Table stickyHeader size="small">
+      <TableHead>
+        <TableRow>
+          {columns.map((col) => (
+            <TableCell
+              key={col.key}
+              align={col.align || 'left'}
+              sx={(theme) => ({
+                whiteSpace: 'nowrap',
+                py: 0.75,
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                bgcolor: alpha(theme.palette.background.default, 0.9),
+                color: 'text.secondary',
+                borderBottom: `2px solid ${theme.palette.divider}`,
+              })}
+            >
+              {col.label}
+            </TableCell>
+          ))}
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {!rows?.length ? (
           <TableRow>
-            {columns.map((col) => (
-              <TableCell
-                key={col.key}
-                align={col.align || 'left'}
-                sx={(theme) => ({
-                  whiteSpace: 'nowrap',
-                  py: 1,
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: 0.5,
-                  bgcolor: alpha(theme.palette.background.default, 0.9),
-                  color: 'text.secondary',
-                  borderBottom: `2px solid ${theme.palette.divider}`,
-                })}
-              >
-                {col.label}
-              </TableCell>
-            ))}
+            <TableCell colSpan={columns.length} align="center" sx={{ py: 3 }}>
+              <Typography variant="body2" color="text.secondary">{emptyLabel}</Typography>
+            </TableCell>
           </TableRow>
-        </TableHead>
-        <TableBody>
-          {!rows?.length ? (
-            <TableRow>
-              <TableCell colSpan={columns.length} align="center" sx={{ py: 4 }}>
-                <Typography variant="body2" color="text.secondary">{emptyLabel}</Typography>
-              </TableCell>
-            </TableRow>
-          ) : rows.map(renderRow)}
-        </TableBody>
-      </Table>
-    </Box>
+        ) : rows.map(renderRow)}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -278,15 +356,28 @@ function PanelTable({ columns, rows, emptyLabel, renderRow, maxHeight = 300 }) {
 export default function Dashboard() {
   const roleInfo = useUserRole();
   const { themeKey, setThemeKey, themeOptions } = useThemeConfig();
+  const customizeCtx = useDashboardCustomize();
+
   const [summaryApi, setSummaryApi] = useState({});
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [followups, setFollowups] = useState([]);
   const [followupsLoading, setFollowupsLoading] = useState(true);
   const [upiDialogOpen, setUpiDialogOpen] = useState(false);
-  const [designOpen, setDesignOpen] = useState(false);
+  const [localDesignOpen, setLocalDesignOpen] = useState(false);
   const [designConfig, setDesignConfig] = useState(readConfig);
   const [opsSummary, setOpsSummary] = useState({ outstanding: {}, stuck: {}, cash: {} });
   const [stockItems, setStockItems] = useState([]);
+
+  /* Sync customize drawer open state with context (right sidebar button) */
+  const designOpen = customizeCtx ? customizeCtx.customizeOpen : localDesignOpen;
+  const openDesign = useCallback(() => {
+    if (customizeCtx) customizeCtx.openCustomize();
+    else setLocalDesignOpen(true);
+  }, [customizeCtx]);
+  const closeDesign = useCallback(() => {
+    if (customizeCtx) customizeCtx.closeCustomize();
+    else setLocalDesignOpen(false);
+  }, [customizeCtx]);
 
   const data = useDashboardData({ role: roleInfo?.role, userName: roleInfo?.userName, isAdmin: roleInfo?.isAdmin });
 
@@ -378,97 +469,79 @@ export default function Dashboard() {
 
   const loading = data?.isOrdersLoading || data?.isTasksLoading;
   const anyLoading = loading || summaryLoading || followupsLoading;
-
-  const todayLabel = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const visibleCards = summaryCards.filter((c) => designConfig.cards[c.id]);
 
-  return (
-    <Stack spacing={2} sx={{ px: { xs: 0.25, sm: 0.5 }, pb: 2, minWidth: 0 }}>
+  /* ── Resize rows ── */
+  const row1 = useResizableRow('row1', 2); // Attendance | Assigned Tasks
+  const row2 = useResizableRow('row2', 2); // Pending Orders | Payment Followups
+  const row3 = useResizableRow('row3', 2); // User-Wise Tasks | Low Stock
 
-      {/* Loading bar */}
+  const showRow1 = designConfig.sections.attendance || designConfig.sections.assignedTasks;
+  const showRow2 = designConfig.sections.pendingOrders || designConfig.sections.followups;
+  const showRow3 = (roleInfo?.isAdmin && designConfig.sections.userWiseTasks) || designConfig.sections.lowStockTable;
+
+  return (
+    <Stack
+      spacing={1.25}
+      sx={{
+        px: { xs: 0.25, sm: 0.5 },
+        pb: 2,
+        minWidth: 0,
+      }}
+    >
+      {/* ── Loading bar ─────────────────────────────────────────────── */}
       {anyLoading ? <LinearProgress sx={{ borderRadius: 1, mx: -0.5 }} /> : null}
       {data?.loadError ? <ErrorState message={data.loadError} /> : null}
 
-      {/* ── Header ───────────────────────────────────────────────────── */}
-      <Card
-        elevation={0}
-        sx={(theme) => ({
-          borderRadius: 2.5,
-          overflow: 'hidden',
-          background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.main} 60%, ${alpha(theme.palette.primary.light, 0.85)} 100%)`,
-          color: '#fff',
-        })}
+      {/* ── Compact header row ──────────────────────────────────────── */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          px: 0.5,
+          py: 0.25,
+        }}
       >
-        <CardContent sx={{ p: { xs: 2, md: 2.5 }, '&:last-child': { pb: { xs: 2, md: 2.5 } } }}>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', sm: 'center' }}
-            spacing={1.5}
+        <Stack direction="row" alignItems="center" spacing={1.25}>
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: 2,
+              bgcolor: (t) => alpha(t.palette.primary.main, 0.1),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'primary.main',
+            }}
           >
-            <Stack direction="row" alignItems="center" spacing={1.5}>
-              <Box
-                sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 2,
-                  bgcolor: 'rgba(255,255,255,0.18)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <DashboardRoundedIcon sx={{ fontSize: 26, color: '#fff' }} />
-              </Box>
-              <Box>
-                <Typography variant="h5" fontWeight={900} sx={{ color: '#fff', lineHeight: 1.2 }}>
-                  Business Dashboard
-                </Typography>
-                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.3 }}>
-                  <CalendarTodayRoundedIcon sx={{ fontSize: 13, color: 'rgba(255,255,255,0.75)' }} />
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.75)' }}>
-                    {todayLabel}
-                  </Typography>
-                </Stack>
-              </Box>
-            </Stack>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Button
-                variant="outlined"
-                startIcon={<TuneRoundedIcon />}
-                onClick={() => setDesignOpen(true)}
-                size="small"
-                sx={{
-                  color: '#fff',
-                  borderColor: 'rgba(255,255,255,0.45)',
-                  '&:hover': { borderColor: '#fff', bgcolor: 'rgba(255,255,255,0.1)' },
-                }}
-              >
-                Customize
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={<AddRoundedIcon />}
-                href="/orders/new"
-                size="small"
-                sx={{
-                  bgcolor: '#fff',
-                  color: 'primary.main',
-                  fontWeight: 700,
-                  '&:hover': { bgcolor: 'grey.100' },
-                  boxShadow: 'none',
-                }}
-              >
-                New Order
-              </Button>
-            </Stack>
-          </Stack>
-        </CardContent>
-      </Card>
+            <DashboardRoundedIcon sx={{ fontSize: 18 }} />
+          </Box>
+          <Box>
+            <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+              Business Dashboard
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </Typography>
+          </Box>
+        </Stack>
 
-      {/* ── KPI Cards ────────────────────────────────────────────────── */}
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<TuneRoundedIcon sx={{ fontSize: '15px !important' }} />}
+          onClick={openDesign}
+          sx={{ fontSize: '0.75rem', py: 0.4, px: 1.25, minHeight: 30, borderRadius: 1.5, textTransform: 'none' }}
+        >
+          Customize
+        </Button>
+      </Box>
+
+      {/* ── KPI Cards ───────────────────────────────────────────────── */}
       {visibleCards.length > 0 ? (
-        <Grid container spacing={1.25}>
+        <Grid container spacing={1}>
           {visibleCards.map((card) => (
             <Grid key={card.id} item xs={6} sm={4} md={3} lg={2}>
               <SummaryCard {...card} />
@@ -477,14 +550,22 @@ export default function Dashboard() {
         </Grid>
       ) : null}
 
-      {/* ── Design Files Widget ──────────────────────────────────────── */}
+      {/* ── Design Files Widget ─────────────────────────────────────── */}
       <DesignFilesWidget />
 
-      {/* ── Attendance + Assigned Tasks ───────────────────────────────── */}
-      {(designConfig.sections.attendance || designConfig.sections.assignedTasks) ? (
-        <Grid container spacing={1.5}>
+      {/* ── Row 1: Attendance | Assigned Tasks ──────────────────────── */}
+      {showRow1 ? (
+        <Box
+          ref={row1.containerRef}
+          sx={{
+            display: 'flex',
+            alignItems: 'stretch',
+            minHeight: 260,
+            height: 260,
+          }}
+        >
           {designConfig.sections.attendance ? (
-            <Grid item xs={12} lg={designConfig.sections.assignedTasks ? 5 : 12}>
+            <Box sx={{ flex: designConfig.sections.assignedTasks ? row1.weights[0] : 1, minWidth: 0 }}>
               <SectionPanel
                 title={roleInfo?.isAdmin ? 'Attendance Overview' : 'My Attendance'}
                 icon={PeopleRoundedIcon}
@@ -492,10 +573,15 @@ export default function Dashboard() {
               >
                 {roleInfo?.isAdmin ? <AllAttandance /> : <UserTask />}
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
+
+          {designConfig.sections.attendance && designConfig.sections.assignedTasks ? (
+            <ResizeHandle onMouseDown={row1.startDrag(0)} />
+          ) : null}
+
           {designConfig.sections.assignedTasks ? (
-            <Grid item xs={12} lg={designConfig.sections.attendance ? 7 : 12}>
+            <Box sx={{ flex: designConfig.sections.attendance ? row1.weights[1] : 1, minWidth: 0 }}>
               <SectionPanel
                 title={roleInfo?.isAdmin ? 'All Assigned Tasks' : 'My Assigned Tasks'}
                 icon={AssignmentRoundedIcon}
@@ -514,7 +600,6 @@ export default function Dashboard() {
                     ]}
                     rows={assignedTasks}
                     emptyLabel="No assigned tasks found."
-                    maxHeight={300}
                     renderRow={(task) => (
                       <TableRow
                         key={`${task?.source}-${task?.id}`}
@@ -522,22 +607,17 @@ export default function Dashboard() {
                         sx={(theme) => ({ '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.04) } })}
                       >
                         <TableCell>
-                          <Typography variant="body2" fontWeight={600} noWrap>{task?.title || 'Untitled Task'}</Typography>
+                          <Typography variant="body2" fontWeight={600} noWrap sx={{ fontSize: '0.78rem' }}>{task?.title || 'Untitled Task'}</Typography>
                           {task?.subtitle ? <Typography variant="caption" color="text.secondary" noWrap>{task.subtitle}</Typography> : null}
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={task?.source || '—'}
-                            size="small"
-                            variant="outlined"
-                            sx={{ fontSize: '0.68rem', height: 20, textTransform: 'capitalize', borderRadius: 1 }}
-                          />
+                          <Chip label={task?.source || '—'} size="small" variant="outlined" sx={{ fontSize: '0.65rem', height: 18, textTransform: 'capitalize', borderRadius: 1 }} />
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" noWrap>{task?.assignedTo || '—'}</Typography>
+                          <Typography variant="body2" noWrap sx={{ fontSize: '0.78rem' }}>{task?.assignedTo || '—'}</Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
                             {formatTaskDate(task?.dueDate)}
                           </Typography>
                         </TableCell>
@@ -546,52 +626,58 @@ export default function Dashboard() {
                   />
                 )}
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
-        </Grid>
+        </Box>
       ) : null}
 
-      {/* ── Pending Orders + Payment Followups ───────────────────────── */}
-      {(designConfig.sections.pendingOrders || designConfig.sections.followups) ? (
-        <Grid container spacing={1.5}>
+      {/* ── Row 2: Pending Orders | Payment Followups ────────────────── */}
+      {showRow2 ? (
+        <Box
+          ref={row2.containerRef}
+          sx={{
+            display: 'flex',
+            alignItems: 'stretch',
+            minHeight: 260,
+            height: 260,
+          }}
+        >
           {designConfig.sections.pendingOrders ? (
-            <Grid item xs={12} lg={designConfig.sections.followups ? 7 : 12}>
-              <SectionPanel
-                title="Pending Orders"
-                icon={PendingActionsRoundedIcon}
-                accent="warning"
-              >
+            <Box sx={{ flex: designConfig.sections.followups ? row2.weights[0] : 1, minWidth: 0 }}>
+              <SectionPanel title="Pending Orders" icon={PendingActionsRoundedIcon} accent="warning">
                 {loading ? (
                   <LoadingState label="Loading pending orders" />
                 ) : (
-                  <Box sx={{ maxHeight: 340, overflow: 'auto' }}>
-                    <OrderList
-                      items={data?.myPendingOrders}
-                      emptyLabel={roleInfo?.isAdmin ? 'No pending orders available.' : 'No pending orders assigned.'}
-                    />
-                  </Box>
+                  <OrderList
+                    items={data?.myPendingOrders}
+                    emptyLabel={roleInfo?.isAdmin ? 'No pending orders available.' : 'No pending orders assigned.'}
+                  />
                 )}
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
+
+          {designConfig.sections.pendingOrders && designConfig.sections.followups ? (
+            <ResizeHandle onMouseDown={row2.startDrag(0)} />
+          ) : null}
+
           {designConfig.sections.followups ? (
-            <Grid item xs={12} lg={designConfig.sections.pendingOrders ? 5 : 12}>
+            <Box sx={{ flex: designConfig.sections.pendingOrders ? row2.weights[1] : 1, minWidth: 0 }}>
               <SectionPanel
                 title="Payment Followups"
                 icon={ReceiptLongRoundedIcon}
                 accent="error"
+                noPad
                 action={
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '14px !important' }} />}
                     href="/accounts/followups"
-                    sx={{ fontSize: '0.72rem', py: 0.4, px: 1, minHeight: 28 }}
+                    sx={{ fontSize: '0.68rem', py: 0.3, px: 0.75, minHeight: 24 }}
                   >
                     View All
                   </Button>
                 }
-                noPad
               >
                 {followupsLoading ? (
                   <Box sx={{ p: 2 }}><LoadingState label="Loading payment followups" /></Box>
@@ -604,7 +690,6 @@ export default function Dashboard() {
                     ]}
                     rows={followupRows}
                     emptyLabel="No overdue or near-term payment followups."
-                    maxHeight={300}
                     renderRow={(item) => (
                       <TableRow
                         key={item?.id}
@@ -612,11 +697,11 @@ export default function Dashboard() {
                         sx={(theme) => ({ '&:hover': { bgcolor: alpha(theme.palette.error.main, 0.04) } })}
                       >
                         <TableCell>
-                          <Typography variant="body2" fontWeight={600} noWrap>{item?.customerName || '—'}</Typography>
+                          <Typography variant="body2" fontWeight={600} noWrap sx={{ fontSize: '0.78rem' }}>{item?.customerName || '—'}</Typography>
                           <Typography variant="caption" color="text.secondary" noWrap>{item?.title || item?.remark || 'Follow-up'}</Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography variant="body2" fontWeight={700} sx={(theme) => ({ color: theme.palette.error.main })}>
+                          <Typography variant="body2" fontWeight={700} sx={(theme) => ({ color: theme.palette.error.main, fontSize: '0.78rem' })}>
                             {formatMoney(item?.amount)}
                           </Typography>
                         </TableCell>
@@ -630,22 +715,25 @@ export default function Dashboard() {
                   />
                 )}
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
-        </Grid>
+        </Box>
       ) : null}
 
-      {/* ── User Wise Tasks + Low Stock ───────────────────────────────── */}
-      {(roleInfo?.isAdmin && designConfig.sections.userWiseTasks) || designConfig.sections.lowStockTable ? (
-        <Grid container spacing={1.5}>
+      {/* ── Row 3: User-Wise Tasks | Low Stock ───────────────────────── */}
+      {showRow3 ? (
+        <Box
+          ref={row3.containerRef}
+          sx={{
+            display: 'flex',
+            alignItems: 'stretch',
+            minHeight: 240,
+            height: 240,
+          }}
+        >
           {roleInfo?.isAdmin && designConfig.sections.userWiseTasks ? (
-            <Grid item xs={12} lg={designConfig.sections.lowStockTable ? 7 : 12}>
-              <SectionPanel
-                title="User-Wise Assigned Tasks"
-                icon={PeopleRoundedIcon}
-                accent="success"
-                noPad
-              >
+            <Box sx={{ flex: designConfig.sections.lowStockTable ? row3.weights[0] : 1, minWidth: 0 }}>
+              <SectionPanel title="User-Wise Assigned Tasks" icon={PeopleRoundedIcon} accent="success" noPad>
                 {summaryLoading ? (
                   <Box sx={{ p: 2 }}><LoadingState label="Loading user wise task summary" /></Box>
                 ) : (
@@ -659,7 +747,6 @@ export default function Dashboard() {
                     ]}
                     rows={userWiseTaskRows}
                     emptyLabel="No pending assigned tasks found."
-                    maxHeight={260}
                     renderRow={(row) => (
                       <TableRow
                         key={row.user}
@@ -667,109 +754,79 @@ export default function Dashboard() {
                         sx={(theme) => ({ '&:hover': { bgcolor: alpha(theme.palette.success.main, 0.04) } })}
                       >
                         <TableCell>
-                          <Stack direction="row" alignItems="center" spacing={1}>
-                            <Avatar
-                              sx={(theme) => ({
-                                width: 28,
-                                height: 28,
-                                bgcolor: alpha(theme.palette.success.main, 0.12),
-                                color: 'success.main',
-                                fontSize: '0.7rem',
-                                fontWeight: 800,
-                              })}
-                            >
+                          <Stack direction="row" alignItems="center" spacing={0.75}>
+                            <Avatar sx={(theme) => ({ width: 24, height: 24, bgcolor: alpha(theme.palette.success.main, 0.12), color: 'success.main', fontSize: '0.65rem', fontWeight: 800 })}>
                               {(row.user || '?')[0].toUpperCase()}
                             </Avatar>
-                            <Typography variant="body2" fontWeight={700} noWrap>{row.user}</Typography>
+                            <Typography variant="body2" fontWeight={700} noWrap sx={{ fontSize: '0.78rem' }}>{row.user}</Typography>
                           </Stack>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" color="text.secondary">{row.group || '—'}</Typography>
-                        </TableCell>
+                        <TableCell><Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.78rem' }}>{row.group || '—'}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="body2" sx={{ fontSize: '0.78rem' }}>{row.orderTasks}</Typography></TableCell>
+                        <TableCell align="right"><Typography variant="body2" sx={{ fontSize: '0.78rem' }}>{row.userTasks}</Typography></TableCell>
                         <TableCell align="right">
-                          <Typography variant="body2">{row.orderTasks}</Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2">{row.userTasks}</Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Chip
-                            size="small"
-                            label={row.total}
-                            color="success"
-                            variant="outlined"
-                            sx={{ height: 22, fontWeight: 800, borderRadius: 1 }}
-                          />
+                          <Chip size="small" label={row.total} color="success" variant="outlined" sx={{ height: 20, fontWeight: 800, borderRadius: 1, fontSize: '0.68rem' }} />
                         </TableCell>
                       </TableRow>
                     )}
                   />
                 )}
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
+
+          {roleInfo?.isAdmin && designConfig.sections.userWiseTasks && designConfig.sections.lowStockTable ? (
+            <ResizeHandle onMouseDown={row3.startDrag(0)} />
+          ) : null}
+
           {designConfig.sections.lowStockTable ? (
-            <Grid item xs={12} lg={(roleInfo?.isAdmin && designConfig.sections.userWiseTasks) ? 5 : 12}>
-              <SectionPanel
-                title="Inventory — Low Stock"
-                icon={Inventory2RoundedIcon}
-                accent={lowStock.length ? 'error' : 'success'}
-                noPad
-              >
+            <Box sx={{ flex: (roleInfo?.isAdmin && designConfig.sections.userWiseTasks) ? row3.weights[1] : 1, minWidth: 0 }}>
+              <SectionPanel title="Inventory — Low Stock" icon={Inventory2RoundedIcon} accent={lowStock.length ? 'error' : 'success'} noPad>
                 <PanelTable
                   columns={[
                     { key: 'item', label: 'Item' },
-                    { key: 'qty', label: 'Current Qty', align: 'right' },
+                    { key: 'qty', label: 'Qty', align: 'right' },
                     { key: 'reorder', label: 'Reorder', align: 'right' },
                     { key: 'status', label: 'Status' },
                   ]}
                   rows={lowStock}
                   emptyLabel="All stock levels are adequate."
-                  maxHeight={260}
                   renderRow={(item) => (
                     <TableRow key={item.itemUuid} hover>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={600}>{item.itemName}</Typography>
-                      </TableCell>
+                      <TableCell><Typography variant="body2" fontWeight={600} sx={{ fontSize: '0.78rem' }}>{item.itemName}</Typography></TableCell>
                       <TableCell align="right">
-                        <Typography variant="body2" fontWeight={700} sx={{ color: 'error.main' }}>
+                        <Typography variant="body2" fontWeight={700} sx={{ color: 'error.main', fontSize: '0.78rem' }}>
                           {item.currentQty} {item.unit}
                         </Typography>
                       </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="body2" color="text.secondary">{item.reorderLevel || 5}</Typography>
-                      </TableCell>
+                      <TableCell align="right"><Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.78rem' }}>{item.reorderLevel || 5}</Typography></TableCell>
                       <TableCell>
-                        <Chip
-                          size="small"
-                          color="error"
-                          label="Low Stock"
-                          sx={{ height: 20, fontSize: '0.66rem', fontWeight: 700, borderRadius: 1 }}
-                        />
+                        <Chip size="small" color="error" label="Low" sx={{ height: 18, fontSize: '0.63rem', fontWeight: 700, borderRadius: 1 }} />
                       </TableCell>
                     </TableRow>
                   )}
                 />
               </SectionPanel>
-            </Grid>
+            </Box>
           ) : null}
-        </Grid>
+        </Box>
       ) : null}
 
-      {/* ── UPI FAB ───────────────────────────────────────────────────── */}
+      {/* ── UPI FAB ─────────────────────────────────────────────────── */}
       <Fab
         color="primary"
         variant="extended"
         onClick={() => setUpiDialogOpen(true)}
         sx={{
           position: 'fixed',
-          right: { xs: 16, md: 78 },
+          right: { xs: 16, lg: 256 },
           bottom: { xs: 92, md: 28 },
-          zIndex: 1250,
+          zIndex: 1245,
           borderRadius: 999,
           px: 2,
           gap: 0.75,
           fontWeight: 700,
+          fontSize: '0.8rem',
           boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
         }}
       >
@@ -777,7 +834,7 @@ export default function Dashboard() {
         Add UPI
       </Fab>
 
-      {/* ── UPI Dialog ───────────────────────────────────────────────── */}
+      {/* ── UPI Dialog ──────────────────────────────────────────────── */}
       <Dialog open={upiDialogOpen} onClose={() => setUpiDialogOpen(false)} fullWidth maxWidth="lg">
         <DialogTitle sx={{ py: 1.5, fontWeight: 700 }}>UPI Collections</DialogTitle>
         <DialogContent dividers sx={{ p: { xs: 1, md: 1.5 } }}>
@@ -785,21 +842,15 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Customize Drawer ─────────────────────────────────────────── */}
+      {/* ── Customize Drawer ────────────────────────────────────────── */}
       <Drawer
         anchor="right"
         open={designOpen}
-        onClose={() => setDesignOpen(false)}
+        onClose={closeDesign}
         PaperProps={{
-          sx: {
-            width: { xs: '92vw', sm: 400 },
-            p: 0,
-            display: 'flex',
-            flexDirection: 'column',
-          },
+          sx: { width: { xs: '92vw', sm: 400 }, p: 0, display: 'flex', flexDirection: 'column' },
         }}
       >
-        {/* Drawer header */}
         <Box
           sx={(theme) => ({
             px: 2.5,
@@ -815,7 +866,7 @@ export default function Dashboard() {
                 Customize Dashboard
               </Typography>
               <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                Show / hide cards and sections
+                Show / hide cards and sections • drag handles to resize
               </Typography>
             </Box>
           </Stack>
@@ -823,7 +874,6 @@ export default function Dashboard() {
 
         <Box sx={{ flex: 1, overflow: 'auto', p: 2.5 }}>
           <Stack spacing={2}>
-            {/* Theme picker */}
             <FormControl size="small" fullWidth>
               <InputLabel>Colour Theme</InputLabel>
               <Select label="Colour Theme" value={themeKey} onChange={(e) => setThemeKey(e.target.value)}>
@@ -835,7 +885,6 @@ export default function Dashboard() {
 
             <Divider />
 
-            {/* Cards toggles */}
             <Box>
               <Typography variant="overline" fontWeight={800} color="text.secondary" sx={{ letterSpacing: 1.2 }}>
                 KPI Cards
@@ -860,7 +909,6 @@ export default function Dashboard() {
 
             <Divider />
 
-            {/* Sections toggles */}
             <Box>
               <Typography variant="overline" fontWeight={800} color="text.secondary" sx={{ letterSpacing: 1.2 }}>
                 Sections

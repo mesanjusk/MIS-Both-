@@ -1,28 +1,28 @@
-/**
- * DesignFilesWidget.jsx
- *
- * Dashboard widget — shows designer's Drive files auto-matched to MIS orders.
- * Files are matched automatically by the leading order number in the filename
- * (e.g. "153 - CustomerName - Details" → Order #153).
- *
- * No manual linking needed. Zero input from designer or office team.
- *
- * Usage in Dashboard.jsx:
- *   import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
- *   <DesignFilesWidget />
- */
-
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   IconButton,
+  InputAdornment,
   LinearProgress,
+  Snackbar,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -33,14 +33,17 @@ import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DesignServicesRoundedIcon from '@mui/icons-material/DesignServicesRounded';
 import LocalPrintshopRoundedIcon from '@mui/icons-material/LocalPrintshopRounded';
 import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
+import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
+import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import axios from '../../apiClient';
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
-function StageChip({ stageNumber, stageLabel, stageColor }) {
+function StageChip({ stageLabel: label, stageColor }) {
   const theme = stageColor || { bg: '#F5F5F5', color: '#424242' };
   return (
     <Chip
-      label={stageLabel}
+      label={label}
       size="small"
       sx={{
         bgcolor: theme.bg,
@@ -61,9 +64,7 @@ function StageSummaryBar({ summary }) {
   const stages = Object.entries(summary.byStage)
     .filter(([, v]) => v.count > 0)
     .sort(([a], [b]) => Number(a) - Number(b));
-
   if (!stages.length) return null;
-
   return (
     <Stack direction="row" spacing={0.75} flexWrap="wrap" sx={{ px: 2, pb: 1.5 }}>
       {stages.map(([num, info]) => (
@@ -86,7 +87,7 @@ function StageSummaryBar({ summary }) {
 }
 
 // ─── Single file row ──────────────────────────────────────────────────────────
-function FileRow({ file }) {
+function FileRow({ file, checked, onToggle }) {
   const isUnmatched = !file.matched;
   const isPrinting = file.stageNumber === 9;
   const isFinal = file.stageNumber === 8;
@@ -95,29 +96,43 @@ function FileRow({ file }) {
     <Stack
       direction="row"
       alignItems="center"
-      spacing={1.5}
+      spacing={1}
       sx={{
-        py: 0.9,
-        px: 1.5,
+        py: 0.7,
+        px: 1,
         borderRadius: 1.5,
-        border: '0.5px solid',
-        borderColor: isUnmatched ? 'warning.200' : 'divider',
-        bgcolor: isUnmatched ? 'warning.50' : isPrinting ? 'success.50' : 'transparent',
-        transition: 'background 0.15s',
+        border: '1px solid',
+        borderColor: checked ? 'primary.main' : isUnmatched ? 'warning.200' : 'divider',
+        bgcolor: checked
+          ? 'primary.50'
+          : isUnmatched
+          ? 'warning.50'
+          : isPrinting
+          ? 'success.50'
+          : 'transparent',
+        transition: 'background 0.15s, border-color 0.15s',
+        cursor: 'pointer',
       }}
+      onClick={() => onToggle(file.fileId)}
     >
-      {/* Icon */}
+      <Checkbox
+        size="small"
+        checked={checked}
+        onChange={() => onToggle(file.fileId)}
+        onClick={(e) => e.stopPropagation()}
+        sx={{ p: 0.25, flexShrink: 0 }}
+      />
+
       <Box sx={{ flexShrink: 0 }}>
         {isPrinting
-          ? <LocalPrintshopRoundedIcon sx={{ fontSize: 16, color: 'success.600' }} />
+          ? <LocalPrintshopRoundedIcon sx={{ fontSize: 15, color: 'success.600' }} />
           : isFinal
-          ? <DoneAllRoundedIcon sx={{ fontSize: 16, color: 'info.600' }} />
+          ? <DoneAllRoundedIcon sx={{ fontSize: 15, color: 'info.600' }} />
           : isUnmatched
-          ? <ErrorOutlineRoundedIcon sx={{ fontSize: 16, color: 'warning.600' }} />
-          : <DesignServicesRoundedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />}
+          ? <ErrorOutlineRoundedIcon sx={{ fontSize: 15, color: 'warning.600' }} />
+          : <DesignServicesRoundedIcon sx={{ fontSize: 15, color: 'text.disabled' }} />}
       </Box>
 
-      {/* File name */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography
           variant="body2"
@@ -139,20 +154,362 @@ function FileRow({ file }) {
         )}
       </Box>
 
-      {/* Stage chip */}
-      <StageChip
-        stageNumber={file.stageNumber}
-        stageLabel={file.stageLabel}
-        stageColor={file.stageColor}
-      />
+      <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />
 
-      {/* Match indicator */}
       {file.matched && (
         <Tooltip title={`Matched to Order #${file.orderNumber}`}>
           <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.500', flexShrink: 0 }} />
         </Tooltip>
       )}
     </Stack>
+  );
+}
+
+// ─── Link Order Dialog ────────────────────────────────────────────────────────
+function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
+  const [order, setOrder] = useState(null);
+  const [options, setOptions] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setError(''); }
+  }, [open]);
+
+  const search = useCallback((q) => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await axios.get('/api/design-files/orders/search', { params: { q } });
+        setOptions(res.data?.result || []);
+      } catch {
+        setOptions([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  useEffect(() => { search(inputValue); }, [inputValue, search]);
+
+  const handleSubmit = async () => {
+    if (!order) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await axios.post('/api/design-files/link-order', {
+        fileIds: selectedFiles.map((f) => f.fileId),
+        orderUuid: order.Order_uuid,
+        files: selectedFiles.map((f) => ({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          stageNumber: f.stageNumber,
+          stageLabel: f.stageLabel,
+        })),
+      });
+      onSuccess(`${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to link files');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Link Files to Order</Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
+        </Typography>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Autocomplete
+          options={options}
+          value={order}
+          onChange={(_, v) => setOrder(v)}
+          inputValue={inputValue}
+          onInputChange={(_, v) => setInputValue(v)}
+          getOptionLabel={(o) => `#${o.Order_Number} — ${o.orderNote || '(no note)'}`}
+          isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
+          loading={searching}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Search Order"
+              placeholder="Type order number or description…"
+              size="small"
+              InputProps={{
+                ...params.InputProps,
+                endAdornment: (
+                  <>
+                    {searching ? <CircularProgress size={14} /> : null}
+                    {params.InputProps.endAdornment}
+                  </>
+                ),
+              }}
+            />
+          )}
+        />
+        <Button
+          size="small"
+          variant="text"
+          href="/orders/new"
+          target="_blank"
+          sx={{ mt: 1, fontSize: '0.75rem' }}
+        >
+          + Create New Order instead
+        </Button>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={!order || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
+        >
+          Link Files
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ─── Print Job Dialog ─────────────────────────────────────────────────────────
+function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
+  const [order, setOrder] = useState(null);
+  const [vendor, setVendor] = useState(null);
+  const [orderOptions, setOrderOptions] = useState([]);
+  const [vendorOptions, setVendorOptions] = useState([]);
+  const [orderInput, setOrderInput] = useState('');
+  const [searchingOrders, setSearchingOrders] = useState(false);
+  const [loadingVendors, setLoadingVendors] = useState(false);
+  const [items, setItems] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const orderDebounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) {
+      setOrder(null); setVendor(null); setOrderInput(''); setError('');
+      return;
+    }
+    setItems(selectedFiles.map((f) => ({ ...f, qty: 1, rate: '', amount: 0 })));
+    // Load vendors
+    setLoadingVendors(true);
+    axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
+      .then((r) => setVendorOptions(r.data?.result || []))
+      .catch(() => {})
+      .finally(() => setLoadingVendors(false));
+  }, [open, selectedFiles]);
+
+  useEffect(() => {
+    clearTimeout(orderDebounceRef.current);
+    orderDebounceRef.current = setTimeout(async () => {
+      setSearchingOrders(true);
+      try {
+        const res = await axios.get('/api/design-files/orders/search', { params: { q: orderInput } });
+        setOrderOptions(res.data?.result || []);
+      } catch {
+        setOrderOptions([]);
+      } finally {
+        setSearchingOrders(false);
+      }
+    }, 300);
+  }, [orderInput]);
+
+  const updateItem = (fileId, field, value) => {
+    setItems((prev) => prev.map((item) => {
+      if (item.fileId !== fileId) return item;
+      const updated = { ...item, [field]: value };
+      updated.amount = Number(updated.qty || 0) * Number(updated.rate || 0);
+      return updated;
+    }));
+  };
+
+  const total = items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  const handleSubmit = async () => {
+    if (!order || !vendor) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/create-print-job', {
+        orderUuid: order.Order_uuid,
+        vendorUuid: vendor.Vendor_uuid,
+        vendorName: vendor.Vendor_name,
+        items: items.map((i) => ({
+          fileId: i.fileId,
+          fileName: i.fileName,
+          qty: Number(i.qty) || 1,
+          rate: Number(i.rate) || 0,
+          amount: Number(i.amount) || 0,
+        })),
+        totalAmount: total,
+      });
+      onSuccess(`Print bill ₹${total.toLocaleString('en-IN')} created for Order #${res.data.orderNumber}`);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create print job');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Create Print Bill</Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2.5 }}>
+          <Autocomplete
+            sx={{ flex: 1 }}
+            options={orderOptions}
+            value={order}
+            onChange={(_, v) => setOrder(v)}
+            inputValue={orderInput}
+            onInputChange={(_, v) => setOrderInput(v)}
+            getOptionLabel={(o) => `#${o.Order_Number} — ${o.orderNote || '(no note)'}`}
+            isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
+            loading={searchingOrders}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Order *"
+                size="small"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {searchingOrders ? <CircularProgress size={14} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+          />
+          <Autocomplete
+            sx={{ flex: 1 }}
+            options={vendorOptions}
+            value={vendor}
+            onChange={(_, v) => setVendor(v)}
+            getOptionLabel={(v) => v.Vendor_name}
+            isOptionEqualToValue={(a, b) => a.Vendor_uuid === b.Vendor_uuid}
+            loading={loadingVendors}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Vendor (Printer) *"
+                size="small"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {loadingVendors ? <CircularProgress size={14} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+          />
+        </Stack>
+
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>File</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12, width: 90 }}>Qty</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12, width: 110 }}>Rate (₹)</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12, width: 110 }}>Amount (₹)</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.fileId}>
+                <TableCell sx={{ fontSize: 12 }}>
+                  <Tooltip title={item.fileName}>
+                    <Typography
+                      variant="body2"
+                      sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}
+                    >
+                      {item.fileName}
+                    </Typography>
+                  </Tooltip>
+                  <StageChip stageLabel={item.stageLabel} stageColor={item.stageColor} />
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    size="small"
+                    type="number"
+                    value={item.qty}
+                    onChange={(e) => updateItem(item.fileId, 'qty', e.target.value)}
+                    inputProps={{ min: 1, style: { textAlign: 'right', fontSize: 12, padding: '4px 6px' } }}
+                    sx={{ width: 72 }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <TextField
+                    size="small"
+                    type="number"
+                    value={item.rate}
+                    onChange={(e) => updateItem(item.fileId, 'rate', e.target.value)}
+                    placeholder="0"
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start" sx={{ fontSize: 11 }}>₹</InputAdornment>,
+                    }}
+                    inputProps={{ min: 0, style: { textAlign: 'right', fontSize: 12, padding: '4px 4px' } }}
+                    sx={{ width: 100 }}
+                  />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" fontWeight={600} sx={{ fontSize: 12 }}>
+                    ₹{Number(item.amount || 0).toLocaleString('en-IN')}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell colSpan={3} align="right" sx={{ fontWeight: 700, fontSize: 13, borderTop: '2px solid', borderColor: 'divider' }}>
+                Total
+              </TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, fontSize: 13, borderTop: '2px solid', borderColor: 'divider' }}>
+                ₹{total.toLocaleString('en-IN')}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleSubmit}
+          disabled={!order || !vendor || total === 0 || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <PrintRoundedIcon />}
+        >
+          Create Print Bill
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -163,7 +520,11 @@ export default function DesignFilesWidget() {
   const [error, setError] = useState('');
   const [configMissing, setConfigMissing] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  const [filter, setFilter] = useState('all'); // 'all' | 'unmatched' | 'printing' | 'final'
+  const [filter, setFilter] = useState('all');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [toast, setToast] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -173,6 +534,7 @@ export default function DesignFilesWidget() {
       if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
       const res = await axios.get('/api/design-files/scan');
       setData(res.data);
+      setSelectedIds(new Set());
     } catch (err) {
       const msg = err?.response?.data?.message || err.message || '';
       if (err?.response?.data?.reconnectRequired) { setReconnectRequired(true); return; }
@@ -185,10 +547,19 @@ export default function DesignFilesWidget() {
 
   useEffect(() => { load(); }, [load]);
 
+  const toggleSelect = useCallback((fileId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
+
   // ── Config missing ────────────────────────────────────────────────────────
   if (configMissing) {
     return (
-      <Box sx={{ borderRadius: 2, border: '0.5px solid', borderColor: 'divider', p: 2 }}>
+      <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }}>
         <Stack direction="row" spacing={1.5} alignItems="flex-start">
           <FolderOpenRoundedIcon color="action" sx={{ mt: 0.2 }} />
           <Box>
@@ -206,7 +577,7 @@ export default function DesignFilesWidget() {
   // ── Drive disconnected ────────────────────────────────────────────────────
   if (reconnectRequired) {
     return (
-      <Box sx={{ borderRadius: 2, border: '0.5px solid', borderColor: 'warning.300', p: 2 }}>
+      <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'warning.300', p: 2 }}>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <ErrorOutlineRoundedIcon color="warning" />
           <Box sx={{ flex: 1 }}>
@@ -225,7 +596,6 @@ export default function DesignFilesWidget() {
   const files = data?.files || [];
   const summary = data?.summary;
 
-  // Apply filter
   const filtered = files.filter((f) => {
     if (filter === 'unmatched') return !f.matched;
     if (filter === 'printing') return f.stageNumber === 9;
@@ -237,13 +607,33 @@ export default function DesignFilesWidget() {
   const printingCount = summary?.byStage?.[9]?.count || 0;
   const finalCount = summary?.byStage?.[8]?.count || 0;
 
+  const selectedFiles = files.filter((f) => selectedIds.has(f.fileId));
+  const allFilteredSelected = filtered.length > 0 && filtered.every((f) => selectedIds.has(f.fileId));
+  const someFilteredSelected = filtered.some((f) => selectedIds.has(f.fileId));
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((f) => next.delete(f.fileId));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((f) => next.add(f.fileId));
+        return next;
+      });
+    }
+  };
+
   return (
-    <Box sx={{ borderRadius: 2, border: '0.5px solid', borderColor: 'divider', overflow: 'hidden' }}>
+    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
 
       {/* Header */}
       <Stack
         direction="row" alignItems="center" spacing={1}
-        sx={{ px: 2, py: 1.5, borderBottom: '0.5px solid', borderColor: 'divider' }}
+        sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}
       >
         <FolderOpenRoundedIcon fontSize="small" color="action" />
         <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1 }}>
@@ -272,7 +662,6 @@ export default function DesignFilesWidget() {
         </Tooltip>
       </Stack>
 
-      {/* Loading bar */}
       {loading && <LinearProgress sx={{ height: 2 }} />}
 
       {/* Stage summary pills */}
@@ -282,9 +671,17 @@ export default function DesignFilesWidget() {
         </Box>
       )}
 
-      {/* Filter tabs */}
-      <Stack direction="row" spacing={0.5}
-        sx={{ px: 2, pb: 1, borderBottom: '0.5px solid', borderColor: 'divider' }}>
+      {/* Filter tabs + select-all */}
+      <Stack direction="row" alignItems="center" spacing={0.5}
+        sx={{ px: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+        <Checkbox
+          size="small"
+          checked={allFilteredSelected}
+          indeterminate={someFilteredSelected && !allFilteredSelected}
+          onChange={toggleSelectAll}
+          disabled={filtered.length === 0}
+          sx={{ p: 0.25, mr: 0.5 }}
+        />
         {[
           { key: 'all', label: 'All' },
           { key: 'unmatched', label: `Unmatched${unmatchedCount ? ` (${unmatchedCount})` : ''}` },
@@ -329,23 +726,83 @@ export default function DesignFilesWidget() {
 
         <Stack spacing={0.6}>
           {filtered.map((file) => (
-            <FileRow key={file.fileId} file={file} />
+            <FileRow
+              key={file.fileId}
+              file={file}
+              checked={selectedIds.has(file.fileId)}
+              onToggle={toggleSelect}
+            />
           ))}
         </Stack>
       </Box>
 
+      {/* Selection action bar */}
+      {selectedIds.size > 0 && (
+        <>
+          <Divider />
+          <Stack
+            direction="row" alignItems="center" spacing={1}
+            sx={{ px: 2, py: 1, bgcolor: 'primary.50', flexWrap: 'wrap', gap: 1 }}
+          >
+            <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ flex: 1, minWidth: 100 }}>
+              {selectedIds.size} file{selectedIds.size !== 1 ? 's' : ''} selected
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<LinkRoundedIcon sx={{ fontSize: '14px !important' }} />}
+              onClick={() => setLinkDialogOpen(true)}
+              sx={{ fontSize: '0.72rem', py: 0.4, px: 1, minHeight: 28 }}
+            >
+              Link to Order
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<PrintRoundedIcon sx={{ fontSize: '14px !important' }} />}
+              onClick={() => setPrintDialogOpen(true)}
+              sx={{ fontSize: '0.72rem', py: 0.4, px: 1, minHeight: 28, boxShadow: 'none' }}
+            >
+              Create Print Bill
+            </Button>
+            <IconButton size="small" onClick={() => setSelectedIds(new Set())} sx={{ ml: 0.5 }}>
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        </>
+      )}
+
       {/* Footer */}
-      {!loading && files.length > 0 && (
+      {!loading && files.length > 0 && selectedIds.size === 0 && (
         <>
           <Divider />
           <Box sx={{ px: 2, py: 1 }}>
             <Typography variant="caption" color="text.secondary">
-              Auto-matched by order number in filename. Refreshes when you click ↻.
-              Unmatched = file has no matching order in MIS yet.
+              Auto-matched by order number in filename. Select files to link or create a print bill.
             </Typography>
           </Box>
         </>
       )}
+
+      <LinkOrderDialog
+        open={linkDialogOpen}
+        selectedFiles={selectedFiles}
+        onClose={() => setLinkDialogOpen(false)}
+        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+      />
+      <PrintJobDialog
+        open={printDialogOpen}
+        selectedFiles={selectedFiles}
+        onClose={() => setPrintDialogOpen(false)}
+        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+      />
+      <Snackbar
+        open={!!toast}
+        autoHideDuration={4000}
+        onClose={() => setToast('')}
+        message={toast}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }

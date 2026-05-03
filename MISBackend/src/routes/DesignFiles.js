@@ -21,9 +21,14 @@
 
 const express = require('express');
 const router = express.Router();
+const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
 const Orders = require('../repositories/order');
+const VendorWork = require('../repositories/vendorWork');
+const VendorLedger = require('../repositories/vendorLedger');
+const VendorMaster = require('../repositories/vendorMaster');
+const DesignFileLink = require('../repositories/DesignFileLink');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -259,6 +264,140 @@ router.get('/order/:orderUuid', async (req, res) => {
     return res.json({ success: true, orderNumber: order.Order_Number, files: matches });
   } catch (err) {
     logger.error({ err }, 'design-files/order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── GET /api/design-files/orders/search?q= ──────────────────────────────────
+router.get('/orders/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const num = Number(q);
+    const filter = q
+      ? {
+          $or: [
+            ...(Number.isFinite(num) && num > 0 ? [{ Order_Number: num }] : []),
+            { orderNote: { $regex: q, $options: 'i' } },
+          ],
+        }
+      : {};
+    const orders = await Orders.find(filter, {
+      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1,
+    })
+      .sort({ Order_Number: -1 })
+      .limit(20)
+      .lean();
+    return res.json({ success: true, result: orders });
+  } catch (err) {
+    logger.error({ err }, 'design-files/orders/search error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/link-order ───────────────────────────────────────
+router.post('/link-order', async (req, res) => {
+  try {
+    const { fileIds, orderUuid, files: filesMeta = [] } = req.body || {};
+    if (!Array.isArray(fileIds) || !fileIds.length) {
+      return res.status(400).json({ success: false, message: 'fileIds required' });
+    }
+    if (!orderUuid) {
+      return res.status(400).json({ success: false, message: 'orderUuid required' });
+    }
+
+    const order = await Orders.findOne({ Order_uuid: orderUuid }, {
+      Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, orderNote: 1,
+    }).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const metaMap = {};
+    filesMeta.forEach((f) => { if (f?.fileId) metaMap[f.fileId] = f; });
+
+    const ops = fileIds.map((fileId) => {
+      const meta = metaMap[fileId] || {};
+      return {
+        updateOne: {
+          filter: { driveFileId: fileId },
+          update: {
+            $set: {
+              orderUuid: order.Order_uuid,
+              orderNumber: order.Order_Number,
+              fileName: meta.fileName || null,
+              stageNumber: meta.stageNumber || null,
+              stageLabel: meta.stageLabel || null,
+              linkedAt: new Date(),
+            },
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    await DesignFileLink.bulkWrite(ops);
+    return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number });
+  } catch (err) {
+    logger.error({ err }, 'design-files/link-order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/create-print-job ─────────────────────────────────
+router.post('/create-print-job', async (req, res) => {
+  try {
+    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
+
+    if (!orderUuid) return res.status(400).json({ success: false, message: 'orderUuid required' });
+    if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
+    if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
+
+    const [order, vendor] = await Promise.all([
+      Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean(),
+      VendorMaster.findOne({ Vendor_uuid: vendorUuid }, { Vendor_uuid: 1, Vendor_name: 1 }).lean(),
+    ]);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
+
+    const resolvedVendorName = vendor.Vendor_name || vendorName || '';
+    const resolvedTotal = Number(totalAmount) || items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const workUuid = uuidv4();
+
+    const work = await VendorWork.create({
+      work_uuid: workUuid,
+      Vendor_uuid: vendor.Vendor_uuid,
+      Vendor_name: resolvedVendorName,
+      Order_uuid: order.Order_uuid,
+      Order_Number: order.Order_Number,
+      Process: 'printing',
+      Amount: resolvedTotal,
+      Status: 'draft',
+      Notes: notes || JSON.stringify(items.map((i) => ({
+        file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
+      }))),
+    });
+
+    const ledger = await VendorLedger.create({
+      vendor_uuid: vendor.Vendor_uuid,
+      vendor_name: resolvedVendorName,
+      entry_type: 'job_bill',
+      dr_cr: 'cr',
+      amount: resolvedTotal,
+      job_uuid: workUuid,
+      order_uuid: order.Order_uuid,
+      order_number: order.Order_Number,
+      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''} for order #${order.Order_Number}`,
+      reference_type: 'print_job',
+      reference_id: workUuid,
+    });
+
+    return res.json({
+      success: true,
+      workId: work._id,
+      ledgerEntryId: ledger._id,
+      totalAmount: resolvedTotal,
+      orderNumber: order.Order_Number,
+    });
+  } catch (err) {
+    logger.error({ err }, 'design-files/create-print-job error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

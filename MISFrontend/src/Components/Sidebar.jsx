@@ -145,17 +145,7 @@ export default function Sidebar({ desktopCollapsed, mobileOpen, onCloseMobile, o
             >
               Order
             </Button>
-            <Button
-              fullWidth
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<AddTaskRoundedIcon fontSize="small" />}
-              onClick={() => handleNavigate(ROUTES.TASKS_NEW)}
-              sx={{ borderColor: sidebarColors.border, color: sidebarColors.text }}
-            >
-              Task
-            </Button>
+            
           </Stack>
         ) : null}
       </Box>

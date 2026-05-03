@@ -131,7 +131,7 @@ export default function Layout() {
           sx={{
             flexGrow: 1,
             minWidth: 0,
-            ml: { md: `${LEFT_SIDEBAR_WIDTH}px` },
+            
             mr: { lg: `${RIGHT_SIDEBAR_WIDTH}px` },
             height: '100dvh',
             display: 'flex',

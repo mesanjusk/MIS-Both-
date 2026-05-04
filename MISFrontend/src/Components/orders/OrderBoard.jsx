@@ -3,11 +3,12 @@ import React, { useMemo, useState } from 'react';
 const GROUPS = [
   { title: 'New Orders', keys: ['enquiry', 'quoted', 'approved'] },
   { title: 'In Design', keys: ['design'] },
-  { title: 'Printing', keys: ['printing', 'finishing'] },
+  { title: 'Printing', keys: ['printing'] },
+  { title: 'Post Printing', keys: ['post_printing', 'finishing'] },
   { title: 'Ready', keys: ['ready'] },
   { title: 'Delivered', keys: ['delivered', 'paid'] },
 ];
-const NEXT = { enquiry: 'design', quoted: 'approved', approved: 'design', design: 'printing', printing: 'finishing', finishing: 'ready', ready: 'delivered', delivered: 'paid' };
+const NEXT = { enquiry: 'design', quoted: 'approved', approved: 'design', design: 'printing', printing: 'post_printing', post_printing: 'finishing', finishing: 'ready', ready: 'delivered', delivered: 'paid' };
 const normalize = (v='') => String(v || '').toLowerCase();
 const idOf = (o) => o.Order_uuid || o._id || o.Order_id;
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;

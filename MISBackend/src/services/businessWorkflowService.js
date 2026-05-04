@@ -9,6 +9,7 @@ const Users = require('../repositories/users');
 const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
 const ProductionJob = require('../repositories/productionJob');
+const PaymentFollowup = require('../repositories/paymentFollowup');
 const {
   BUSINESS_SOURCES,
   money,
@@ -20,7 +21,7 @@ const {
 } = require('./accountingPostingService');
 const { buildDefaultDueDate } = require('./orderTaskService');
 
-const VALID_STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'finishing', 'ready', 'delivered', 'paid'];
+const VALID_STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered', 'paid'];
 const CLOSED_STAGES = new Set(['delivered', 'paid', 'cancelled', 'cancel']);
 
 function nowIstDayBounds(base = new Date()) {
@@ -431,7 +432,9 @@ async function assignVendorToOrder({ orderUuid, vendorId, vendorName, amount = 0
 
   order.vendorAssignments = Array.isArray(order.vendorAssignments) ? order.vendorAssignments : [];
   order.vendorAssignments.push(assignment);
-  if (!['ready', 'delivered', 'paid'].includes(normalizeStage(order.stage, 'design'))) {
+  const currentStageIdx = VALID_STAGES.indexOf(normalizeStage(order.stage, 'enquiry'));
+  const printingIdx = VALID_STAGES.indexOf('printing');
+  if (currentStageIdx < printingIdx) {
     order.stage = 'printing';
     order.stageHistory = Array.isArray(order.stageHistory) ? order.stageHistory : [];
     order.stageHistory.push({ stage: 'printing', timestamp: new Date() });
@@ -495,6 +498,28 @@ async function assignVendorToOrder({ orderUuid, vendorId, vendorName, amount = 0
   }
 
   await createTaskForOrder({ order, taskName: `Vendor: ${assignment.workType}`, assignedTo: vendor.Vendor_name, dueDate: assignment.dueDate, taskGroup: 'Vendor' });
+
+  try {
+    const followupDate = assignment.dueDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const followupTitle = `Check completion: ${assignment.workType} for Order #${order.Order_Number}`;
+    const exists = await PaymentFollowup.findOne({ title: followupTitle, status: 'pending' }).lean();
+    if (!exists) {
+      await PaymentFollowup.create({
+        followup_uuid: uuid(),
+        customer_name: vendor.Vendor_name,
+        amount: cleanAmount,
+        title: followupTitle,
+        remark: `Auto-created when contractor assigned to order #${order.Order_Number}`,
+        followup_date: followupDate,
+        status: 'pending',
+        created_by: createdBy || 'system',
+      });
+    }
+  } catch (followupErr) {
+    const logger = require('../utils/logger');
+    logger.error('Failed to create contractor followup:', followupErr.message);
+  }
+
   return { order: await Orders.findById(order._id).lean(), vendor, assignment, productionJob, vendorBillPosting };
 }
 

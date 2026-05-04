@@ -6,7 +6,7 @@ import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderDnD } from "../hooks/useOrderDnD";
 import OrderBoard from "../Components/orders/OrderBoard";
 
-const STAGES = ["Enquiry", "Design", "Printing", "Finishing", "Ready", "Delivered"];
+const STAGES = ["Enquiry", "Design", "Printing", "Post Printing", "Finishing", "Ready", "Delivered"];
 
 const normalize = (value = "") => String(value).trim().toLowerCase();
 

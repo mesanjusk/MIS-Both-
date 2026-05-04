@@ -168,12 +168,12 @@ const OrdersSchema = new mongoose.Schema(
     deliveryNotifiedAt: { type: Date, default: null },
     stage: {
       type: String,
-      enum: ["enquiry", "quoted", "approved", "design", "printing", "finishing", "ready", "delivered", "paid"],
+      enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"],
       default: "enquiry",
       index: true,
     },
     stageHistory: {
-      type: [new mongoose.Schema({ stage: { type: String, enum: ["enquiry", "quoted", "approved", "design", "printing", "finishing", "ready", "delivered", "paid"], required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
+      type: [new mongoose.Schema({ stage: { type: String, enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"], required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
       default: () => [{ stage: "enquiry", timestamp: new Date() }],
     },
     priority: { type: String, enum: ["low", "medium", "high"], default: "medium", index: true },

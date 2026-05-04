@@ -20,6 +20,7 @@ import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
+import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 import { ROUTES } from '../constants/routes';
 
@@ -141,6 +142,7 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
   const quickLinks = [
     { label: 'Orders', icon: <AssignmentRoundedIcon fontSize="small" />, path: '/allOrder' },
     { label: 'Business', icon: <StoreRoundedIcon fontSize="small" />, path: ROUTES.BUSINESS_CONTROL },
+    { label: 'Post Print', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.POST_PRINTING_CONTROL },
     { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
     { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: '/allTransaction' },
     { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },

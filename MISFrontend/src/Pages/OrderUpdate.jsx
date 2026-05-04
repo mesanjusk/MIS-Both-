@@ -54,7 +54,7 @@ export default function OrderUpdate({
 
   const [values, setValues] = useState({
     id: order?._id || "",
-    Customer_name: order?.Customer_name || "",
+    Customer_name: order?.Customer_name || order?.customerName || "",
     Order_uuid: order?.Order_uuid || "",
     Order_Number: order?.Order_Number || "",
     Customer_uuid: order?.Customer_uuid || "",
@@ -65,7 +65,36 @@ export default function OrderUpdate({
     Status: Array.isArray(order?.Status) ? order.Status : [],
     Steps: Array.isArray(order?.Steps) ? order.Steps : [],
     Items: Array.isArray(order?.Items) ? order.Items : [],
+    workflowSteps: Array.isArray(order?.workflowSteps) ? order.workflowSteps : [],
+    stage: order?.stage || "",
   });
+
+  const [busyWorkflowStep, setBusyWorkflowStep] = useState({});
+
+  const markWorkflowStepDone = async (stepId) => {
+    const orderUuid = values.Order_uuid;
+    if (!orderUuid || !stepId) return;
+    setBusyWorkflowStep((b) => ({ ...b, [stepId]: true }));
+    try {
+      const res = await axios.patch(
+        `/api/workflow-templates/orders/${orderUuid}/steps/${stepId}/done`
+      );
+      const updated = res?.data?.result;
+      if (updated) {
+        setValues((v) => ({
+          ...v,
+          workflowSteps: Array.isArray(updated.workflowSteps) ? updated.workflowSteps : v.workflowSteps,
+          stage: updated.stage || v.stage,
+        }));
+        onOrderPatched(updated);
+      }
+      toast.success("Step marked done");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to mark step done");
+    } finally {
+      setBusyWorkflowStep((b) => ({ ...b, [stepId]: false }));
+    }
+  };
 
   // ✅ disable UpdateDelivery for enquiries (current task only, fallback Type)
   const isEnquiry = useMemo(() => {
@@ -187,6 +216,24 @@ export default function OrderUpdate({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  /* ---------------- Resolve Customer_name from UUID if missing ---------------- */
+  useEffect(() => {
+    if (values.Customer_name || !values.Customer_uuid) return;
+    let mounted = true;
+    axios
+      .get("/api/customers/GetCustomerList")
+      .then((res) => {
+        if (!mounted) return;
+        const customers = res.data?.result || [];
+        const match = customers.find((c) => c.Customer_uuid === values.Customer_uuid);
+        if (match?.Customer_name) {
+          setValues((v) => ({ ...v, Customer_name: match.Customer_name }));
+        }
+      })
+      .catch(() => {});
+    return () => { mounted = false; };
+  }, [values.Customer_uuid]);
 
   /* ---------------- Handlers ---------------- */
   const handleChangeTask = (task) => {
@@ -441,6 +488,39 @@ export default function OrderUpdate({
                 ))}
               </select>
             </div>
+
+            {(values.workflowSteps || []).length > 0 && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                <p className="text-sm font-semibold text-violet-800 mb-2">Workflow Steps</p>
+                <ul className="space-y-2">
+                  {values.workflowSteps.map((step) => {
+                    const isActive = step.status === "active";
+                    const isDone = step.status === "done";
+                    const busy = !!busyWorkflowStep[step.stepId];
+                    return (
+                      <li key={step.stepId} className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs ${isDone ? "bg-green-100 text-green-700" : isActive ? "bg-violet-100 text-violet-800 font-semibold" : "text-slate-500"}`}>
+                        <span className="flex items-center gap-1.5">
+                          <span>{isDone ? "✓" : isActive ? "▶" : "○"}</span>
+                          <span>{step.label}</span>
+                          {step.assignedTo && <span className="text-slate-400">→ {step.assignedTo}</span>}
+                          {step.vendorName && <span className="text-slate-400">→ {step.vendorName}</span>}
+                          {step.stage && <span className="opacity-60 ml-1">({step.stage})</span>}
+                        </span>
+                        {isActive && (
+                          <button
+                            onClick={() => markWorkflowStepDone(step.stepId)}
+                            disabled={busy}
+                            className="shrink-0 text-xs bg-violet-600 text-white px-2 py-0.5 rounded hover:bg-violet-700 disabled:opacity-50"
+                          >
+                            {busy ? "…" : "Done"}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
 
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-medium text-slate-700 mb-2">Linked Tasks</p>

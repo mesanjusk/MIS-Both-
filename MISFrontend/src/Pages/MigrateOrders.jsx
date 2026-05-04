@@ -54,7 +54,7 @@ export default function MigrateOrders() {
     const byNum = !Number.isNaN(num);
     const res = rows.filter((r) => {
       const hitNum = byNum && r.Order_Number === num;
-      const hitCust = (r.Customer_uuid || "").toLowerCase().includes(q);
+      const hitCust = (r.Customer_name || r.Customer_uuid || "").toLowerCase().includes(q);
       const hitReasons = (r.reasons || []).some((x) => x.toLowerCase().includes(q));
       return hitNum || hitCust || hitReasons;
     });
@@ -204,7 +204,7 @@ export default function MigrateOrders() {
                       />
                     </td>
                     <td className="border px-2 py-2">{r.Order_Number}</td>
-                    <td className="border px-2 py-2">{r.Customer_uuid}</td>
+                    <td className="border px-2 py-2">{r.Customer_name || r.Customer_uuid}</td>
                     <td className="border px-2 py-2 text-center">{r.itemsCount}</td>
                     <td className="border px-2 py-2 text-center">{r.stepsCount}</td>
                     <td className="border px-2 py-2">

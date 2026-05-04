@@ -24,8 +24,12 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 
+const isUuidOrId = (s) => /^[0-9a-f]{8,}[-0-9a-f]*$/i.test(s) || /^[a-f0-9]{24}$/i.test(s);
+
 const titleFromPath = (pathname = '/home') => {
-  const segment = pathname.split('/').filter(Boolean).at(-1) || 'home';
+  const parts = pathname.split('/').filter(Boolean);
+  // Skip trailing UUID/ObjectId segments — use the meaningful parent segment
+  const segment = [...parts].reverse().find((p) => !isUuidOrId(p)) || parts.at(-1) || 'home';
   return segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
@@ -122,6 +126,12 @@ export default function TopNavbar({ onToggleSidebar }) {
           </MenuItem>
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.BUSINESS_CONTROL); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Business Control
+          </MenuItem>
+          <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.POST_PRINTING_CONTROL); }}>
+            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Post Printing
+          </MenuItem>
+          <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.WORKFLOW_TEMPLATES); }}>
+            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Workflow Templates
           </MenuItem>
           <MenuItem onClick={() => { setMenuAnchor(null); handleLogout(); }}>
             <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Logout

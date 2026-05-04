@@ -185,3 +185,33 @@ export const whatsappCloudService = {
 };
 
 export default whatsappCloudService;
+
+// ── Baileys (unofficial WhatsApp Web / QR-based) ─────────────────────────────
+
+export const baileysGetStatus       = ()        => apiClient.get('/api/baileys/status');
+export const baileysConnect         = ()        => apiClient.post('/api/baileys/connect');
+export const baileysDisconnect      = ()        => apiClient.post('/api/baileys/disconnect');
+
+export const baileysGetInbox        = ()        => apiClient.get('/api/baileys/inbox');
+export const baileysGetConversation = (key)     => apiClient.get(`/api/baileys/conversation/${key}`);
+export const baileysMarkRead        = (key)     => apiClient.post(`/api/baileys/conversation/${key}/read`);
+
+export const baileysSendText        = (payload) => apiClient.post('/api/baileys/send-text', payload);
+
+export const baileysGetLogs         = ()        => apiClient.get('/api/baileys/logs');
+
+export const getWhatsAppProvider    = ()        => apiClient.get('/api/baileys/provider');
+export const updateWhatsAppProvider = (p)       => apiClient.put('/api/baileys/provider', { provider: p });
+
+export const baileysService = {
+  getStatus:       baileysGetStatus,
+  connect:         baileysConnect,
+  disconnect:      baileysDisconnect,
+  getInbox:        baileysGetInbox,
+  getConversation: baileysGetConversation,
+  markRead:        baileysMarkRead,
+  sendText:        baileysSendText,
+  getLogs:         baileysGetLogs,
+  getProvider:     getWhatsAppProvider,
+  setProvider:     updateWhatsAppProvider,
+};

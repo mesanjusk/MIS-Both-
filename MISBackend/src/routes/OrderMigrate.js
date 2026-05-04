@@ -124,6 +124,7 @@ router.get("/migrate/flat", async (req, res) => {
     const docs = await Orders.find(OLD_FILTER, {
       Order_Number: 1,
       Customer_uuid: 1,
+      Customer_name: 1,
       Items: 1,
       Steps: 1,
       Amount: 1,
@@ -141,6 +142,7 @@ router.get("/migrate/flat", async (req, res) => {
     const rows = docs.map((d) => ({
       _id: d._id,
       Order_Number: d.Order_Number,
+      Customer_name: d.Customer_name || d.Customer_uuid || '',
       Customer_uuid: d.Customer_uuid,
       itemsCount: Array.isArray(d.Items) ? d.Items.length : 0,
       stepsCount: Array.isArray(d.Steps) ? d.Steps.length : 0,

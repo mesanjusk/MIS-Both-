@@ -40,6 +40,27 @@ stepSchema.pre("validate", function (next) {
   next();
 });
 
+const workflowStepSchema = new mongoose.Schema(
+  {
+    stepId: { type: String, required: true },
+    templateRef: { type: String, default: null },
+    order: { type: Number, required: true },
+    label: { type: String, required: true },
+    stage: { type: String, default: null },
+    autoAssignGroup: { type: String, default: null },
+    requiresVendor: { type: Boolean, default: false },
+    vendorWorkType: { type: String, default: null },
+    preferredVendorUuid: { type: String, default: null },
+    assignedTo: { type: String, default: null },
+    vendorId: { type: String, default: null },
+    vendorName: { type: String, default: null },
+    status: { type: String, enum: ['pending', 'active', 'done', 'skipped'], default: 'pending' },
+    startedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const itemSchema = new mongoose.Schema(
   {
     lineId: { type: String, default: uuidv4 },
@@ -152,6 +173,7 @@ const OrdersSchema = new mongoose.Schema(
     workRows: { type: [orderWorkRowSchema], default: [] },
     Status: { type: [statusSchema], default: [] },
     Steps: { type: [stepSchema], default: [] },
+    workflowSteps: { type: [workflowStepSchema], default: [] },
     Rate: { type: Number, default: 0 },
     Quantity: { type: Number, default: 0 },
     Amount: { type: Number, default: 0 },
@@ -168,12 +190,12 @@ const OrdersSchema = new mongoose.Schema(
     deliveryNotifiedAt: { type: Date, default: null },
     stage: {
       type: String,
-      enum: ["enquiry", "quoted", "approved", "design", "printing", "finishing", "ready", "delivered", "paid"],
+      enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"],
       default: "enquiry",
       index: true,
     },
     stageHistory: {
-      type: [new mongoose.Schema({ stage: { type: String, enum: ["enquiry", "quoted", "approved", "design", "printing", "finishing", "ready", "delivered", "paid"], required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
+      type: [new mongoose.Schema({ stage: { type: String, enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"], required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
       default: () => [{ stage: "enquiry", timestamp: new Date() }],
     },
     priority: { type: String, enum: ["low", "medium", "high"], default: "medium", index: true },

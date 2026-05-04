@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -14,9 +15,13 @@ import {
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
 import { parseApiError } from '../utils/parseApiError';
 import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
+import BaileysSetupPanel from '../Components/whatsappCloud/BaileysSetupPanel';
+import BaileysInboxPanel from '../Components/whatsappCloud/BaileysInboxPanel';
+import WhatsAppProviderSwitcher from '../Components/whatsappCloud/WhatsAppProviderSwitcher';
 
 const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
 const SendMessagePanel = lazy(() => import('../Components/whatsappCloud/SendMessagePanel'));
@@ -26,12 +31,16 @@ const AnalyticsDashboard = lazy(() => import('../Components/whatsappCloud/Analyt
 const WhatsAppAttendanceSettings = lazy(() => import('../Components/whatsappCloud/WhatsAppAttendanceSettings'));
 
 const navItems = [
-  { key: 'inbox', label: 'Chats' },
-  { key: 'templates', label: 'Templates' },
-  { key: 'campaigns', label: 'Broadcast' },
-  { key: 'autoReply', label: 'Auto Reply' },
-  { key: 'analytics', label: 'Analytics' },
-  { key: 'settings', label: 'Settings' },
+  { key: 'inbox',       label: 'Chats' },
+  { key: 'templates',   label: 'Templates' },
+  { key: 'campaigns',   label: 'Broadcast' },
+  { key: 'autoReply',   label: 'Auto Reply' },
+  { key: 'analytics',   label: 'Analytics' },
+  { key: 'settings',    label: 'Settings' },
+  // ── Baileys tabs ──────────────────────────────────────────
+  { key: 'baileys_inbox', label: '📱 WA Web Inbox' },
+  { key: 'baileys_setup', label: '📱 WA Web Setup' },
+  { key: 'provider',      label: '⚙ API Provider' },
 ];
 
 const getFriendlyStatusError = (error) => {
@@ -89,11 +98,16 @@ export default function WhatsAppCloudDashboard() {
   }, [statusTick]);
 
   const renderSection = useMemo(() => {
-    if (activeTab === 'inbox') return <MessagesPanel search={search} />;
-    if (activeTab === 'templates') return <SendMessagePanel />;
-    if (activeTab === 'campaigns') return <BulkSender />;
-    if (activeTab === 'autoReply') return <AutoReplyManagementPanel />;
-    if (activeTab === 'analytics') return <AnalyticsDashboard />;
+    if (activeTab === 'inbox')         return <MessagesPanel search={search} />;
+    if (activeTab === 'templates')     return <SendMessagePanel />;
+    if (activeTab === 'campaigns')     return <BulkSender />;
+    if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
+    if (activeTab === 'analytics')     return <AnalyticsDashboard />;
+    // ── Baileys tabs ──────────────────────────────────────────────────────────
+    if (activeTab === 'baileys_inbox') return <BaileysInboxPanel />;
+    if (activeTab === 'baileys_setup') return <BaileysSetupPanel />;
+    if (activeTab === 'provider')      return <WhatsAppProviderSwitcher />;
+    // ─────────────────────────────────────────────────────────────────────────
     return <WhatsAppAttendanceSettings />;
   }, [activeTab, search]);
 

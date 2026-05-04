@@ -54,12 +54,14 @@ const FlowRouter = require("./routes/Flow");
 const DesignFiles = require("./routes/DesignFiles");
 const UpiPayments = require("./routes/UpiPayments");
 const BusinessOps = require("./routes/BusinessOps");
+const WorkflowTemplate = require("./routes/workflowTemplate");
 const PurchaseOrder = require("./routes/PurchaseOrder");
 const Scheduler = require("./routes/Scheduler");
 const Stock = require("./routes/Stock");
 const { initScheduler, initTaskDigestScheduler } = require("./services/messageScheduler");
 const { getAnalytics } = require("./controllers/whatsappController");
 const { initSocket } = require("./socket");
+const BaileysRouter = require("./routes/Baileys");
 
 const app = express();
 const server = http.createServer(app);
@@ -115,6 +117,7 @@ app.use("/api/contacts", Contacts);
 app.use("/api/calllogs", CallLogs);
 app.use("/api/upi", UpiPayments);
 app.use("/api/business-control", BusinessOps);
+app.use("/api/workflow-templates", WorkflowTemplate);
 app.use("/api/purchaseorder", PurchaseOrder);
 app.use("/api/scheduler", Scheduler);
 app.use("/api/stock", Stock);
@@ -122,6 +125,9 @@ app.use("/api/google-drive", googleDriveOAuthRoutes);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);
 app.use("/api", Chat);
+
+// ---------- Baileys (unofficial WhatsApp Web / QR-based) ----------
+app.use("/api/baileys", BaileysRouter);
 
 // ---------- WhatsApp webhook (no auth — Meta calls this directly) ----------
 app.use("/webhook", webhookRouter);
@@ -143,6 +149,15 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   await connectDB();
   initScheduler();
   initTaskDigestScheduler();
+
+  // ── Baileys auto-connect ──────────────────────────────────────────────────
+  // If saved WhatsApp Web credentials exist in MongoDB, reconnect automatically
+  // on every server boot — no manual QR scan needed after a restart.
+  const { autoConnectIfCredentialsExist } = require('./services/baileysService');
+  autoConnectIfCredentialsExist().catch((err) =>
+    logger.error({ err: err.message }, '[baileys] Auto-connect failed on boot')
+  );
+  // ─────────────────────────────────────────────────────────────────────────
 })();
 
 // ---------- Error handling ----------

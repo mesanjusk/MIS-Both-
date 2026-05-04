@@ -28,6 +28,7 @@ const AddOrder1 = lazy(() => import('./Pages/addOrder1'));
 const OrderKanban = lazy(() => import('./Pages/OrderKanban'));
 const BusinessControl = lazy(() => import('./Pages/BusinessControl'));
 const PostPrintingControl = lazy(() => import('./Pages/PostPrintingControl'));
+const WorkflowTemplates = lazy(() => import('./Pages/WorkflowTemplates'));
 const OrderUpdate = lazy(() => import('./Pages/OrderUpdate'));
 const UpdateDelivery = lazy(() => import('./Pages/updateDelivery'));
 const AddTransaction = lazy(() => import('./Pages/AddTransaction'));
@@ -152,6 +153,7 @@ export default function App() {
             <Route path={ROUTES.ORDERS_BOARD} element={withSuspense(<OrderKanban />)} />
             <Route path={ROUTES.BUSINESS_CONTROL} element={withSuspense(<BusinessControl />)} />
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={withSuspense(<PostPrintingControl />)} />
+            <Route path={ROUTES.WORKFLOW_TEMPLATES} element={withSuspense(<WorkflowTemplates />)} />
             <Route path={ROUTES.PURCHASE_ORDERS} element={withSuspense(<PurchaseOrder />)} />
             <Route path={ROUTES.DISPATCH_QUEUE} element={withSuspense(<DispatchQueue />)} />
             <Route path={ROUTES.MIGRATE_ORDERS} element={withSuspense(<MigrateOrders />)} />

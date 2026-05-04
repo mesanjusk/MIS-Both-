@@ -10,6 +10,7 @@ const { v4: uuid } = require("uuid");
 const { updateOrderStatus } = require("../controllers/orderController");
 const { patchOrderStage, listOrderTasks } = require("../controllers/orderLifecycleController");
 const { autoCreateDesignerTask } = require("../services/orderLifecycleService");
+const { applyWorkflowToOrder } = require("../services/workflowTemplateService");
 const Customers = require("../repositories/customer");
 const ItemsRepo = require("../repositories/items");
 const {
@@ -754,6 +755,16 @@ router.post("/addOrder", async (req, res) => {
 
     if (String(newOrder.stage || '').toLowerCase() === 'design') {
       await autoCreateDesignerTask(newOrder);
+    }
+
+    // Auto-apply item workflow template based on item names
+    const itemNamesForTemplate = (enrichedItems || []).map((i) => i.Item).filter(Boolean);
+    if (itemNamesForTemplate.length) {
+      try {
+        await applyWorkflowToOrder(newOrder.Order_uuid, itemNamesForTemplate);
+      } catch (templateErr) {
+        logger.error('workflow template apply failed (non-fatal):', templateErr.message);
+      }
     }
 
     let vendorJobs = [];

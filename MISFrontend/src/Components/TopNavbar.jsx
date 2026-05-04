@@ -24,8 +24,12 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 
+const isUuidOrId = (s) => /^[0-9a-f]{8,}[-0-9a-f]*$/i.test(s) || /^[a-f0-9]{24}$/i.test(s);
+
 const titleFromPath = (pathname = '/home') => {
-  const segment = pathname.split('/').filter(Boolean).at(-1) || 'home';
+  const parts = pathname.split('/').filter(Boolean);
+  // Skip trailing UUID/ObjectId segments — use the meaningful parent segment
+  const segment = [...parts].reverse().find((p) => !isUuidOrId(p)) || parts.at(-1) || 'home';
   return segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 

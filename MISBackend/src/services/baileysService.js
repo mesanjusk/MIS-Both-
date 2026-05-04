@@ -68,18 +68,25 @@ function formatJid(phone) {
 }
 
 function normalizeBaileysMessage(msg) {
-  const from = (msg.key.remoteJid || '').split('@')[0];
+  const from = (msg.key?.remoteJid || '').split('@')[0];
+  const m    = msg.message || {};
   const body =
-    msg.message?.conversation ||
-    msg.message?.extendedTextMessage?.text ||
-    msg.message?.imageMessage?.caption || '';
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.buttonsResponseMessage?.selectedDisplayText ||
+    m.listResponseMessage?.title ||
+    m.templateButtonReplyMessage?.selectedId ||
+    '';
+  const isMedia = !!(m.imageMessage || m.videoMessage || m.documentMessage || m.audioMessage);
   return {
-    id:        msg.key.id,
+    id:        msg.key?.id || '',
     from,
-    body,
-    type:      msg.message?.imageMessage ? 'image' : 'text',
+    body:      body || (isMedia ? '[Media]' : ''),
+    type:      isMedia ? 'media' : 'text',
     timestamp: msg.messageTimestamp,
-    raw:       msg,
   };
 }
 
@@ -193,12 +200,16 @@ async function connect() {
     sock.ev.on('creds.update', () => saveCreds().catch((e) => logger.error({ err: e }, '[baileys] saveCreds error')));
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      // 'notify' = real-time incoming; 'append' = missed messages replayed on reconnect
-      if (type !== 'notify' && type !== 'append') return;
+      logger.info({ type, count: messages?.length }, '[baileys] messages.upsert');
       for (const msg of messages) {
-        if (msg.key?.fromMe) continue;
-        if (!msg.message) continue; // skip protocol/system messages with no content
-        emitIncoming(normalizeBaileysMessage(msg));
+        try {
+          if (msg.key?.fromMe) continue;
+          const from = (msg.key?.remoteJid || '').split('@')[0];
+          if (!from) continue;
+          emitIncoming(normalizeBaileysMessage(msg));
+        } catch (err) {
+          logger.error({ err: err.message }, '[baileys] normalizeBaileysMessage error');
+        }
       }
     });
 

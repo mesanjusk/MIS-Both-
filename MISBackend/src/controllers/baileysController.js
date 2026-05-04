@@ -19,7 +19,7 @@ function wireIncomingMessages() {
   if (_wired) return;
   _wired = true;
 
-  baileysService.onIncomingMessage(async ({ id, from, body, type, raw }) => {
+  baileysService.onIncomingMessage(async ({ id, from, body, type, timestamp }) => {
     try {
       const existing = id
         ? await BaileysMessage.findOne({ baileysMessageId: id })
@@ -36,12 +36,13 @@ function wireIncomingMessages() {
         messageType:      String(type || 'TEXT').toUpperCase(),
         bodyText:         body || '',
         status:           'RECEIVED',
-        meta:             raw || {},
+        meta:             { timestamp },
       });
 
+      logger.info({ from, bodyLen: (body || '').length }, '[baileysCtrl] message saved');
       emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
     } catch (err) {
-      logger.error({ err }, '[baileysCtrl] saveIncomingMessage error');
+      logger.error({ err: err.message }, '[baileysCtrl] saveIncomingMessage error');
     }
   });
 }

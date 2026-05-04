@@ -123,6 +123,9 @@ export default function TopNavbar({ onToggleSidebar }) {
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.BUSINESS_CONTROL); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Business Control
           </MenuItem>
+          <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.POST_PRINTING_CONTROL); }}>
+            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Post Printing
+          </MenuItem>
           <MenuItem onClick={() => { setMenuAnchor(null); handleLogout(); }}>
             <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Logout
           </MenuItem>

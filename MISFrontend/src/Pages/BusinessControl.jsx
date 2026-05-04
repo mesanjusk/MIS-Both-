@@ -51,7 +51,7 @@ import { fetchPayments } from '../services/paymentService';
 import { fetchUsers } from '../services/userService';
 import { fetchVendorMasters } from '../services/vendorService';
 
-const STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'finishing', 'ready', 'delivered'];
+const STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered'];
 const DEFAULT_SUMMARY = {
   openOrders: { count: 0, rows: [] },
   unassignedOrders: { count: 0, rows: [] },

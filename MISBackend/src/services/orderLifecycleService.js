@@ -15,6 +15,7 @@ const VALID_STAGES = [
   'approved',
   'design',
   'printing',
+  'post_printing',
   'finishing',
   'ready',
   'delivered',
@@ -97,6 +98,54 @@ const autoCreateDesignerTask = async (order) => {
     });
   } catch (err) {
     logger.error('Failed to auto-create designer task:', err.message);
+    return null;
+  }
+};
+
+const autoCreatePostDesignTask = async (order) => {
+  try {
+    if (!order) return null;
+    const orderUuid = order.Order_uuid || String(order._id || '');
+    const orderNumber = order.Order_Number || order.orderNumber || '';
+    const customerName = order.Customer_name || order.customerName || '';
+    const taskName = `Post-print coordination for Order #${orderNumber} — ${customerName}`.trim();
+
+    const duplicate = await Usertasks.findOne({
+      Usertask_name: taskName,
+      Status: { $in: ['Pending', 'pending'] },
+    }).lean();
+    if (duplicate) return duplicate;
+
+    const coordinators = await Users.find({
+      $or: [
+        { User_group: /post.?design/i },
+        { User_group: /post.?print/i },
+        { Role: /post.?design/i },
+        { User_type: /post.?design/i },
+      ],
+    }).sort({ createdAt: 1 }).lean();
+
+    if (!coordinators.length) return null;
+
+    const coordinator = coordinators[0];
+    const lastUsertask = await Usertasks.findOne().sort({ Usertask_Number: -1 }).lean();
+    const nextNumber = Number(lastUsertask?.Usertask_Number || 0) + 1;
+    const deadline = order.dueDate || order.Delivery_Date || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    return await Usertasks.create({
+      Usertask_uuid: uuid(),
+      Usertask_Number: nextNumber,
+      User: coordinator.User_name,
+      Usertask_name: taskName,
+      Date: now,
+      Time: now.toLocaleTimeString('en-US', { hour12: false }),
+      Deadline: deadline,
+      Remark: `Auto-assigned from order lifecycle. Order UUID: ${orderUuid}`,
+      Status: 'Pending',
+    });
+  } catch (err) {
+    logger.error('Failed to auto-create post-design task:', err.message);
     return null;
   }
 };
@@ -205,6 +254,10 @@ const updateOrderStage = async ({ orderId, stage }) => {
 
   if (normalizedStage === 'design') {
     await autoCreateDesignerTask(mergedOrder);
+  }
+
+  if (normalizedStage === 'post_printing') {
+    await autoCreatePostDesignTask(mergedOrder);
   }
 
   if (normalizedStage === 'delivered') {

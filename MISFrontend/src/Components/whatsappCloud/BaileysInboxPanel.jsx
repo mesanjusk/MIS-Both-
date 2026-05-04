@@ -5,8 +5,13 @@ import {
   Avatar,
   Badge,
   Box,
+  Button,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   IconButton,
   InputAdornment,
@@ -16,10 +21,12 @@ import {
   ListItemText,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import SendIcon    from '@mui/icons-material/Send';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon    from '@mui/icons-material/Edit';
 import {
   baileysGetInbox,
   baileysGetConversation,
@@ -50,6 +57,13 @@ export default function BaileysInboxPanel() {
   const [error, setError]               = useState('');
   const [connStatus, setConnStatus]     = useState(null);
 
+  // Compose new message dialog
+  const [composeOpen, setComposeOpen]   = useState(false);
+  const [composeTo, setComposeTo]       = useState('');
+  const [composeMsg, setComposeMsg]     = useState('');
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeError, setComposeError] = useState('');
+
   const selectedRef = useRef(selected);
   useEffect(() => { selectedRef.current = selected; }, [selected]);
 
@@ -74,7 +88,7 @@ export default function BaileysInboxPanel() {
     }
   }, []);
 
-  // Initial load + 30-second polling fallback (covers socket gaps / Render cold-starts)
+  // Initial load + 30-second polling fallback
   useEffect(() => {
     fetchInbox();
     fetchStatus();
@@ -85,14 +99,11 @@ export default function BaileysInboxPanel() {
   // Real-time Socket.IO listener
   useEffect(() => {
     const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
-
     socket.on('new_message', (data) => {
       const msg = data?.message || data;
       if (data?.provider !== 'baileys' || !msg) return;
-
       fetchInbox();
-
-      const convKey  = normPhone(msg.conversationKey || msg.from || msg.to || '');
+      const convKey   = normPhone(msg.conversationKey || msg.from || msg.to || '');
       const activeKey = normPhone(selectedRef.current?.conversationKey || '');
       if (convKey && activeKey && convKey === activeKey) {
         setMessages((prev) => {
@@ -102,7 +113,6 @@ export default function BaileysInboxPanel() {
         });
       }
     });
-
     return () => { socket.disconnect(); };
   }, [fetchInbox]);
 
@@ -140,23 +150,59 @@ export default function BaileysInboxPanel() {
     }
   };
 
+  const handleComposeSend = async () => {
+    const phone = normPhone(composeTo);
+    if (!phone || !composeMsg.trim()) return;
+    setComposeSending(true);
+    setComposeError('');
+    try {
+      await baileysSendText({ to: phone, text: composeMsg.trim() });
+      setComposeOpen(false);
+      setComposeTo('');
+      setComposeMsg('');
+      await fetchInbox();
+      // Auto-open the conversation we just created
+      const conv = { conversationKey: phone, phone, contactName: '' };
+      await openConversation(conv);
+    } catch (err) {
+      setComposeError(err?.response?.data?.message || 'Failed to send');
+    } finally {
+      setComposeSending(false);
+    }
+  };
+
   return (
     <Box>
-      {/* Connection status banner */}
-      <Stack direction="row" alignItems="center" spacing={1} mb={1} px={0.5}>
-        <Chip
-          size="small"
-          label={connStatus || '…'}
-          color={STATUS_COLOR[connStatus] || 'default'}
-          variant="outlined"
-        />
-        {connStatus !== 'CONNECTED' && (
-          <Typography variant="caption" color="text.secondary">
-            {connStatus === 'QR_PENDING'
-              ? 'Scan QR in WA Web Setup tab to receive messages'
-              : 'Baileys not connected — go to WA Web Setup tab'}
-          </Typography>
-        )}
+      {/* Status + compose bar */}
+      <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1} px={0.5}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Chip
+            size="small"
+            label={connStatus || '…'}
+            color={STATUS_COLOR[connStatus] || 'default'}
+            variant="outlined"
+          />
+          {connStatus !== 'CONNECTED' && (
+            <Typography variant="caption" color="text.secondary">
+              {connStatus === 'QR_PENDING'
+                ? 'Scan QR in WA Web Setup tab'
+                : 'Go to WA Web Setup → Connect'}
+            </Typography>
+          )}
+        </Stack>
+        <Tooltip title="New Message">
+          <span>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<EditIcon fontSize="small" />}
+              disabled={connStatus !== 'CONNECTED'}
+              onClick={() => setComposeOpen(true)}
+            >
+              New Message
+            </Button>
+          </span>
+        </Tooltip>
       </Stack>
 
       <Box sx={{ display: 'flex', height: '65vh', border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
@@ -273,6 +319,46 @@ export default function BaileysInboxPanel() {
           )}
         </Box>
       </Box>
+
+      {/* Compose New Message dialog */}
+      <Dialog open={composeOpen} onClose={() => setComposeOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>New WhatsApp Message</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} mt={1}>
+            {composeError && <Alert severity="error">{composeError}</Alert>}
+            <TextField
+              label="To (phone number)"
+              placeholder="919876543210"
+              value={composeTo}
+              onChange={(e) => setComposeTo(e.target.value)}
+              fullWidth
+              size="small"
+              helperText="Enter number with country code, e.g. 919876543210"
+            />
+            <TextField
+              label="Message"
+              value={composeMsg}
+              onChange={(e) => setComposeMsg(e.target.value)}
+              fullWidth
+              multiline
+              rows={4}
+              size="small"
+              onKeyDown={(e) => e.key === 'Enter' && e.ctrlKey && handleComposeSend()}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setComposeOpen(false)} disabled={composeSending}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleComposeSend}
+            disabled={composeSending || !normPhone(composeTo) || !composeMsg.trim()}
+            startIcon={composeSending ? <CircularProgress size={14} /> : <SendIcon />}
+          >
+            Send
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

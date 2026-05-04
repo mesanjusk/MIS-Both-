@@ -143,6 +143,7 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
     { label: 'Orders', icon: <AssignmentRoundedIcon fontSize="small" />, path: '/allOrder' },
     { label: 'Business', icon: <StoreRoundedIcon fontSize="small" />, path: ROUTES.BUSINESS_CONTROL },
     { label: 'Post Print', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.POST_PRINTING_CONTROL },
+    { label: 'Workflows', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.WORKFLOW_TEMPLATES },
     { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
     { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: '/allTransaction' },
     { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },

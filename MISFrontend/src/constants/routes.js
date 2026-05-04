@@ -37,6 +37,7 @@ export const ROUTES = {
   ORDERS_BOARD: '/orders/board',
   BUSINESS_CONTROL: '/business-control',
   POST_PRINTING_CONTROL: '/post-printing',
+  WORKFLOW_TEMPLATES: '/workflow-templates',
   DISPATCH_QUEUE: '/dispatch-queue',
   OWNER_DASHBOARD: '/owner-dashboard',
   ORDER_KANBAN: '/orders/board',

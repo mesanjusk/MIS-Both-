@@ -3,7 +3,7 @@ const express = require("express");
 const router = express.Router();
 const Usertasks = require("../repositories/usertask");
 const { v4: uuid } = require("uuid");
-const { sendMessageToWhatsApp } = require("../services/whatsappService");
+const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber"); // ✅ New import
 const logger = require('../utils/logger');
 
@@ -37,10 +37,12 @@ router.post("/addUsertask", async (req, res) => {
       // ✅ Format number before sending message
       try {
         const formattedNumber = normalizeWhatsAppNumber(User);
-        await sendMessageToWhatsApp(
-          formattedNumber,
-          `Hello! Your task "${Usertask_name}" has been created and is pending. Deadline: ${Deadline || "N/A"}`
-        );
+        await sendWhatsAppText({
+          to: formattedNumber,
+          body: `Hello! Your task "${Usertask_name}" has been created and is pending. Deadline: ${Deadline || "N/A"}`,
+          source: 'TASK_ASSIGNED',
+          contactName: User || '',
+        });
       } catch (err) {
         logger.error("Failed to send WhatsApp message:", err.message);
       }
@@ -63,7 +65,7 @@ router.post('/send-message', async (req, res) => {
 
   try {
     const formattedMobile = normalizeWhatsAppNumber(mobile); // ✅ Format mobile number
-    const response = await sendMessageToWhatsApp(formattedMobile, message);
+    const response = await sendWhatsAppText({ to: formattedMobile, body: message, source: 'TASK_MESSAGE' });
     res.status(200).json(response);
   } catch (error) {
     logger.error('WhatsApp Send Error:', error);

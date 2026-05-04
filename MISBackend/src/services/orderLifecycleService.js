@@ -6,7 +6,7 @@ const Customers = require('../repositories/customer');
 const PaymentFollowup = require('../repositories/paymentFollowup');
 const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
-const { sendMessage } = require('./metaApiService');
+const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const logger = require('../utils/logger');
 
 const VALID_STAGES = [
@@ -35,24 +35,6 @@ const resolveOrderFilter = (rawId) => {
 const normalizeStage = (stage) => String(stage || '').trim().toLowerCase();
 const normalizePhone = (value = '') => String(value || '').replace(/\D/g, '');
 
-const sendEnvWhatsAppText = async ({ to, body }) => {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
-    throw new Error('WhatsApp env credentials missing (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN)');
-  }
-  return sendMessage({
-    phoneNumberId,
-    accessToken,
-    payload: {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: normalizePhone(to),
-      type: 'text',
-      text: { preview_url: false, body },
-    },
-  });
-};
 
 const autoCreateDesignerTask = async (order) => {
   try {
@@ -162,7 +144,7 @@ const notifyDeliveredOrder = async (order) => {
       const amount = Number(order.Amount || order.saleSubtotal || order.Total_Amount || 0);
       const businessName = process.env.BUSINESS_NAME || process.env.APP_NAME || 'MIS System';
       const body = `Dear ${customerName}, your order #${order.Order_Number} is ready for delivery.\n\nAmount due: Rs ${amount}.\n\nPlease arrange payment. Thank you! - ${businessName}`;
-      await sendEnvWhatsAppText({ to: mobile, body });
+      await sendWhatsAppText({ to: mobile, body, source: 'ORDER_DELIVERED', contactName: customerName });
       console.log(`WhatsApp sent to ${mobile} for delivered order #${order.Order_Number}`);
     }
   } catch (error) {

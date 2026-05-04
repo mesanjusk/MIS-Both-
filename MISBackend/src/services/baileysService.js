@@ -193,11 +193,12 @@ async function connect() {
     sock.ev.on('creds.update', () => saveCreds().catch((e) => logger.error({ err: e }, '[baileys] saveCreds error')));
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+      // 'notify' = real-time incoming; 'append' = missed messages replayed on reconnect
+      if (type !== 'notify' && type !== 'append') return;
       for (const msg of messages) {
-        if (!msg.key.fromMe) {
-          emitIncoming(normalizeBaileysMessage(msg));
-        }
+        if (msg.key?.fromMe) continue;
+        if (!msg.message) continue; // skip protocol/system messages with no content
+        emitIncoming(normalizeBaileysMessage(msg));
       }
     });
 

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import {
   Alert,
   Avatar,
+  Badge,
   Box,
   Button,
   CircularProgress,
@@ -25,7 +27,14 @@ import {
   baileysSendText,
 } from '../../services/whatsappCloudService';
 
+const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, '') : url);
+const SOCKET_URL =
+  stripApiSuffix(import.meta.env.VITE_SOCKET_URL) ||
+  stripApiSuffix(import.meta.env.VITE_API_BASE) ||
+  window.location.origin;
+
 const fmt = (v) => (v ? new Date(v).toLocaleString() : '');
+const normPhone = (v) => String(v || '').replace(/\D/g, '');
 
 export default function BaileysInboxPanel() {
   const [inbox, setInbox]               = useState([]);
@@ -36,6 +45,9 @@ export default function BaileysInboxPanel() {
   const [loadingMsgs, setLoadingMsgs]   = useState(false);
   const [sending, setSending]           = useState(false);
   const [error, setError]               = useState('');
+
+  const selectedRef = useRef(selected);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   const fetchInbox = useCallback(async () => {
     setLoadingInbox(true);
@@ -51,6 +63,31 @@ export default function BaileysInboxPanel() {
 
   useEffect(() => { fetchInbox(); }, [fetchInbox]);
 
+  // Real-time Socket.IO listener
+  useEffect(() => {
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+
+    socket.on('new_message', (data) => {
+      const msg = data?.message || data;
+      if (data?.provider !== 'baileys' || !msg) return;
+
+      // Refresh sidebar
+      fetchInbox();
+
+      // Append to active conversation if it matches
+      const convKey = normPhone(msg.conversationKey || msg.from || msg.to || '');
+      const activeKey = normPhone(selectedRef.current?.conversationKey || '');
+      if (convKey && activeKey && convKey === activeKey) {
+        setMessages((prev) => {
+          const exists = prev.some((m) => m._id && m._id === msg._id);
+          return exists ? prev : [...prev, msg];
+        });
+      }
+    });
+
+    return () => { socket.disconnect(); };
+  }, [fetchInbox]);
+
   const openConversation = async (conv) => {
     setSelected(conv);
     setLoadingMsgs(true);
@@ -58,6 +95,12 @@ export default function BaileysInboxPanel() {
       const res = await baileysGetConversation(conv.conversationKey);
       setMessages(res.data || []);
       await baileysMarkRead(conv.conversationKey).catch(() => {});
+      // Clear unread count locally
+      setInbox((prev) =>
+        prev.map((c) =>
+          c.conversationKey === conv.conversationKey ? { ...c, unreadCount: 0 } : c
+        )
+      );
     } catch {
       setMessages([]);
     } finally {
@@ -103,9 +146,11 @@ export default function BaileysInboxPanel() {
                 onClick={() => openConversation(conv)}
               >
                 <ListItemAvatar>
-                  <Avatar sx={{ width: 34, height: 34, fontSize: 14 }}>
-                    {(conv.contactName || conv.phone || '?')[0].toUpperCase()}
-                  </Avatar>
+                  <Badge badgeContent={conv.unreadCount || 0} color="success" max={99}>
+                    <Avatar sx={{ width: 34, height: 34, fontSize: 14 }}>
+                      {(conv.contactName || conv.phone || '?')[0].toUpperCase()}
+                    </Avatar>
+                  </Badge>
                 </ListItemAvatar>
                 <ListItemText
                   primary={conv.contactName || conv.phone}
@@ -131,13 +176,13 @@ export default function BaileysInboxPanel() {
               <Typography fontWeight={700} fontSize={14}>{selected.contactName || selected.phone}</Typography>
             </Stack>
 
-            {error && <Alert severity="error" sx={{ m: 1 }}>{error}</Alert>}
+            {error && <Alert severity="error" onClose={() => setError('')} sx={{ m: 1 }}>{error}</Alert>}
 
             <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 1 }}>
               {loadingMsgs && <CircularProgress size={20} />}
               {messages.map((msg, idx) => (
                 <Box
-                  key={idx}
+                  key={msg._id || idx}
                   sx={{
                     display: 'flex',
                     justifyContent: msg.direction === 'OUTGOING' ? 'flex-end' : 'flex-start',

@@ -6,7 +6,7 @@ const Usertasks = require("../repositories/usertask");
 const { markAttendance } = require("../services/attendanceService");
 const { getPendingOrdersForUser } = require("../services/orderTaskService");
 const { formatIST } = require("../utils/dateTime");
-const { sendMessageToWhatsApp } = require("../services/whatsappService");
+const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
@@ -123,10 +123,12 @@ router.post('/addAttendance', async (req, res, next) => {
 
       if (Type === 'In' && user?.Mobile_number) {
         try {
-          await sendMessageToWhatsApp(
-            normalizeWhatsAppNumber(user.Mobile_number),
-            buildPendingTaskMessage({ user, assignments: assignmentSnapshot })
-          );
+          await sendWhatsAppText({
+            to: normalizeWhatsAppNumber(user.Mobile_number),
+            body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
+            source: 'ATTENDANCE',
+            contactName: user.User_name || '',
+          });
         } catch (err) {
           logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
         }
@@ -153,10 +155,12 @@ router.post('/addAttendance', async (req, res, next) => {
 
     if (Type === 'In' && user?.Mobile_number) {
       try {
-        await sendMessageToWhatsApp(
-          normalizeWhatsAppNumber(user.Mobile_number),
-          buildPendingTaskMessage({ user, assignments: assignmentSnapshot })
-        );
+        await sendWhatsAppText({
+            to: normalizeWhatsAppNumber(user.Mobile_number),
+            body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
+            source: 'ATTENDANCE',
+            contactName: user.User_name || '',
+          });
       } catch (err) {
         logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
       }

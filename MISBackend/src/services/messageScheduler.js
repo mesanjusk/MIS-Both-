@@ -1,5 +1,5 @@
 const ScheduledMessage = require('../repositories/ScheduledMessage');
-const { sendMessageToWhatsApp, isWhatsAppReady } = require('./whatsappService');
+const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const Users = require('../repositories/users');
 const Orders = require('../repositories/order');
 const Usertasks = require('../repositories/usertask');
@@ -12,12 +12,8 @@ async function processScheduledMessages() {
 
   for (const msg of messages) {
     try {
-      if (isWhatsAppReady(msg.sessionId)) {
-        await sendMessageToWhatsApp(msg.to, msg.message, msg.sessionId);
-        msg.status = 'sent';
-      } else {
-        continue;
-      }
+      await sendWhatsAppText({ to: msg.to, body: msg.message, source: 'SCHEDULED' });
+      msg.status = 'sent';
     } catch (err) {
       logger.error('Failed to send scheduled message', err);
       msg.status = 'failed';

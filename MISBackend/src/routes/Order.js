@@ -784,7 +784,8 @@ router.post("/addOrder", async (req, res) => {
     let driveWarning = null;
 
     try {
-      if (driveConfig.automationEnabled && !isEnquiryOnly) {
+      const skipDriveFile = Boolean(req.body?.skipDriveFile);
+      if (driveConfig.automationEnabled && !isEnquiryOnly && !skipDriveFile) {
         if (!driveConfig.templateFileId) {
           throw new Error("Drive template file is not configured");
         }

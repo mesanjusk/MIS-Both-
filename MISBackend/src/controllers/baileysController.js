@@ -1,6 +1,7 @@
 const asyncHandler   = require('../utils/asyncHandler');
 const AppError       = require('../utils/AppError');
 const BaileysMessage = require('../repositories/BaileysMessage');
+const Users          = require('../repositories/users');
 const baileysService = require('../services/baileysService');
 const { emitNewMessage } = require('../../socket');
 const logger         = require('../utils/logger');
@@ -12,6 +13,24 @@ function getConversationKey(phone) {
   return normalizePhone(phone);
 }
 
+// Cache of office user phone last-10 digits — refreshed every 5 minutes
+let _userPhoneCache   = null;
+let _userPhoneCacheAt = 0;
+
+async function getOfficeUserPhones() {
+  const now = Date.now();
+  if (_userPhoneCache && now - _userPhoneCacheAt < 5 * 60 * 1000) return _userPhoneCache;
+  const users = await Users.find({}, { Mobile_number: 1 }).lean();
+  _userPhoneCache   = new Set(users.map((u) => normalizePhone(u.Mobile_number).slice(-10)).filter(Boolean));
+  _userPhoneCacheAt = now;
+  return _userPhoneCache;
+}
+
+function isOfficeUser(phone, userPhones) {
+  const last10 = normalizePhone(phone).slice(-10);
+  return last10 ? userPhones.has(last10) : false;
+}
+
 // ── Wire incoming messages from Baileys service ───────────────────────────────
 // Called once at startup via route registration
 let _wired = false;
@@ -21,6 +40,10 @@ function wireIncomingMessages() {
 
   baileysService.onIncomingMessage(async ({ id, from, body, type, timestamp }) => {
     try {
+      // Skip messages from office staff numbers
+      const userPhones = await getOfficeUserPhones();
+      if (isOfficeUser(from, userPhones)) return;
+
       const existing = id
         ? await BaileysMessage.findOne({ baileysMessageId: id })
         : null;
@@ -67,22 +90,28 @@ const stopConnection = asyncHandler(async (_req, res) => {
 // ── Inbox ─────────────────────────────────────────────────────────────────────
 
 const getInbox = asyncHandler(async (_req, res) => {
-  const messages = await BaileysMessage.find({ conversationKey: { $ne: '' } })
-    .sort({ createdAt: -1 })
-    .limit(400)
-    .lean();
+  const [messages, userPhones] = await Promise.all([
+    BaileysMessage.find({ conversationKey: { $ne: '' } })
+      .sort({ createdAt: -1 })
+      .limit(400)
+      .lean(),
+    getOfficeUserPhones(),
+  ]);
 
   const grouped = new Map();
   for (const item of messages) {
     const key = item.conversationKey || getConversationKey(item.from || item.to);
     if (!key) continue;
+    // Skip conversations belonging to office staff
+    if (isOfficeUser(key, userPhones)) continue;
     const current = grouped.get(key);
     if (!current) {
       grouped.set(key, {
         conversationKey: key,
         phone:           key,
         contactName:     item.contactName || '',
-        lastMessage:     item.bodyText || item.messageType,
+        lastMessage:     item.bodyText || '',
+        lastMessageType: item.messageType || 'TEXT',
         lastMessageAt:   item.createdAt,
         lastDirection:   item.direction,
         unreadCount:     item.direction === 'INCOMING' && item.status !== 'READ' ? 1 : 0,

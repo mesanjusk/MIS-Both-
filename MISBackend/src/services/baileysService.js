@@ -204,7 +204,10 @@ async function connect() {
       for (const msg of messages) {
         try {
           if (msg.key?.fromMe) continue;
-          const from = (msg.key?.remoteJid || '').split('@')[0];
+          const jid = msg.key?.remoteJid || '';
+          // Skip group chats — group JIDs end with @g.us
+          if (jid.endsWith('@g.us')) continue;
+          const from = jid.split('@')[0];
           if (!from) continue;
           emitIncoming(normalizeBaileysMessage(msg));
         } catch (err) {

@@ -17,6 +17,8 @@
  *   GET /api/design-files/scan            — all files, auto-matched to orders
  *   GET /api/design-files/unmatched       — files with no matching MIS order
  *   GET /api/design-files/order/:uuid     — live stage of files for one order
+ *   POST /api/design-files/auto-temp-orders — create temp orders for unmatched files
+ *   GET /api/design-files/scan-archive    — scan month-wise archive folder
  */
 
 const express = require('express');
@@ -29,6 +31,8 @@ const VendorWork = require('../repositories/vendorWork');
 const VendorLedger = require('../repositories/vendorLedger');
 const VendorMaster = require('../repositories/vendorMaster');
 const DesignFileLink = require('../repositories/DesignFileLink');
+const Customers = require('../repositories/customer');
+const Counter = require('../repositories/counter');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -73,7 +77,30 @@ function extractOrderNumber(fileName = '') {
   return null;
 }
 
-/** List immediate children of a Drive folder */
+/**
+ * Returns true for backup/temp files that should never appear in the scan.
+ * Patterns:
+ *   ~$*           — Office lock files (Word, Excel, CorelDraw)
+ *   .*            — hidden / system dot-files
+ *   *.bak *.tmp *.~ — explicit backup extensions
+ *   * - Copy*     — Windows "copy" duplicates
+ *   Copy of *     — macOS "copy" duplicates
+ *   *(copy)*      — generic copy suffix
+ *   *backup*      — any file with "backup" in the name
+ *   *.lck         — lock files
+ */
+function isBackupFile(name = '') {
+  const n = String(name);
+  if (n.startsWith('~$')) return true;
+  if (n.startsWith('.')) return true;
+  const lower = n.toLowerCase();
+  if (lower.endsWith('.bak') || lower.endsWith('.tmp') || lower.endsWith('.~') || lower.endsWith('.lck')) return true;
+  if (lower.includes(' - copy') || lower.startsWith('copy of ')) return true;
+  if (lower.includes('(copy)') || lower.includes('backup')) return true;
+  return false;
+}
+
+/** List immediate children of a Drive folder (excludes backup files) */
 async function listChildren(drive, folderId, mimeTypeFilter = null) {
   const q = [`'${folderId}' in parents`, `trashed = false`];
   if (mimeTypeFilter) q.push(`mimeType = '${mimeTypeFilter}'`);
@@ -84,12 +111,92 @@ async function listChildren(drive, folderId, mimeTypeFilter = null) {
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
   });
-  return res.data.files || [];
+  const files = res.data.files || [];
+  // Skip backup/temp files unless we are listing folders
+  if (mimeTypeFilter === 'application/vnd.google-apps.folder') return files;
+  return files.filter((f) => !isBackupFile(f.name));
+}
+
+/**
+ * Fixed UUID reserved for the auto-generated "Temp – Design File" customer.
+ * Override via TEMP_CUSTOMER_UUID env var if you want to use an existing customer.
+ */
+const TEMP_CUSTOMER_UUID = process.env.TEMP_CUSTOMER_UUID || 'ffffffff-0000-temp-0000-d51gn00000001';
+
+/** Find or create the placeholder customer used for temporary orders. */
+async function getOrCreateTempCustomer() {
+  const existing = await Customers.findOne({ Customer_uuid: TEMP_CUSTOMER_UUID }).lean();
+  if (existing) return existing;
+  return Customers.create({
+    Customer_uuid: TEMP_CUSTOMER_UUID,
+    Customer_name: 'Temp – Design File',
+    Mobile_number: '0000000000',
+    Status: 'Active',
+  });
+}
+
+/** Get the next order number using the shared counter. */
+async function nextOrderNumber() {
+  const lastOrder = await Orders.findOne({}, { Order_Number: 1 }).sort({ Order_Number: -1 }).lean();
+  const seed = Number(lastOrder?.Order_Number || 0);
+  await Counter.updateOne({ _id: 'order_number' }, { $max: { seq: seed } }, { upsert: true });
+  const updated = await Counter.findByIdAndUpdate(
+    'order_number',
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+  return Number(updated?.seq || 1);
+}
+
+/**
+ * Augment a flat file list with DesignFileLink matches for files that were not
+ * auto-matched by filename. Returns the enriched array with `matched` updated.
+ */
+async function applyManualLinks(enriched) {
+  const unmatchedIds = enriched.filter((f) => !f.matched).map((f) => f.fileId);
+  if (!unmatchedIds.length) return enriched;
+
+  const links = await DesignFileLink.find(
+    { driveFileId: { $in: unmatchedIds } },
+    { driveFileId: 1, orderUuid: 1, orderNumber: 1 }
+  ).lean();
+  if (!links.length) return enriched;
+
+  const linkMap = {};
+  links.forEach((l) => { linkMap[l.driveFileId] = l; });
+
+  const linkedUuids = links.map((l) => l.orderUuid).filter(Boolean);
+  const linkedOrders = await Orders.find(
+    { Order_uuid: { $in: linkedUuids } },
+    { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1 }
+  ).lean();
+  const orderByUuid = {};
+  linkedOrders.forEach((o) => { orderByUuid[o.Order_uuid] = o; });
+
+  return enriched.map((file) => {
+    if (file.matched) return file;
+    const link = linkMap[file.fileId];
+    if (!link) return file;
+    const order = orderByUuid[link.orderUuid];
+    if (!order) return file;
+    return {
+      ...file,
+      matched: true,
+      orderUuid: order.Order_uuid,
+      orderNumber: order.Order_Number,
+      orderStage: order.stage,
+      orderAmount: order.Amount,
+      linkedViaManual: true,
+    };
+  });
 }
 
 // ─── GET /api/design-files/config-check ──────────────────────────────────────
 router.get('/config-check', (_req, res) => {
-  return res.json({ configured: !!process.env.DRIVE_DAILY_FOLDER_ID });
+  return res.json({
+    configured: !!process.env.DRIVE_DAILY_FOLDER_ID,
+    archiveConfigured: !!process.env.DRIVE_ARCHIVE_FOLDER_ID,
+  });
 });
 
 // ─── GET /api/design-files/scan ──────────────────────────────────────────────
@@ -109,7 +216,7 @@ router.get('/scan', async (_req, res) => {
       .filter((f) => f.stageNumber !== null)
       .sort((a, b) => a.stageNumber - b.stageNumber);
 
-    // 2. List files in all subfolders in parallel
+    // 2. List files in all subfolders in parallel (backup files already excluded by listChildren)
     const folderScans = await Promise.all(
       numbered.map(async (folder) => {
         const files = await listChildren(drive, folder.id);
@@ -130,19 +237,19 @@ router.get('/scan', async (_req, res) => {
 
     const allFiles = folderScans.flat();
 
-    // 3. Batch-fetch all matching orders from MIS
+    // 3. Batch-fetch all matching orders from MIS (by filename-extracted number)
     const orderNumbers = [...new Set(allFiles.map((f) => f.extractedOrderNumber).filter(Boolean))];
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
-          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1 }
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1, isTemporary: 1 }
         ).lean()
       : [];
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
 
-    // 4. Enrich files with matched order data
-    const enriched = allFiles.map((file) => {
+    // 4. Enrich files with matched order data (filename-based matching)
+    let enriched = allFiles.map((file) => {
       const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
       return {
         ...file,
@@ -151,10 +258,15 @@ router.get('/scan', async (_req, res) => {
         orderNumber: order?.Order_Number || file.extractedOrderNumber || null,
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
+        isTemporaryOrder: order?.isTemporary || false,
+        linkedViaManual: false,
       };
     });
 
-    // 5. Build summary
+    // 5. For still-unmatched files, check DesignFileLink (manual links override)
+    enriched = await applyManualLinks(enriched);
+
+    // 6. Build summary
     const summary = {
       total: enriched.length,
       matched: enriched.filter((f) => f.matched).length,
@@ -215,8 +327,15 @@ router.get('/unmatched', async (_req, res) => {
       : [];
     const foundSet = new Set(found.map((o) => o.Order_Number));
 
+    // Also check DesignFileLink for any manually linked files
+    const allFileIds = allFiles.map((f) => f.fileId);
+    const manualLinks = allFileIds.length
+      ? await DesignFileLink.find({ driveFileId: { $in: allFileIds } }, { driveFileId: 1 }).lean()
+      : [];
+    const manuallyLinkedIds = new Set(manualLinks.map((l) => l.driveFileId));
+
     const unmatched = allFiles.filter(
-      (f) => !f.extractedOrderNumber || !foundSet.has(f.extractedOrderNumber)
+      (f) => !manuallyLinkedIds.has(f.fileId) && (!f.extractedOrderNumber || !foundSet.has(f.extractedOrderNumber))
     );
     return res.json({ success: true, files: unmatched, count: unmatched.length });
   } catch (err) {
@@ -282,7 +401,7 @@ router.get('/orders/search', async (req, res) => {
         }
       : {};
     const orders = await Orders.find(filter, {
-      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1,
+      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1, isTemporary: 1,
     })
       .sort({ Order_Number: -1 })
       .limit(20)
@@ -337,6 +456,216 @@ router.post('/link-order', async (req, res) => {
     return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number });
   } catch (err) {
     logger.error({ err }, 'design-files/link-order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/auto-temp-orders ─────────────────────────────────
+/**
+ * For each unmatched file passed in, creates a temporary placeholder order and
+ * a DesignFileLink record so the file is tracked in MIS immediately.
+ * The user can open the temp order later and fill in the real customer/amount.
+ *
+ * Body: { files: [{ fileId, fileName, stageNumber, stageLabel, stageColor }] }
+ */
+router.post('/auto-temp-orders', async (req, res) => {
+  try {
+    const { files = [] } = req.body || {};
+    if (!Array.isArray(files) || !files.length) {
+      return res.status(400).json({ success: false, message: 'files array is required' });
+    }
+
+    // Skip files that already have a DesignFileLink record
+    const fileIds = files.map((f) => f.fileId).filter(Boolean);
+    const existingLinks = await DesignFileLink.find(
+      { driveFileId: { $in: fileIds } },
+      { driveFileId: 1 }
+    ).lean();
+    const alreadyLinked = new Set(existingLinks.map((l) => l.driveFileId));
+    const toProcess = files.filter((f) => f.fileId && !alreadyLinked.has(f.fileId));
+
+    if (!toProcess.length) {
+      return res.json({ success: true, created: 0, message: 'All files already linked' });
+    }
+
+    const tempCustomer = await getOrCreateTempCustomer();
+    const results = [];
+
+    for (const file of toProcess) {
+      const orderNum = await nextOrderNumber();
+      const orderUuid = uuidv4();
+
+      const order = new Orders({
+        Order_uuid: orderUuid,
+        Order_Number: orderNum,
+        Customer_uuid: tempCustomer.Customer_uuid,
+        orderNote: `[TEMP] ${file.fileName || file.fileId}`,
+        orderMode: 'note',
+        stage: 'design',
+        stageHistory: [{ stage: 'design', timestamp: new Date() }],
+        priority: 'medium',
+        isTemporary: true,
+        driveFile: { status: 'skipped' },
+      });
+      await order.save();
+
+      await DesignFileLink.updateOne(
+        { driveFileId: file.fileId },
+        {
+          $set: {
+            orderUuid,
+            orderNumber: orderNum,
+            fileName: file.fileName || null,
+            stageNumber: file.stageNumber || null,
+            stageLabel: file.stageLabel || null,
+            linkedAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      results.push({ fileId: file.fileId, orderNumber: orderNum, orderUuid });
+    }
+
+    return res.json({ success: true, created: results.length, orders: results });
+  } catch (err) {
+    logger.error({ err }, 'design-files/auto-temp-orders error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── GET /api/design-files/scan-archive ──────────────────────────────────────
+/**
+ * Scans the month-wise archive root folder (DRIVE_ARCHIVE_FOLDER_ID).
+ * Finds the subfolder matching the current month (YYYY-MM or month-name year).
+ * Falls back to the most recently modified subfolder.
+ * Returns all files with match status — highlights unmatched ones.
+ */
+router.get('/scan-archive', async (_req, res) => {
+  try {
+    const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
+    if (!archiveFolderId) {
+      return res.status(400).json({ success: false, message: 'DRIVE_ARCHIVE_FOLDER_ID not configured' });
+    }
+
+    const drive = await getAuthorizedDriveClient();
+
+    // Find the current-month subfolder inside the archive root
+    const subfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
+
+    let monthFolder = null;
+    if (subfolders.length) {
+      const now = new Date();
+      const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      const monthName = monthNames[now.getMonth()];
+      const year = String(now.getFullYear());
+
+      monthFolder = subfolders.find((f) => {
+        const n = f.name.toLowerCase().replace(/[/_]/g, '-');
+        return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
+      });
+
+      // Fallback: most recently modified subfolder
+      if (!monthFolder) {
+        monthFolder = [...subfolders].sort(
+          (a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime)
+        )[0];
+      }
+    }
+
+    if (!monthFolder) {
+      return res.json({ success: true, files: [], folderName: null, summary: { total: 0, unmatched: 0 } });
+    }
+
+    // Scan one level inside the month folder (may contain stage sub-subfolders or flat files)
+    const monthChildren = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
+    const stageFolders = monthChildren
+      .map((f) => ({ ...f, stageNumber: folderStageNumber(f.name) }))
+      .filter((f) => f.stageNumber !== null);
+
+    let allFiles = [];
+
+    if (stageFolders.length) {
+      // Archive folder has stage subfolders (Final, Printing, …)
+      const scans = await Promise.all(
+        stageFolders.map(async (folder) => {
+          const files = await listChildren(drive, folder.id);
+          return files.map((file) => ({
+            fileId: file.id,
+            fileName: file.name,
+            modifiedTime: file.modifiedTime,
+            size: file.size || null,
+            folderName: folder.name,
+            stageNumber: folder.stageNumber,
+            stageLabel: stageLabel(folder.stageNumber),
+            stageColor: stageColor(folder.stageNumber),
+            extractedOrderNumber: extractOrderNumber(file.name),
+          }));
+        })
+      );
+      allFiles = scans.flat();
+    } else {
+      // Flat files directly inside the month folder
+      const flatFiles = await listChildren(drive, monthFolder.id);
+      allFiles = flatFiles.map((file) => ({
+        fileId: file.id,
+        fileName: file.name,
+        modifiedTime: file.modifiedTime,
+        size: file.size || null,
+        folderName: monthFolder.name,
+        stageNumber: null,
+        stageLabel: null,
+        stageColor: null,
+        extractedOrderNumber: extractOrderNumber(file.name),
+      }));
+    }
+
+    // Batch-match by order number
+    const orderNumbers = [...new Set(allFiles.map((f) => f.extractedOrderNumber).filter(Boolean))];
+    const orders = orderNumbers.length
+      ? await Orders.find(
+          { Order_Number: { $in: orderNumbers } },
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, isTemporary: 1 }
+        ).lean()
+      : [];
+    const orderByNumber = {};
+    orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
+
+    let enriched = allFiles.map((file) => {
+      const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
+      return {
+        ...file,
+        matched: !!order,
+        orderUuid: order?.Order_uuid || null,
+        orderNumber: order?.Order_Number || file.extractedOrderNumber || null,
+        orderStage: order?.stage || null,
+        orderAmount: order?.Amount || null,
+        isTemporaryOrder: order?.isTemporary || false,
+        linkedViaManual: false,
+      };
+    });
+
+    // Apply manual links for still-unmatched
+    enriched = await applyManualLinks(enriched);
+
+    const summary = {
+      total: enriched.length,
+      matched: enriched.filter((f) => f.matched).length,
+      unmatched: enriched.filter((f) => !f.matched).length,
+    };
+
+    return res.json({
+      success: true,
+      files: enriched,
+      folderName: monthFolder.name,
+      summary,
+    });
+  } catch (err) {
+    logger.error({ err }, 'design-files/scan-archive error');
+    if (err?.reconnectRequired) {
+      return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+    }
     return res.status(500).json({ success: false, message: err.message });
   }
 });

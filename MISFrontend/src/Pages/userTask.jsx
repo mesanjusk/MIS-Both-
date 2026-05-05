@@ -24,7 +24,7 @@ export default function UserTask() {
             isAdmin: false,
           },
         }),
-        axios.get(`/attendance/getTodayAttendance/${userName}`),
+        axios.get(`/api/attendance/getTodayAttendance/${userName}`),
       ]);
 
       const myTasks = summaryRes?.data?.result?.myAssignedTasks || [];

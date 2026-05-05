@@ -38,6 +38,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
+import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded';
 import axios from '../../apiClient';
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
@@ -176,19 +177,53 @@ function FileRow({ file, checked, onToggle }) {
 }
 
 // ─── Link Order Dialog ────────────────────────────────────────────────────────
+/**
+ * Two modes:
+ *  "link"   — search existing order → link + rename Drive file + trash blank
+ *  "create" — pick customer + note → create new order (no blank Drive file) + link + rename
+ */
 function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
+  const [mode, setMode] = useState('link'); // 'link' | 'create'
+
+  // link mode
   const [order, setOrder] = useState(null);
   const [options, setOptions] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [searching, setSearching] = useState(false);
+
+  // create mode
+  const [customer, setCustomer] = useState(null);
+  const [customerOptions, setCustomerOptions] = useState([]);
+  const [customerInput, setCustomerInput] = useState('');
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [orderNote, setOrderNote] = useState('');
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const debounceRef = useRef(null);
 
+  // Reset on open/close
   useEffect(() => {
-    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setError(''); }
-  }, [open]);
+    if (!open) {
+      setMode('link'); setOrder(null); setOptions([]); setInputValue('');
+      setCustomer(null); setCustomerInput(''); setOrderNote(''); setError('');
+    } else {
+      // Pre-fill note with first selected filename
+      if (selectedFiles.length === 1) setOrderNote(selectedFiles[0].fileName || '');
+    }
+  }, [open, selectedFiles]);
 
+  // Load customers when switching to create mode
+  useEffect(() => {
+    if (mode !== 'create' || customerOptions.length) return;
+    setLoadingCustomers(true);
+    axios.get('/api/customers/GetCustomersList')
+      .then((r) => setCustomerOptions(r.data?.result || r.data || []))
+      .catch(() => {})
+      .finally(() => setLoadingCustomers(false));
+  }, [mode, customerOptions.length]);
+
+  // Order search (link mode)
   const search = useCallback((q) => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -203,25 +238,27 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
       }
     }, 300);
   }, []);
-
   useEffect(() => { search(inputValue); }, [inputValue, search]);
 
-  const handleSubmit = async () => {
+  // Submit: link to existing order
+  const handleLink = async () => {
     if (!order) return;
-    setSubmitting(true);
-    setError('');
+    setSubmitting(true); setError('');
     try {
-      await axios.post('/api/design-files/link-order', {
+      const res = await axios.post('/api/design-files/link-order', {
         fileIds: selectedFiles.map((f) => f.fileId),
         orderUuid: order.Order_uuid,
         files: selectedFiles.map((f) => ({
-          fileId: f.fileId,
-          fileName: f.fileName,
-          stageNumber: f.stageNumber,
-          stageLabel: f.stageLabel,
+          fileId: f.fileId, fileName: f.fileName,
+          stageNumber: f.stageNumber, stageLabel: f.stageLabel,
         })),
       });
-      onSuccess(`${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`);
+      const renamedCount = res.data?.drive?.renamed?.length || 0;
+      const trashed = res.data?.drive?.trashed;
+      let msg = `${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`;
+      if (renamedCount) msg += ` · ${renamedCount} renamed in Drive`;
+      if (trashed) msg += ' · duplicate blank deleted';
+      onSuccess(msg);
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to link files');
@@ -229,6 +266,33 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
       setSubmitting(false);
     }
   };
+
+  // Submit: create new order + link in one shot (no blank Drive file created)
+  const handleQuickOrder = async () => {
+    if (!customer || selectedFiles.length !== 1) return;
+    setSubmitting(true); setError('');
+    const file = selectedFiles[0];
+    try {
+      const res = await axios.post('/api/design-files/quick-order', {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        stageNumber: file.stageNumber,
+        stageLabel: file.stageLabel,
+        customerUuid: customer.Customer_uuid,
+        orderNote: orderNote || file.fileName,
+      });
+      let msg = `Order #${res.data.orderNumber} created for ${res.data.customerName}`;
+      if (res.data.drive?.renamed) msg += ' · file renamed in Drive';
+      onSuccess(msg);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create order');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isSingleFile = selectedFiles.length === 1;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -239,57 +303,134 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
         </Stack>
       </DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
         </Typography>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        <Autocomplete
-          options={options}
-          value={order}
-          onChange={(_, v) => setOrder(v)}
-          inputValue={inputValue}
-          onInputChange={(_, v) => setInputValue(v)}
-          getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
-          isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
-          loading={searching}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Search Order"
-              placeholder="Type order number or description…"
+
+        {/* Mode toggle */}
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          <Chip
+            label="Link to existing order"
+            icon={<LinkRoundedIcon sx={{ fontSize: '14px !important' }} />}
+            onClick={() => setMode('link')}
+            variant={mode === 'link' ? 'filled' : 'outlined'}
+            color={mode === 'link' ? 'primary' : 'default'}
+            size="small"
+            sx={{ cursor: 'pointer', fontWeight: mode === 'link' ? 700 : 400 }}
+          />
+          {isSingleFile && (
+            <Chip
+              label="Create new order"
+              icon={<AddCircleOutlineRoundedIcon sx={{ fontSize: '14px !important' }} />}
+              onClick={() => setMode('create')}
+              variant={mode === 'create' ? 'filled' : 'outlined'}
+              color={mode === 'create' ? 'success' : 'default'}
               size="small"
-              InputProps={{
-                ...params.InputProps,
-                endAdornment: (
-                  <>
-                    {searching ? <CircularProgress size={14} /> : null}
-                    {params.InputProps.endAdornment}
-                  </>
-                ),
-              }}
+              sx={{ cursor: 'pointer', fontWeight: mode === 'create' ? 700 : 400 }}
             />
           )}
-        />
-        <Button
-          size="small"
-          variant="text"
-          href="/orders/new"
-          target="_blank"
-          sx={{ mt: 1, fontSize: '0.75rem' }}
-        >
-          + Create New Order instead
-        </Button>
+        </Stack>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        {mode === 'link' ? (
+          <>
+            <Autocomplete
+              options={options}
+              value={order}
+              onChange={(_, v) => setOrder(v)}
+              inputValue={inputValue}
+              onInputChange={(_, v) => setInputValue(v)}
+              getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
+              isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
+              loading={searching}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Search Order"
+                  placeholder="Type order number or description…"
+                  size="small"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {searching ? <CircularProgress size={14} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+            <Alert severity="info" sx={{ mt: 1.5, fontSize: 11, py: 0.5 }}>
+              The file will be renamed in Drive to include the order number, and any system-created blank file will be deleted automatically.
+            </Alert>
+          </>
+        ) : (
+          <>
+            <Autocomplete
+              options={customerOptions}
+              value={customer}
+              onChange={(_, v) => setCustomer(v)}
+              inputValue={customerInput}
+              onInputChange={(_, v) => setCustomerInput(v)}
+              getOptionLabel={(c) => c.Customer_name || ''}
+              isOptionEqualToValue={(a, b) => a.Customer_uuid === b.Customer_uuid}
+              loading={loadingCustomers}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Customer *"
+                  size="small"
+                  sx={{ mb: 1.5 }}
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {loadingCustomers ? <CircularProgress size={14} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+            />
+            <TextField
+              label="Order note"
+              size="small"
+              fullWidth
+              value={orderNote}
+              onChange={(e) => setOrderNote(e.target.value)}
+              placeholder="Description of the work…"
+            />
+            <Alert severity="success" sx={{ mt: 1.5, fontSize: 11, py: 0.5 }}>
+              Creates a new order without generating a duplicate blank file. The designer&apos;s file is renamed in Drive to match the new order number.
+            </Alert>
+          </>
+        )}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={!order || submitting}
-          startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
-        >
-          Link Files
-        </Button>
+        {mode === 'link' ? (
+          <Button
+            variant="contained"
+            onClick={handleLink}
+            disabled={!order || submitting}
+            startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
+          >
+            Link & Rename
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleQuickOrder}
+            disabled={!customer || submitting}
+            startIcon={submitting ? <CircularProgress size={14} /> : <AddCircleOutlineRoundedIcon />}
+          >
+            Create Order & Link
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

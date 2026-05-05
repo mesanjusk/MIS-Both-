@@ -13,12 +13,14 @@
  * Leading number = MIS Order_Number → auto-matched, zero manual work.
  *
  * Endpoints:
- *   GET /api/design-files/config-check
- *   GET /api/design-files/scan            — all files, auto-matched to orders
- *   GET /api/design-files/unmatched       — files with no matching MIS order
- *   GET /api/design-files/order/:uuid     — live stage of files for one order
+ *   GET  /api/design-files/config-check
+ *   GET  /api/design-files/scan            — all files, auto-matched to orders
+ *   GET  /api/design-files/unmatched       — files with no matching MIS order
+ *   GET  /api/design-files/order/:uuid     — live stage of files for one order
+ *   POST /api/design-files/link-order      — link files to order + rename + trash blank
+ *   POST /api/design-files/quick-order     — create order + link + rename in one step
  *   POST /api/design-files/auto-temp-orders — create temp orders for unmatched files
- *   GET /api/design-files/scan-archive    — scan month-wise archive folder
+ *   GET  /api/design-files/scan-archive    — scan month-wise archive folder
  */
 
 const express = require('express');
@@ -115,6 +117,52 @@ async function listChildren(drive, folderId, mimeTypeFilter = null) {
   // Skip backup/temp files unless we are listing folders
   if (mimeTypeFilter === 'application/vnd.google-apps.folder') return files;
   return files.filter((f) => !isBackupFile(f.name));
+}
+
+/**
+ * Build a canonical Drive filename for a designer file linked to an order.
+ * Strips any existing leading number prefix from the original name so we don't
+ * double-prefix (e.g. "153 - Logo.cdr" linked to order 160 → "160 - Logo.cdr").
+ */
+function buildOrderFileName(orderNumber, originalName = '') {
+  const stripped = String(originalName).replace(/^\d+\s*[-_\s]+/, '').trim();
+  return `${orderNumber} - ${stripped}`;
+}
+
+/**
+ * Rename a Drive file. Returns the updated file object or null on failure.
+ * Non-fatal — caller decides whether to surface the error.
+ */
+async function renameDriveFile(drive, fileId, newName) {
+  try {
+    const res = await drive.files.update({
+      fileId,
+      supportsAllDrives: true,
+      requestBody: { name: newName },
+      fields: 'id,name',
+    });
+    return res.data;
+  } catch (err) {
+    logger.warn({ err, fileId, newName }, 'design-files: Drive rename failed (non-fatal)');
+    return null;
+  }
+}
+
+/**
+ * Move a Drive file to trash. Non-fatal — logs and continues.
+ */
+async function trashDriveFile(drive, fileId) {
+  try {
+    await drive.files.update({
+      fileId,
+      supportsAllDrives: true,
+      requestBody: { trashed: true },
+    });
+    return true;
+  } catch (err) {
+    logger.warn({ err, fileId }, 'design-files: Drive trash failed (non-fatal)');
+    return false;
+  }
 }
 
 /**
@@ -414,6 +462,15 @@ router.get('/orders/search', async (req, res) => {
 });
 
 // ─── POST /api/design-files/link-order ───────────────────────────────────────
+/**
+ * Links designer Drive files to an MIS order. Also:
+ *  1. Renames each Drive file to "{OrderNumber} - {originalName}" so auto-match
+ *     works on every future scan without needing DesignFileLink.
+ *  2. Trashes the system-created blank file (order.driveFile.fileId) if it
+ *     exists and is different from the files being linked — eliminates duplicates.
+ *  3. Updates order.driveFile to point to the first designer file.
+ * Drive operations are non-fatal: if auth fails the link still saves.
+ */
 router.post('/link-order', async (req, res) => {
   try {
     const { fileIds, orderUuid, files: filesMeta = [] } = req.body || {};
@@ -426,12 +483,14 @@ router.post('/link-order', async (req, res) => {
 
     const order = await Orders.findOne({ Order_uuid: orderUuid }, {
       Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, orderNote: 1,
+      'driveFile.fileId': 1, 'driveFile.status': 1,
     }).lean();
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
     const metaMap = {};
     filesMeta.forEach((f) => { if (f?.fileId) metaMap[f.fileId] = f; });
 
+    // 1. Save DesignFileLink records (may update fileName after rename below)
     const ops = fileIds.map((fileId) => {
       const meta = metaMap[fileId] || {};
       return {
@@ -451,11 +510,149 @@ router.post('/link-order', async (req, res) => {
         },
       };
     });
-
     await DesignFileLink.bulkWrite(ops);
-    return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number });
+
+    // 2. Drive operations — rename designer files + trash system blank (non-fatal)
+    const driveUpdates = { renamed: [], trashed: false, driveError: null };
+    try {
+      const drive = await getAuthorizedDriveClient();
+      const linkedFileIds = new Set(fileIds);
+
+      // Rename each linked file to include order number prefix
+      for (const fileId of fileIds) {
+        const meta = metaMap[fileId] || {};
+        const originalName = meta.fileName || fileId;
+        const currentLeading = extractOrderNumber(originalName);
+
+        // Skip rename if file already starts with the correct order number
+        if (currentLeading === order.Order_Number) continue;
+
+        const newName = buildOrderFileName(order.Order_Number, originalName);
+        const updated = await renameDriveFile(drive, fileId, newName);
+        if (updated) {
+          driveUpdates.renamed.push({ fileId, newName });
+          // Update DesignFileLink with new name
+          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+        }
+      }
+
+      // Trash the system-created blank file if it's different from linked files
+      const systemFileId = order?.driveFile?.fileId;
+      if (systemFileId && !linkedFileIds.has(systemFileId)) {
+        const trashed = await trashDriveFile(drive, systemFileId);
+        driveUpdates.trashed = trashed;
+        if (trashed) {
+          // Clear the system driveFile reference; point to the designer's first file
+          const firstMeta = metaMap[fileIds[0]] || {};
+          const newFileName = driveUpdates.renamed.find((r) => r.fileId === fileIds[0])?.newName
+            || firstMeta.fileName || null;
+          await Orders.updateOne(
+            { Order_uuid: order.Order_uuid },
+            {
+              $set: {
+                'driveFile.fileId': fileIds[0],
+                'driveFile.name': newFileName,
+                'driveFile.status': 'linked',
+              },
+            }
+          );
+        }
+      }
+    } catch (driveErr) {
+      driveUpdates.driveError = driveErr?.message || 'Drive operation failed';
+      logger.warn({ driveErr }, 'design-files/link-order: Drive steps failed (non-fatal)');
+    }
+
+    return res.json({
+      success: true,
+      linked: fileIds.length,
+      orderNumber: order.Order_Number,
+      drive: driveUpdates,
+    });
   } catch (err) {
     logger.error({ err }, 'design-files/link-order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/quick-order ──────────────────────────────────────
+/**
+ * One-shot "create order from design file" endpoint used when the designer
+ * already has a file and the user wants to create a new order for it without
+ * generating a duplicate blank Drive file.
+ *
+ * Flow: create order (no Drive template copy) → rename Drive file → DesignFileLink
+ *
+ * Body: { fileId, fileName, stageNumber, stageLabel, customerUuid, orderNote }
+ */
+router.post('/quick-order', async (req, res) => {
+  try {
+    const { fileId, fileName, stageNumber, stageLabel, customerUuid, orderNote } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!customerUuid) return res.status(400).json({ success: false, message: 'customerUuid required' });
+
+    const customer = await Customers.findOne({ Customer_uuid: customerUuid }, { Customer_uuid: 1, Customer_name: 1 }).lean();
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    // Create order — no Drive template copy (driveFile.status = 'skipped')
+    const orderUuid = uuidv4();
+    const orderNum = await nextOrderNumber();
+    const note = (orderNote || fileName || '').trim();
+
+    const order = new Orders({
+      Order_uuid: orderUuid,
+      Order_Number: orderNum,
+      Customer_uuid: customer.Customer_uuid,
+      orderNote: note,
+      orderMode: 'note',
+      stage: 'design',
+      stageHistory: [{ stage: 'design', timestamp: new Date() }],
+      priority: 'medium',
+      driveFile: { status: 'skipped' },
+    });
+    await order.save();
+
+    // Rename Drive file to include order number prefix (non-fatal)
+    const driveUpdates = { renamed: false, newName: null, driveError: null };
+    try {
+      const drive = await getAuthorizedDriveClient();
+      const currentLeading = extractOrderNumber(fileName || '');
+      if (currentLeading !== orderNum) {
+        const newName = buildOrderFileName(orderNum, fileName || fileId);
+        const updated = await renameDriveFile(drive, fileId, newName);
+        if (updated) { driveUpdates.renamed = true; driveUpdates.newName = newName; }
+      }
+    } catch (driveErr) {
+      driveUpdates.driveError = driveErr?.message || 'Drive rename failed';
+      logger.warn({ driveErr }, 'design-files/quick-order: Drive rename failed (non-fatal)');
+    }
+
+    // Save DesignFileLink
+    const linkedFileName = driveUpdates.newName || fileName || null;
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          orderUuid,
+          orderNumber: orderNum,
+          fileName: linkedFileName,
+          stageNumber: stageNumber || null,
+          stageLabel: stageLabel || null,
+          linkedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.json({
+      success: true,
+      orderNumber: orderNum,
+      orderUuid,
+      customerName: customer.Customer_name,
+      drive: driveUpdates,
+    });
+  } catch (err) {
+    logger.error({ err }, 'design-files/quick-order error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

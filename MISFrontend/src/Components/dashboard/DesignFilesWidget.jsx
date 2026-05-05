@@ -36,6 +36,8 @@ import DoneAllRoundedIcon from '@mui/icons-material/DoneAllRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
+import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import axios from '../../apiClient';
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
@@ -134,14 +136,19 @@ function FileRow({ file, checked, onToggle }) {
       </Box>
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          variant="body2"
-          fontWeight={500}
-          sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}
-          title={file.fileName}
-        >
-          {file.fileName}
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={0.5}>
+          <Typography
+            variant="body2"
+            fontWeight={500}
+            sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}
+            title={file.fileName}
+          >
+            {file.fileName}
+          </Typography>
+          {file.isTemporaryOrder && (
+            <Chip label="TEMP" size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'warning.100', color: 'warning.800', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+          )}
+        </Stack>
         {isUnmatched && (
           <Typography variant="caption" color="warning.700" sx={{ fontSize: 10 }}>
             Order #{file.extractedOrderNumber || '?'} not found in MIS
@@ -150,11 +157,14 @@ function FileRow({ file, checked, onToggle }) {
         {file.matched && file.orderStage && (
           <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
             MIS stage: {file.orderStage}
+            {file.linkedViaManual ? ' (manually linked)' : ''}
           </Typography>
         )}
       </Box>
 
-      <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />
+      {file.stageLabel && (
+        <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />
+      )}
 
       {file.matched && (
         <Tooltip title={`Matched to Order #${file.orderNumber}`}>
@@ -239,7 +249,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           onChange={(_, v) => setOrder(v)}
           inputValue={inputValue}
           onInputChange={(_, v) => setInputValue(v)}
-          getOptionLabel={(o) => `#${o.Order_Number} — ${o.orderNote || '(no note)'}`}
+          getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
           isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
           loading={searching}
           renderInput={(params) => (
@@ -285,6 +295,60 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
   );
 }
 
+// ─── Auto Temp Orders Confirm Dialog ─────────────────────────────────────────
+function AutoTempDialog({ open, files, onClose, onSuccess }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!open) setError(''); }, [open]);
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/auto-temp-orders', { files });
+      onSuccess(`Created ${res.data.created} temporary order${res.data.created !== 1 ? 's' : ''} — update them with actual customer details`);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create temp orders');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Create Temp Orders</Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          This will create <strong>{files.length}</strong> temporary placeholder order{files.length !== 1 ? 's' : ''} — one for each unmatched file. Each order is marked <strong>[TEMP]</strong> and linked to the file immediately so nothing is lost.
+        </Typography>
+        <Alert severity="info" sx={{ fontSize: 12 }}>
+          Open each temp order later to fill in the real customer name and amount.
+        </Alert>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="warning"
+          onClick={handleConfirm}
+          disabled={submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+        >
+          Create {files.length} Temp Order{files.length !== 1 ? 's' : ''}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // ─── Print Job Dialog ─────────────────────────────────────────────────────────
 function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [order, setOrder] = useState(null);
@@ -305,7 +369,6 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       return;
     }
     setItems(selectedFiles.map((f) => ({ ...f, qty: 1, rate: '', amount: 0 })));
-    // Load vendors
     setLoadingVendors(true);
     axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
       .then((r) => setVendorOptions(r.data?.result || []))
@@ -385,7 +448,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
             onChange={(_, v) => setOrder(v)}
             inputValue={orderInput}
             onInputChange={(_, v) => setOrderInput(v)}
-            getOptionLabel={(o) => `#${o.Order_Number} — ${o.orderNote || '(no note)'}`}
+            getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
             isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
             loading={searchingOrders}
             renderInput={(params) => (
@@ -453,7 +516,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
                       {item.fileName}
                     </Typography>
                   </Tooltip>
-                  <StageChip stageLabel={item.stageLabel} stageColor={item.stageColor} />
+                  {item.stageLabel && <StageChip stageLabel={item.stageLabel} stageColor={item.stageColor} />}
                 </TableCell>
                 <TableCell align="right">
                   <TextField
@@ -513,17 +576,108 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   );
 }
 
+// ─── Archive panel ────────────────────────────────────────────────────────────
+function ArchivePanel() {
+  const [archiveData, setArchiveData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+
+  const loadArchive = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await axios.get('/api/design-files/scan-archive');
+      setArchiveData(res.data);
+      setLoaded(true);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Could not load archive.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  if (!loaded && !loading) {
+    return (
+      <Box sx={{ py: 3, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Scan the month archive folder to find files moved out of Today.
+        </Typography>
+        <Button size="small" variant="outlined" startIcon={<ArchiveRoundedIcon />} onClick={loadArchive}>
+          Scan Archive
+        </Button>
+      </Box>
+    );
+  }
+
+  if (loading) {
+    return <Box sx={{ py: 2 }}><LinearProgress sx={{ height: 2 }} /></Box>;
+  }
+
+  if (error) {
+    return (
+      <Alert severity="error" sx={{ m: 1.5 }} action={<Button size="small" onClick={loadArchive}>Retry</Button>}>
+        {error}
+      </Alert>
+    );
+  }
+
+  const files = archiveData?.files || [];
+  const summary = archiveData?.summary;
+  const folderName = archiveData?.folderName;
+  const unmatched = files.filter((f) => !f.matched);
+
+  return (
+    <Box>
+      <Stack direction="row" alignItems="center" sx={{ px: 2, pb: 1 }} spacing={1}>
+        <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+          Archive: <strong>{folderName || '—'}</strong> · {summary?.total || 0} files
+        </Typography>
+        {summary?.unmatched > 0 && (
+          <Chip label={`${summary.unmatched} unmatched`} size="small"
+            sx={{ fontSize: 10, height: 18, bgcolor: 'error.100', color: 'error.800', fontWeight: 600 }} />
+        )}
+        <Tooltip title="Refresh archive scan">
+          <IconButton size="small" onClick={loadArchive} disabled={loading}>
+            <RefreshRoundedIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+
+      {files.length === 0 ? (
+        <Box sx={{ py: 3, textAlign: 'center' }}>
+          <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
+        </Box>
+      ) : (
+        <Stack spacing={0.5} sx={{ px: 1.5, pb: 1, maxHeight: 280, overflowY: 'auto' }}>
+          {unmatched.length > 0 && (
+            <Alert severity="warning" sx={{ fontSize: 11, py: 0.5, mb: 0.5 }}>
+              {unmatched.length} archived file{unmatched.length !== 1 ? 's' : ''} have no MIS order — they may have been missed today.
+            </Alert>
+          )}
+          {files.map((file) => (
+            <FileRow key={file.fileId} file={file} checked={false} onToggle={() => {}} />
+          ))}
+        </Stack>
+      )}
+    </Box>
+  );
+}
+
 // ─── Main widget ──────────────────────────────────────────────────────────────
 export default function DesignFilesWidget() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [configMissing, setConfigMissing] = useState(false);
+  const [archiveConfigured, setArchiveConfigured] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  const [filter, setFilter] = useState('all');
+  // Fix 2: default to 'unmatched' instead of 'all'
+  const [filter, setFilter] = useState('unmatched');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [autoTempOpen, setAutoTempOpen] = useState(false);
   const [toast, setToast] = useState('');
 
   const load = useCallback(async () => {
@@ -532,6 +686,7 @@ export default function DesignFilesWidget() {
     try {
       const cfgRes = await axios.get('/api/design-files/config-check');
       if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
+      setArchiveConfigured(!!cfgRes.data?.archiveConfigured);
       const res = await axios.get('/api/design-files/scan');
       setData(res.data);
       setSelectedIds(new Set());
@@ -600,6 +755,7 @@ export default function DesignFilesWidget() {
     if (filter === 'unmatched') return !f.matched;
     if (filter === 'printing') return f.stageNumber === 9;
     if (filter === 'final') return f.stageNumber === 8;
+    if (filter === 'archive') return false; // archive rendered separately
     return true;
   });
 
@@ -626,6 +782,17 @@ export default function DesignFilesWidget() {
       });
     }
   };
+
+  // All unmatched files (across all stages) for the auto-temp dialog
+  const allUnmatched = files.filter((f) => !f.matched);
+
+  const tabs = [
+    { key: 'unmatched', label: `Pending${unmatchedCount ? ` (${unmatchedCount})` : ''}` },
+    { key: 'all', label: 'All' },
+    { key: 'printing', label: `Printing${printingCount ? ` (${printingCount})` : ''}` },
+    { key: 'final', label: `Final${finalCount ? ` (${finalCount})` : ''}` },
+    ...(archiveConfigured ? [{ key: 'archive', label: 'Archive', icon: true }] : []),
+  ];
 
   return (
     <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
@@ -665,7 +832,7 @@ export default function DesignFilesWidget() {
       {loading && <LinearProgress sx={{ height: 2 }} />}
 
       {/* Stage summary pills */}
-      {!loading && summary && (
+      {!loading && summary && filter !== 'archive' && (
         <Box sx={{ pt: 1.5 }}>
           <StageSummaryBar summary={summary} />
         </Box>
@@ -673,24 +840,22 @@ export default function DesignFilesWidget() {
 
       {/* Filter tabs + select-all */}
       <Stack direction="row" alignItems="center" spacing={0.5}
-        sx={{ px: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
-        <Checkbox
-          size="small"
-          checked={allFilteredSelected}
-          indeterminate={someFilteredSelected && !allFilteredSelected}
-          onChange={toggleSelectAll}
-          disabled={filtered.length === 0}
-          sx={{ p: 0.25, mr: 0.5 }}
-        />
-        {[
-          { key: 'all', label: 'All' },
-          { key: 'unmatched', label: `Unmatched${unmatchedCount ? ` (${unmatchedCount})` : ''}` },
-          { key: 'printing', label: `Printing${printingCount ? ` (${printingCount})` : ''}` },
-          { key: 'final', label: `Final${finalCount ? ` (${finalCount})` : ''}` },
-        ].map((tab) => (
+        sx={{ px: 2, pb: 1, borderBottom: '1px solid', borderColor: 'divider', flexWrap: 'wrap' }}>
+        {filter !== 'archive' && (
+          <Checkbox
+            size="small"
+            checked={allFilteredSelected}
+            indeterminate={someFilteredSelected && !allFilteredSelected}
+            onChange={toggleSelectAll}
+            disabled={filtered.length === 0}
+            sx={{ p: 0.25, mr: 0.5 }}
+          />
+        )}
+        {tabs.map((tab) => (
           <Button key={tab.key} size="small"
             variant={filter === tab.key ? 'contained' : 'text'}
-            onClick={() => setFilter(tab.key)}
+            onClick={() => { setFilter(tab.key); setSelectedIds(new Set()); }}
+            startIcon={tab.icon ? <ArchiveRoundedIcon sx={{ fontSize: '13px !important' }} /> : undefined}
             sx={{
               fontSize: 11, py: 0.4, px: 1.2, minWidth: 0,
               borderRadius: 5, boxShadow: 'none', textTransform: 'none',
@@ -699,45 +864,69 @@ export default function DesignFilesWidget() {
             {tab.label}
           </Button>
         ))}
+
+        {/* Auto-create temp orders button — only shown in Pending/unmatched tab */}
+        {filter === 'unmatched' && allUnmatched.length > 0 && !loading && (
+          <Tooltip title="Auto-create a placeholder order for every unmatched file so nothing gets lost">
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
+              onClick={() => setAutoTempOpen(true)}
+              sx={{ fontSize: 11, py: 0.4, px: 1.2, minWidth: 0, borderRadius: 5, textTransform: 'none', ml: 'auto' }}
+            >
+              Create Temp Orders ({allUnmatched.length})
+            </Button>
+          </Tooltip>
+        )}
       </Stack>
 
-      {/* File list */}
-      <Box sx={{ px: 1.5, py: 1, maxHeight: 360, overflowY: 'auto' }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 1, py: 0.5 }}
-            action={<Button size="small" onClick={load}>Retry</Button>}>
-            {error}
-          </Alert>
-        )}
+      {/* Archive panel */}
+      {filter === 'archive' ? (
+        <ArchivePanel />
+      ) : (
+        /* File list */
+        <Box sx={{ px: 1.5, py: 1, maxHeight: 360, overflowY: 'auto' }}>
+          {error && (
+            <Alert severity="error" sx={{ mb: 1, py: 0.5 }}
+              action={<Button size="small" onClick={load}>Retry</Button>}>
+              {error}
+            </Alert>
+          )}
 
-        {!loading && !error && filtered.length === 0 && (
-          <Box sx={{ py: 4, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              {filter === 'unmatched'
-                ? 'All files matched to orders.'
-                : filter === 'printing'
-                ? 'No files in Printing folder.'
-                : filter === 'final'
-                ? 'No files in Final folder.'
-                : 'No files found in Drive folder.'}
-            </Typography>
-          </Box>
-        )}
+          {!loading && !error && filtered.length === 0 && (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                {filter === 'unmatched'
+                  ? 'All files matched to orders. '
+                  : filter === 'printing'
+                  ? 'No files in Printing folder.'
+                  : filter === 'final'
+                  ? 'No files in Final folder.'
+                  : 'No files found in Drive folder.'}
+              </Typography>
+              {filter === 'unmatched' && (
+                <Typography variant="caption" color="success.700">No pending files — great!</Typography>
+              )}
+            </Box>
+          )}
 
-        <Stack spacing={0.6}>
-          {filtered.map((file) => (
-            <FileRow
-              key={file.fileId}
-              file={file}
-              checked={selectedIds.has(file.fileId)}
-              onToggle={toggleSelect}
-            />
-          ))}
-        </Stack>
-      </Box>
+          <Stack spacing={0.6}>
+            {filtered.map((file) => (
+              <FileRow
+                key={file.fileId}
+                file={file}
+                checked={selectedIds.has(file.fileId)}
+                onToggle={toggleSelect}
+              />
+            ))}
+          </Stack>
+        </Box>
+      )}
 
       {/* Selection action bar */}
-      {selectedIds.size > 0 && (
+      {selectedIds.size > 0 && filter !== 'archive' && (
         <>
           <Divider />
           <Stack
@@ -773,12 +962,12 @@ export default function DesignFilesWidget() {
       )}
 
       {/* Footer */}
-      {!loading && files.length > 0 && selectedIds.size === 0 && (
+      {!loading && files.length > 0 && selectedIds.size === 0 && filter !== 'archive' && (
         <>
           <Divider />
           <Box sx={{ px: 2, py: 1 }}>
             <Typography variant="caption" color="text.secondary">
-              Auto-matched by order number in filename. Select files to link or create a print bill.
+              Backup files skipped automatically. Auto-matched by order number in filename. Select files to link or create a print bill.
             </Typography>
           </Box>
         </>
@@ -795,6 +984,12 @@ export default function DesignFilesWidget() {
         selectedFiles={selectedFiles}
         onClose={() => setPrintDialogOpen(false)}
         onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+      />
+      <AutoTempDialog
+        open={autoTempOpen}
+        files={allUnmatched}
+        onClose={() => setAutoTempOpen(false)}
+        onSuccess={(msg) => { setToast(msg); setAutoTempOpen(false); load(); }}
       />
       <Snackbar
         open={!!toast}

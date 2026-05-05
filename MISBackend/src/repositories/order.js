@@ -213,6 +213,7 @@ const OrdersSchema = new mongoose.Schema(
       error: { type: String, default: null },
       createdAt: { type: Date, default: null },
     },
+    isTemporary: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

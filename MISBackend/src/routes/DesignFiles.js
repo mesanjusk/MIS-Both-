@@ -631,7 +631,42 @@ router.post('/auto-temp-orders', async (req, res) => {
       results.push({ fileId: file.fileId, orderNumber: orderNum, orderUuid });
     }
 
-    return res.json({ success: true, created: results.length, orders: results });
+    // Attempt Drive rename for each newly created order — errors reported, not swallowed
+    let drive = null;
+    try { drive = await getAuthorizedDriveClient(); } catch (_) { /* Drive unavailable; skip rename */ }
+
+    const renameResults = {};
+    if (drive) {
+      for (const result of results) {
+        const fileMeta = toProcess.find((f) => f.fileId === result.fileId);
+        const currentName = fileMeta?.fileName || '';
+
+        if (alreadyPrefixedWithOrder(currentName, result.orderNumber)) {
+          renameResults[result.fileId] = { status: 'skipped' };
+          continue;
+        }
+
+        const newName = `${result.orderNumber} - ${currentName}`;
+        try {
+          await drive.files.update({
+            fileId: result.fileId,
+            supportsAllDrives: true,
+            requestBody: { name: newName },
+            fields: 'id,name',
+          });
+          await DesignFileLink.updateOne({ driveFileId: result.fileId }, { $set: { fileName: newName } });
+          renameResults[result.fileId] = { status: 'renamed', newName };
+        } catch (renameErr) {
+          logger.warn({ fileId: result.fileId, err: renameErr }, 'design-files/auto-temp-orders: Drive rename failed');
+          renameResults[result.fileId] = {
+            status: 'failed',
+            error: renameErr?.errors?.[0]?.message || renameErr.message || 'Rename failed',
+          };
+        }
+      }
+    }
+
+    return res.json({ success: true, created: results.length, orders: results, renameResults });
   } catch (err) {
     logger.error({ err }, 'design-files/auto-temp-orders error');
     return res.status(500).json({ success: false, message: err.message });

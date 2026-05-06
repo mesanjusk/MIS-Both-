@@ -217,6 +217,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [inputValue, setInputValue] = useState('');
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [quickCreating, setQuickCreating] = useState(false);
   const [error, setError] = useState('');
   const debounceRef = useRef(null);
 
@@ -284,6 +285,51 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
     }
   };
 
+  // Creates a new temp order per selected file, links each one, and renames in Drive
+  const handleQuickCreate = async () => {
+    setQuickCreating(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/auto-temp-orders', {
+        files: selectedFiles.map((f) => ({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          stageNumber: f.stageNumber,
+          stageLabel: f.stageLabel,
+          stageColor: f.stageColor,
+        })),
+      });
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failedCount = Object.values(renameResults).filter((r) => r.status === 'failed').length;
+      const n = res.data.created;
+      const already = selectedFiles.length - n;
+
+      let msg, severity;
+      if (failedCount > 0) {
+        msg = `${n} order${n !== 1 ? 's' : ''} created${already > 0 ? ` (${already} already linked)` : ''} — ${renamed} file${renamed !== 1 ? 's' : ''} renamed, ${failedCount} rename failed. Close the file in CorelDraw and use the Rename button to retry.`;
+        severity = 'warning';
+      } else if (renamed > 0) {
+        msg = `${n} order${n !== 1 ? 's' : ''} created and ${renamed} file${renamed !== 1 ? 's' : ''} renamed${already > 0 ? ` (${already} already linked)` : ''}`;
+        severity = 'success';
+      } else if (n === 0) {
+        msg = 'All selected files already have orders linked';
+        severity = 'info';
+      } else {
+        msg = `${n} order${n !== 1 ? 's' : ''} created — open each to fill in customer details`;
+        severity = 'success';
+      }
+      onSuccess(msg, severity);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create orders');
+    } finally {
+      setQuickCreating(false);
+    }
+  };
+
+  const busy = submitting || quickCreating;
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
@@ -297,6 +343,11 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
         </Typography>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        {/* Option A — link to an existing order */}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+          OPTION A — Link to existing order
+        </Typography>
         <Autocomplete
           options={options}
           value={order}
@@ -306,6 +357,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
           isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
           loading={searching}
+          disabled={busy}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -324,25 +376,42 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
             />
           )}
         />
+
+        <Divider sx={{ my: 2 }}>
+          <Typography variant="caption" color="text.disabled">OR</Typography>
+        </Divider>
+
+        {/* Option B — quick-create a new temp order and rename immediately */}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+          OPTION B — No order yet? Create one instantly
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Creates a temp order for each selected file, links it, and renames the file in Drive right away.
+          Open the order later to add customer details.
+        </Typography>
         <Button
-          size="small"
-          variant="text"
-          href="/orders/new"
-          target="_blank"
-          sx={{ mt: 1, fontSize: '0.75rem' }}
+          fullWidth
+          variant="outlined"
+          color="warning"
+          onClick={handleQuickCreate}
+          disabled={busy}
+          startIcon={quickCreating ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+          sx={{ fontSize: '0.8rem', textTransform: 'none' }}
         >
-          + Create New Order instead
+          {quickCreating
+            ? 'Creating orders & renaming…'
+            : `Quick Create ${selectedFiles.length} Order${selectedFiles.length !== 1 ? 's' : ''} & Rename`}
         </Button>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={!order || submitting}
+          disabled={!order || busy}
           startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
         >
-          Link Files
+          Link to Order
         </Button>
       </DialogActions>
     </Dialog>
@@ -361,7 +430,23 @@ function AutoTempDialog({ open, files, onClose, onSuccess }) {
     setError('');
     try {
       const res = await axios.post('/api/design-files/auto-temp-orders', { files });
-      onSuccess(`Created ${res.data.created} temporary order${res.data.created !== 1 ? 's' : ''} — update them with actual customer details`);
+      const n = res.data.created;
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failedCount = Object.values(renameResults).filter((r) => r.status === 'failed').length;
+
+      let msg, severity;
+      if (failedCount > 0) {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created — ${renamed} file${renamed !== 1 ? 's' : ''} renamed, ${failedCount} rename failed. Close the file in CorelDraw and use the Rename button to retry.`;
+        severity = 'warning';
+      } else if (renamed > 0) {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created and ${renamed} file${renamed !== 1 ? 's' : ''} renamed in Drive — open each order to add customer details`;
+        severity = 'success';
+      } else {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created — open each to add customer details`;
+        severity = 'success';
+      }
+      onSuccess(msg, severity);
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to create temp orders');
@@ -1068,7 +1153,7 @@ export default function DesignFilesWidget() {
         open={autoTempOpen}
         files={allUnmatched}
         onClose={() => setAutoTempOpen(false)}
-        onSuccess={(msg) => { setToast({ message: msg, severity: 'success' }); setAutoTempOpen(false); load(); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
       />
       <Snackbar
         open={!!toast}

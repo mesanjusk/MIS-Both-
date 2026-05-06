@@ -53,7 +53,6 @@ const PAYMENT_ACCOUNTS = [
   'Salary', 'Rent Paid', 'Electricity', 'Repairs & Maintenance',
   'Transport', 'Printing & Stationery', 'Miscellaneous Expense',
 ];
-const ALL_ACCOUNTS = Array.from(new Set([...RECEIPT_ACCOUNTS, ...PAYMENT_ACCOUNTS])).sort();
 
 function statusChip(status) {
   if (status === 'confirmed') return <Chip label="Confirmed" color="success" size="small" />;
@@ -62,12 +61,16 @@ function statusChip(status) {
 }
 
 // --- single entry row with inline account assignment ---
-function EntryRow({ entry, diaryStatus, onUpdate }) {
+function EntryRow({ entry, diaryStatus, onUpdate, customerNames = [] }) {
   const [editing, setEditing] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
   const [saving, setSaving]   = useState(false);
 
-  const dropdownAccounts = entry.direction === 'in' ? RECEIPT_ACCOUNTS : PAYMENT_ACCOUNTS;
+  // For receipts: customers first, then standard income accounts
+  // For payments: standard expense accounts first, then customers (for advance/receivable)
+  const dropdownAccounts = entry.direction === 'in'
+    ? [...customerNames, ...RECEIPT_ACCOUNTS.filter((a) => !customerNames.includes(a))]
+    : [...PAYMENT_ACCOUNTS, ...customerNames.filter((n) => !PAYMENT_ACCOUNTS.includes(n))];
   const isDraft          = diaryStatus !== 'confirmed';
   const isSuggested      = entry.auto_suggested && entry.account_assigned;
 
@@ -239,7 +242,7 @@ function EntryRow({ entry, diaryStatus, onUpdate }) {
 }
 
 // --- section table (cash receipts / cash payments / bank) ---
-function EntrySection({ title, entries, color, diaryStatus, onUpdate }) {
+function EntrySection({ title, entries, color, diaryStatus, onUpdate, customerNames }) {
   if (!entries.length) return null;
   const total = entries.reduce((s, e) => s + (e.entry_status !== 'rejected' ? e.amount : 0), 0);
   return (
@@ -263,7 +266,7 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate }) {
           </TableHead>
           <TableBody>
             {entries.map((e) => (
-              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} />
+              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} customerNames={customerNames} />
             ))}
           </TableBody>
         </Table>
@@ -277,14 +280,15 @@ export default function DayBook() {
   const { uuid: selectedUuid } = useParams();
   const navigate = useNavigate();
 
-  const [diaryList, setDiaryList]   = useState([]);
-  const [diary, setDiary]           = useState(null);
-  const [loading, setLoading]       = useState(false);
+  const [diaryList, setDiaryList]     = useState([]);
+  const [diary, setDiary]             = useState(null);
+  const [loading, setLoading]         = useState(false);
   const [listLoading, setListLoading] = useState(true);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming]   = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
-  const [error, setError]           = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [error, setError]             = useState('');
+  const [successMsg, setSuccessMsg]   = useState('');
+  const [customerNames, setCustomerNames] = useState([]);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -319,6 +323,18 @@ export default function DayBook() {
 
   useEffect(() => { loadList(); }, [loadList]);
   useEffect(() => { if (selectedUuid) loadDiary(selectedUuid); }, [selectedUuid, loadDiary]);
+
+  useEffect(() => {
+    axios.get('/api/customers')
+      .then((res) => {
+        const names = (Array.isArray(res.data?.result) ? res.data.result : [])
+          .map((c) => c.Customer_name)
+          .filter(Boolean)
+          .sort();
+        setCustomerNames(names);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSelectDiary = (uid) => {
     navigate(`${ROUTES.DAY_BOOK}/${uid}`);
@@ -557,6 +573,7 @@ export default function DayBook() {
                   color="success.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
+                  customerNames={customerNames}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
@@ -566,6 +583,7 @@ export default function DayBook() {
                   color="error.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
+                  customerNames={customerNames}
                 />
               </Box>
             </Stack>
@@ -588,6 +606,7 @@ export default function DayBook() {
                   color="info.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
+                  customerNames={customerNames}
                 />
                 <Typography variant="caption" color="text.secondary">
                   These entries will appear in the Bank Book. Upload your bank statement in 2–3 days to auto-match them.

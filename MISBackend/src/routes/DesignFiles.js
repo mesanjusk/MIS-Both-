@@ -140,6 +140,7 @@ async function getOrCreateTempCustomer() {
   return Customers.create({
     Customer_uuid: TEMP_CUSTOMER_UUID,
     Customer_name: 'Temp – Design File',
+    Customer_group: 'Temp',
     Mobile_number: '0000000000',
     Status: 'Active',
   });

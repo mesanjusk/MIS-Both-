@@ -465,40 +465,41 @@ router.post('/link-order', async (req, res) => {
 
     await DesignFileLink.bulkWrite(ops);
 
-    // Attempt Drive rename for each file — errors are reported, not swallowed
-    let drive = null;
-    try { drive = await getAuthorizedDriveClient(); } catch (_) { /* Drive unavailable; skip rename */ }
-
+    // Drive rename — isolated so it can never cause a 500 on the link itself
     const renameResults = {};
-    if (drive) {
-      for (const fileId of fileIds) {
-        const meta = metaMap[fileId] || {};
-        const currentName = meta.fileName || '';
+    try {
+      let drive = null;
+      try { drive = await getAuthorizedDriveClient(); } catch (_) { /* no Drive auth — skip */ }
 
-        if (alreadyPrefixedWithOrder(currentName, order.Order_Number)) {
-          renameResults[fileId] = { status: 'skipped' };
-          continue;
-        }
+      if (drive) {
+        for (const fileId of fileIds) {
+          const meta = metaMap[fileId] || {};
+          const currentName = meta.fileName || '';
 
-        const newName = `${order.Order_Number} - ${currentName}`;
-        try {
-          await drive.files.update({
-            fileId,
-            supportsAllDrives: true,
-            requestBody: { name: newName },
-            fields: 'id,name',
-          });
-          // Update stored fileName to reflect the rename
-          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
-          renameResults[fileId] = { status: 'renamed', newName };
-        } catch (renameErr) {
-          logger.warn({ fileId, err: renameErr }, 'design-files/link-order: Drive rename failed');
-          renameResults[fileId] = {
-            status: 'failed',
-            error: renameErr?.errors?.[0]?.message || renameErr.message || 'Rename failed',
-          };
+          if (alreadyPrefixedWithOrder(currentName, order.Order_Number)) {
+            renameResults[fileId] = { status: 'skipped' };
+            continue;
+          }
+
+          const newName = `${order.Order_Number} - ${currentName}`;
+          try {
+            await drive.files.update({
+              fileId,
+              supportsAllDrives: true,
+              requestBody: { name: newName },
+              fields: 'id,name',
+            });
+            await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+            renameResults[fileId] = { status: 'renamed', newName };
+          } catch (renameErr) {
+            const msg = renameErr?.errors?.[0]?.message || renameErr?.message || 'Rename failed';
+            logger.warn('design-files/link-order: Drive rename failed for %s — %s', fileId, msg);
+            renameResults[fileId] = { status: 'failed', error: msg };
+          }
         }
       }
+    } catch (renameBlockErr) {
+      logger.warn('design-files/link-order: rename block error — %s', renameBlockErr?.message);
     }
 
     return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number, renameResults });
@@ -631,39 +632,41 @@ router.post('/auto-temp-orders', async (req, res) => {
       results.push({ fileId: file.fileId, orderNumber: orderNum, orderUuid });
     }
 
-    // Attempt Drive rename for each newly created order — errors reported, not swallowed
-    let drive = null;
-    try { drive = await getAuthorizedDriveClient(); } catch (_) { /* Drive unavailable; skip rename */ }
-
+    // Drive rename — isolated so it can never cause a 500 on the order creation
     const renameResults = {};
-    if (drive) {
-      for (const result of results) {
-        const fileMeta = toProcess.find((f) => f.fileId === result.fileId);
-        const currentName = fileMeta?.fileName || '';
+    try {
+      let drive = null;
+      try { drive = await getAuthorizedDriveClient(); } catch (_) { /* no Drive auth — skip */ }
 
-        if (alreadyPrefixedWithOrder(currentName, result.orderNumber)) {
-          renameResults[result.fileId] = { status: 'skipped' };
-          continue;
-        }
+      if (drive) {
+        for (const result of results) {
+          const fileMeta = toProcess.find((f) => f.fileId === result.fileId);
+          const currentName = fileMeta?.fileName || '';
 
-        const newName = `${result.orderNumber} - ${currentName}`;
-        try {
-          await drive.files.update({
-            fileId: result.fileId,
-            supportsAllDrives: true,
-            requestBody: { name: newName },
-            fields: 'id,name',
-          });
-          await DesignFileLink.updateOne({ driveFileId: result.fileId }, { $set: { fileName: newName } });
-          renameResults[result.fileId] = { status: 'renamed', newName };
-        } catch (renameErr) {
-          logger.warn({ fileId: result.fileId, err: renameErr }, 'design-files/auto-temp-orders: Drive rename failed');
-          renameResults[result.fileId] = {
-            status: 'failed',
-            error: renameErr?.errors?.[0]?.message || renameErr.message || 'Rename failed',
-          };
+          if (alreadyPrefixedWithOrder(currentName, result.orderNumber)) {
+            renameResults[result.fileId] = { status: 'skipped' };
+            continue;
+          }
+
+          const newName = `${result.orderNumber} - ${currentName}`;
+          try {
+            await drive.files.update({
+              fileId: result.fileId,
+              supportsAllDrives: true,
+              requestBody: { name: newName },
+              fields: 'id,name',
+            });
+            await DesignFileLink.updateOne({ driveFileId: result.fileId }, { $set: { fileName: newName } });
+            renameResults[result.fileId] = { status: 'renamed', newName };
+          } catch (renameErr) {
+            const msg = renameErr?.errors?.[0]?.message || renameErr?.message || 'Rename failed';
+            logger.warn('design-files/auto-temp-orders: Drive rename failed for %s — %s', result.fileId, msg);
+            renameResults[result.fileId] = { status: 'failed', error: msg };
+          }
         }
       }
+    } catch (renameBlockErr) {
+      logger.warn('design-files/auto-temp-orders: rename block error — %s', renameBlockErr?.message);
     }
 
     return res.json({ success: true, created: results.length, orders: results, renameResults });

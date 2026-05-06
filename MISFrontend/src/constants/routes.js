@@ -89,6 +89,9 @@ export const ROUTES = {
   AGING_REPORT: '/reports/aging',
   PURCHASE_ORDERS: '/purchase-orders',
 
+  DIARY_UPLOAD: '/accounts/diary-upload',
+  DAY_BOOK:     '/accounts/day-book',
+
   // legacy aliases still used in old code
   ADD_ORDER: '/addOrder',
   ADD_ORDER_V2: '/addOrder1',

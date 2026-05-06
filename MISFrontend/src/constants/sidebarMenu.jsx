@@ -18,6 +18,8 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -59,6 +61,8 @@ export const SIDEBAR_GROUPS = [
   {
     label: 'Accounts & UPI',
     items: [
+      { label: 'Diary Upload', path: ROUTES.DIARY_UPLOAD, icon: <UploadFileRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Day Book', path: ROUTES.DAY_BOOK, icon: <MenuBookRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Receipt Entry', path: ROUTES.RECEIPT, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Payment Entry', path: ROUTES.PAYMENT, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Quick Payment', path: ROUTES.ADD_PAYMENT, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },

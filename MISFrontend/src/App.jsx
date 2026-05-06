@@ -85,6 +85,8 @@ const AllTransaction2 = lazy(() => import('./Reports/allTransaction2'));
 const AllTransaction3 = lazy(() => import('./Reports/allTransaction3'));
 const AllTransaction4D = lazy(() => import('./Reports/allTransaction4D'));
 const PriorityReport = lazy(() => import('./Reports/priorityReport'));
+const DiaryUpload = lazy(() => import('./Pages/DiaryUpload'));
+const DayBook = lazy(() => import('./Pages/DayBook'));
 
 function RouteLoader() {
   return (
@@ -171,6 +173,9 @@ export default function App() {
             <Route path={ROUTES.BANK_BOOK} element={withSuspense(<BankBook />)} />
             <Route path={ROUTES.TRIAL_BALANCE} element={withSuspense(<TrialBalance />)} />
             <Route path={ROUTES.FOLLOWUPS} element={withSuspense(<PaymentFollowup />)} />
+            <Route path={ROUTES.DIARY_UPLOAD} element={withSuspense(<DiaryUpload />)} />
+            <Route path={`${ROUTES.DAY_BOOK}/:uuid`} element={withSuspense(<DayBook />)} />
+            <Route path={ROUTES.DAY_BOOK} element={withSuspense(<DayBook />)} />
             <Route path={ROUTE_ALIASES.FOLLOWUPS_OLD} element={<Navigate to={ROUTES.FOLLOWUPS} replace />} />
             <Route path={ROUTES.ADD_PAYABLE} element={withSuspense(<AddPayable />)} />
             <Route path={ROUTES.ADD_RECEIVABLE} element={withSuspense(<AddRecievable />)} />

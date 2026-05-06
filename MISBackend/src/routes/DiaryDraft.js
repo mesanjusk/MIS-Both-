@@ -5,6 +5,7 @@ const { v4: uuid } = require('uuid');
 const DiaryDraft = require('../repositories/diaryDraft');
 const Transaction = require('../repositories/transaction');
 const Counter = require('../repositories/counter');
+const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -38,10 +39,17 @@ const PAYMENT_MODE_MAP = { cash: 'Cash', cheque: 'Cheque', upi: 'UPI', neft: 'Ba
 async function suggestAccountsForEntries(entries) {
   if (!entries.length) return entries;
 
-  // Collect unique lookup keys  [ party_lower|direction|book ]
-  const keys = [...new Set(entries.map((e) => `${e.party.toLowerCase()}|${e.direction}|${e.book}`))];
+  // Fetch ledger accounts (Bank and Account group) for name-match suggestions
+  const ledgerDocs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1 }
+  ).lean();
+  const ledgerMap = {};
+  for (const doc of ledgerDocs) {
+    if (doc.Customer_name) ledgerMap[doc.Customer_name.toLowerCase()] = doc.Customer_name;
+  }
 
-  // One aggregation query covering all parties
+  // One aggregation query covering all parties in past confirmed diaries
   const results = await DiaryDraft.aggregate([
     { $match: { status: 'confirmed' } },
     { $unwind: '$entries' },
@@ -81,13 +89,23 @@ async function suggestAccountsForEntries(entries) {
 
   return entries.map((e) => {
     const key = `${e.party.toLowerCase()}|${e.direction}|${e.book}`;
-    const match = bestAccount[key];
-    if (match) {
+    const historyMatch = bestAccount[key];
+    if (historyMatch) {
       return {
         ...e,
-        account_assigned:  match.account,
+        account_assigned:  historyMatch.account,
         auto_suggested:    true,
-        suggestion_source: `used ${match.count}x in past`,
+        suggestion_source: `used ${historyMatch.count}x in past`,
+      };
+    }
+    // Party name exactly matches a ledger account name
+    const nameMatch = ledgerMap[e.party.toLowerCase()];
+    if (nameMatch) {
+      return {
+        ...e,
+        account_assigned:  nameMatch,
+        auto_suggested:    true,
+        suggestion_source: 'party name matches account',
       };
     }
     return e;

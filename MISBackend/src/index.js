@@ -63,6 +63,7 @@ const { getAnalytics } = require("./controllers/whatsappController");
 const { initSocket } = require("./socket");
 const BaileysRouter = require("./routes/Baileys");
 const DiaryDraft = require("./routes/DiaryDraft");
+const BankStatement = require("./routes/BankStatement");
 
 const app = express();
 const server = http.createServer(app);
@@ -123,6 +124,7 @@ app.use("/api/purchaseorder", PurchaseOrder);
 app.use("/api/scheduler", Scheduler);
 app.use("/api/stock", Stock);
 app.use("/api/diary", DiaryDraft);
+app.use("/api/bank-statement", BankStatement);
 app.use("/api/google-drive", googleDriveOAuthRoutes);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);

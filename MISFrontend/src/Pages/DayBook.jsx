@@ -43,16 +43,6 @@ import { ROUTES } from '../constants/routes';
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
-// Common accounts offered in the dropdown
-const RECEIPT_ACCOUNTS = [
-  'Sales', 'Customer Receivable', 'Commission Income', 'Rent Income',
-  'Loan Received', 'Capital Introduced', 'Other Income',
-];
-const PAYMENT_ACCOUNTS = [
-  'Purchase', 'Vendor Payable', 'Petrol / Fuel', 'Telephone / Mobile',
-  'Salary', 'Rent Paid', 'Electricity', 'Repairs & Maintenance',
-  'Transport', 'Printing & Stationery', 'Miscellaneous Expense',
-];
 
 function statusChip(status) {
   if (status === 'confirmed') return <Chip label="Confirmed" color="success" size="small" />;
@@ -61,16 +51,11 @@ function statusChip(status) {
 }
 
 // --- single entry row with inline account assignment ---
-function EntryRow({ entry, diaryStatus, onUpdate, customerNames = [] }) {
+function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
   const [editing, setEditing] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
   const [saving, setSaving]   = useState(false);
 
-  // For receipts: customers first, then standard income accounts
-  // For payments: standard expense accounts first, then customers (for advance/receivable)
-  const dropdownAccounts = entry.direction === 'in'
-    ? [...customerNames, ...RECEIPT_ACCOUNTS.filter((a) => !customerNames.includes(a))]
-    : [...PAYMENT_ACCOUNTS, ...customerNames.filter((n) => !PAYMENT_ACCOUNTS.includes(n))];
   const isDraft          = diaryStatus !== 'confirmed';
   const isSuggested      = entry.auto_suggested && entry.account_assigned;
 
@@ -141,7 +126,7 @@ function EntryRow({ entry, diaryStatus, onUpdate, customerNames = [] }) {
             <Autocomplete
               freeSolo
               size="small"
-              options={dropdownAccounts}
+              options={ledgerAccounts}
               value={acct}
               onInputChange={(_, v) => setAcct(v)}
               onChange={(_, v) => setAcct(v || '')}
@@ -242,7 +227,7 @@ function EntryRow({ entry, diaryStatus, onUpdate, customerNames = [] }) {
 }
 
 // --- section table (cash receipts / cash payments / bank) ---
-function EntrySection({ title, entries, color, diaryStatus, onUpdate, customerNames }) {
+function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAccounts }) {
   if (!entries.length) return null;
   const total = entries.reduce((s, e) => s + (e.entry_status !== 'rejected' ? e.amount : 0), 0);
   return (
@@ -266,7 +251,7 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, customerNa
           </TableHead>
           <TableBody>
             {entries.map((e) => (
-              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} customerNames={customerNames} />
+              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} ledgerAccounts={ledgerAccounts} />
             ))}
           </TableBody>
         </Table>
@@ -288,7 +273,7 @@ export default function DayBook() {
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [error, setError]             = useState('');
   const [successMsg, setSuccessMsg]   = useState('');
-  const [customerNames, setCustomerNames] = useState([]);
+  const [ledgerAccounts, setLedgerAccounts] = useState([]);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -327,11 +312,12 @@ export default function DayBook() {
   useEffect(() => {
     axios.get('/api/customers')
       .then((res) => {
-        const names = (Array.isArray(res.data?.result) ? res.data.result : [])
+        const accounts = (Array.isArray(res.data?.result) ? res.data.result : [])
+          .filter((c) => c.Customer_group === 'Bank and Account')
           .map((c) => c.Customer_name)
           .filter(Boolean)
           .sort();
-        setCustomerNames(names);
+        setLedgerAccounts(accounts);
       })
       .catch(() => {});
   }, []);
@@ -573,7 +559,7 @@ export default function DayBook() {
                   color="success.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
-                  customerNames={customerNames}
+                  ledgerAccounts={ledgerAccounts}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
@@ -583,7 +569,7 @@ export default function DayBook() {
                   color="error.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
-                  customerNames={customerNames}
+                  ledgerAccounts={ledgerAccounts}
                 />
               </Box>
             </Stack>
@@ -606,7 +592,7 @@ export default function DayBook() {
                   color="info.dark"
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
-                  customerNames={customerNames}
+                  ledgerAccounts={ledgerAccounts}
                 />
                 <Typography variant="caption" color="text.secondary">
                   These entries will appear in the Bank Book. Upload your bank statement in 2–3 days to auto-match them.

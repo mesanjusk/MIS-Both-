@@ -30,6 +30,70 @@ const toAmt = (v) => {
 
 const PAYMENT_MODE_MAP = { cash: 'Cash', cheque: 'Cheque', upi: 'UPI', neft: 'Bank', bank: 'Bank' };
 
+// --------------- account suggestion engine ---------------
+
+// For a list of entries, look up past confirmed diary entries and auto-fill
+// account_assigned with the most frequently used account for that party +
+// direction + book combination.
+async function suggestAccountsForEntries(entries) {
+  if (!entries.length) return entries;
+
+  // Collect unique lookup keys  [ party_lower|direction|book ]
+  const keys = [...new Set(entries.map((e) => `${e.party.toLowerCase()}|${e.direction}|${e.book}`))];
+
+  // One aggregation query covering all parties
+  const results = await DiaryDraft.aggregate([
+    { $match: { status: 'confirmed' } },
+    { $unwind: '$entries' },
+    {
+      $match: {
+        'entries.entry_status':     'confirmed',
+        'entries.account_assigned': { $ne: '' },
+        // filter to only parties we care about (case-insensitive)
+        'entries.party': {
+          $in: entries.map((e) => new RegExp(`^${e.party.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
+        },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          party:     { $toLower: '$entries.party' },
+          direction: '$entries.direction',
+          book:      '$entries.book',
+          account:   '$entries.account_assigned',
+        },
+        count:    { $sum: 1 },
+        lastUsed: { $max: '$diary_date' },
+      },
+    },
+    { $sort: { count: -1, lastUsed: -1 } },
+  ]);
+
+  // Build a map  key → best account
+  const bestAccount = {};
+  for (const r of results) {
+    const key = `${r._id.party}|${r._id.direction}|${r._id.book}`;
+    if (!bestAccount[key]) {
+      bestAccount[key] = { account: r._id.account, count: r.count };
+    }
+  }
+
+  return entries.map((e) => {
+    const key = `${e.party.toLowerCase()}|${e.direction}|${e.book}`;
+    const match = bestAccount[key];
+    if (match) {
+      return {
+        ...e,
+        account_assigned:  match.account,
+        auto_suggested:    true,
+        suggestion_source: `used ${match.count}x in past`,
+      };
+    }
+    return e;
+  });
+}
+
 // --------------- routes ---------------
 
 // POST /api/diary/upload-csv
@@ -86,6 +150,9 @@ router.post('/upload-csv', async (req, res) => {
       return res.status(400).json({ success: false, message: 'No valid entries found in CSV' });
     }
 
+    // Auto-suggest accounts from past confirmed diary history
+    const enrichedEntries = await suggestAccountsForEntries(entries);
+
     const dayStart = new Date(dateStr + 'T00:00:00.000Z');
     const dayEnd   = new Date(dateStr + 'T23:59:59.999Z');
     const existing = await DiaryDraft.findOne({ diary_date: { $gte: dayStart, $lte: dayEnd } });
@@ -95,7 +162,7 @@ router.post('/upload-csv', async (req, res) => {
     }
 
     if (existing) {
-      existing.entries          = entries;
+      existing.entries          = enrichedEntries;
       existing.opening_balance  = openingBalance;
       existing.closing_balance  = closingBalance;
       existing.uploaded_by      = uploaded_by;
@@ -111,7 +178,7 @@ router.post('/upload-csv', async (req, res) => {
       uploaded_by,
       opening_balance: openingBalance,
       closing_balance: closingBalance,
-      entries,
+      entries:         enrichedEntries,
     });
     await draft.save();
     return res.status(201).json({ success: true, message: 'Diary draft created', result: draft });
@@ -155,9 +222,14 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     }
 
     const setFields = {};
-    if (account_assigned !== undefined) setFields['entries.$[e].account_assigned'] = account_assigned;
-    if (entry_status     !== undefined) setFields['entries.$[e].entry_status']     = entry_status;
-    if (notes            !== undefined) setFields['entries.$[e].notes']            = notes;
+    if (account_assigned !== undefined) {
+      setFields['entries.$[e].account_assigned'] = account_assigned;
+      // manual override — no longer auto-suggested
+      setFields['entries.$[e].auto_suggested']    = false;
+      setFields['entries.$[e].suggestion_source'] = '';
+    }
+    if (entry_status !== undefined) setFields['entries.$[e].entry_status'] = entry_status;
+    if (notes        !== undefined) setFields['entries.$[e].notes']        = notes;
 
     await DiaryDraft.updateOne(
       { diary_uuid: req.params.uuid },

@@ -10,9 +10,11 @@ const diaryEntrySchema = new mongoose.Schema({
   mode:             { type: String, default: 'cash' },
   checked:          { type: Boolean, default: false },
   notes:            { type: String, default: '' },
-  account_assigned: { type: String, default: '' },
-  entry_status:     { type: String, enum: ['draft', 'confirmed', 'rejected'], default: 'draft' },
-  transaction_uuid: { type: String, default: null },
+  account_assigned:   { type: String, default: '' },
+  auto_suggested:     { type: Boolean, default: false },
+  suggestion_source:  { type: String, default: '' },
+  entry_status:       { type: String, enum: ['draft', 'confirmed', 'rejected'], default: 'draft' },
+  transaction_uuid:   { type: String, default: null },
 });
 
 const DiaryDraftSchema = new mongoose.Schema({

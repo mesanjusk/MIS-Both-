@@ -36,6 +36,7 @@ import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import axios from '../apiClient';
 import { ROUTES } from '../constants/routes';
 
@@ -62,26 +63,31 @@ function statusChip(status) {
 
 // --- single entry row with inline account assignment ---
 function EntryRow({ entry, diaryStatus, onUpdate }) {
-  const [editing, setEditing]   = useState(false);
-  const [acct, setAcct]         = useState(entry.account_assigned || '');
-  const [saving, setSaving]     = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [acct, setAcct]       = useState(entry.account_assigned || '');
+  const [saving, setSaving]   = useState(false);
 
-  const suggestedAccounts = entry.direction === 'in' ? RECEIPT_ACCOUNTS : PAYMENT_ACCOUNTS;
+  const dropdownAccounts = entry.direction === 'in' ? RECEIPT_ACCOUNTS : PAYMENT_ACCOUNTS;
+  const isDraft          = diaryStatus !== 'confirmed';
+  const isSuggested      = entry.auto_suggested && entry.account_assigned;
 
-  const save = async () => {
+  const save = async (overrideAcct) => {
+    const finalAcct = overrideAcct ?? acct;
+    if (!finalAcct) return;
     setSaving(true);
-    await onUpdate(entry.entry_uuid, { account_assigned: acct });
+    await onUpdate(entry.entry_uuid, { account_assigned: finalAcct });
     setSaving(false);
     setEditing(false);
   };
+
+  // Accept the auto-suggested account as-is (confirms it, clears auto_suggested flag)
+  const acceptSuggestion = () => save(entry.account_assigned);
 
   const reject = async () => {
     await onUpdate(entry.entry_uuid, {
       entry_status: entry.entry_status === 'rejected' ? 'draft' : 'rejected',
     });
   };
-
-  const isDraft = diaryStatus !== 'confirmed';
 
   return (
     <TableRow
@@ -92,6 +98,8 @@ function EntryRow({ entry, diaryStatus, onUpdate }) {
           ? 'success.50'
           : entry.entry_status === 'rejected'
           ? 'error.50'
+          : isSuggested
+          ? 'warning.50'
           : 'inherit',
       }}
     >
@@ -124,36 +132,90 @@ function EntryRow({ entry, diaryStatus, onUpdate }) {
       </TableCell>
 
       {/* Account assignment */}
-      <TableCell sx={{ minWidth: 180 }}>
+      <TableCell sx={{ minWidth: 220 }}>
         {editing ? (
           <Stack direction="row" spacing={0.5} alignItems="center">
             <Autocomplete
               freeSolo
               size="small"
-              options={suggestedAccounts}
+              options={dropdownAccounts}
               value={acct}
               onInputChange={(_, v) => setAcct(v)}
               onChange={(_, v) => setAcct(v || '')}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select or type account" sx={{ width: 180 }} />
+                <TextField {...params} placeholder="Select or type account" sx={{ width: 190 }} />
               )}
             />
-            <IconButton size="small" color="success" onClick={save} disabled={saving || !acct}>
+            <IconButton size="small" color="success" onClick={() => save()} disabled={saving || !acct}>
               <CheckCircleRoundedIcon fontSize="small" />
             </IconButton>
-            <IconButton size="small" onClick={() => setEditing(false)}>
+            <IconButton size="small" onClick={() => { setEditing(false); setAcct(entry.account_assigned || ''); }}>
               <CancelRoundedIcon fontSize="small" />
             </IconButton>
           </Stack>
         ) : (
-          <Stack direction="row" alignItems="center" spacing={0.5}>
-            {entry.account_assigned
-              ? <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
-              : isDraft && <Typography variant="caption" color="warning.main">— assign account —</Typography>}
-            {isDraft && entry.entry_status !== 'rejected' && (
-              <IconButton size="small" onClick={() => setEditing(true)}>
-                <EditRoundedIcon fontSize="small" />
-              </IconButton>
+          <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap">
+            {isSuggested ? (
+              // ── Auto-suggested: show amber chip + Accept / Change buttons ──
+              <>
+                <Tooltip title={`Auto-suggested: ${entry.suggestion_source || 'from past entries'}`}>
+                  <Chip
+                    icon={<AutoFixHighRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                    label={entry.account_assigned}
+                    size="small"
+                    color="warning"
+                    variant="filled"
+                    sx={{ fontWeight: 700 }}
+                  />
+                </Tooltip>
+                {isDraft && entry.entry_status !== 'rejected' && (
+                  <>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      onClick={acceptSuggestion}
+                      disabled={saving}
+                      sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: 11, height: 22 }}
+                    >
+                      ✓ Accept
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="warning"
+                      onClick={() => { setAcct(entry.account_assigned || ''); setEditing(true); }}
+                      sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: 11, height: 22 }}
+                    >
+                      Change
+                    </Button>
+                  </>
+                )}
+              </>
+            ) : entry.account_assigned ? (
+              // ── Manually confirmed account ──
+              <>
+                <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
+                {isDraft && entry.entry_status !== 'rejected' && (
+                  <IconButton size="small" onClick={() => { setAcct(entry.account_assigned); setEditing(true); }}>
+                    <EditRoundedIcon fontSize="small" />
+                  </IconButton>
+                )}
+              </>
+            ) : (
+              // ── Nothing assigned yet ──
+              isDraft && entry.entry_status !== 'rejected' && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<EditRoundedIcon sx={{ fontSize: 13 }} />}
+                  onClick={() => setEditing(true)}
+                  sx={{ fontSize: 11, py: 0.25, px: 1 }}
+                >
+                  Assign Account
+                </Button>
+              )
             )}
           </Stack>
         )}
@@ -273,6 +335,17 @@ export default function DayBook() {
     }
   }, [diary]);
 
+  // --- accept all auto-suggestions at once ---
+  const handleAcceptAllSuggestions = useCallback(async () => {
+    if (!diary) return;
+    const pending = (diary.entries || []).filter(
+      (e) => e.auto_suggested && e.account_assigned && e.entry_status !== 'rejected',
+    );
+    for (const e of pending) {
+      await handleUpdateEntry(e.entry_uuid, { account_assigned: e.account_assigned });
+    }
+  }, [diary, handleUpdateEntry]);
+
   // --- confirm all ---
   const handleConfirm = async () => {
     if (!diary) return;
@@ -303,8 +376,9 @@ export default function DayBook() {
   const totalOut = cashOut.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
   const bankTotal = bankEntries.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
 
-  const unassigned = entries.filter((e) => e.entry_status !== 'rejected' && !e.account_assigned).length;
-  const isDraft    = diary?.status !== 'confirmed';
+  const suggestedCount = entries.filter((e) => e.auto_suggested && e.account_assigned && e.entry_status !== 'rejected').length;
+  const unassigned     = entries.filter((e) => e.entry_status !== 'rejected' && !e.account_assigned).length;
+  const isDraft        = diary?.status !== 'confirmed';
 
   const summaryCards = [
     { label: 'Opening Balance', value: diary?.opening_balance, color: 'text.primary' },
@@ -380,7 +454,7 @@ export default function DayBook() {
               Review diary entries, assign accounts, then confirm to post transactions
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} flexWrap="wrap">
             <Button
               variant="outlined"
               startIcon={<AddRoundedIcon />}
@@ -389,6 +463,24 @@ export default function DayBook() {
             >
               Upload New
             </Button>
+            {diary && isDraft && (() => {
+              const suggestedCount = (diary.entries || []).filter(
+                (e) => e.auto_suggested && e.account_assigned && e.entry_status !== 'rejected',
+              ).length;
+              return suggestedCount > 0 ? (
+                <Tooltip title={`Accept all ${suggestedCount} auto-suggested accounts at once`}>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    startIcon={<AutoFixHighRoundedIcon />}
+                    onClick={handleAcceptAllSuggestions}
+                  >
+                    Accept {suggestedCount} Suggestions
+                  </Button>
+                </Tooltip>
+              ) : null;
+            })()}
             {diary && isDraft && (
               <Button
                 variant="contained"
@@ -430,6 +522,12 @@ export default function DayBook() {
             {diary.status === 'confirmed' && (
               <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
                 This day book is confirmed. All transactions have been posted to the ledger.
+              </Alert>
+            )}
+            {isDraft && suggestedCount > 0 && (
+              <Alert severity="warning" icon={<AutoFixHighRoundedIcon />} sx={{ mb: 2, borderRadius: 3 }}>
+                <strong>{suggestedCount} {suggestedCount === 1 ? 'entry has' : 'entries have'} auto-suggested accounts</strong> (shown in amber).
+                Review and click <strong>Accept</strong> on each, or use <strong>Accept {suggestedCount} Suggestions</strong> to approve all at once.
               </Alert>
             )}
             {isDraft && unassigned > 0 && (

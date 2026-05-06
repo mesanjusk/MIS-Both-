@@ -38,7 +38,14 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
+import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import axios from '../../apiClient';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function alreadyPrefixedWithOrder(fileName, orderNumber) {
+  if (!fileName || orderNumber == null) return false;
+  return new RegExp(`^${orderNumber}[\\s\\-_]`).test(String(fileName));
+}
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
 function StageChip({ stageLabel: label, stageColor }) {
@@ -89,10 +96,23 @@ function StageSummaryBar({ summary }) {
 }
 
 // ─── Single file row ──────────────────────────────────────────────────────────
-function FileRow({ file, checked, onToggle }) {
+function FileRow({ file, checked, onToggle, onRename }) {
+  const [renaming, setRenaming] = useState(false);
   const isUnmatched = !file.matched;
   const isPrinting = file.stageNumber === 9;
   const isFinal = file.stageNumber === 8;
+  const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
+
+  const handleRename = async (e) => {
+    e.stopPropagation();
+    if (!onRename || renaming) return;
+    setRenaming(true);
+    try {
+      await onRename(file);
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   return (
     <Stack
@@ -171,6 +191,21 @@ function FileRow({ file, checked, onToggle }) {
           <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.500', flexShrink: 0 }} />
         </Tooltip>
       )}
+
+      {onRename && needsRename && (
+        <Tooltip title={`Rename file to start with Order #${file.orderNumber}`}>
+          <IconButton
+            size="small"
+            onClick={handleRename}
+            disabled={renaming}
+            sx={{ p: 0.25, flexShrink: 0, color: 'text.secondary' }}
+          >
+            {renaming
+              ? <CircularProgress size={12} />
+              : <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 14 }} />}
+          </IconButton>
+        </Tooltip>
+      )}
     </Stack>
   );
 }
@@ -182,6 +217,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [inputValue, setInputValue] = useState('');
   const [searching, setSearching] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [quickCreating, setQuickCreating] = useState(false);
   const [error, setError] = useState('');
   const debounceRef = useRef(null);
 
@@ -211,7 +247,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
     setSubmitting(true);
     setError('');
     try {
-      await axios.post('/api/design-files/link-order', {
+      const res = await axios.post('/api/design-files/link-order', {
         fileIds: selectedFiles.map((f) => f.fileId),
         orderUuid: order.Order_uuid,
         files: selectedFiles.map((f) => ({
@@ -221,7 +257,26 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           stageLabel: f.stageLabel,
         })),
       });
-      onSuccess(`${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`);
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failed = Object.values(renameResults).filter((r) => r.status === 'failed');
+      const n = selectedFiles.length;
+      const plural = n !== 1 ? 's' : '';
+
+      if (failed.length > 0) {
+        const failedNames = selectedFiles
+          .filter((f) => renameResults[f.fileId]?.status === 'failed')
+          .map((f) => f.fileName)
+          .join(', ');
+        onSuccess(
+          `${n} file${plural} linked to Order #${order.Order_Number} — rename failed for: ${failedNames}. Close the file in CorelDraw and use the Rename button to retry.`,
+          'warning'
+        );
+      } else if (renamed > 0) {
+        onSuccess(`${n} file${plural} linked and renamed to Order #${order.Order_Number}`, 'success');
+      } else {
+        onSuccess(`${n} file${plural} linked to Order #${order.Order_Number} (filenames already correct)`, 'success');
+      }
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to link files');
@@ -229,6 +284,51 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
       setSubmitting(false);
     }
   };
+
+  // Creates a new temp order per selected file, links each one, and renames in Drive
+  const handleQuickCreate = async () => {
+    setQuickCreating(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/auto-temp-orders', {
+        files: selectedFiles.map((f) => ({
+          fileId: f.fileId,
+          fileName: f.fileName,
+          stageNumber: f.stageNumber,
+          stageLabel: f.stageLabel,
+          stageColor: f.stageColor,
+        })),
+      });
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failedCount = Object.values(renameResults).filter((r) => r.status === 'failed').length;
+      const n = res.data.created;
+      const already = selectedFiles.length - n;
+
+      let msg, severity;
+      if (failedCount > 0) {
+        msg = `${n} order${n !== 1 ? 's' : ''} created${already > 0 ? ` (${already} already linked)` : ''} — ${renamed} file${renamed !== 1 ? 's' : ''} renamed, ${failedCount} rename failed. Close the file in CorelDraw and use the Rename button to retry.`;
+        severity = 'warning';
+      } else if (renamed > 0) {
+        msg = `${n} order${n !== 1 ? 's' : ''} created and ${renamed} file${renamed !== 1 ? 's' : ''} renamed${already > 0 ? ` (${already} already linked)` : ''}`;
+        severity = 'success';
+      } else if (n === 0) {
+        msg = 'All selected files already have orders linked';
+        severity = 'info';
+      } else {
+        msg = `${n} order${n !== 1 ? 's' : ''} created — open each to fill in customer details`;
+        severity = 'success';
+      }
+      onSuccess(msg, severity);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create orders');
+    } finally {
+      setQuickCreating(false);
+    }
+  };
+
+  const busy = submitting || quickCreating;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -243,6 +343,11 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''} selected
         </Typography>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        {/* Option A — link to an existing order */}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+          OPTION A — Link to existing order
+        </Typography>
         <Autocomplete
           options={options}
           value={order}
@@ -252,6 +357,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
           isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
           loading={searching}
+          disabled={busy}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -270,25 +376,42 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
             />
           )}
         />
+
+        <Divider sx={{ my: 2 }}>
+          <Typography variant="caption" color="text.disabled">OR</Typography>
+        </Divider>
+
+        {/* Option B — quick-create a new temp order and rename immediately */}
+        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+          OPTION B — No order yet? Create one instantly
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Creates a temp order for each selected file, links it, and renames the file in Drive right away.
+          Open the order later to add customer details.
+        </Typography>
         <Button
-          size="small"
-          variant="text"
-          href="/orders/new"
-          target="_blank"
-          sx={{ mt: 1, fontSize: '0.75rem' }}
+          fullWidth
+          variant="outlined"
+          color="warning"
+          onClick={handleQuickCreate}
+          disabled={busy}
+          startIcon={quickCreating ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+          sx={{ fontSize: '0.8rem', textTransform: 'none' }}
         >
-          + Create New Order instead
+          {quickCreating
+            ? 'Creating orders & renaming…'
+            : `Quick Create ${selectedFiles.length} Order${selectedFiles.length !== 1 ? 's' : ''} & Rename`}
         </Button>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={!order || submitting}
+          disabled={!order || busy}
           startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
         >
-          Link Files
+          Link to Order
         </Button>
       </DialogActions>
     </Dialog>
@@ -307,7 +430,23 @@ function AutoTempDialog({ open, files, onClose, onSuccess }) {
     setError('');
     try {
       const res = await axios.post('/api/design-files/auto-temp-orders', { files });
-      onSuccess(`Created ${res.data.created} temporary order${res.data.created !== 1 ? 's' : ''} — update them with actual customer details`);
+      const n = res.data.created;
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failedCount = Object.values(renameResults).filter((r) => r.status === 'failed').length;
+
+      let msg, severity;
+      if (failedCount > 0) {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created — ${renamed} file${renamed !== 1 ? 's' : ''} renamed, ${failedCount} rename failed. Close the file in CorelDraw and use the Rename button to retry.`;
+        severity = 'warning';
+      } else if (renamed > 0) {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created and ${renamed} file${renamed !== 1 ? 's' : ''} renamed in Drive — open each order to add customer details`;
+        severity = 'success';
+      } else {
+        msg = `${n} temp order${n !== 1 ? 's' : ''} created — open each to add customer details`;
+        severity = 'success';
+      }
+      onSuccess(msg, severity);
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to create temp orders');
@@ -678,7 +817,7 @@ export default function DesignFilesWidget() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState(null); // { message, severity }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -710,6 +849,30 @@ export default function DesignFilesWidget() {
       return next;
     });
   }, []);
+
+  const handleRename = useCallback(async (file) => {
+    try {
+      const res = await axios.post('/api/design-files/rename-file', {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        orderNumber: file.orderNumber,
+      });
+      if (res.data?.status === 'renamed') {
+        setToast({ message: `Renamed to "${res.data.newName}"`, severity: 'success' });
+        load();
+      } else if (res.data?.status === 'skipped') {
+        setToast({ message: res.data.message || `Filename already starts with Order #${file.orderNumber}`, severity: 'info' });
+      } else {
+        setToast({
+          message: res.data?.message || `File linked to Order #${file.orderNumber} but rename failed — please close the file in CorelDraw and try again, or rename manually`,
+          severity: 'warning',
+        });
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Rename failed';
+      setToast({ message: msg, severity: 'error' });
+    }
+  }, [load]);
 
   // ── Config missing ────────────────────────────────────────────────────────
   if (configMissing) {
@@ -919,6 +1082,7 @@ export default function DesignFilesWidget() {
                 file={file}
                 checked={selectedIds.has(file.fileId)}
                 onToggle={toggleSelect}
+                onRename={handleRename}
               />
             ))}
           </Stack>
@@ -977,27 +1141,35 @@ export default function DesignFilesWidget() {
         open={linkDialogOpen}
         selectedFiles={selectedFiles}
         onClose={() => setLinkDialogOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setSelectedIds(new Set()); load(); }}
       />
       <PrintJobDialog
         open={printDialogOpen}
         selectedFiles={selectedFiles}
         onClose={() => setPrintDialogOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+        onSuccess={(msg) => { setToast({ message: msg, severity: 'success' }); setSelectedIds(new Set()); load(); }}
       />
       <AutoTempDialog
         open={autoTempOpen}
         files={allUnmatched}
         onClose={() => setAutoTempOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setAutoTempOpen(false); load(); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
       />
       <Snackbar
         open={!!toast}
-        autoHideDuration={4000}
-        onClose={() => setToast('')}
-        message={toast}
+        autoHideDuration={toast?.severity === 'warning' || toast?.severity === 'error' ? 7000 : 4000}
+        onClose={() => setToast(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      />
+      >
+        <Alert
+          onClose={() => setToast(null)}
+          severity={toast?.severity || 'success'}
+          variant="filled"
+          sx={{ width: '100%', fontSize: 13 }}
+        >
+          {toast?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

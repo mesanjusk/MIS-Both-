@@ -159,17 +159,47 @@ async function nextOrderNumber() {
   return Number(updated?.seq || 1);
 }
 
+// ─── New helpers ──────────────────────────────────────────────────────────────
+
+const SUSPENSE_VENDOR_UUID = process.env.SUSPENSE_VENDOR_UUID || 'ffffffff-0000-susp-0000-v3nd0r0000001';
+
+async function getOrCreateSuspenseVendor() {
+  const existing = await VendorMaster.findOne({ Vendor_uuid: SUSPENSE_VENDOR_UUID }).lean();
+  if (existing) return existing;
+  return VendorMaster.create({
+    Vendor_uuid: SUSPENSE_VENDOR_UUID,
+    Vendor_name: 'Suspense Printer',
+    Mobile_number: '0000000000',
+    Vendor_type: 'mixed',
+    Active: true,
+  });
+}
+
+async function nextPrintJobNumber() {
+  const updated = await Counter.findByIdAndUpdate(
+    'print_job_number',
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+  return Number(updated?.seq || 1);
+}
+
+function sanitize(v) {
+  return String(v || '').replace(/[\\/:*?"<>|#%{}~&]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 /**
  * Augment a flat file list with DesignFileLink matches for files that were not
  * auto-matched by filename. Returns the enriched array with `matched` updated.
+ * Also handles draft links (no orderUuid yet) and print job metadata.
  */
-async function applyManualLinks(enriched) {
+async function applyLinks(enriched) {
   const unmatchedIds = enriched.filter((f) => !f.matched).map((f) => f.fileId);
   if (!unmatchedIds.length) return enriched;
 
   const links = await DesignFileLink.find(
     { driveFileId: { $in: unmatchedIds } },
-    { driveFileId: 1, orderUuid: 1, orderNumber: 1 }
+    { driveFileId: 1, orderUuid: 1, orderNumber: 1, linkStatus: 1, customerName: 1, printJobId: 1, printJobNumber: 1 }
   ).lean();
   if (!links.length) return enriched;
 
@@ -177,10 +207,9 @@ async function applyManualLinks(enriched) {
   links.forEach((l) => { linkMap[l.driveFileId] = l; });
 
   const linkedUuids = links.map((l) => l.orderUuid).filter(Boolean);
-  const linkedOrders = await Orders.find(
-    { Order_uuid: { $in: linkedUuids } },
-    { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1 }
-  ).lean();
+  const linkedOrders = linkedUuids.length
+    ? await Orders.find({ Order_uuid: { $in: linkedUuids } }, { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1 }).lean()
+    : [];
   const orderByUuid = {};
   linkedOrders.forEach((o) => { orderByUuid[o.Order_uuid] = o; });
 
@@ -188,6 +217,12 @@ async function applyManualLinks(enriched) {
     if (file.matched) return file;
     const link = linkMap[file.fileId];
     if (!link) return file;
+
+    // Draft — tracked but no order yet
+    if (!link.orderUuid || link.linkStatus === 'draft') {
+      return { ...file, isDraft: true, linkStatus: 'draft', linkedViaLink: true };
+    }
+
     const order = orderByUuid[link.orderUuid];
     if (!order) return file;
     return {
@@ -197,7 +232,10 @@ async function applyManualLinks(enriched) {
       orderNumber: order.Order_Number,
       orderStage: order.stage,
       orderAmount: order.Amount,
+      linkStatus: link.linkStatus || 'confirmed',
       linkedViaManual: true,
+      printJobId: link.printJobId || null,
+      printJobNumber: link.printJobNumber || null,
     };
   });
 }
@@ -275,7 +313,7 @@ router.get('/scan', async (_req, res) => {
     });
 
     // 5. For still-unmatched files, check DesignFileLink (manual links override)
-    enriched = await applyManualLinks(enriched);
+    enriched = await applyLinks(enriched);
 
     // 6. Build summary
     const summary = {
@@ -677,6 +715,355 @@ router.post('/auto-temp-orders', async (req, res) => {
   }
 });
 
+// ─── POST /api/design-files/auto-scan-link ───────────────────────────────────
+/**
+ * Creates a draft DesignFileLink for any file in stages 1-7 that has no existing
+ * link yet. Called automatically from the frontend after every scan.
+ *
+ * Body: { files: [{ fileId, fileName, stageNumber, stageLabel }] }
+ */
+router.post('/auto-scan-link', async (req, res) => {
+  try {
+    const { files = [] } = req.body || {};
+    if (!Array.isArray(files) || !files.length) {
+      return res.json({ success: true, created: 0 });
+    }
+
+    // Only process stages 1–7
+    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 7);
+    if (!eligible.length) {
+      return res.json({ success: true, created: 0 });
+    }
+
+    // Filter out fileIds that already have a DesignFileLink
+    const fileIds = eligible.map((f) => f.fileId);
+    const existingLinks = await DesignFileLink.find(
+      { driveFileId: { $in: fileIds } },
+      { driveFileId: 1 }
+    ).lean();
+    const alreadyLinked = new Set(existingLinks.map((l) => l.driveFileId));
+    const toCreate = eligible.filter((f) => !alreadyLinked.has(f.fileId));
+
+    if (!toCreate.length) {
+      return res.json({ success: true, created: 0 });
+    }
+
+    const ops = toCreate.map((f) => ({
+      updateOne: {
+        filter: { driveFileId: f.fileId },
+        update: {
+          $set: {
+            linkStatus: 'draft',
+            orderUuid: null,
+            orderNumber: null,
+            fileName: f.fileName || null,
+            stageNumber: f.stageNumber || null,
+            stageLabel: f.stageLabel || null,
+            linkedAt: new Date(),
+          },
+        },
+        upsert: true,
+      },
+    }));
+
+    await DesignFileLink.bulkWrite(ops);
+
+    return res.json({ success: true, created: toCreate.length });
+  } catch (err) {
+    logger.error({ err }, 'design-files/auto-scan-link error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/confirm-final ────────────────────────────────────
+/**
+ * Confirms a Final (stage 8) file as a real MIS order.
+ * Creates the order and renames the Drive file.
+ *
+ * Body: { fileId, fileName, customerUuid, itemDetails, mobileNumber }
+ */
+router.post('/confirm-final', async (req, res) => {
+  try {
+    const { fileId, fileName, customerUuid, itemDetails, mobileNumber } = req.body || {};
+
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
+    if (!customerUuid) return res.status(400).json({ success: false, message: 'customerUuid required' });
+    if (!itemDetails) return res.status(400).json({ success: false, message: 'itemDetails required' });
+
+    const customer = await Customers.findOne({ Customer_uuid: customerUuid }).lean();
+    if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+
+    const orderNum = await nextOrderNumber();
+    const orderUuid = uuidv4();
+
+    const order = new Orders({
+      Order_uuid: orderUuid,
+      Order_Number: orderNum,
+      Customer_uuid: customerUuid,
+      orderNote: itemDetails,
+      orderMode: 'note',
+      stage: 'design',
+      priority: 'medium',
+      stageHistory: [{ stage: 'design', timestamp: new Date() }],
+      driveFile: { status: 'skipped' },
+    });
+    await order.save();
+
+    // Build new filename
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx !== -1 ? fileName.slice(dotIdx + 1) : '';
+    const mobile = mobileNumber || customer.Mobile_number || '';
+    const newName = [
+      orderNum,
+      '-',
+      sanitize(customer.Customer_name),
+      '-',
+      sanitize(itemDetails),
+      '-',
+      sanitize(mobile),
+    ].join(' ').replace(/\s+-\s+-\s+/g, ' - ') + (ext ? `.${ext}` : '');
+
+    // Upsert DesignFileLink
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          linkStatus: 'confirmed',
+          orderUuid,
+          orderNumber: orderNum,
+          customerUuid,
+          customerName: customer.Customer_name,
+          fileName: newName,
+          linkedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    // Drive rename — isolated, never fails the confirm
+    let renamed = false;
+    const renameResults = {};
+    try {
+      let drive = null;
+      try { drive = await getAuthorizedDriveClient(); } catch (_) {}
+      if (drive) {
+        try {
+          await drive.files.update({
+            fileId,
+            supportsAllDrives: true,
+            requestBody: { name: newName },
+            fields: 'id,name',
+          });
+          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+          renamed = true;
+          renameResults[fileId] = { status: 'renamed', newName };
+        } catch (renameErr) {
+          logger.warn('design-files/confirm-final: Drive rename failed for %s — %s', fileId, renameErr?.message);
+          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { renameStatus: 'failed' } });
+          renameResults[fileId] = { status: 'failed', error: renameErr?.message };
+        }
+      }
+    } catch (renameBlockErr) {
+      logger.warn('rename block error — %s', renameBlockErr?.message);
+    }
+
+    return res.json({ success: true, orderNumber: orderNum, orderUuid, newName, renamed });
+  } catch (err) {
+    logger.error({ err }, 'design-files/confirm-final error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/auto-print-job ───────────────────────────────────
+/**
+ * Auto-creates purchase orders for Printing (stage 9) files that don't have a
+ * print job yet.
+ *
+ * Body: { files: [{ fileId, fileName, orderUuid, orderNumber, stageNumber }] }
+ */
+router.post('/auto-print-job', async (req, res) => {
+  try {
+    const { files = [] } = req.body || {};
+    if (!Array.isArray(files) || !files.length) {
+      return res.json({ success: true, created: 0, jobs: [] });
+    }
+
+    const fileIds = files.map((f) => f.fileId).filter(Boolean);
+
+    // Filter out files that already have printJobId in DesignFileLink
+    const existingLinks = await DesignFileLink.find(
+      { driveFileId: { $in: fileIds }, printJobId: { $exists: true, $ne: null } },
+      { driveFileId: 1 }
+    ).lean();
+    const alreadyHasJob = new Set(existingLinks.map((l) => l.driveFileId));
+    const toProcess = files.filter((f) => f.fileId && !alreadyHasJob.has(f.fileId));
+
+    if (!toProcess.length) {
+      return res.json({ success: true, created: 0, jobs: [] });
+    }
+
+    const suspenseVendor = await getOrCreateSuspenseVendor();
+    const results = [];
+
+    for (const file of toProcess) {
+      const jobNum = await nextPrintJobNumber();
+      const workUuid = uuidv4();
+      const fileOrderUuid = file.orderUuid || null;
+      const fileOrderNumber = file.orderNumber || null;
+
+      await VendorWork.create({
+        work_uuid: workUuid,
+        Vendor_uuid: suspenseVendor.Vendor_uuid,
+        Vendor_name: suspenseVendor.Vendor_name,
+        Order_uuid: fileOrderUuid,
+        Order_Number: fileOrderNumber,
+        Process: 'printing',
+        Amount: 1,
+        Status: 'draft',
+        Notes: file.fileName || file.fileId,
+      });
+
+      await VendorLedger.create({
+        vendor_uuid: suspenseVendor.Vendor_uuid,
+        vendor_name: suspenseVendor.Vendor_name,
+        entry_type: 'job_bill',
+        dr_cr: 'cr',
+        amount: 1,
+        job_uuid: workUuid,
+        narration: `Print job PJ-${jobNum} — ${file.fileName || file.fileId}`,
+      });
+
+      await DesignFileLink.updateOne(
+        { driveFileId: file.fileId },
+        {
+          $set: {
+            linkStatus: 'printing',
+            printJobId: workUuid,
+            printJobNumber: jobNum,
+          },
+        },
+        { upsert: true }
+      );
+
+      results.push({ fileId: file.fileId, printJobNumber: jobNum, workUuid });
+    }
+
+    return res.json({ success: true, created: results.length, jobs: results });
+  } catch (err) {
+    logger.error({ err }, 'design-files/auto-print-job error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/update-print-job ─────────────────────────────────
+/**
+ * Updates an existing print job with real vendor and amount.
+ *
+ * Body: { printJobId, vendorUuid, amount, notes }
+ */
+router.post('/update-print-job', async (req, res) => {
+  try {
+    const { printJobId, vendorUuid, amount, notes } = req.body || {};
+
+    if (!printJobId) return res.status(400).json({ success: false, message: 'printJobId required' });
+    if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
+    if (amount == null) return res.status(400).json({ success: false, message: 'amount required' });
+
+    const vendor = await VendorMaster.findOne({ Vendor_uuid: vendorUuid }).lean();
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
+
+    const resolvedAmount = Number(amount);
+
+    await VendorWork.updateOne(
+      { work_uuid: printJobId },
+      {
+        $set: {
+          Vendor_uuid: vendor.Vendor_uuid,
+          Vendor_name: vendor.Vendor_name,
+          Amount: resolvedAmount,
+          Notes: notes || undefined,
+          Status: 'draft',
+        },
+      }
+    );
+
+    await VendorLedger.updateOne(
+      { job_uuid: printJobId },
+      {
+        $set: {
+          vendor_uuid: vendor.Vendor_uuid,
+          vendor_name: vendor.Vendor_name,
+          amount: resolvedAmount,
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error({ err }, 'design-files/update-print-job error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/rename-print-file ────────────────────────────────
+/**
+ * Renames a Printing file to "{orderNumber} - {vendorName} - PJ{jobNumber:03d} - {originalName}".
+ *
+ * Body: { fileId, orderNumber, vendorName, printJobNumber, originalFileName }
+ */
+router.post('/rename-print-file', async (req, res) => {
+  try {
+    const { fileId, orderNumber, vendorName, printJobNumber, originalFileName } = req.body || {};
+
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!orderNumber) return res.status(400).json({ success: false, message: 'orderNumber required' });
+    if (!vendorName) return res.status(400).json({ success: false, message: 'vendorName required' });
+    if (printJobNumber == null) return res.status(400).json({ success: false, message: 'printJobNumber required' });
+    if (!originalFileName) return res.status(400).json({ success: false, message: 'originalFileName required' });
+
+    const newName = `${orderNumber} - ${sanitize(vendorName)} - PJ${String(printJobNumber).padStart(3, '0')} - ${sanitize(originalFileName)}`;
+
+    let renamed = false;
+    let status = 'failed';
+    let message = 'Drive rename not attempted';
+
+    const renameResults = {};
+    try {
+      let drive = null;
+      try { drive = await getAuthorizedDriveClient(); } catch (_) {}
+      if (drive) {
+        try {
+          await drive.files.update({
+            fileId,
+            supportsAllDrives: true,
+            requestBody: { name: newName },
+            fields: 'id,name',
+          });
+          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+          renamed = true;
+          status = 'renamed';
+          message = 'File renamed successfully';
+          renameResults[fileId] = { status: 'renamed', newName };
+        } catch (renameErr) {
+          logger.warn('design-files/rename-print-file: Drive rename failed for %s — %s', fileId, renameErr?.message);
+          status = 'failed';
+          message = renameErr?.message || 'Rename failed';
+          renameResults[fileId] = { status: 'failed', error: renameErr?.message };
+        }
+      }
+    } catch (renameBlockErr) {
+      logger.warn('rename block error — %s', renameBlockErr?.message);
+    }
+
+    return res.json({ success: renamed, newName, status, message });
+  } catch (err) {
+    logger.error({ err }, 'design-files/rename-print-file error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ─── GET /api/design-files/scan-archive ──────────────────────────────────────
 /**
  * Scans the month-wise archive root folder (DRIVE_ARCHIVE_FOLDER_ID).
@@ -789,8 +1176,8 @@ router.get('/scan-archive', async (_req, res) => {
       };
     });
 
-    // Apply manual links for still-unmatched
-    enriched = await applyManualLinks(enriched);
+    // Apply links for still-unmatched
+    enriched = await applyLinks(enriched);
 
     const summary = {
       total: enriched.length,

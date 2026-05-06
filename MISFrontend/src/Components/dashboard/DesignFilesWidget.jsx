@@ -39,6 +39,9 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
+import AssignmentTurnedInRoundedIcon from '@mui/icons-material/AssignmentTurnedInRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import axios from '../../apiClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,11 +99,12 @@ function StageSummaryBar({ summary }) {
 }
 
 // ─── Single file row ──────────────────────────────────────────────────────────
-function FileRow({ file, checked, onToggle, onRename }) {
+function FileRow({ file, checked, onToggle, onRename, onConfirm, onEditPrintJob }) {
   const [renaming, setRenaming] = useState(false);
   const isUnmatched = !file.matched;
   const isPrinting = file.stageNumber === 9;
   const isFinal = file.stageNumber === 8;
+  const hasPrintJob = file.printJobNumber != null;
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
 
   const handleRename = async (e) => {
@@ -165,16 +169,31 @@ function FileRow({ file, checked, onToggle, onRename }) {
           >
             {file.fileName}
           </Typography>
+          {file.isDraft && (
+            <Chip label="DRAFT" size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'grey.200', color: 'grey.700', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
+          )}
           {file.isTemporaryOrder && (
             <Chip label="TEMP" size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'warning.100', color: 'warning.800', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }} />
           )}
+          {hasPrintJob && (
+            <Chip
+              label={`PJ-${String(file.printJobNumber).padStart(3, '0')}`}
+              size="small"
+              sx={{ fontSize: 9, height: 16, bgcolor: 'success.100', color: 'success.800', fontWeight: 700, '& .MuiChip-label': { px: 0.75 } }}
+            />
+          )}
         </Stack>
-        {isUnmatched && (
+        {isUnmatched && !file.isDraft && (
           <Typography variant="caption" color="warning.700" sx={{ fontSize: 10 }}>
             Order #{file.extractedOrderNumber || '?'} not found in MIS
           </Typography>
         )}
-        {file.matched && file.orderStage && (
+        {file.isDraft && (
+          <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+            Tracking — no order yet
+          </Typography>
+        )}
+        {file.matched && !file.isDraft && file.orderStage && (
           <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
             MIS stage: {file.orderStage}
             {file.linkedViaManual ? ' (manually linked)' : ''}
@@ -186,9 +205,39 @@ function FileRow({ file, checked, onToggle, onRename }) {
         <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />
       )}
 
-      {file.matched && (
+      {file.matched && !file.isDraft && (
         <Tooltip title={`Matched to Order #${file.orderNumber}`}>
           <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.500', flexShrink: 0 }} />
+        </Tooltip>
+      )}
+
+      {isFinal && onConfirm && (
+        <Tooltip title="Confirm as real MIS order">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onConfirm(file); }}
+            sx={{ p: 0.25, flexShrink: 0, color: 'info.600' }}
+          >
+            <AssignmentTurnedInRoundedIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {isPrinting && hasPrintJob && onEditPrintJob && (
+        <Tooltip title="Update print job vendor & amount">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); onEditPrintJob(file); }}
+            sx={{ p: 0.25, flexShrink: 0, color: 'text.secondary' }}
+          >
+            <EditNoteRoundedIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {isPrinting && !hasPrintJob && (
+        <Tooltip title="Print job pending creation">
+          <ReceiptLongRoundedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
         </Tooltip>
       )}
 
@@ -715,6 +764,267 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   );
 }
 
+// ─── Confirm Final Dialog ─────────────────────────────────────────────────────
+function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
+  const [customer, setCustomer] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [customerInput, setCustomerInput] = useState('');
+  const [itemDetails, setItemDetails] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setCustomer(null); setCustomerInput(''); setItemDetails(''); setMobileNumber(''); setError('');
+      return;
+    }
+    setLoadingCustomers(true);
+    axios.get('/api/customers/GetCustomerList')
+      .then((r) => setCustomers(r.data?.result || []))
+      .catch(() => {})
+      .finally(() => setLoadingCustomers(false));
+  }, [open]);
+
+  const handleSubmit = async () => {
+    if (!customer || !itemDetails.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/confirm-final', {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        customerUuid: customer.Customer_uuid,
+        itemDetails: itemDetails.trim(),
+        mobileNumber: mobileNumber.trim(),
+      });
+      onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed`, 'success');
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to confirm');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const filteredCustomers = customers.filter((c) => {
+    if (!customerInput) return true;
+    const q = customerInput.toLowerCase();
+    return (
+      c.Customer_name?.toLowerCase().includes(q) ||
+      c.Mobile?.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Confirm Final File → Create Order</Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: 12 }}>
+          File: <strong>{file?.fileName}</strong>
+        </Typography>
+
+        <Stack spacing={2}>
+          <Autocomplete
+            options={filteredCustomers}
+            value={customer}
+            onChange={(_, v) => {
+              setCustomer(v);
+              if (v?.Mobile) setMobileNumber(v.Mobile);
+            }}
+            inputValue={customerInput}
+            onInputChange={(_, v) => setCustomerInput(v)}
+            getOptionLabel={(c) => `${c.Customer_name}${c.Mobile ? ` — ${c.Mobile}` : ''}`}
+            isOptionEqualToValue={(a, b) => a.Customer_uuid === b.Customer_uuid}
+            loading={loadingCustomers}
+            disabled={submitting}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Customer *"
+                placeholder="Search by name or mobile…"
+                size="small"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {loadingCustomers ? <CircularProgress size={14} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+          />
+
+          <TextField
+            label="Item Details *"
+            placeholder="e.g. Flex Banner 4x3, Visiting Card 100pcs"
+            value={itemDetails}
+            onChange={(e) => setItemDetails(e.target.value)}
+            size="small"
+            disabled={submitting}
+            multiline
+            minRows={2}
+          />
+
+          <TextField
+            label="Mobile Number"
+            placeholder="Customer mobile (auto-filled from customer)"
+            value={mobileNumber}
+            onChange={(e) => setMobileNumber(e.target.value)}
+            size="small"
+            disabled={submitting}
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleSubmit}
+          disabled={!customer || !itemDetails.trim() || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <AssignmentTurnedInRoundedIcon />}
+        >
+          Confirm & Create Order
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ─── Edit Print Job Dialog ────────────────────────────────────────────────────
+function EditPrintJobDialog({ open, file, onClose, onSuccess }) {
+  const [vendor, setVendor] = useState(null);
+  const [vendors, setVendors] = useState([]);
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loadingVendors, setLoadingVendors] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setVendor(null); setAmount(''); setNotes(''); setError('');
+      return;
+    }
+    setLoadingVendors(true);
+    axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
+      .then((r) => setVendors(r.data?.result || []))
+      .catch(() => {})
+      .finally(() => setLoadingVendors(false));
+  }, [open]);
+
+  const handleSubmit = async () => {
+    if (!vendor || !file?.printJobId) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await axios.post('/api/design-files/update-print-job', {
+        printJobId: file.printJobId,
+        vendorUuid: vendor.Vendor_uuid,
+        amount: Number(amount) || 0,
+        notes,
+      });
+      onSuccess(`Print job PJ-${String(file.printJobNumber).padStart(3, '0')} updated`, 'success');
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to update print job');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>
+            Update Print Job {file?.printJobNumber != null ? `PJ-${String(file.printJobNumber).padStart(3, '0')}` : ''}
+          </Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontSize: 12 }}>
+          File: <strong>{file?.fileName}</strong>
+        </Typography>
+
+        <Stack spacing={2}>
+          <Autocomplete
+            options={vendors}
+            value={vendor}
+            onChange={(_, v) => setVendor(v)}
+            getOptionLabel={(v) => v.Vendor_name}
+            isOptionEqualToValue={(a, b) => a.Vendor_uuid === b.Vendor_uuid}
+            loading={loadingVendors}
+            disabled={submitting}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Printer / Vendor *"
+                size="small"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {loadingVendors ? <CircularProgress size={14} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+          />
+
+          <TextField
+            label="Amount (₹)"
+            type="number"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            size="small"
+            disabled={submitting}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+            }}
+            inputProps={{ min: 0 }}
+          />
+
+          <TextField
+            label="Notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            size="small"
+            disabled={submitting}
+            multiline
+            minRows={2}
+          />
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={!vendor || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
+        >
+          Update Print Job
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // ─── Archive panel ────────────────────────────────────────────────────────────
 function ArchivePanel() {
   const [archiveData, setArchiveData] = useState(null);
@@ -817,6 +1127,8 @@ export default function DesignFilesWidget() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
+  const [confirmFile, setConfirmFile] = useState(null);
+  const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [toast, setToast] = useState(null); // { message, severity }
 
   const load = useCallback(async () => {
@@ -829,6 +1141,34 @@ export default function DesignFilesWidget() {
       const res = await axios.get('/api/design-files/scan');
       setData(res.data);
       setSelectedIds(new Set());
+
+      // Background: create draft links for untracked stage 1-7 files
+      const allFiles = res.data?.files || [];
+      const stage1to7 = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 7);
+      if (stage1to7.length > 0) {
+        axios.post('/api/design-files/auto-scan-link', {
+          files: stage1to7.map((f) => ({
+            fileId: f.fileId,
+            fileName: f.fileName,
+            stageNumber: f.stageNumber,
+            stageLabel: f.stageLabel,
+          })),
+        }).catch(() => {});
+      }
+
+      // Background: create suspense POs for Printing files without jobs
+      const printingWithoutJob = allFiles.filter((f) => f.stageNumber === 9 && !f.printJobId);
+      if (printingWithoutJob.length > 0) {
+        axios.post('/api/design-files/auto-print-job', {
+          files: printingWithoutJob.map((f) => ({
+            fileId: f.fileId,
+            fileName: f.fileName,
+            orderUuid: f.orderUuid || null,
+            orderNumber: f.orderNumber || null,
+            stageNumber: f.stageNumber,
+          })),
+        }).catch(() => {});
+      }
     } catch (err) {
       const msg = err?.response?.data?.message || err.message || '';
       if (err?.response?.data?.reconnectRequired) { setReconnectRequired(true); return; }
@@ -1083,6 +1423,8 @@ export default function DesignFilesWidget() {
                 checked={selectedIds.has(file.fileId)}
                 onToggle={toggleSelect}
                 onRename={handleRename}
+                onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
+                onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
               />
             ))}
           </Stack>
@@ -1154,6 +1496,18 @@ export default function DesignFilesWidget() {
         files={allUnmatched}
         onClose={() => setAutoTempOpen(false)}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
+      />
+      <ConfirmFinalDialog
+        open={!!confirmFile}
+        file={confirmFile}
+        onClose={() => setConfirmFile(null)}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setConfirmFile(null); load(); }}
+      />
+      <EditPrintJobDialog
+        open={!!editPrintJobFile}
+        file={editPrintJobFile}
+        onClose={() => setEditPrintJobFile(null)}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setEditPrintJobFile(null); load(); }}
       />
       <Snackbar
         open={!!toast}

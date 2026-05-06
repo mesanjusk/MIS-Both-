@@ -1,11 +1,13 @@
 /**
  * DesignFileLink.js
  *
- * Stores the one-time manual link between a Google Drive file
- * (in the designer's Daily folder) and an MIS order.
+ * Tracks every Google Drive design file — from first appearance as a draft
+ * through confirmation as a real MIS order and on to the printing stage.
  *
- * Once linked, the system can track which stage/subfolder
- * the file is currently in without any manual input.
+ * Lifecycle:
+ *   draft      → file seen in stage 1-7, no order assigned yet
+ *   confirmed  → office confirmed in Final (stage 8), real order assigned
+ *   printing   → file in stage 9, purchase order created
  */
 
 const mongoose = require('mongoose');
@@ -20,13 +22,13 @@ const DesignFileLinkSchema = new mongoose.Schema(
       index: true,
     },
 
-    // File name at time of linking (may drift if designer renames — that's OK)
+    // File name at time of last update
     fileName: {
       type: String,
       default: null,
     },
 
-    // Stage when linked (stageNumber = subfolder leading digit)
+    // Stage when last seen (stageNumber = subfolder leading digit 1-9)
     stageNumber: {
       type: Number,
       default: null,
@@ -36,10 +38,18 @@ const DesignFileLinkSchema = new mongoose.Schema(
       default: null,
     },
 
-    // MIS order reference
+    // draft | confirmed | printing
+    linkStatus: {
+      type: String,
+      enum: ['draft', 'confirmed', 'printing'],
+      default: 'draft',
+      index: true,
+    },
+
+    // MIS order reference — null until confirmed in Final folder
     orderUuid: {
       type: String,
-      required: true,
+      default: null,
       index: true,
     },
     orderNumber: {
@@ -47,13 +57,27 @@ const DesignFileLinkSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Customer name as known at link time (for display, not matching)
+    // Customer details at confirmation time
+    customerUuid: {
+      type: String,
+      default: null,
+    },
     customerName: {
       type: String,
       default: null,
     },
 
-    // Who linked it and when
+    // Print job reference (set when file enters Printing stage)
+    printJobId: {
+      type: String,
+      default: null,
+    },
+    printJobNumber: {
+      type: Number,
+      default: null,
+    },
+
+    // Who created this link and when
     linkedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Users',
@@ -67,7 +91,7 @@ const DesignFileLinkSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Quickly find all files for an order
 DesignFileLinkSchema.index({ orderUuid: 1 });
+DesignFileLinkSchema.index({ linkStatus: 1 });
 
 module.exports = mongoose.model('DesignFileLink', DesignFileLinkSchema);

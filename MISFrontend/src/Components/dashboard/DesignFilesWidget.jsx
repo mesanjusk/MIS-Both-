@@ -38,7 +38,14 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
+import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import axios from '../../apiClient';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function alreadyPrefixedWithOrder(fileName, orderNumber) {
+  if (!fileName || orderNumber == null) return false;
+  return new RegExp(`^${orderNumber}[\\s\\-_]`).test(String(fileName));
+}
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
 function StageChip({ stageLabel: label, stageColor }) {
@@ -89,10 +96,23 @@ function StageSummaryBar({ summary }) {
 }
 
 // ─── Single file row ──────────────────────────────────────────────────────────
-function FileRow({ file, checked, onToggle }) {
+function FileRow({ file, checked, onToggle, onRename }) {
+  const [renaming, setRenaming] = useState(false);
   const isUnmatched = !file.matched;
   const isPrinting = file.stageNumber === 9;
   const isFinal = file.stageNumber === 8;
+  const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
+
+  const handleRename = async (e) => {
+    e.stopPropagation();
+    if (!onRename || renaming) return;
+    setRenaming(true);
+    try {
+      await onRename(file);
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   return (
     <Stack
@@ -171,6 +191,21 @@ function FileRow({ file, checked, onToggle }) {
           <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.500', flexShrink: 0 }} />
         </Tooltip>
       )}
+
+      {onRename && needsRename && (
+        <Tooltip title={`Rename file to start with Order #${file.orderNumber}`}>
+          <IconButton
+            size="small"
+            onClick={handleRename}
+            disabled={renaming}
+            sx={{ p: 0.25, flexShrink: 0, color: 'text.secondary' }}
+          >
+            {renaming
+              ? <CircularProgress size={12} />
+              : <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 14 }} />}
+          </IconButton>
+        </Tooltip>
+      )}
     </Stack>
   );
 }
@@ -211,7 +246,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
     setSubmitting(true);
     setError('');
     try {
-      await axios.post('/api/design-files/link-order', {
+      const res = await axios.post('/api/design-files/link-order', {
         fileIds: selectedFiles.map((f) => f.fileId),
         orderUuid: order.Order_uuid,
         files: selectedFiles.map((f) => ({
@@ -221,7 +256,26 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
           stageLabel: f.stageLabel,
         })),
       });
-      onSuccess(`${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`);
+      const renameResults = res.data?.renameResults || {};
+      const renamed = Object.values(renameResults).filter((r) => r.status === 'renamed').length;
+      const failed = Object.values(renameResults).filter((r) => r.status === 'failed');
+      const n = selectedFiles.length;
+      const plural = n !== 1 ? 's' : '';
+
+      if (failed.length > 0) {
+        const failedNames = selectedFiles
+          .filter((f) => renameResults[f.fileId]?.status === 'failed')
+          .map((f) => f.fileName)
+          .join(', ');
+        onSuccess(
+          `${n} file${plural} linked to Order #${order.Order_Number} — rename failed for: ${failedNames}. Close the file in CorelDraw and use the Rename button to retry.`,
+          'warning'
+        );
+      } else if (renamed > 0) {
+        onSuccess(`${n} file${plural} linked and renamed to Order #${order.Order_Number}`, 'success');
+      } else {
+        onSuccess(`${n} file${plural} linked to Order #${order.Order_Number} (filenames already correct)`, 'success');
+      }
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to link files');
@@ -678,7 +732,7 @@ export default function DesignFilesWidget() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState(null); // { message, severity }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -710,6 +764,30 @@ export default function DesignFilesWidget() {
       return next;
     });
   }, []);
+
+  const handleRename = useCallback(async (file) => {
+    try {
+      const res = await axios.post('/api/design-files/rename-file', {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        orderNumber: file.orderNumber,
+      });
+      if (res.data?.status === 'renamed') {
+        setToast({ message: `Renamed to "${res.data.newName}"`, severity: 'success' });
+        load();
+      } else if (res.data?.status === 'skipped') {
+        setToast({ message: res.data.message || `Filename already starts with Order #${file.orderNumber}`, severity: 'info' });
+      } else {
+        setToast({
+          message: res.data?.message || `File linked to Order #${file.orderNumber} but rename failed — please close the file in CorelDraw and try again, or rename manually`,
+          severity: 'warning',
+        });
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Rename failed';
+      setToast({ message: msg, severity: 'error' });
+    }
+  }, [load]);
 
   // ── Config missing ────────────────────────────────────────────────────────
   if (configMissing) {
@@ -919,6 +997,7 @@ export default function DesignFilesWidget() {
                 file={file}
                 checked={selectedIds.has(file.fileId)}
                 onToggle={toggleSelect}
+                onRename={handleRename}
               />
             ))}
           </Stack>
@@ -977,27 +1056,35 @@ export default function DesignFilesWidget() {
         open={linkDialogOpen}
         selectedFiles={selectedFiles}
         onClose={() => setLinkDialogOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setSelectedIds(new Set()); load(); }}
       />
       <PrintJobDialog
         open={printDialogOpen}
         selectedFiles={selectedFiles}
         onClose={() => setPrintDialogOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setSelectedIds(new Set()); load(); }}
+        onSuccess={(msg) => { setToast({ message: msg, severity: 'success' }); setSelectedIds(new Set()); load(); }}
       />
       <AutoTempDialog
         open={autoTempOpen}
         files={allUnmatched}
         onClose={() => setAutoTempOpen(false)}
-        onSuccess={(msg) => { setToast(msg); setAutoTempOpen(false); load(); }}
+        onSuccess={(msg) => { setToast({ message: msg, severity: 'success' }); setAutoTempOpen(false); load(); }}
       />
       <Snackbar
         open={!!toast}
-        autoHideDuration={4000}
-        onClose={() => setToast('')}
-        message={toast}
+        autoHideDuration={toast?.severity === 'warning' || toast?.severity === 'error' ? 7000 : 4000}
+        onClose={() => setToast(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      />
+      >
+        <Alert
+          onClose={() => setToast(null)}
+          severity={toast?.severity || 'success'}
+          variant="filled"
+          sx={{ width: '100%', fontSize: 13 }}
+        >
+          {toast?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

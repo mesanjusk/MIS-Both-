@@ -78,6 +78,16 @@ function extractOrderNumber(fileName = '') {
 }
 
 /**
+ * Returns true only if the filename already starts with EXACTLY the given
+ * order number followed by a separator (space, dash, underscore).
+ * Prevents "1534 - file.cdr" from being considered already-prefixed for order #153.
+ */
+function alreadyPrefixedWithOrder(fileName, orderNumber) {
+  if (!fileName || orderNumber == null) return false;
+  return new RegExp(`^${orderNumber}[\\s\\-_]`).test(String(fileName));
+}
+
+/**
  * Returns true for backup/temp files that should never appear in the scan.
  * Patterns:
  *   ~$*           — Office lock files (Word, Excel, CorelDraw)
@@ -432,6 +442,7 @@ router.post('/link-order', async (req, res) => {
     const metaMap = {};
     filesMeta.forEach((f) => { if (f?.fileId) metaMap[f.fileId] = f; });
 
+    // Save link records first — link always succeeds even if rename fails
     const ops = fileIds.map((fileId) => {
       const meta = metaMap[fileId] || {};
       return {
@@ -453,9 +464,102 @@ router.post('/link-order', async (req, res) => {
     });
 
     await DesignFileLink.bulkWrite(ops);
-    return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number });
+
+    // Attempt Drive rename for each file — errors are reported, not swallowed
+    let drive = null;
+    try { drive = await getAuthorizedDriveClient(); } catch (_) { /* Drive unavailable; skip rename */ }
+
+    const renameResults = {};
+    if (drive) {
+      for (const fileId of fileIds) {
+        const meta = metaMap[fileId] || {};
+        const currentName = meta.fileName || '';
+
+        if (alreadyPrefixedWithOrder(currentName, order.Order_Number)) {
+          renameResults[fileId] = { status: 'skipped' };
+          continue;
+        }
+
+        const newName = `${order.Order_Number} - ${currentName}`;
+        try {
+          await drive.files.update({
+            fileId,
+            supportsAllDrives: true,
+            requestBody: { name: newName },
+            fields: 'id,name',
+          });
+          // Update stored fileName to reflect the rename
+          await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+          renameResults[fileId] = { status: 'renamed', newName };
+        } catch (renameErr) {
+          logger.warn({ fileId, err: renameErr }, 'design-files/link-order: Drive rename failed');
+          renameResults[fileId] = {
+            status: 'failed',
+            error: renameErr?.errors?.[0]?.message || renameErr.message || 'Rename failed',
+          };
+        }
+      }
+    }
+
+    return res.json({ success: true, linked: fileIds.length, orderNumber: order.Order_Number, renameResults });
   } catch (err) {
     logger.error({ err }, 'design-files/link-order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/rename-file ──────────────────────────────────────
+/**
+ * Retry just the Drive rename for a single file (e.g. after closing it in CorelDraw).
+ * Body: { fileId, fileName, orderNumber }
+ */
+router.post('/rename-file', async (req, res) => {
+  try {
+    const { fileId, fileName, orderNumber } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
+    if (orderNumber == null) return res.status(400).json({ success: false, message: 'orderNumber required' });
+
+    if (alreadyPrefixedWithOrder(fileName, orderNumber)) {
+      return res.json({ success: true, status: 'skipped', message: `Filename already starts with Order #${orderNumber}` });
+    }
+
+    const newName = `${orderNumber} - ${fileName}`;
+
+    let drive;
+    try {
+      drive = await getAuthorizedDriveClient();
+    } catch (authErr) {
+      if (authErr?.reconnectRequired) {
+        return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+      }
+      throw authErr;
+    }
+
+    try {
+      await drive.files.update({
+        fileId,
+        supportsAllDrives: true,
+        requestBody: { name: newName },
+        fields: 'id,name',
+      });
+    } catch (renameErr) {
+      const msg = renameErr?.errors?.[0]?.message || renameErr.message || 'Rename failed';
+      logger.warn({ fileId, err: renameErr }, 'design-files/rename-file: Drive rename failed');
+      return res.json({
+        success: false,
+        status: 'failed',
+        message: `File linked to Order #${orderNumber} but rename failed — please close the file in CorelDraw and try again, or rename manually`,
+        driveError: msg,
+      });
+    }
+
+    // Update stored fileName
+    await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+
+    return res.json({ success: true, status: 'renamed', newName });
+  } catch (err) {
+    logger.error({ err }, 'design-files/rename-file error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

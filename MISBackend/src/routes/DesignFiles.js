@@ -331,7 +331,14 @@ router.get('/scan', async (_req, res) => {
       };
     });
 
-    return res.json({ success: true, files: enriched, summary });
+    // 7. Stale draft links — draft records whose file is no longer visible in today's Drive scan
+    const currentFileIds = new Set(enriched.map((f) => f.fileId));
+    const staleLinks = await DesignFileLink.find(
+      { linkStatus: 'draft', driveFileId: { $nin: [...currentFileIds] } },
+      { driveFileId: 1, fileName: 1, stageNumber: 1, stageLabel: 1, linkedAt: 1 }
+    ).lean();
+
+    return res.json({ success: true, files: enriched, summary, staleLinks });
   } catch (err) {
     logger.error({ err }, 'design-files/scan error');
     if (err?.reconnectRequired) {
@@ -1066,11 +1073,20 @@ router.post('/rename-print-file', async (req, res) => {
 
 // ─── GET /api/design-files/scan-archive ──────────────────────────────────────
 /**
- * Scans the month-wise archive root folder (DRIVE_ARCHIVE_FOLDER_ID).
- * Finds the subfolder matching the current month (YYYY-MM or month-name year).
- * Falls back to the most recently modified subfolder.
- * Returns all files with match status — highlights unmatched ones.
+ * Scans the month-wise archive folder with 3-level traversal:
+ *   Archive Root → Month Folder → Date Subfolders → Final/Printing Subfolders → Files
+ *
+ * Returns data grouped by date for the frontend to render as collapsible date groups.
  */
+
+/** Identify section type from archive subfolder name (Final / Printing) */
+function archiveSectionStage(name = '') {
+  const lower = name.toLowerCase();
+  if (lower.includes('final')) return 8;
+  if (lower.includes('print')) return 9;
+  return null;
+}
+
 router.get('/scan-archive', async (_req, res) => {
   try {
     const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
@@ -1080,79 +1096,115 @@ router.get('/scan-archive', async (_req, res) => {
 
     const drive = await getAuthorizedDriveClient();
 
-    // Find the current-month subfolder inside the archive root
-    const subfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
+    // 1. Find the current-month subfolder inside the archive root
+    const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
 
     let monthFolder = null;
-    if (subfolders.length) {
+    if (monthSubfolders.length) {
       const now = new Date();
       const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
       const monthName = monthNames[now.getMonth()];
       const year = String(now.getFullYear());
 
-      monthFolder = subfolders.find((f) => {
+      monthFolder = monthSubfolders.find((f) => {
         const n = f.name.toLowerCase().replace(/[/_]/g, '-');
         return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
       });
 
-      // Fallback: most recently modified subfolder
       if (!monthFolder) {
-        monthFolder = [...subfolders].sort(
+        monthFolder = [...monthSubfolders].sort(
           (a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime)
         )[0];
       }
     }
 
     if (!monthFolder) {
-      return res.json({ success: true, files: [], folderName: null, summary: { total: 0, unmatched: 0 } });
+      return res.json({
+        success: true, monthFolderName: null,
+        dates: [], summary: { total: 0, unmatched: 0 },
+      });
     }
 
-    // Scan one level inside the month folder (may contain stage sub-subfolders or flat files)
-    const monthChildren = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
-    const stageFolders = monthChildren
-      .map((f) => ({ ...f, stageNumber: folderStageNumber(f.name) }))
-      .filter((f) => f.stageNumber !== null);
+    // 2. List date subfolders inside the month folder
+    const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
 
-    let allFiles = [];
+    // Sort date folders by name descending (newest date first)
+    dateFolders.sort((a, b) => b.name.localeCompare(a.name));
 
-    if (stageFolders.length) {
-      // Archive folder has stage subfolders (Final, Printing, …)
-      const scans = await Promise.all(
-        stageFolders.map(async (folder) => {
-          const files = await listChildren(drive, folder.id);
-          return files.map((file) => ({
-            fileId: file.id,
-            fileName: file.name,
-            modifiedTime: file.modifiedTime,
-            size: file.size || null,
-            folderName: folder.name,
-            stageNumber: folder.stageNumber,
-            stageLabel: stageLabel(folder.stageNumber),
-            stageColor: stageColor(folder.stageNumber),
-            extractedOrderNumber: extractOrderNumber(file.name),
-          }));
-        })
-      );
-      allFiles = scans.flat();
-    } else {
-      // Flat files directly inside the month folder
-      const flatFiles = await listChildren(drive, monthFolder.id);
-      allFiles = flatFiles.map((file) => ({
-        fileId: file.id,
-        fileName: file.name,
-        modifiedTime: file.modifiedTime,
-        size: file.size || null,
-        folderName: monthFolder.name,
-        stageNumber: null,
-        stageLabel: null,
-        stageColor: null,
-        extractedOrderNumber: extractOrderNumber(file.name),
-      }));
-    }
+    // 3. For each date folder, scan Final/Printing subfolders
+    const allFilesFlat = [];
+    const dateGroups = await Promise.all(
+      dateFolders.map(async (dateFolder) => {
+        const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
 
-    // Batch-match by order number
-    const orderNumbers = [...new Set(allFiles.map((f) => f.extractedOrderNumber).filter(Boolean))];
+        const sections = await Promise.all(
+          sectionFolders.map(async (sectionFolder) => {
+            const sectionStageNum = archiveSectionStage(sectionFolder.name);
+            const files = await listChildren(drive, sectionFolder.id);
+            const mapped = files.map((file) => ({
+              fileId: file.id,
+              fileName: file.name,
+              modifiedTime: file.modifiedTime,
+              size: file.size || null,
+              dateFolderName: dateFolder.name,
+              sectionFolderName: sectionFolder.name,
+              stageNumber: sectionStageNum,
+              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+              extractedOrderNumber: extractOrderNumber(file.name),
+            }));
+            allFilesFlat.push(...mapped);
+            return {
+              sectionName: sectionFolder.name,
+              stageNumber: sectionStageNum,
+              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+              files: mapped,
+            };
+          })
+        );
+
+        // Also handle flat files directly in the date folder (no section subfolder)
+        const flatFiles = (await listChildren(drive, dateFolder.id)).filter(
+          (f) => f.mimeType !== 'application/vnd.google-apps.folder'
+        );
+        const flatMapped = flatFiles.map((file) => ({
+          fileId: file.id,
+          fileName: file.name,
+          modifiedTime: file.modifiedTime,
+          size: file.size || null,
+          dateFolderName: dateFolder.name,
+          sectionFolderName: null,
+          stageNumber: null,
+          stageLabel: null,
+          stageColor: null,
+          extractedOrderNumber: extractOrderNumber(file.name),
+        }));
+        if (flatMapped.length) {
+          allFilesFlat.push(...flatMapped);
+          sections.push({
+            sectionName: 'Other',
+            stageNumber: null,
+            stageLabel: null,
+            stageColor: null,
+            files: flatMapped,
+          });
+        }
+
+        return {
+          dateName: dateFolder.name,
+          dateFolderId: dateFolder.id,
+          sections: sections.filter((s) => s.files.length > 0),
+          fileCount: sections.reduce((s, sec) => s + sec.files.length, 0) + flatMapped.length,
+        };
+      })
+    );
+
+    const activeDates = dateGroups.filter((d) => d.fileCount > 0);
+
+    // 4. Batch-match by order number across all files
+    const orderNumbers = [...new Set(allFilesFlat.map((f) => f.extractedOrderNumber).filter(Boolean))];
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
@@ -1162,7 +1214,7 @@ router.get('/scan-archive', async (_req, res) => {
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
 
-    let enriched = allFiles.map((file) => {
+    function enrichFile(file) {
       const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
       return {
         ...file,
@@ -1172,23 +1224,42 @@ router.get('/scan-archive', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
-        linkedViaManual: false,
       };
-    });
+    }
 
-    // Apply links for still-unmatched
-    enriched = await applyLinks(enriched);
+    // 5. Apply enrichment to the nested structure
+    const enrichedDates = activeDates.map((dateGroup) => ({
+      ...dateGroup,
+      sections: dateGroup.sections.map((section) => ({
+        ...section,
+        files: section.files.map(enrichFile),
+      })),
+    }));
+
+    // Also apply DesignFileLink matches for archive files
+    const allEnrichedFlat = enrichedDates.flatMap((d) => d.sections.flatMap((s) => s.files));
+    const linkedEnrichedFlat = await applyLinks(allEnrichedFlat);
+    const linkedById = {};
+    linkedEnrichedFlat.forEach((f) => { linkedById[f.fileId] = f; });
+
+    const finalDates = enrichedDates.map((dateGroup) => ({
+      ...dateGroup,
+      sections: dateGroup.sections.map((section) => ({
+        ...section,
+        files: section.files.map((f) => linkedById[f.fileId] || f),
+      })),
+    }));
 
     const summary = {
-      total: enriched.length,
-      matched: enriched.filter((f) => f.matched).length,
-      unmatched: enriched.filter((f) => !f.matched).length,
+      total: linkedEnrichedFlat.length,
+      matched: linkedEnrichedFlat.filter((f) => f.matched).length,
+      unmatched: linkedEnrichedFlat.filter((f) => !f.matched).length,
     };
 
     return res.json({
       success: true,
-      files: enriched,
-      folderName: monthFolder.name,
+      monthFolderName: monthFolder.name,
+      dates: finalDates,
       summary,
     });
   } catch (err) {

@@ -1389,8 +1389,8 @@ router.get("/allvendors", async (req, res) => {
       const num = +search;
       match.$or = [
         { Order_Number: Number.isNaN(num) ? -1 : num },
-        { Customer_uuid: new RegExp(search, "i") },
-        { "Items.Remark": new RegExp(search, "i") },
+        { Customer_uuid: new RegExp(escapeRegex(search), "i") },
+        { "Items.Remark": new RegExp(escapeRegex(search), "i") },
       ];
     }
 
@@ -1708,8 +1708,8 @@ router.get("/reports/vendor-missing", async (req, res) => {
       const num = +search;
       match.$or = [
         { Order_Number: Number.isNaN(num) ? -1 : num },
-        { Customer_uuid: new RegExp(search, "i") },
-        { "Items.Remark": new RegExp(search, "i") },
+        { Customer_uuid: new RegExp(escapeRegex(search), "i") },
+        { "Items.Remark": new RegExp(escapeRegex(search), "i") },
       ];
     }
 

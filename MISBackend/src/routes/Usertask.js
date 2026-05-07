@@ -2,9 +2,10 @@ const { requireAuth } = require('../middleware/auth');
 const express = require("express");
 const router = express.Router();
 const Usertasks = require("../repositories/usertask");
+const Counter = require("../repositories/counter");
 const { v4: uuid } = require("uuid");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
-const normalizeWhatsAppNumber = require("../utils/normalizeNumber"); // ✅ New import
+const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
 
 // Add new user task and optionally send WhatsApp message to user
@@ -14,8 +15,12 @@ router.post("/addUsertask", async (req, res) => {
   const { Usertask_name, User, Deadline, Remark } = req.body;
 
   try {
-    const lastUsertask = await Usertasks.findOne().sort({ Usertask_Number: -1 });
-    const newTaskNumber = lastUsertask ? lastUsertask.Usertask_Number + 1 : 1;
+    const taskCounter = await Counter.findByIdAndUpdate(
+      'usertask_number',
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+    const newTaskNumber = Number(taskCounter?.seq || 1);
     const data = await Usertasks.findOne({ Usertask_name });
 
     if (data) {

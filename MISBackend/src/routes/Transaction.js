@@ -164,16 +164,20 @@ router.post("/addTransaction", upload.single("image"), async (req, res) => {
       });
     }
 
-    if (
-      !Array.isArray(Journal_entry) ||
-      !Journal_entry.length ||
-      !Journal_entry[0].Account_id ||
-      !Journal_entry[0].Type ||
-      Journal_entry[0].Amount === undefined
-    ) {
+    if (!Array.isArray(Journal_entry) || !Journal_entry.length) {
       return res.status(400).json({
         success: false,
-        message: "Fields in Journal_entry are required.",
+        message: "Journal_entry must be a non-empty array.",
+      });
+    }
+
+    const badIdx = Journal_entry.findIndex(
+      (e) => !e.Account_id || !e.Type || e.Amount === undefined
+    );
+    if (badIdx !== -1) {
+      return res.status(400).json({
+        success: false,
+        message: `Journal_entry[${badIdx}] is missing Account_id, Type, or Amount.`,
       });
     }
 

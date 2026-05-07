@@ -331,8 +331,8 @@ export default function OrderUpdate({
       });
       toast.success("Stage updated.");
     } catch (error) {
-      console.error("Failed to patch order stage", error);
-      toast.error("Unable to update stage.");
+      const msg = error?.response?.data?.message || "Unable to update stage.";
+      toast.error(msg);
     }
   };
 

@@ -1111,13 +1111,17 @@ const latestStatusProjectionStages = [
 
 router.get("/GetOrderList", async (req, res) => {
   try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "500", 10), 1), 1000);
+    const stage = req.query.stage ? String(req.query.stage).trim() : null;
+
+    const matchStage = { latestTaskLower: { $nin: ["delivered", "cancel", "cancelled"] } };
+    if (stage) matchStage.stage = stage;
+
     const rows = await Orders.aggregate([
       ...latestStatusProjectionStages,
-      {
-        $match: {
-          latestTaskLower: { $nin: ["delivered", "cancel", "cancelled"] },
-        },
-      },
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      { $limit: limit },
     ]);
     res.json({ success: true, result: rows });
   } catch (err) {

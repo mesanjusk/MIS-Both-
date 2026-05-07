@@ -56,6 +56,9 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import axios from '../../apiClient';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -181,7 +184,7 @@ function StatusBadges({ file }) {
 }
 
 // ─── Inline action buttons ────────────────────────────────────────────────────
-function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
+function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
   const [renaming, setRenaming] = useState(false);
   const [creatingPJ, setCreatingPJ] = useState(false);
   if (viewOnly) return null;
@@ -225,6 +228,13 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
           </IconButton>
         </Tooltip>
       )}
+      {file.orderUuid && onRelink && (
+        <Tooltip title={`Change order (currently #${file.orderNumber})`}>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onRelink(file); }} sx={{ color: 'info.main' }}>
+            <SwapHorizRoundedIcon sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
+      )}
       {needsRename && onRename && (
         <Tooltip title={`Rename to start with #${file.orderNumber}`}>
           <IconButton size="small" onClick={handleRename} disabled={renaming} sx={{ color: 'text.secondary' }}>
@@ -237,7 +247,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // ─── List row ─────────────────────────────────────────────────────────────────
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
 
   return (
@@ -297,14 +307,14 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
       <Stack direction="row" spacing={0.4} alignItems="center" sx={{ flexShrink: 0 }}>
         {file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
         <StatusBadges file={file} />
-        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
+        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} viewOnly={viewOnly} />
       </Stack>
     </Stack>
   );
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
 
   return (
@@ -373,7 +383,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
 
       {!viewOnly && (
         <CardActions sx={{ pt: 0, pb: 0.5, px: 0.75, justifyContent: 'flex-end', borderTop: '1px solid', borderColor: 'divider' }}>
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} viewOnly={viewOnly} />
         </CardActions>
       )}
     </Card>
@@ -406,30 +416,69 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
   const [customer, setCustomer] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customerInput, setCustomerInput] = useState('');
-  const [itemDetails, setItemDetails] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
-  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [orderMode, setOrderMode] = useState('note');
+  const [noteText, setNoteText] = useState('');
+  const [items, setItems] = useState([{ itemName: '', qty: 1, rate: '', amount: '' }]);
+  const [itemOptions, setItemOptions] = useState([]);
+  const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!open) { setCustomer(null); setCustomerInput(''); setItemDetails(''); setMobileNumber(''); setError(''); return; }
-    setLoadingCustomers(true);
-    axios.get('/api/customers/GetCustomerList')
-      .then((r) => setCustomers(r.data?.result || []))
+    if (!open) {
+      setCustomer(null); setCustomerInput(''); setMobileNumber('');
+      setOrderMode('note'); setError('');
+      setItems([{ itemName: '', qty: 1, rate: '', amount: '' }]);
+      return;
+    }
+    setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
+    setLoadingData(true);
+    Promise.all([
+      axios.get('/api/customers/GetCustomerList'),
+      axios.get('/api/items/GetItemList'),
+    ])
+      .then(([custRes, itemRes]) => {
+        setCustomers(custRes.data?.result || []);
+        setItemOptions(itemRes.data?.result || []);
+      })
       .catch(() => {})
-      .finally(() => setLoadingCustomers(false));
-  }, [open]);
+      .finally(() => setLoadingData(false));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addItemRow = () => setItems((prev) => [...prev, { itemName: '', qty: 1, rate: '', amount: '' }]);
+  const removeItemRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+  const updateItem = (i, field, value) => {
+    setItems((prev) => prev.map((row, idx) => {
+      if (idx !== i) return row;
+      const updated = { ...row, [field]: value };
+      if (field === 'qty' || field === 'rate') {
+        const qty = parseFloat(field === 'qty' ? value : row.qty) || 0;
+        const rate = parseFloat(field === 'rate' ? value : row.rate) || 0;
+        updated.amount = qty && rate ? String(qty * rate) : '';
+      }
+      return updated;
+    }));
+  };
+
+  const total = items.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
   const handleSubmit = async () => {
-    if (!customer || !itemDetails.trim()) return;
+    if (!customer) return;
+    const isDetailed = orderMode === 'items';
+    if (!isDetailed && !noteText.trim()) return;
+    if (isDetailed && !items.some((r) => r.itemName.trim())) return;
     setSubmitting(true); setError('');
     try {
       const res = await axios.post('/api/design-files/confirm-final', {
         fileId: file.fileId, fileName: file.fileName,
         customerUuid: customer.Customer_uuid,
-        itemDetails: itemDetails.trim(),
+        itemDetails: isDetailed ? '' : noteText.trim(),
         mobileNumber: mobileNumber.trim(),
+        orderMode: isDetailed ? 'items' : 'note',
+        items: isDetailed
+          ? items.map((r) => ({ itemName: r.itemName, qty: parseFloat(r.qty) || 1, rate: parseFloat(r.rate) || 0, amount: parseFloat(r.amount) || 0 }))
+          : [],
       });
       onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed`, 'success');
       onClose();
@@ -444,8 +493,12 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
     return c.Customer_name?.toLowerCase().includes(q) || c.Mobile?.toLowerCase().includes(q);
   });
 
+  const canSubmit = customer && !submitting && (
+    orderMode === 'note' ? noteText.trim() : items.some((r) => r.itemName.trim())
+  );
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Typography fontWeight={700}>Confirm Final File → Create Order</Typography>
@@ -458,33 +511,126 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
           File: <strong>{file?.fileName}</strong>
         </Typography>
         <Stack spacing={2}>
-          <Autocomplete
-            options={filteredCustomers} value={customer}
-            onChange={(_, v) => { setCustomer(v); if (v?.Mobile) setMobileNumber(v.Mobile); }}
-            inputValue={customerInput} onInputChange={(_, v) => setCustomerInput(v)}
-            getOptionLabel={(c) => `${c.Customer_name}${c.Mobile ? ` — ${c.Mobile}` : ''}`}
-            isOptionEqualToValue={(a, b) => a.Customer_uuid === b.Customer_uuid}
-            loading={loadingCustomers} disabled={submitting}
-            renderInput={(params) => (
-              <TextField {...params} label="Customer *" placeholder="Search by name or mobile…" size="small"
-                InputProps={{ ...params.InputProps, endAdornment: <>{loadingCustomers ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
-              />
-            )}
-          />
-          <TextField label="Item Details *" placeholder="e.g. Flex Banner 4x3, Visiting Card 100pcs"
-            value={itemDetails} onChange={(e) => setItemDetails(e.target.value)}
-            size="small" disabled={submitting} multiline minRows={2}
-          />
-          <TextField label="Mobile Number" placeholder="Auto-filled from customer"
-            value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)}
-            size="small" disabled={submitting}
-          />
+          <Stack direction="row" spacing={2}>
+            <Autocomplete
+              sx={{ flex: 1 }}
+              options={filteredCustomers} value={customer}
+              onChange={(_, v) => { setCustomer(v); if (v?.Mobile) setMobileNumber(v.Mobile); }}
+              inputValue={customerInput} onInputChange={(_, v) => setCustomerInput(v)}
+              getOptionLabel={(c) => `${c.Customer_name}${c.Mobile ? ` — ${c.Mobile}` : ''}`}
+              isOptionEqualToValue={(a, b) => a.Customer_uuid === b.Customer_uuid}
+              loading={loadingData} disabled={submitting}
+              renderInput={(params) => (
+                <TextField {...params} label="Customer *" placeholder="Search by name or mobile…" size="small"
+                  InputProps={{ ...params.InputProps, endAdornment: <>{loadingData ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
+                />
+              )}
+            />
+            <TextField label="Mobile Number" value={mobileNumber}
+              onChange={(e) => setMobileNumber(e.target.value)}
+              size="small" disabled={submitting} sx={{ width: 160 }}
+            />
+          </Stack>
+
+          {/* Order type toggle */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>Order type:</Typography>
+            <Button size="small" variant={orderMode === 'note' ? 'contained' : 'outlined'}
+              onClick={() => setOrderMode('note')} disabled={submitting}
+              sx={{ fontSize: 11, py: 0.3, px: 1, minHeight: 26 }}
+            >Simple Note</Button>
+            <Button size="small" variant={orderMode === 'items' ? 'contained' : 'outlined'}
+              onClick={() => setOrderMode('items')} disabled={submitting}
+              sx={{ fontSize: 11, py: 0.3, px: 1, minHeight: 26 }}
+            >Detailed Items</Button>
+          </Stack>
+
+          {orderMode === 'note' ? (
+            <TextField label="Description / Item Details *"
+              value={noteText} onChange={(e) => setNoteText(e.target.value)}
+              size="small" disabled={submitting} multiline minRows={2}
+              placeholder="e.g. Flex Banner 4x3, Visiting Card 100pcs"
+            />
+          ) : (
+            <Box>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Item Name *</TableCell>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 70 }}>Qty</TableCell>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Rate (₹)</TableCell>
+                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Amount (₹)</TableCell>
+                    <TableCell sx={{ width: 32 }} />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map((row, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <Autocomplete
+                          freeSolo
+                          options={itemOptions}
+                          value={row.itemName}
+                          onChange={(_, v) => updateItem(i, 'itemName', typeof v === 'string' ? v : v?.Item_name || '')}
+                          onInputChange={(_, v) => updateItem(i, 'itemName', v)}
+                          getOptionLabel={(o) => (typeof o === 'string' ? o : o?.Item_name || '')}
+                          disabled={submitting}
+                          renderInput={(params) => (
+                            <TextField {...params} size="small" placeholder="Item name…"
+                              inputProps={{ ...params.inputProps, style: { fontSize: 11, padding: '3px 6px' } }}
+                            />
+                          )}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField size="small" type="number" value={row.qty}
+                          onChange={(e) => updateItem(i, 'qty', e.target.value)}
+                          disabled={submitting} inputProps={{ min: 1, style: { fontSize: 11, padding: '3px 6px' } }}
+                          sx={{ width: 60 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField size="small" type="number" value={row.rate}
+                          onChange={(e) => updateItem(i, 'rate', e.target.value)}
+                          disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
+                          sx={{ width: 80 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <TextField size="small" type="number" value={row.amount}
+                          onChange={(e) => updateItem(i, 'amount', e.target.value)}
+                          disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
+                          sx={{ width: 80 }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ p: 0.25 }}>
+                        {items.length > 1 && (
+                          <IconButton size="small" onClick={() => removeItemRow(i)} disabled={submitting} sx={{ color: 'error.main', p: 0.25 }}>
+                            <DeleteRoundedIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow>
+                    <TableCell colSpan={3} sx={{ fontSize: 12, fontWeight: 700, textAlign: 'right', borderBottom: 'none' }}>Total</TableCell>
+                    <TableCell sx={{ fontSize: 12, fontWeight: 700, borderBottom: 'none' }}>₹{total.toFixed(2)}</TableCell>
+                    <TableCell sx={{ borderBottom: 'none' }} />
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <Button size="small" startIcon={<AddRoundedIcon />} onClick={addItemRow} disabled={submitting}
+                sx={{ mt: 0.5, fontSize: 11 }}>
+                Add Item
+              </Button>
+            </Box>
+          )}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" color="success" onClick={handleSubmit}
-          disabled={!customer || !itemDetails.trim() || submitting}
+          disabled={!canSubmit}
           startIcon={submitting ? <CircularProgress size={14} /> : <AssignmentTurnedInRoundedIcon />}
         >
           Confirm & Create Order
@@ -661,7 +807,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
         <Autocomplete
           options={options} value={order} onChange={(_, v) => setOrder(v)}
           inputValue={inputValue} onInputChange={(_, v) => setInputValue(v)}
-          getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
+          getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''}${o.customerName ? ` — ${o.customerName}` : ''} — ${o.orderNote || '(no note)'}`}
           isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
           loading={searching} disabled={submitting}
           renderInput={(params) => (
@@ -786,7 +932,12 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
 
   useEffect(() => {
     if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); return; }
-    setRows(selectedFiles.map((f) => ({ fileId: f.fileId, fileName: f.fileName, qty: 1, rate: '', amount: '' })));
+    setRows(selectedFiles.map((f) => ({
+      fileId: f.fileId,
+      fileName: f.fileName,
+      itemName: (f.fileName || '').replace(/\.[^.]+$/, ''),
+      qty: 1, rate: '', amount: '',
+    })));
     setLoadingVendors(true);
     axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
       .then((r) => setVendors(r.data?.result || []))
@@ -828,7 +979,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
         orderUuid: order?.Order_uuid || null,
         vendorUuid: vendor.Vendor_uuid,
         files: rows.map((r) => ({
-          fileId: r.fileId, fileName: r.fileName,
+          fileId: r.fileId, fileName: r.fileName, itemName: r.itemName || r.fileName,
           qty: parseFloat(r.qty) || 1,
           rate: parseFloat(r.rate) || 0,
           amount: parseFloat(r.amount) || 0,
@@ -859,7 +1010,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
               sx={{ flex: 1 }}
               options={options} value={order} onChange={(_, v) => setOrder(v)}
               inputValue={inputValue} onInputChange={(_, v) => setInputValue(v)}
-              getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
+              getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''}${o.customerName ? ` — ${o.customerName}` : ''} — ${o.orderNote || '(no note)'}`}
               isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
               loading={searching} disabled={submitting}
               renderInput={(params) => (
@@ -885,43 +1036,51 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>File</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 70 }}>Qty</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Rate (₹)</TableCell>
-                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Amount (₹)</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 130 }}>File</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Item Name</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 65 }}>Qty</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 85 }}>Rate (₹)</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 85 }}>Amount (₹)</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.fileId}>
-                  <TableCell sx={{ fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.fileName}>
+                  <TableCell sx={{ fontSize: 10, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.secondary' }} title={r.fileName}>
                     {r.fileName}
+                  </TableCell>
+                  <TableCell>
+                    <TextField size="small" value={r.itemName}
+                      onChange={(e) => updateRow(r.fileId, 'itemName', e.target.value)}
+                      disabled={submitting} inputProps={{ style: { fontSize: 11, padding: '3px 6px' } }}
+                      sx={{ width: '100%', minWidth: 100 }}
+                    />
                   </TableCell>
                   <TableCell>
                     <TextField size="small" type="number" value={r.qty}
                       onChange={(e) => updateRow(r.fileId, 'qty', e.target.value)}
                       disabled={submitting} inputProps={{ min: 1, style: { fontSize: 11, padding: '3px 6px' } }}
-                      sx={{ width: 60 }}
+                      sx={{ width: 55 }}
                     />
                   </TableCell>
                   <TableCell>
                     <TextField size="small" type="number" value={r.rate}
                       onChange={(e) => updateRow(r.fileId, 'rate', e.target.value)}
                       disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
-                      sx={{ width: 80 }}
+                      sx={{ width: 75 }}
                     />
                   </TableCell>
                   <TableCell>
                     <TextField size="small" type="number" value={r.amount}
                       onChange={(e) => updateRow(r.fileId, 'amount', e.target.value)}
                       disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
-                      sx={{ width: 80 }}
+                      sx={{ width: 75 }}
                     />
                   </TableCell>
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={3} sx={{ fontSize: 12, fontWeight: 700, textAlign: 'right', borderBottom: 'none' }}>Total</TableCell>
+                <TableCell colSpan={4} sx={{ fontSize: 12, fontWeight: 700, textAlign: 'right', borderBottom: 'none' }}>Total</TableCell>
                 <TableCell sx={{ fontSize: 12, fontWeight: 700, borderBottom: 'none' }}>₹{total.toFixed(2)}</TableCell>
               </TableRow>
             </TableBody>
@@ -942,7 +1101,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob }) {
+function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 8 || section.stageNumber === 9;
@@ -967,9 +1126,12 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
               key={file.fileId}
               file={file}
               viewOnly={!isActionable}
+              checked={isActionable && selectedIds?.has(file.fileId)}
+              onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
               onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
               onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
               onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+              onRelink={isActionable ? onRelink : undefined}
             />
           ))}
         </Stack>
@@ -978,7 +1140,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -995,7 +1157,10 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
       <Collapse in={expanded}>
         <Stack spacing={0.6} sx={{ px: 1, pt: 0.6 }}>
           {dateGroup.sections.map((section, i) => (
-            <ArchiveDateSection key={i} section={section} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} />
+            <ArchiveDateSection key={i} section={section}
+              onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
+              selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink}
+            />
           ))}
         </Stack>
       </Collapse>
@@ -1009,16 +1174,47 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
 
+  // Selection state — map of fileId → full file object
+  const [selectedMap, setSelectedMap] = useState({});
+  // Archive-internal dialogs
+  const [relinkFile, setRelinkFile] = useState(null);
+  const [archiveLinkOpen, setArchiveLinkOpen] = useState(false);
+  const [archivePrintJobOpen, setArchivePrintJobOpen] = useState(false);
+  const [archiveTempOpen, setArchiveTempOpen] = useState(false);
+  const [archiveToast, setArchiveToast] = useState(null);
+
   const loadArchive = useCallback(async () => {
     setLoading(true); setError('');
     try {
       const res = await axios.get('/api/design-files/scan-archive');
       setArchiveData(res.data);
       setLoaded(true);
+      setSelectedMap({});
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
   }, []);
+
+  const toggleSelect = useCallback((file) => {
+    setSelectedMap((prev) => {
+      const next = { ...prev };
+      if (next[file.fileId]) delete next[file.fileId];
+      else next[file.fileId] = file;
+      return next;
+    });
+  }, []);
+
+  const selectedFiles = Object.values(selectedMap);
+  const selectedIds = new Set(Object.keys(selectedMap));
+
+  const allFiles = archiveData?.dates?.flatMap((d) => d.sections.flatMap((s) => s.files)) || [];
+  const unmatchedFiles = allFiles.filter((f) => !f.matched && !f.isDraft);
+
+  const exportArchiveCSV = (selectedOnly = false) => {
+    const rows = selectedOnly ? selectedFiles : allFiles;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    triggerDownload(buildCSV(rows), `archive-${dateStr}.csv`, 'text/csv');
+  };
 
   if (!loaded && !loading) {
     return (
@@ -1040,36 +1236,143 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
   const { monthFolderName, dates = [], summary } = archiveData || {};
 
   return (
-    <Box>
-      <Stack direction="row" alignItems="center" sx={{ px: 1.5, pb: 0.75 }} spacing={1}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Archive header */}
+      <Stack direction="row" alignItems="center" sx={{ px: 1.5, pb: 0.75, flexShrink: 0 }} spacing={1} flexWrap="wrap">
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
           <strong>{monthFolderName || '—'}</strong>
           {summary && ` · ${summary.total} files · ${summary.unmatched} unmatched`}
         </Typography>
+        {unmatchedFiles.length > 0 && (
+          <Button size="small" variant="outlined" color="warning"
+            startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
+            onClick={() => setArchiveTempOpen(true)}
+            sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+          >
+            Create Temp ({unmatchedFiles.length})
+          </Button>
+        )}
+        {allFiles.length > 0 && (
+          <>
+            <Tooltip title="Export all to CSV">
+              <IconButton size="small" onClick={() => exportArchiveCSV(false)} sx={{ p: 0.4, color: 'text.secondary' }}>
+                <FileDownloadRoundedIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Print archive list">
+              <IconButton size="small" onClick={() => openPrintWindow(allFiles, 'Archive')} sx={{ p: 0.4, color: 'text.secondary' }}>
+                <PrintRoundedIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
         <Tooltip title="Refresh archive">
-          <IconButton size="small" onClick={loadArchive} disabled={loading}>
+          <IconButton size="small" onClick={loadArchive} disabled={loading} sx={{ p: 0.4 }}>
             <RefreshRoundedIcon sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>
       </Stack>
 
-      {dates.length === 0 ? (
-        <Box sx={{ py: 3, textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
-        </Box>
-      ) : (
-        <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
-          {dates.map((dateGroup) => (
-            <ArchiveDateGroup
-              key={dateGroup.dateFolderId}
-              dateGroup={dateGroup}
-              onConfirm={onConfirm}
-              onCreatePrintJob={onCreatePrintJob}
-              onEditPrintJob={onEditPrintJob}
-            />
-          ))}
-        </Stack>
+      {/* Date groups */}
+      <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        {dates.length === 0 ? (
+          <Box sx={{ py: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
+          </Box>
+        ) : (
+          <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
+            {dates.map((dateGroup) => (
+              <ArchiveDateGroup
+                key={dateGroup.dateFolderId}
+                dateGroup={dateGroup}
+                onConfirm={onConfirm}
+                onCreatePrintJob={onCreatePrintJob}
+                onEditPrintJob={onEditPrintJob}
+                selectedIds={selectedIds}
+                onToggle={toggleSelect}
+                onRelink={(file) => setRelinkFile(file)}
+              />
+            ))}
+          </Stack>
+        )}
+      </Box>
+
+      {/* Selection action bar */}
+      {selectedFiles.length > 0 && (
+        <>
+          <Divider />
+          <Stack
+            direction="row" alignItems="center" spacing={0.75}
+            sx={{ px: 1.5, py: 0.65, bgcolor: 'primary.50', flexWrap: 'wrap', gap: 0.75, flexShrink: 0 }}
+          >
+            <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ flex: 1, fontSize: 12 }}>
+              {selectedFiles.length} selected
+            </Typography>
+            <Button size="small" variant="outlined"
+              startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
+              onClick={() => setArchiveLinkOpen(true)}
+              sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+            >Link to Order</Button>
+            {selectedFiles.some((f) => f.stageNumber === 9) && (
+              <Button size="small" variant="outlined" color="error"
+                startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                onClick={() => setArchivePrintJobOpen(true)}
+                sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+              >Create Print Bill</Button>
+            )}
+            <Tooltip title="Export selected to CSV">
+              <IconButton size="small" onClick={() => exportArchiveCSV(true)} sx={{ p: 0.35, color: 'primary.main' }}>
+                <FileDownloadRoundedIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Print selected">
+              <IconButton size="small" onClick={() => openPrintWindow(selectedFiles, 'Archive')} sx={{ p: 0.35, color: 'primary.main' }}>
+                <PrintRoundedIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+            <IconButton size="small" onClick={() => setSelectedMap({})} sx={{ p: 0.35 }}>
+              <CloseRoundedIcon sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Stack>
+        </>
       )}
+
+      {/* Archive-internal dialogs */}
+      <LinkOrderDialog
+        open={archiveLinkOpen || !!relinkFile}
+        selectedFiles={relinkFile ? [relinkFile] : selectedFiles}
+        onClose={() => { setArchiveLinkOpen(false); setRelinkFile(null); }}
+        onSuccess={(msg, severity = 'success') => {
+          setArchiveToast({ message: msg, severity });
+          setArchiveLinkOpen(false); setRelinkFile(null); setSelectedMap({});
+          loadArchive();
+        }}
+      />
+      <AutoTempDialog
+        open={archiveTempOpen} files={unmatchedFiles}
+        onClose={() => setArchiveTempOpen(false)}
+        onSuccess={(msg, severity = 'success') => {
+          setArchiveToast({ message: msg, severity });
+          setArchiveTempOpen(false); loadArchive();
+        }}
+      />
+      <PrintJobDialog
+        open={archivePrintJobOpen}
+        selectedFiles={selectedFiles.filter((f) => f.stageNumber === 9)}
+        onClose={() => setArchivePrintJobOpen(false)}
+        onSuccess={(msg, severity = 'success') => {
+          setArchiveToast({ message: msg, severity });
+          setArchivePrintJobOpen(false); setSelectedMap({}); loadArchive();
+        }}
+      />
+      <Snackbar
+        open={!!archiveToast} autoHideDuration={archiveToast?.severity === 'error' ? 7000 : 4000}
+        onClose={() => setArchiveToast(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={() => setArchiveToast(null)} severity={archiveToast?.severity || 'success'} variant="filled" sx={{ width: '100%', fontSize: 13 }}>
+          {archiveToast?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
@@ -1089,6 +1392,7 @@ export default function DesignFilesWidget() {
   const [confirmFile, setConfirmFile] = useState(null);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [relinkFile, setRelinkFile] = useState(null);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1400,6 +1704,7 @@ export default function DesignFilesWidget() {
                       onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
                       onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                       onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
+                      onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                     />
                   </Grid>
                 ))}
@@ -1417,6 +1722,7 @@ export default function DesignFilesWidget() {
                     onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
                     onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                     onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
+                    onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                   />
                 ))}
               </Stack>
@@ -1495,9 +1801,10 @@ export default function DesignFilesWidget() {
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setEditPrintJobFile(null); load(); }}
       />
       <LinkOrderDialog
-        open={linkDialogOpen} selectedFiles={selectedFiles}
-        onClose={() => setLinkDialogOpen(false)}
-        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setSelectedIds(new Set()); load(); }}
+        open={linkDialogOpen || !!relinkFile}
+        selectedFiles={relinkFile ? [relinkFile] : selectedFiles}
+        onClose={() => { setLinkDialogOpen(false); setRelinkFile(null); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setLinkDialogOpen(false); setRelinkFile(null); setSelectedIds(new Set()); load(); }}
       />
       <AutoTempDialog
         open={autoTempOpen} files={unmatchedInView}

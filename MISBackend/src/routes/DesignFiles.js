@@ -457,12 +457,23 @@ router.get('/orders/search', async (req, res) => {
         }
       : {};
     const orders = await Orders.find(filter, {
-      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1, isTemporary: 1,
+      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1, isTemporary: 1, Customer_uuid: 1,
     })
       .sort({ Order_Number: -1 })
       .limit(20)
       .lean();
-    return res.json({ success: true, result: orders });
+
+    const cuuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const custDocs = cuuids.length
+      ? await Customers.find({ Customer_uuid: { $in: cuuids } }, { Customer_uuid: 1, Customer_name: 1 }).lean()
+      : [];
+    const custMap = {};
+    custDocs.forEach((c) => { custMap[c.Customer_uuid] = c.Customer_name; });
+
+    return res.json({
+      success: true,
+      result: orders.map((o) => ({ ...o, customerName: custMap[o.Customer_uuid] || null })),
+    });
   } catch (err) {
     logger.error({ err }, 'design-files/orders/search error');
     return res.status(500).json({ success: false, message: err.message });
@@ -791,33 +802,52 @@ router.post('/auto-scan-link', async (req, res) => {
  */
 router.post('/confirm-final', async (req, res) => {
   try {
-    const { fileId, fileName, customerUuid, itemDetails, mobileNumber } = req.body || {};
+    const { fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items } = req.body || {};
 
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
     if (!customerUuid) return res.status(400).json({ success: false, message: 'customerUuid required' });
-    if (!itemDetails) return res.status(400).json({ success: false, message: 'itemDetails required' });
+
+    const isDetailed = orderMode === 'items' && Array.isArray(items) && items.length > 0;
+    if (!isDetailed && !itemDetails) {
+      return res.status(400).json({ success: false, message: 'itemDetails required' });
+    }
 
     const customer = await Customers.findOne({ Customer_uuid: customerUuid }).lean();
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const orderNum = await nextOrderNumber();
     const orderUuid = uuidv4();
+    const noteText = isDetailed ? '' : (itemDetails || '');
+    const firstItemName = isDetailed ? (items[0]?.itemName || items[0]?.Item_name || 'Design') : '';
 
-    const order = new Orders({
+    const orderDoc = {
       Order_uuid: orderUuid,
       Order_Number: orderNum,
       Customer_uuid: customerUuid,
-      orderNote: itemDetails,
-      orderMode: 'note',
+      orderNote: noteText,
+      orderMode: isDetailed ? 'items' : 'note',
+      Remark: noteText,
       stage: 'design',
       priority: 'medium',
       stageHistory: [{ stage: 'design', timestamp: new Date() }],
       driveFile: { status: 'skipped' },
-    });
+    };
+    if (isDetailed) {
+      orderDoc.items = items.map((it) => ({
+        Item_uuid: it.Item_uuid || uuidv4(),
+        Item_name: it.itemName || it.Item_name || '',
+        Quantity: Number(it.qty || 1),
+        Rate: Number(it.rate || 0),
+        Amount: Number(it.amount || 0),
+        Remark: '',
+      }));
+    }
+    const order = new Orders(orderDoc);
     await order.save();
 
     // Build new filename
+    const descPart = isDetailed ? sanitize(firstItemName) : sanitize(itemDetails);
     const dotIdx = fileName.lastIndexOf('.');
     const ext = dotIdx !== -1 ? fileName.slice(dotIdx + 1) : '';
     const mobile = mobileNumber || customer.Mobile_number || '';
@@ -826,7 +856,7 @@ router.post('/confirm-final', async (req, res) => {
       '-',
       sanitize(customer.Customer_name),
       '-',
-      sanitize(itemDetails),
+      descPart,
       '-',
       sanitize(mobile),
     ].join(' ').replace(/\s+-\s+-\s+/g, ' - ') + (ext ? `.${ext}` : '');

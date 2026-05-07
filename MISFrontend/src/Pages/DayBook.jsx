@@ -310,10 +310,10 @@ export default function DayBook() {
   useEffect(() => { if (selectedUuid) loadDiary(selectedUuid); }, [selectedUuid, loadDiary]);
 
   useEffect(() => {
-    axios.get('/api/customers')
+    axios.get('/api/customers/GetCustomersList')
       .then((res) => {
         const accounts = (Array.isArray(res.data?.result) ? res.data.result : [])
-          
+          .filter((c) => c.Customer_group === 'Bank and Account')
           .map((c) => c.Customer_name)
           .filter(Boolean)
           .sort();

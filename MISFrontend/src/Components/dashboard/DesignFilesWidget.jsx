@@ -247,8 +247,22 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // ─── List row ─────────────────────────────────────────────────────────────────
+function rowColors(file, checked) {
+  const hasPrintJob = file.printJobNumber != null;
+  const hasRealOrder = file.matched && !file.isDraft && !file.isTemporaryOrder;
+  const isTempOrder = file.isTemporaryOrder;
+  const isUnmatched = !file.matched && !file.isDraft;
+  if (checked)      return { bg: 'primary.50',   bgHover: 'primary.100',   border: 'primary.main'  };
+  if (hasPrintJob)  return { bg: '#f3e5f5',       bgHover: '#e1bee7',       border: '#ce93d8'       };
+  if (hasRealOrder) return { bg: 'success.50',    bgHover: 'success.100',   border: 'success.200'   };
+  if (isTempOrder)  return { bg: 'warning.50',    bgHover: 'warning.100',   border: 'warning.200'   };
+  if (isUnmatched)  return { bg: 'warning.50',    bgHover: 'warning.100',   border: 'warning.200'   };
+  return              { bg: 'transparent',        bgHover: 'action.hover',  border: 'divider'       };
+}
+
 function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
+  const { bg, bgHover, border } = rowColors(file, checked);
 
   return (
     <Stack
@@ -257,9 +271,9 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
       sx={{
         py: 0.5, px: 0.75, borderRadius: 1.5,
         border: '1px solid',
-        borderColor: checked ? 'primary.main' : isUnmatched ? 'warning.200' : 'divider',
-        bgcolor: checked ? 'primary.50' : isUnmatched ? 'warning.50' : 'transparent',
-        '&:hover': { bgcolor: checked ? 'primary.100' : isUnmatched ? 'warning.100' : 'action.hover' },
+        borderColor: border,
+        bgcolor: bg,
+        '&:hover': { bgcolor: bgHover },
         transition: 'background 0.12s',
         cursor: onToggle ? 'pointer' : 'default',
       }}
@@ -316,6 +330,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
 // ─── Card view ────────────────────────────────────────────────────────────────
 function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
+  const { bg, border } = rowColors(file, checked);
 
   return (
     <Card
@@ -323,8 +338,8 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
       onClick={() => onToggle && onToggle(file.fileId)}
       sx={{
         height: '100%', display: 'flex', flexDirection: 'column',
-        borderColor: checked ? 'primary.main' : isUnmatched ? 'warning.300' : 'divider',
-        bgcolor: checked ? 'primary.50' : isUnmatched ? 'warning.50' : 'background.paper',
+        borderColor: border,
+        bgcolor: bg === 'transparent' ? 'background.paper' : bg,
         '&:hover': { boxShadow: 1 },
         transition: 'box-shadow 0.15s, border-color 0.12s',
         cursor: onToggle ? 'pointer' : 'default',
@@ -924,6 +939,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [searching, setSearching] = useState(false);
   const [vendor, setVendor] = useState(null);
   const [vendors, setVendors] = useState([]);
+  const [itemOptions, setItemOptions] = useState([]);
   const [loadingVendors, setLoadingVendors] = useState(false);
   const [rows, setRows] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -939,8 +955,14 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       qty: 1, rate: '', amount: '',
     })));
     setLoadingVendors(true);
-    axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
-      .then((r) => setVendors(r.data?.result || []))
+    Promise.all([
+      axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } }),
+      axios.get('/api/items/GetItemList'),
+    ])
+      .then(([vRes, iRes]) => {
+        setVendors(vRes.data?.result || []);
+        setItemOptions(iRes.data?.result || []);
+      })
       .catch(() => {})
       .finally(() => setLoadingVendors(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1050,10 +1072,20 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
                     {r.fileName}
                   </TableCell>
                   <TableCell>
-                    <TextField size="small" value={r.itemName}
-                      onChange={(e) => updateRow(r.fileId, 'itemName', e.target.value)}
-                      disabled={submitting} inputProps={{ style: { fontSize: 11, padding: '3px 6px' } }}
-                      sx={{ width: '100%', minWidth: 100 }}
+                    <Autocomplete
+                      freeSolo
+                      options={itemOptions}
+                      value={r.itemName}
+                      onChange={(_, v) => updateRow(r.fileId, 'itemName', typeof v === 'string' ? v : v?.Item_name || '')}
+                      onInputChange={(_, v) => updateRow(r.fileId, 'itemName', v)}
+                      getOptionLabel={(o) => (typeof o === 'string' ? o : o?.Item_name || '')}
+                      disabled={submitting}
+                      renderInput={(params) => (
+                        <TextField {...params} size="small" placeholder="Item name…"
+                          inputProps={{ ...params.inputProps, style: { fontSize: 11, padding: '3px 6px' } }}
+                          sx={{ minWidth: 120 }}
+                        />
+                      )}
                     />
                   </TableCell>
                   <TableCell>

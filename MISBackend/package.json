@@ -27,7 +27,7 @@
     "mongoose": "^8.5.3",
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^2.2.1",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse": "^1.1.1",
     "pino": "^9.4.0",
     "pino-pretty": "^11.3.0",
     "qrcode": "^1.5.4",

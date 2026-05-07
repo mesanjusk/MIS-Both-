@@ -91,11 +91,6 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
           : 'inherit',
       }}
     >
-      {/* Time */}
-      <TableCell sx={{ width: 40, color: 'text.disabled', fontWeight: 700, fontSize: 11 }}>
-        {entry.time_slot || '—'}
-      </TableCell>
-
       {/* Party */}
       <TableCell>
         <Stack direction="row" alignItems="center" spacing={0.5}>
@@ -242,7 +237,6 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: 40 }}>Time</TableCell>
               <TableCell>Party / Purpose</TableCell>
               <TableCell align="right">Amount</TableCell>
               <TableCell>Account</TableCell>
@@ -536,11 +530,11 @@ function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccount
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: '#ede7f6' }}>
-              <TableCell>Date</TableCell>
-              <TableCell>Description</TableCell>
-              <TableCell align="right">Amount</TableCell>
-              <TableCell>Account</TableCell>
-              <TableCell align="center">Action</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

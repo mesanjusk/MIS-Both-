@@ -1,20 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
-  Autocomplete,
   Box,
-  Button,
   Card,
   CardContent,
   Chip,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   IconButton,
-  InputAdornment,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
   Paper,
   Stack,
   Table,
@@ -23,385 +21,238 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
-  Tooltip,
   Typography,
 } from '@mui/material';
-import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
-import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import axios from '../apiClient.js';
 
-const money = (v) =>
-  `₹${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
+const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
-const AllTransaction = () => {
-  const [transactions, setTransactions]     = useState([]);
-  const [customers, setCustomers]           = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [startDate, setStartDate]           = useState('');
-  const [endDate, setEndDate]               = useState('');
-  const [filteredEntries, setFilteredEntries] = useState([]);
-  const [openingBalance, setOpeningBalance] = useState(0);
-  const [closingBalance, setClosingBalance] = useState(0);
-  const [loading, setLoading]               = useState(true);
-  const [searching, setSearching]           = useState(false);
-  const [deleteTarget, setDeleteTarget]     = useState(null);
-  const [hasSearched, setHasSearched]       = useState(false);
+// ── Section table (cash receipts / cash payments / bank) ──────────────────────
+function TxnTable({ rows, title, color }) {
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + (r.txn.Total_Debit || 0), 0);
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+        <Typography variant="caption" fontWeight={700} color={color} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+          {title}
+        </Typography>
+        <Typography variant="caption" fontWeight={700} color={color}>{money(total)}</Typography>
+      </Stack>
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, width: 55 }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Mode</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map(({ txn, account }) => (
+              <TableRow key={txn._id} hover>
+                <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>{txn.Transaction_id}</TableCell>
+                <TableCell>
+                  <Typography variant="body2">{txn.Description}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip label={account} size="small" color="primary" variant="outlined" />
+                </TableCell>
+                <TableCell>
+                  <Chip label={txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" fontWeight={700}>{money(txn.Total_Debit)}</Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+}
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      axios.get('/api/transaction'),
-      axios.get('/api/customers/GetCustomersList'),
-    ])
-      .then(([txRes, custRes]) => {
-        if (txRes.data.success)   setTransactions(txRes.data.result);
-        if (custRes.data.success) setCustomers(custRes.data.result);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+// ── Main page ─────────────────────────────────────────────────────────────────
+export default function AllTransaction() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedDate = searchParams.get('date');
+
+  const [ledgerDates, setLedgerDates] = useState([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [txns, setTxns]               = useState([]);
+  const [meta, setMeta]               = useState({ cashAccounts: [], bankAccounts: [] });
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState('');
+
+  const loadDates = useCallback(async () => {
+    setListLoading(true);
+    try {
+      const res = await axios.get('/api/diary/ledger-dates');
+      setLedgerDates(Array.isArray(res.data?.result) ? res.data.result : []);
+    } catch { setLedgerDates([]); }
+    finally { setListLoading(false); }
   }, []);
 
-  const bankAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
-  const customerMap  = customers.reduce((acc, c) => { acc[c.Customer_uuid] = c.Customer_name; return acc; }, {});
+  useEffect(() => { loadDates(); }, [loadDates]);
 
-  const doSearch = useCallback((customer = selectedCustomer) => {
-    if (!customer) return;
-    setSearching(true);
-    setHasSearched(true);
+  useEffect(() => {
+    if (!selectedDate) { setTxns([]); setMeta({ cashAccounts: [], bankAccounts: [] }); return; }
+    setLoading(true);
+    setError('');
+    axios.get(`/api/diary/ledger?date=${selectedDate}`)
+      .then((res) => {
+        setTxns(Array.isArray(res.data?.result) ? res.data.result : []);
+        setMeta(res.data?.meta || { cashAccounts: [], bankAccounts: [] });
+      })
+      .catch(() => setError('Could not load transactions.'))
+      .finally(() => setLoading(false));
+  }, [selectedDate]);
 
-    const uuid = customer.Customer_uuid;
-    let runDr = 0, runCr = 0;
+  // Classify each txn by cash/bank + direction using exact account names from meta
+  const cashSet = new Set(meta.cashAccounts.map((n) => n.toLowerCase()));
+  const bankSet = new Set(meta.bankAccounts.map((n) => n.toLowerCase()));
+  const isCash  = (id) => cashSet.size ? cashSet.has((id || '').toLowerCase()) : /^cash$/i.test(id || '');
+  const isBank  = (id) => bankSet.size ? bankSet.has((id || '').toLowerCase()) : /sanju/i.test(id || '');
 
-    const filtered = transactions.flatMap((txn) => {
-      const inRange =
-        (!startDate || new Date(txn.Transaction_date) >= new Date(startDate)) &&
-        (!endDate   || new Date(txn.Transaction_date) <= new Date(endDate));
-      if (!inRange) return [];
-      if (!txn.Journal_entry.some((e) => e.Account_id === uuid)) return [];
-      return txn.Journal_entry
-        .filter((e) => e.Account_id !== uuid)
-        .map((e) => ({
-          ...e,
-          Transaction_id:   txn.Transaction_id,
-          Transaction_date: txn.Transaction_date,
-          Description:      txn.Description,
-        }));
-    });
+  const classified = txns.map((txn) => {
+    const j = txn.Journal_entry || [];
+    const ledgerLeg = j.find((e) => isCash(e.Account_id) || isBank(e.Account_id));
+    const otherLeg  = j.find((e) => e !== ledgerLeg);
+    const book      = ledgerLeg ? (isBank(ledgerLeg.Account_id) ? 'bank' : 'cash') : 'cash';
+    const direction = ledgerLeg?.Type === 'Debit' ? 'in' : 'out';
+    return { txn, book, direction, account: otherLeg?.Account_id || '—' };
+  });
 
-    const withBalance = filtered.map((e) => {
-      if (e.Type === 'Debit') runDr += e.Amount || 0;
-      else                    runCr += e.Amount || 0;
-      return { ...e, Balance: runCr - runDr };
-    });
+  const cashIn  = classified.filter((r) => r.book === 'cash' && r.direction === 'in');
+  const cashOut = classified.filter((r) => r.book === 'cash' && r.direction === 'out');
+  const bank    = classified.filter((r) => r.book === 'bank');
 
-    let opDr = 0, opCr = 0;
-    if (startDate) {
-      transactions.forEach((txn) => {
-        if (new Date(txn.Transaction_date) >= new Date(startDate)) return;
-        if (!txn.Journal_entry.some((e) => e.Account_id === uuid)) return;
-        txn.Journal_entry.filter((e) => e.Account_id !== uuid).forEach((e) => {
-          if (e.Type === 'Debit') opDr += e.Amount || 0;
-          else                    opCr += e.Amount || 0;
-        });
-      });
-    }
-
-    setOpeningBalance(opCr - opDr);
-    setClosingBalance(runCr - runDr);
-    setFilteredEntries(withBalance);
-    setSearching(false);
-  }, [transactions, selectedCustomer, startDate, endDate]);
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await axios.delete(`/api/transaction/${deleteTarget.Transaction_id}`);
-      setFilteredEntries((prev) =>
-        prev.filter(
-          (e) => !(e.Transaction_id === deleteTarget.Transaction_id && e.Account_id === deleteTarget.Account_id)
-        )
-      );
-    } catch (err) { console.error(err); }
-    finally { setDeleteTarget(null); }
-  };
-
-  const totals = filteredEntries.reduce(
-    (acc, e) => {
-      if (e.Type === 'Debit') acc.debit  += e.Amount || 0;
-      else                    acc.credit += e.Amount || 0;
-      return acc;
-    },
-    { debit: 0, credit: 0 }
-  );
+  const totalCashIn  = cashIn.reduce((s, r)  => s + (r.txn.Total_Debit || 0), 0);
+  const totalCashOut = cashOut.reduce((s, r) => s + (r.txn.Total_Debit || 0), 0);
+  const totalBank    = bank.reduce((s, r)    => s + (r.txn.Total_Debit || 0), 0);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
 
-      {/* ── LEFT sidebar ── */}
+      {/* ── LEFT: date sidebar (exact Day Book pattern) ── */}
       <Paper
         variant="outlined"
-        sx={{
-          width: 240, flexShrink: 0, borderRadius: 3,
-          display: { xs: 'none', md: 'flex' }, flexDirection: 'column',
-          p: 2, gap: 2,
-        }}
+        sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: 'none', md: 'block' } }}
       >
-        <Typography variant="subtitle2" fontWeight={700}>Filters</Typography>
-        <Divider />
-
-        <Stack spacing={1.5}>
-          <TextField
-            label="From"
-            type="date"
-            size="small"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            fullWidth
-          />
-          <TextField
-            label="To"
-            type="date"
-            size="small"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            fullWidth
-          />
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 1.5, pb: 0.5 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Account Ledger</Typography>
+          <IconButton size="small" onClick={loadDates}><RefreshRoundedIcon fontSize="small" /></IconButton>
         </Stack>
-
         <Divider />
-
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          fontWeight={600}
-          sx={{ textTransform: 'uppercase', letterSpacing: 1 }}
-        >
-          Quick Select
-        </Typography>
-        <Stack spacing={0.75}>
-          {bankAccounts.map((c) => (
-            <Chip
-              key={c.Customer_uuid}
-              label={c.Customer_name}
-              clickable
-              color={selectedCustomer?.Customer_uuid === c.Customer_uuid ? 'primary' : 'default'}
-              variant={selectedCustomer?.Customer_uuid === c.Customer_uuid ? 'filled' : 'outlined'}
-              onClick={() => { setSelectedCustomer(c); setTimeout(() => doSearch(c), 0); }}
-              sx={{ justifyContent: 'flex-start' }}
-            />
-          ))}
-        </Stack>
-
-        <Divider />
-
-        <Autocomplete
-          size="small"
-          options={customers}
-          getOptionLabel={(o) => o.Customer_name || ''}
-          value={selectedCustomer}
-          onChange={(_, v) => setSelectedCustomer(v)}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Search Account"
-              InputProps={{
-                ...params.InputProps,
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              }}
-            />
-          )}
-        />
-
-        <Button
-          variant="contained"
-          fullWidth
-          onClick={() => doSearch()}
-          disabled={!selectedCustomer || searching}
-          startIcon={searching ? <CircularProgress size={14} /> : <SearchRoundedIcon />}
-        >
-          {searching ? 'Loading…' : 'Search'}
-        </Button>
+        {listLoading ? (
+          <Box sx={{ p: 2, textAlign: 'center' }}><CircularProgress size={20} /></Box>
+        ) : (
+          <List dense disablePadding sx={{ overflowY: 'auto' }}>
+            {ledgerDates.map((date) => (
+              <ListItem key={date} disablePadding>
+                <ListItemButton
+                  selected={selectedDate === date}
+                  onClick={() => setSearchParams({ date })}
+                  sx={{ borderRadius: 2 }}
+                >
+                  <ListItemText
+                    primary={fmtDate(date)}
+                    primaryTypographyProps={{ variant: 'body2', fontWeight: 700 }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+            {!ledgerDates.length && (
+              <ListItem>
+                <ListItemText
+                  primary="No records found"
+                  primaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
+                />
+              </ListItem>
+            )}
+          </List>
+        )}
       </Paper>
 
-      {/* ── RIGHT main ── */}
+      {/* ── RIGHT: day detail ── */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
 
-        {/* Header */}
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
           <Box>
-            <Typography variant="h5" fontWeight={900}>Account Transaction</Typography>
+            <Typography variant="h5" fontWeight={900}>
+              Account Ledger{selectedDate ? ` — ${fmtDate(selectedDate)}` : ''}
+            </Typography>
             <Typography variant="body2" color="text.secondary">
-              {selectedCustomer
-                ? `Ledger for ${selectedCustomer.Customer_name}`
-                : 'Select an account from the left panel'}
+              Cash and bank transactions for the selected date (read-only)
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1}>
-            {hasSearched && (
-              <Tooltip title="Refresh">
-                <IconButton size="small" onClick={() => doSearch()}>
-                  <RefreshRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-            <Tooltip title="Print">
-              <IconButton size="small" onClick={() => window.print()}>
-                <PrintRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
         </Stack>
 
-        {/* Loading */}
-        {loading && (
-          <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
-        )}
-
-        {/* Initial placeholder */}
-        {!loading && !hasSearched && (
+        {!selectedDate && !loading && (
           <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
-            <Typography color="text.secondary">
-              Select an account from the left and click <strong>Search</strong> to view its ledger.
-            </Typography>
+            <Typography color="text.secondary">Select a date from the left to view transactions.</Typography>
           </Paper>
         )}
 
-        {/* Results */}
-        {!loading && hasSearched && (
+        {loading && <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>}
+
+        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 3 }}>{error}</Alert>}
+
+        {selectedDate && !loading && txns.length > 0 && (
           <>
             {/* Summary cards */}
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
               {[
-                { label: 'Opening Balance',   value: openingBalance, color: 'text.primary' },
-                { label: 'Total Debit (DR)',   value: totals.debit,   color: 'success.dark' },
-                { label: 'Total Credit (CR)',  value: totals.credit,  color: 'error.dark' },
-                { label: 'Closing Balance',    value: closingBalance, color: closingBalance >= 0 ? 'success.dark' : 'error.dark' },
-              ].map(({ label, value, color }) => (
+                { label: 'Cash Receipts',  value: totalCashIn,  color: 'success.dark' },
+                { label: 'Cash Payments',  value: totalCashOut, color: 'error.dark' },
+                { label: 'Bank Entries',   value: totalBank,    color: 'info.dark' },
+                { label: 'Total Entries',  value: txns.length,  color: 'text.primary', isCount: true },
+              ].map(({ label, value, color, isCount }) => (
                 <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
                   <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
                     <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
+                    <Typography variant="h6" fontWeight={900} color={color}>
+                      {isCount ? value : money(value)}
+                    </Typography>
                   </CardContent>
                 </Card>
               ))}
             </Stack>
 
-            {filteredEntries.length === 0 ? (
-              <Alert severity="info" sx={{ borderRadius: 3 }}>
-                No transactions found for the selected account and date range.
-              </Alert>
-            ) : (
-              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 700, width: 55 }}>#</TableCell>
-                      <TableCell sx={{ fontWeight: 700, width: 110 }}>Date</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, color: 'success.dark' }}>Debit (DR)</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, color: 'error.dark' }}>Credit (CR)</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700 }}>Balance</TableCell>
-                      <TableCell sx={{ width: 44 }} />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredEntries.map((entry, i) => (
-                      <TableRow
-                        key={i}
-                        hover
-                        sx={{ bgcolor: entry.Type === 'Debit' ? 'success.50' : 'error.50' }}
-                      >
-                        <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>
-                          {entry.Transaction_id}
-                        </TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>
-                          {fmtDate(entry.Transaction_date)}
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            label={customerMap[entry.Account_id] || entry.Account_id}
-                            size="small"
-                            variant="outlined"
-                            color="primary"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" sx={{ fontSize: 12 }}>
-                            {entry.Description}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          {entry.Type === 'Debit' ? (
-                            <Typography variant="body2" fontWeight={700} color="success.dark">
-                              {money(entry.Amount)}
-                            </Typography>
-                          ) : (
-                            <Typography color="text.disabled">—</Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          {entry.Type === 'Credit' ? (
-                            <Typography variant="body2" fontWeight={700} color="error.dark">
-                              {money(entry.Amount)}
-                            </Typography>
-                          ) : (
-                            <Typography color="text.disabled">—</Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography
-                            variant="body2"
-                            fontWeight={700}
-                            color={entry.Balance >= 0 ? 'success.dark' : 'error.dark'}
-                          >
-                            {money(entry.Balance)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Tooltip title="Delete transaction">
-                            <IconButton size="small" color="error" onClick={() => setDeleteTarget(entry)}>
-                              <DeleteRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+            {/* Cash section — IN and OUT side by side */}
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
+              <Box sx={{ flex: 1 }}>
+                <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" />
+              </Box>
+            </Stack>
+
+            {/* Bank section */}
+            {bank.length > 0 && (
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main' }}>
+                <Typography variant="subtitle2" fontWeight={700} color="info.dark" sx={{ mb: 1 }}>
+                  Bank Entries — {meta.bankAccounts[0] || 'UPI Sanju SK'}
+                </Typography>
+                <TxnTable rows={bank} title="Bank Entries" color="info.dark" />
+              </Paper>
             )}
           </>
         )}
-      </Box>
 
-      {/* Delete confirmation dialog */}
-      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle fontWeight={700}>Delete Transaction?</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Delete transaction <strong>#{deleteTarget?.Transaction_id}</strong>? This cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
-        </DialogActions>
-      </Dialog>
+        {selectedDate && !loading && !error && txns.length === 0 && (
+          <Alert severity="info" sx={{ borderRadius: 3 }}>
+            No cash or bank transactions found for this date.
+          </Alert>
+        )}
+      </Box>
     </Box>
   );
-};
-
-export default AllTransaction;
+}

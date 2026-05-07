@@ -668,7 +668,7 @@ export default function DayBook() {
         setCustomerMap(map);
         // Dropdown: only Bank and Account group, sorted names
         const accounts = all
-          .filter((c) => c.Customer_group === 'Bank and Account')
+       
           .map((c) => c.Customer_name)
           .filter(Boolean)
           .sort();

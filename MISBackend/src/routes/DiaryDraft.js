@@ -217,6 +217,58 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/diary/ledger-dates — distinct dates with cash/bank transactions this FY
+router.get('/ledger-dates', async (req, res) => {
+  try {
+    const now = new Date();
+    const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
+
+    const dates = await Transaction.aggregate([
+      {
+        $match: {
+          Transaction_date: { $gte: fyStart },
+          'Journal_entry.Account_id': { $regex: /cash|sanju|bank/i },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$Transaction_date' } },
+        },
+      },
+      { $sort: { _id: -1 } },
+    ]);
+
+    return res.json({ success: true, result: dates.map((d) => d._id) });
+  } catch (err) {
+    logger.error({ err }, 'GET /diary/ledger-dates');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// GET /api/diary/ledger?date=YYYY-MM-DD — cash/bank transactions for a specific date
+router.get('/ledger', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ success: false, message: 'date query param required (YYYY-MM-DD)' });
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${date}T23:59:59.999Z`);
+
+    const txns = await Transaction.find({
+      Transaction_date: { $gte: dayStart, $lte: dayEnd },
+      'Journal_entry.Account_id': { $regex: /cash|sanju|bank/i },
+    })
+      .sort({ Transaction_id: 1 })
+      .lean();
+
+    return res.json({ success: true, result: txns });
+  } catch (err) {
+    logger.error({ err }, 'GET /diary/ledger');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/diary/:uuid  — single diary with all entries
 router.get('/:uuid', async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert,
   Autocomplete,
@@ -260,31 +260,164 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
   );
 }
 
+// =================== LEDGER DAY VIEW (historical transactions, read-only) ===================
+function LedgerDayView({ txns, date }) {
+  if (!txns.length) {
+    return (
+      <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, textAlign: 'center' }}>
+        <Typography color="text.secondary">No cash/bank transactions found for {fmtDate(date)}.</Typography>
+      </Paper>
+    );
+  }
+
+  // Classify each transaction based on its journal entries
+  const CASH_RE = /^cash$/i;
+  const BANK_RE = /sanju|^bank$/i;
+
+  const classified = txns.map((txn) => {
+    const j = txn.Journal_entry || [];
+    // Find the cash or bank leg
+    const ledgerLeg = j.find((e) => CASH_RE.test(e.Account_id) || BANK_RE.test(e.Account_id));
+    const otherLeg  = j.find((e) => e !== ledgerLeg);
+
+    const book      = ledgerLeg ? (BANK_RE.test(ledgerLeg.Account_id) ? 'bank' : 'cash') : 'cash';
+    const direction = ledgerLeg?.Type === 'Debit' ? 'in' : 'out';
+    const account   = otherLeg?.Account_id || '—';
+
+    return { txn, book, direction, account };
+  });
+
+  const cashIn  = classified.filter((r) => r.book === 'cash' && r.direction === 'in');
+  const cashOut = classified.filter((r) => r.book === 'cash' && r.direction === 'out');
+  const bank    = classified.filter((r) => r.book === 'bank');
+
+  const totalIn  = cashIn.reduce((s, r)  => s + (r.txn.Total_Debit  || 0), 0);
+  const totalOut = cashOut.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
+
+  const TxnTable = ({ rows, color, title }) => (
+    <Box sx={{ mb: 2 }}>
+      <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+        <Typography variant="caption" fontWeight={700} color={color} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+          {title}
+        </Typography>
+        <Typography variant="caption" fontWeight={700} color={color}>
+          {money(rows.reduce((s, r) => s + r.txn.Total_Debit, 0))}
+        </Typography>
+      </Stack>
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>#</TableCell>
+              <TableCell>Description</TableCell>
+              <TableCell>Account</TableCell>
+              <TableCell>Mode</TableCell>
+              <TableCell align="right">Amount</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map(({ txn, account }) => (
+              <TableRow key={txn._id} hover>
+                <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>{txn.Transaction_id}</TableCell>
+                <TableCell>
+                  <Typography variant="body2">{txn.Description}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip label={account} size="small" color="primary" variant="outlined" />
+                </TableCell>
+                <TableCell>
+                  <Chip label={txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" fontWeight={700}>{money(txn.Total_Debit)}</Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+
+  return (
+    <>
+      <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
+        Historical record from the ledger — read-only. To edit, use Receipt / Payment entry pages.
+      </Alert>
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+        {[
+          { label: 'Cash Receipts', value: totalIn,  color: 'success.dark' },
+          { label: 'Cash Payments', value: totalOut, color: 'error.dark' },
+          { label: 'Bank Entries',  value: bank.reduce((s, r) => s + r.txn.Total_Debit, 0), color: 'info.dark' },
+          { label: 'Total Entries', value: txns.length, color: 'text.primary', isCount: true },
+        ].map(({ label, value, color, isCount }) => (
+          <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+            <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+              <Typography variant="caption" color="text.secondary">{label}</Typography>
+              <Typography variant="h6" fontWeight={900} color={color}>
+                {isCount ? value : money(value)}
+              </Typography>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+
+      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
+        <Box sx={{ flex: 1 }}>
+          <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
+        </Box>
+        <Box sx={{ flex: 1 }}>
+          <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" />
+        </Box>
+      </Stack>
+
+      {bank.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main' }}>
+          <Typography variant="subtitle2" fontWeight={700} color="info.dark" sx={{ mb: 1 }}>
+            Bank Entries — UPI Sanju SK
+          </Typography>
+          <TxnTable rows={bank} title="Bank Entries" color="info.dark" />
+        </Paper>
+      )}
+    </>
+  );
+}
+
 // =================== MAIN PAGE ===================
 export default function DayBook() {
   const { uuid: selectedUuid } = useParams();
+  const [searchParams] = useSearchParams();
+  const ledgerDateParam = searchParams.get('date'); // YYYY-MM-DD for historical view
   const navigate = useNavigate();
 
-  const [diaryList, setDiaryList]     = useState([]);
-  const [diary, setDiary]             = useState(null);
-  const [loading, setLoading]         = useState(false);
-  const [listLoading, setListLoading] = useState(true);
-  const [confirming, setConfirming]   = useState(false);
+  const [diaryList, setDiaryList]         = useState([]);
+  const [ledgerDates, setLedgerDates]     = useState([]);  // historical dates
+  const [diary, setDiary]                 = useState(null);
+  const [ledgerTxns, setLedgerTxns]       = useState(null); // historical transactions
+  const [loading, setLoading]             = useState(false);
+  const [listLoading, setListLoading]     = useState(true);
+  const [confirming, setConfirming]       = useState(false);
   const [confirmDialog, setConfirmDialog] = useState(false);
-  const [error, setError]             = useState('');
-  const [successMsg, setSuccessMsg]   = useState('');
+  const [error, setError]                 = useState('');
+  const [successMsg, setSuccessMsg]       = useState('');
   const [ledgerAccounts, setLedgerAccounts] = useState([]);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
-  // --- load diary list ---
+  // --- load diary list + ledger dates ---
   const loadList = useCallback(async () => {
     setListLoading(true);
     try {
-      const res = await axios.get('/api/diary');
-      setDiaryList(Array.isArray(res.data?.result) ? res.data.result : []);
+      const [draftRes, ldRes] = await Promise.all([
+        axios.get('/api/diary'),
+        axios.get('/api/diary/ledger-dates'),
+      ]);
+      setDiaryList(Array.isArray(draftRes.data?.result) ? draftRes.data.result : []);
+      setLedgerDates(Array.isArray(ldRes.data?.result) ? ldRes.data.result : []);
     } catch {
       setDiaryList([]);
+      setLedgerDates([]);
     } finally {
       setListLoading(false);
     }
@@ -307,7 +440,24 @@ export default function DayBook() {
   }, []);
 
   useEffect(() => { loadList(); }, [loadList]);
-  useEffect(() => { if (selectedUuid) loadDiary(selectedUuid); }, [selectedUuid, loadDiary]);
+
+  useEffect(() => {
+    if (selectedUuid) {
+      setLedgerTxns(null);
+      loadDiary(selectedUuid);
+    }
+  }, [selectedUuid, loadDiary]);
+
+  useEffect(() => {
+    if (!ledgerDateParam) { setLedgerTxns(null); return; }
+    setDiary(null);
+    setLoading(true);
+    setError('');
+    axios.get(`/api/diary/ledger?date=${ledgerDateParam}`)
+      .then((res) => setLedgerTxns(Array.isArray(res.data?.result) ? res.data.result : []))
+      .catch(() => setError('Could not load transactions.'))
+      .finally(() => setLoading(false));
+  }, [ledgerDateParam]);
 
   useEffect(() => {
     axios.get('/api/customers/GetCustomersList')
@@ -324,6 +474,10 @@ export default function DayBook() {
 
   const handleSelectDiary = (uid) => {
     navigate(`${ROUTES.DAY_BOOK}/${uid}`);
+  };
+
+  const handleSelectLedgerDate = (date) => {
+    navigate(`${ROUTES.DAY_BOOK}?date=${date}`);
   };
 
   // --- update single entry ---
@@ -409,38 +563,61 @@ export default function DayBook() {
         <Divider />
         {listLoading ? (
           <Box sx={{ p: 2, textAlign: 'center' }}><CircularProgress size={20} /></Box>
-        ) : (
-          <List dense disablePadding>
-            {diaryList.map((d) => (
-              <ListItem key={d.diary_uuid} disablePadding>
-                <ListItemButton
-                  selected={d.diary_uuid === selectedUuid}
-                  onClick={() => handleSelectDiary(d.diary_uuid)}
-                  sx={{ borderRadius: 2 }}
-                >
+        ) : (() => {
+          // Merge diary drafts + ledger dates into one sorted list
+          const draftDateSet = new Set(
+            diaryList.map((d) => new Date(d.diary_date).toISOString().slice(0, 10))
+          );
+          // Ledger dates not already covered by a draft
+          const extraLedgerDates = ledgerDates.filter((ld) => !draftDateSet.has(ld));
+
+          const sidebarItems = [
+            ...diaryList.map((d) => ({
+              key: d.diary_uuid,
+              date: new Date(d.diary_date),
+              label: fmtDate(d.diary_date),
+              sub: d.status === 'confirmed' ? '✓ Confirmed' : 'Draft',
+              subColor: d.status === 'confirmed' ? 'success.main' : 'warning.main',
+              onClick: () => handleSelectDiary(d.diary_uuid),
+              selected: d.diary_uuid === selectedUuid,
+            })),
+            ...extraLedgerDates.map((ld) => ({
+              key: `ledger-${ld}`,
+              date: new Date(ld),
+              label: fmtDate(ld),
+              sub: 'Manual entries',
+              subColor: 'info.main',
+              onClick: () => handleSelectLedgerDate(ld),
+              selected: ledgerDateParam === ld,
+            })),
+          ].sort((a, b) => b.date - a.date);
+
+          return (
+            <List dense disablePadding sx={{ overflowY: 'auto', flex: 1 }}>
+              {sidebarItems.map((item) => (
+                <ListItem key={item.key} disablePadding>
+                  <ListItemButton selected={item.selected} onClick={item.onClick} sx={{ borderRadius: 2 }}>
+                    <ListItemText
+                      primary={item.label}
+                      secondary={item.sub}
+                      primaryTypographyProps={{ variant: 'body2', fontWeight: 700 }}
+                      secondaryTypographyProps={{ variant: 'caption', color: item.subColor }}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+              {!sidebarItems.length && (
+                <ListItem>
                   <ListItemText
-                    primary={fmtDate(d.diary_date)}
-                    secondary={d.status === 'confirmed' ? '✓ Confirmed' : 'Draft'}
-                    primaryTypographyProps={{ variant: 'body2', fontWeight: 700 }}
-                    secondaryTypographyProps={{
-                      variant: 'caption',
-                      color: d.status === 'confirmed' ? 'success.main' : 'warning.main',
-                    }}
+                    primary="No records yet"
+                    secondary="Upload a CSV to start"
+                    primaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
                   />
-                </ListItemButton>
-              </ListItem>
-            ))}
-            {!diaryList.length && (
-              <ListItem>
-                <ListItemText
-                  primary="No diaries yet"
-                  secondary="Upload a CSV to start"
-                  primaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
-                />
-              </ListItem>
-            )}
-          </List>
-        )}
+                </ListItem>
+              )}
+            </List>
+          );
+        })()}
       </Paper>
 
       {/* ---- RIGHT: diary detail ---- */}
@@ -450,10 +627,10 @@ export default function DayBook() {
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
           <Box>
             <Typography variant="h5" fontWeight={900}>
-              Day Book {diary ? `— ${fmtDate(diary.diary_date)}` : ''}
+              Day Book{diary ? ` — ${fmtDate(diary.diary_date)}` : ledgerDateParam ? ` — ${fmtDate(ledgerDateParam)}` : ''}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Review diary entries, assign accounts, then confirm to post transactions
+              {ledgerDateParam ? 'Historical cash/bank transactions (read-only)' : 'Review diary entries, assign accounts, then confirm to post transactions'}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -498,15 +675,20 @@ export default function DayBook() {
         </Stack>
 
         {/* No diary selected */}
-        {!selectedUuid && !loading && (
+        {!selectedUuid && !ledgerDateParam && !loading && (
           <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
             <Typography color="text.secondary" sx={{ mb: 2 }}>
-              Select a day book from the list, or upload a new CSV.
+              Select a day from the list, or upload a new CSV.
             </Typography>
             <Button variant="contained" onClick={() => navigate(ROUTES.DIARY_UPLOAD)} startIcon={<AddRoundedIcon />}>
               Upload Diary CSV
             </Button>
           </Paper>
+        )}
+
+        {/* Historical ledger view (read-only) */}
+        {ledgerDateParam && !loading && ledgerTxns && (
+          <LedgerDayView txns={ledgerTxns} date={ledgerDateParam} />
         )}
 
         {loading && (

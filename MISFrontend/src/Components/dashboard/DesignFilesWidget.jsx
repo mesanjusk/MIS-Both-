@@ -176,8 +176,9 @@ function StatusBadges({ file }) {
 }
 
 // ─── Inline action buttons ────────────────────────────────────────────────────
-function FileActions({ file, onRename, onConfirm, onEditPrintJob, viewOnly }) {
+function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
   const [renaming, setRenaming] = useState(false);
+  const [creatingPJ, setCreatingPJ] = useState(false);
   if (viewOnly) return null;
 
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
@@ -187,6 +188,13 @@ function FileActions({ file, onRename, onConfirm, onEditPrintJob, viewOnly }) {
     if (!onRename || renaming) return;
     setRenaming(true);
     try { await onRename(file); } finally { setRenaming(false); }
+  };
+
+  const handleCreatePJ = async (e) => {
+    e.stopPropagation();
+    if (!onCreatePrintJob || creatingPJ) return;
+    setCreatingPJ(true);
+    try { await onCreatePrintJob(file); } finally { setCreatingPJ(false); }
   };
 
   return (
@@ -205,9 +213,11 @@ function FileActions({ file, onRename, onConfirm, onEditPrintJob, viewOnly }) {
           </IconButton>
         </Tooltip>
       )}
-      {file.stageNumber === 9 && file.printJobNumber == null && (
-        <Tooltip title="Print job pending creation">
-          <ReceiptLongRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />
+      {file.stageNumber === 9 && file.printJobNumber == null && onCreatePrintJob && (
+        <Tooltip title="Create print job">
+          <IconButton size="small" onClick={handleCreatePJ} disabled={creatingPJ} sx={{ color: 'warning.600' }}>
+            {creatingPJ ? <CircularProgress size={11} /> : <ReceiptLongRoundedIcon sx={{ fontSize: 15 }} />}
+          </IconButton>
         </Tooltip>
       )}
       {needsRename && onRename && (
@@ -222,7 +232,7 @@ function FileActions({ file, onRename, onConfirm, onEditPrintJob, viewOnly }) {
 }
 
 // ─── List row ─────────────────────────────────────────────────────────────────
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onEditPrintJob, viewOnly }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
 
   return (
@@ -282,14 +292,14 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onEditPrint
       <Stack direction="row" spacing={0.4} alignItems="center" sx={{ flexShrink: 0 }}>
         {file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
         <StatusBadges file={file} />
-        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
+        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
       </Stack>
     </Stack>
   );
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onEditPrintJob, viewOnly }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
 
   return (
@@ -358,7 +368,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onEditPrintJob
 
       {!viewOnly && (
         <CardActions sx={{ pt: 0, pb: 0.5, px: 0.75, justifyContent: 'flex-end', borderTop: '1px solid', borderColor: 'divider' }}>
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} viewOnly={viewOnly} />
         </CardActions>
       )}
     </Card>
@@ -652,7 +662,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onEditPrintJob }) {
+function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 8 || section.stageNumber === 9;
@@ -678,6 +688,7 @@ function ArchiveDateSection({ section, onConfirm, onEditPrintJob }) {
               file={file}
               viewOnly={!isActionable}
               onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
+              onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
               onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
             />
           ))}
@@ -687,7 +698,7 @@ function ArchiveDateSection({ section, onConfirm, onEditPrintJob }) {
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onEditPrintJob }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -704,7 +715,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onEditPrintJob }) {
       <Collapse in={expanded}>
         <Stack spacing={0.6} sx={{ px: 1, pt: 0.6 }}>
           {dateGroup.sections.map((section, i) => (
-            <ArchiveDateSection key={i} section={section} onConfirm={onConfirm} onEditPrintJob={onEditPrintJob} />
+            <ArchiveDateSection key={i} section={section} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} />
           ))}
         </Stack>
       </Collapse>
@@ -712,7 +723,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onEditPrintJob }) {
   );
 }
 
-function ArchivePanel({ onConfirm, onEditPrintJob }) {
+function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -773,6 +784,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
               key={dateGroup.dateFolderId}
               dateGroup={dateGroup}
               onConfirm={onConfirm}
+              onCreatePrintJob={onCreatePrintJob}
               onEditPrintJob={onEditPrintJob}
             />
           ))}
@@ -837,6 +849,29 @@ export default function DesignFilesWidget() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleCreatePrintJob = useCallback(async (file) => {
+    try {
+      const res = await axios.post('/api/design-files/auto-print-job', {
+        files: [{
+          fileId: file.fileId,
+          fileName: file.fileName,
+          orderUuid: file.orderUuid || null,
+          orderNumber: file.orderNumber || null,
+          stageNumber: file.stageNumber,
+        }],
+      });
+      const job = res.data?.jobs?.[0];
+      if (job) {
+        setToast({ message: `Print job ${pjLabel(job.printJobNumber)} created`, severity: 'success' });
+        load();
+      } else {
+        setToast({ message: 'Print job already exists for this file', severity: 'info' });
+      }
+    } catch (err) {
+      setToast({ message: err?.response?.data?.message || err.message || 'Failed to create print job', severity: 'error' });
+    }
+  }, [load]);
 
   const handleRename = useCallback(async (file) => {
     try {
@@ -1041,7 +1076,7 @@ export default function DesignFilesWidget() {
         {/* Archive */}
         {activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
-            <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} />
+            <ArchivePanel onConfirm={setConfirmFile} onCreatePrintJob={handleCreatePrintJob} onEditPrintJob={setEditPrintJobFile} />
           </Box>
         ) : (
           /* File list / grid */
@@ -1069,6 +1104,7 @@ export default function DesignFilesWidget() {
                       viewOnly={activeTabDef.viewOnly}
                       onRename={handleRename}
                       onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
+                      onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                       onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
                     />
                   </Grid>
@@ -1085,6 +1121,7 @@ export default function DesignFilesWidget() {
                     viewOnly={activeTabDef.viewOnly}
                     onRename={handleRename}
                     onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
+                    onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                     onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
                   />
                 ))}

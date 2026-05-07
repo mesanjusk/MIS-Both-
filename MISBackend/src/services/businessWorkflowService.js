@@ -586,22 +586,56 @@ function decorateOrderFinancials(order = {}, supplied = {}) {
 }
 
 async function decorateOrders(orders = []) {
-  const customerUuids = [...new Set(orders.map((order) => order.Customer_uuid).filter(Boolean))];
-  const customers = await Customers.find({ Customer_uuid: { $in: customerUuids } }).lean();
-  const customerMap = new Map(customers.map((customer) => [customer.Customer_uuid, customer]));
+  if (!orders.length) return [];
 
-  const result = [];
-  for (const order of orders) {
-    const received = await getReceivedAmountForOrder(order);
-    const total = getOrderTotal(order);
-    const customer = customerMap.get(order.Customer_uuid) || {};
-    result.push({
-      ...decorateOrderFinancials(order, { total, received, outstanding: money(Math.max(total - received, 0)) }),
-      customerName: customer.Customer_name || order.customerName || '',
-      customerMobile: customer.Mobile_number || '',
-    });
+  const customerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+  const orderUuids    = [...new Set(orders.map((o) => o.Order_uuid).filter(Boolean))];
+  const orderNumbers  = [...new Set(orders.map((o) => o.Order_Number).filter(Boolean))];
+
+  // Single batch fetch — replaces one Transaction query per order (N+1 eliminated)
+  const [customers, allTxns] = await Promise.all([
+    Customers.find({ Customer_uuid: { $in: customerUuids } }).lean(),
+    Transaction.find({
+      $or: [
+        ...(orderUuids.length  ? [{ Order_uuid:   { $in: orderUuids } }]                  : []),
+        ...(orderNumbers.length ? [{ Order_number: { $in: orderNumbers.map(Number) } }] : []),
+      ],
+    }).lean(),
+  ]);
+
+  const customerMap = new Map(customers.map((c) => [c.Customer_uuid, c]));
+
+  // Index transactions by order UUID and order number for O(1) lookup
+  const txnsByUuid   = new Map();
+  const txnsByNumber = new Map();
+  for (const txn of allTxns) {
+    if (txn.Order_uuid) {
+      if (!txnsByUuid.has(txn.Order_uuid)) txnsByUuid.set(txn.Order_uuid, []);
+      txnsByUuid.get(txn.Order_uuid).push(txn);
+    }
+    if (txn.Order_number) {
+      if (!txnsByNumber.has(txn.Order_number)) txnsByNumber.set(txn.Order_number, []);
+      txnsByNumber.get(txn.Order_number).push(txn);
+    }
   }
-  return result;
+
+  const getReceived = (order) => {
+    const txns = new Map();
+    for (const t of (txnsByUuid.get(order.Order_uuid) || [])) txns.set(t._id?.toString(), t);
+    for (const t of (txnsByNumber.get(order.Order_Number) || [])) txns.set(t._id?.toString(), t);
+    return money([...txns.values()].filter(isBusinessCustomerReceipt).reduce((s, t) => s + money(t.Total_Debit || t.Total_Credit), 0));
+  };
+
+  return orders.map((order) => {
+    const received = getReceived(order);
+    const total    = getOrderTotal(order);
+    const customer = customerMap.get(order.Customer_uuid) || {};
+    return {
+      ...decorateOrderFinancials(order, { total, received, outstanding: money(Math.max(total - received, 0)) }),
+      customerName:   customer.Customer_name  || order.customerName || '',
+      customerMobile: customer.Mobile_number  || '',
+    };
+  });
 }
 
 function bucketPayload(rows = []) {

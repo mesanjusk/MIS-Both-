@@ -1,4 +1,5 @@
 const { Server } = require("socket.io");
+const jwt = require('jsonwebtoken');
 const logger = require('./utils/logger');
 
 let ioInstance = null;
@@ -33,8 +34,35 @@ const initSocket = (server) => {
     },
   });
 
+  // Require a valid JWT on every socket connection. The client must pass
+  // the token in socket.auth.token (or Authorization header as a fallback).
+  ioInstance.use((socket, next) => {
+    const token =
+      socket.handshake.auth?.token ||
+      String(socket.handshake.headers?.authorization || '').replace(/^Bearer\s+/i, '');
+
+    if (!token) {
+      return next(new Error('Authentication required'));
+    }
+
+    const secret = process.env.ACCESS_TOKEN_SECRET;
+    if (!secret) {
+      logger.error('[socket.io] ACCESS_TOKEN_SECRET not set — rejecting connection');
+      return next(new Error('Server misconfiguration'));
+    }
+
+    try {
+      const payload = jwt.verify(token, secret);
+      socket.userId = payload.id;
+      socket.userName = payload.userName;
+      next();
+    } catch {
+      next(new Error('Invalid or expired token'));
+    }
+  });
+
   ioInstance.on("connection", (socket) => {
-    logger.info(`[socket.io] Client connected: ${socket.id}`);
+    logger.info(`[socket.io] Client connected: ${socket.id} (user: ${socket.userName || 'unknown'})`);
 
     socket.on("disconnect", (reason) => {
       logger.info(`[socket.io] Client disconnected: ${socket.id} (${reason})`);

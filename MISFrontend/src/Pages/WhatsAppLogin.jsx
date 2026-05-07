@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import { getApiBase } from '../apiClient.js';
+import { getStoredToken } from '../utils/authStorage.js';
 
 let socket;
 
@@ -13,7 +14,7 @@ export default function WhatsAppLogin() {
   useEffect(() => {
     let s;
     const base = getApiBase();
-    s = io(base);
+    s = io(base, { auth: { token: getStoredToken() } });
     socket = s;
     s.on('qr', (data) => {
       console.log("QR Code Data:", data);

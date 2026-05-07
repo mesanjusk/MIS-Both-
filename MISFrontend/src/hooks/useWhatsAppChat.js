@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import normalizeWhatsAppNumber from '../utils/normalizeNumber.js';
 import { getApiBase } from '../apiClient.js';
+import { getStoredToken } from '../utils/authStorage.js';
 import {
   fetchChatList,
   fetchCustomerByNumber,
@@ -82,7 +83,7 @@ export const useWhatsAppChat = () => {
     let active = true;
     const base = getApiBase();
     if (active) {
-      const socketInstance = io(base, { transports: ['websocket', 'polling'] });
+      const socketInstance = io(base, { transports: ['websocket', 'polling'], auth: { token: getStoredToken() } });
       setSocket(socketInstance);
     }
     return () => {

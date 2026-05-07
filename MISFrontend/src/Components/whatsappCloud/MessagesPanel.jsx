@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { io } from 'socket.io-client';
+import { getStoredToken } from '../../utils/authStorage';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Avatar, Box, Divider, Stack, Typography } from '@mui/material';
 import { toast } from '../../Components';
@@ -222,6 +223,7 @@ export default function MessagesPanel({ search: externalSearch }) {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 2000,
+      auth: { token: getStoredToken() },
     });
 
     socket.on('new_message', appendMessage);

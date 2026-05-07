@@ -4,6 +4,9 @@ const Usergroup = require("../repositories/usergroup");
 const { v4: uuid } = require("uuid");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
+const { requireAuth } = require("../middleware/auth");
+
+router.use(requireAuth);
 
 router.post(
   "/addUsergroup",

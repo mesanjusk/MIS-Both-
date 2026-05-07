@@ -117,6 +117,7 @@ export default function BankReconciliation() {
   const { uuid: selectedUuid } = useParams();
 
   const [csvText, setCsvText]         = useState('');
+  const [pdfFile, setPdfFile]         = useState(null);
   const [uploading, setUploading]     = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [stmtList, setStmtList]       = useState([]);
@@ -153,23 +154,40 @@ export default function BankReconciliation() {
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setCsvText(ev.target.result);
-    reader.readAsText(file);
+    if (file.type === 'application/pdf') {
+      setPdfFile(file);
+      setCsvText('');
+    } else {
+      setPdfFile(null);
+      const reader = new FileReader();
+      reader.onload = (ev) => setCsvText(ev.target.result);
+      reader.readAsText(file);
+    }
   };
 
   const handleUpload = async () => {
-    if (!csvText.trim()) return;
+    if (!pdfFile && !csvText.trim()) return;
     setUploading(true);
     setUploadError('');
     try {
-      const res = await axios.post('/api/bank-statement/upload-csv', {
-        csv_text: csvText,
-        uploaded_by: loggedInUser,
-      });
+      let res;
+      if (pdfFile) {
+        const formData = new FormData();
+        formData.append('pdf', pdfFile);
+        formData.append('uploaded_by', loggedInUser);
+        res = await axios.post('/api/bank-statement/upload-pdf', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      } else {
+        res = await axios.post('/api/bank-statement/upload-csv', {
+          csv_text: csvText,
+          uploaded_by: loggedInUser,
+        });
+      }
       const newUuid = res.data?.result?.statement_uuid;
       await loadList();
       setCsvText('');
+      setPdfFile(null);
       if (newUuid) navigate(`${ROUTES.BANK_RECONCILIATION}/${newUuid}`);
     } catch (err) {
       setUploadError(err?.response?.data?.message || 'Upload failed.');
@@ -255,7 +273,7 @@ export default function BankReconciliation() {
           <Box>
             <Typography variant="h5" fontWeight={900}>Bank Reconciliation</Typography>
             <Typography variant="body2" color="text.secondary">
-              Upload SBI bank statement CSV — auto-matched against diary bank entries
+              Upload SBI bank statement PDF or CSV — auto-matched against diary bank entries
             </Typography>
           </Box>
           <Button
@@ -270,35 +288,53 @@ export default function BankReconciliation() {
         {/* Upload section */}
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-            Upload SBI Bank Statement CSV
+            Upload SBI Bank Statement
           </Typography>
           <Stack spacing={1.5}>
-            <Button
-              variant="outlined"
-              component="label"
-              startIcon={<UploadFileRoundedIcon />}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Choose CSV File
-              <input type="file" accept=".csv,text/csv" hidden onChange={handleFileChange} />
-            </Button>
-            <Typography variant="caption" color="text.secondary">— or paste CSV text below —</Typography>
-            <TextField
-              multiline
-              minRows={4}
-              maxRows={10}
-              fullWidth
-              placeholder={`Txn Date,Value Date,Description,Ref No./Cheque No.,Branch Code,Debit,Credit,Balance\n09/04/2026,09/04/2026,UPI/CR/12345/MAHI CREATION,,0,0,3000.00,50000.00`}
-              value={csvText}
-              onChange={(e) => setCsvText(e.target.value)}
-              size="small"
-              inputProps={{ style: { fontFamily: 'monospace', fontSize: 12 } }}
-            />
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Button
+                variant="outlined"
+                component="label"
+                startIcon={<UploadFileRoundedIcon />}
+                color={pdfFile ? 'success' : 'primary'}
+              >
+                {pdfFile ? `PDF: ${pdfFile.name}` : 'Choose PDF or CSV'}
+                <input
+                  type="file"
+                  accept=".pdf,.csv,application/pdf,text/csv"
+                  hidden
+                  onChange={handleFileChange}
+                />
+              </Button>
+              {pdfFile && (
+                <Button size="small" color="warning" onClick={() => setPdfFile(null)}>
+                  Clear
+                </Button>
+              )}
+            </Stack>
+
+            {!pdfFile && (
+              <>
+                <Typography variant="caption" color="text.secondary">— or paste CSV text below —</Typography>
+                <TextField
+                  multiline
+                  minRows={3}
+                  maxRows={8}
+                  fullWidth
+                  placeholder={`Txn Date,Value Date,Description,Ref No./Cheque No.,Branch Code,Debit,Credit,Balance\n09/04/2026,09/04/2026,UPI/CR/12345/MAHI CREATION,,0,0,3000.00,50000.00`}
+                  value={csvText}
+                  onChange={(e) => setCsvText(e.target.value)}
+                  size="small"
+                  inputProps={{ style: { fontFamily: 'monospace', fontSize: 12 } }}
+                />
+              </>
+            )}
+
             {uploadError && <Alert severity="error" sx={{ borderRadius: 2 }}>{uploadError}</Alert>}
             <Button
               variant="contained"
               onClick={handleUpload}
-              disabled={uploading || !csvText.trim()}
+              disabled={uploading || (!pdfFile && !csvText.trim())}
               startIcon={uploading ? <CircularProgress size={14} /> : <AddRoundedIcon />}
               sx={{ alignSelf: 'flex-start' }}
             >
@@ -311,7 +347,7 @@ export default function BankReconciliation() {
         {!selectedUuid && !loading && (
           <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
             <Typography color="text.secondary">
-              Upload a bank statement CSV above, or select one from the list.
+              Upload a PDF or CSV bank statement above, or select one from the list.
             </Typography>
           </Paper>
         )}

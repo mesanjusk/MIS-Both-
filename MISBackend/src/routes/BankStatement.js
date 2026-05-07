@@ -2,11 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { v4: uuid } = require('uuid');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
+
+// Multer: memory storage, PDF only, max 10 MB
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are accepted'));
+  },
+});
 
 // --------------- helpers ---------------
 
@@ -113,6 +125,78 @@ function parseSbiCsv(text) {
   return { entries, error: null, accountName };
 }
 
+// Parse raw text extracted from SBI PDF bank statement
+// Strategy: find lines starting with DD/MM/YYYY, extract trailing amounts
+// SBI column order at end of each row: Debit, Credit, Balance
+function parseSbiPdfText(text) {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const dateRe = /^\d{2}\/\d{2}\/\d{4}/;
+  const amtRe  = /([\d,]+\.\d{2})/g;
+
+  const entries = [];
+  let accountName = '';
+
+  for (const line of lines) {
+    // Grab account name if it appears before data rows
+    if (!entries.length) {
+      const nameLine = line.match(/(?:account\s*name|name)\s*[:\-]\s*(.+)/i);
+      if (nameLine) { accountName = nameLine[1].trim(); continue; }
+    }
+
+    if (!dateRe.test(line)) continue;
+
+    // Collect all DD/MM/YYYY dates in the line
+    const allDates = line.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+    const txnDate  = parseDateStr(allDates[0]);
+    if (!txnDate) continue;
+    const valueDate = allDates[1] ? parseDateStr(allDates[1]) : txnDate;
+
+    // Remove dates, then extract all amounts
+    let rest = line;
+    for (const d of allDates) rest = rest.replace(d, '');
+
+    const allAmts = [];
+    let m;
+    const re = /([\d,]+\.\d{2})/g;
+    while ((m = re.exec(rest)) !== null) allAmts.push(toAmt(m[1]));
+
+    if (allAmts.length < 2) continue;
+
+    // SBI trailing order: ... Debit, Credit, Balance
+    const balance = allAmts[allAmts.length - 1];
+    let debit = 0, credit = 0;
+    if (allAmts.length >= 3) {
+      debit  = allAmts[allAmts.length - 3];
+      credit = allAmts[allAmts.length - 2];
+    } else {
+      // 2 amounts: [txn_amount, balance]
+      const diff = allAmts[0];
+      credit = diff; // default to credit; will be corrected if both are 0
+    }
+
+    if (!debit && !credit) continue;
+
+    // Description = everything left after removing amounts and date strings
+    const desc = rest.replace(/([\d,]+\.\d{2})/g, '').replace(/\s+/g, ' ').trim();
+
+    entries.push({
+      entry_uuid:   uuid(),
+      txn_date:     txnDate,
+      value_date:   valueDate || txnDate,
+      description:  desc,
+      ref_no:       '',
+      debit,
+      credit,
+      balance,
+      direction:    credit > 0 ? 'in' : 'out',
+      match_status: 'unmatched',
+    });
+  }
+
+  const error = entries.length ? null : 'No transactions found in PDF. Make sure it is an SBI bank statement.';
+  return { entries, accountName, error };
+}
+
 // Auto-match bank statement entries against diary bank entries
 async function autoMatchEntries(stmtEntries) {
   if (!stmtEntries.length) return stmtEntries;
@@ -183,6 +267,45 @@ async function autoMatchEntries(stmtEntries) {
 }
 
 // --------------- routes ---------------
+
+// POST /api/bank-statement/upload-pdf
+router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'PDF file is required (field name: pdf)' });
+    }
+    const uploaded_by = req.body.uploaded_by || req.query.uploaded_by || 'user';
+
+    let pdfData;
+    try {
+      pdfData = await pdfParse(req.file.buffer);
+    } catch (parseErr) {
+      logger.error({ parseErr }, 'pdf-parse failed');
+      return res.status(422).json({ success: false, message: 'Could not read PDF. Make sure it is not password-protected.' });
+    }
+
+    const { entries, error, accountName } = parseSbiPdfText(pdfData.text);
+    if (error) return res.status(400).json({ success: false, message: error });
+
+    const enriched = await autoMatchEntries(entries);
+
+    const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
+    const statement = new BankStatement({
+      statement_uuid: uuid(),
+      account_name:   accountName || 'SBI Bank Account',
+      uploaded_by,
+      period_start:   dates[0],
+      period_end:     dates[dates.length - 1],
+      entries:        enriched,
+    });
+    await statement.save();
+
+    return res.status(201).json({ success: true, message: 'PDF bank statement uploaded', result: statement });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/upload-pdf');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
 
 // POST /api/bank-statement/upload-csv
 router.post('/upload-csv', async (req, res) => {

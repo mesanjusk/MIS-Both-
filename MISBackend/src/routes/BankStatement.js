@@ -125,35 +125,38 @@ function parseSbiCsv(text) {
   return { entries, error: null, accountName };
 }
 
-// Parse raw text extracted from SBI PDF bank statement
-// Strategy: find lines starting with DD/MM/YYYY, extract trailing amounts
-// SBI column order at end of each row: Debit, Credit, Balance
+// Parse raw text extracted from SBI PDF bank statement.
+// Handles both single-line-per-transaction and multi-line (one column per line) layouts.
 function parseSbiPdfText(text) {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const dateRe = /^\d{2}\/\d{2}\/\d{4}/;
-  const amtRe  = /([\d,]+\.\d{2})/g;
+  const AMT_RE   = /([\d,]+\.\d{2})/g;
+  const DATE_PAT = /\d{2}[\/\-]\d{2}[\/\-]\d{4}/g;
+
+  let accountName = '';
+  // Grab account name from header area
+  const nameMatch = text.match(/(?:account\s*(?:name|holder)\s*[:\-]?\s*)([A-Z][A-Z\s]+)/i);
+  if (nameMatch) accountName = nameMatch[1].trim();
 
   const entries = [];
-  let accountName = '';
 
-  for (const line of lines) {
-    // Grab account name if it appears before data rows
-    if (!entries.length) {
-      const nameLine = line.match(/(?:account\s*name|name)\s*[:\-]\s*(.+)/i);
-      if (nameLine) { accountName = nameLine[1].trim(); continue; }
-    }
+  // ── Strategy 1: single-line rows (each txn on one line) ──────────────────
+  // Matches lines that contain at least one DD/MM/YYYY date and at least 2 amounts
+  const rawLines = text.split('\n').map((l) => l.trim()).filter(Boolean);
 
-    if (!dateRe.test(line)) continue;
+  for (const line of rawLines) {
+    const dates = line.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/g);
+    if (!dates) continue;
 
-    // Collect all DD/MM/YYYY dates in the line
-    const allDates = line.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-    const txnDate  = parseDateStr(allDates[0]);
+    // Date must appear within the first 25 chars
+    const firstDateIdx = line.indexOf(dates[0]);
+    if (firstDateIdx > 25) continue;
+
+    const txnDate   = parseDateStr(dates[0]);
     if (!txnDate) continue;
-    const valueDate = allDates[1] ? parseDateStr(allDates[1]) : txnDate;
+    const valueDate = dates[1] ? parseDateStr(dates[1]) : txnDate;
 
-    // Remove dates, then extract all amounts
+    // Strip dates, collect amounts
     let rest = line;
-    for (const d of allDates) rest = rest.replace(d, '');
+    for (const d of dates) rest = rest.replace(d, '');
 
     const allAmts = [];
     let m;
@@ -162,27 +165,77 @@ function parseSbiPdfText(text) {
 
     if (allAmts.length < 2) continue;
 
-    // SBI trailing order: ... Debit, Credit, Balance
     const balance = allAmts[allAmts.length - 1];
     let debit = 0, credit = 0;
     if (allAmts.length >= 3) {
       debit  = allAmts[allAmts.length - 3];
       credit = allAmts[allAmts.length - 2];
     } else {
-      // 2 amounts: [txn_amount, balance]
-      const diff = allAmts[0];
-      credit = diff; // default to credit; will be corrected if both are 0
+      credit = allAmts[0];
     }
-
     if (!debit && !credit) continue;
 
-    // Description = everything left after removing amounts and date strings
     const desc = rest.replace(/([\d,]+\.\d{2})/g, '').replace(/\s+/g, ' ').trim();
 
     entries.push({
       entry_uuid:   uuid(),
       txn_date:     txnDate,
       value_date:   valueDate || txnDate,
+      description:  desc,
+      ref_no:       '',
+      debit,
+      credit,
+      balance,
+      direction:    credit > 0 ? 'in' : 'out',
+      match_status: 'unmatched',
+    });
+  }
+
+  if (entries.length) return { entries, accountName, error: null };
+
+  // ── Strategy 2: multi-line / column-per-line layout ───────────────────────
+  // Some PDFs have each column on its own line. Collect all dates in the text
+  // and pair them with the surrounding numbers.
+  const allDateMatches = [...text.matchAll(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/g)];
+  const allAmtMatches  = [...text.matchAll(/([\d,]+\.\d{2})/g)];
+
+  for (let di = 0; di < allDateMatches.length; di++) {
+    const txnDate = parseDateStr(allDateMatches[di][0]);
+    if (!txnDate) continue;
+
+    // Look for a second date (value date) close by in the text
+    const dtPos = allDateMatches[di].index;
+    let valueDate = txnDate;
+    if (di + 1 < allDateMatches.length && allDateMatches[di + 1].index - dtPos < 30) {
+      valueDate = parseDateStr(allDateMatches[di + 1][0]) || txnDate;
+      di++; // skip value date
+    }
+
+    // Find the 3 amounts that come immediately after this date in the text
+    const nearAmts = allAmtMatches
+      .filter((a) => a.index > dtPos && a.index < dtPos + 300)
+      .map((a) => toAmt(a[1]));
+
+    if (nearAmts.length < 2) continue;
+
+    const balance = nearAmts[nearAmts.length - 1];
+    let debit = 0, credit = 0;
+    if (nearAmts.length >= 3) {
+      debit  = nearAmts[nearAmts.length - 3];
+      credit = nearAmts[nearAmts.length - 2];
+    } else {
+      credit = nearAmts[0];
+    }
+    if (!debit && !credit) continue;
+
+    // Grab the text between the date position and the first amount position
+    const firstAmtPos = allAmtMatches.find((a) => a.index > dtPos)?.index || dtPos;
+    const desc = text.substring(dtPos + 10, firstAmtPos).replace(/\s+/g, ' ').trim();
+
+    entries.push({
+      entry_uuid:   uuid(),
+      txn_date:     txnDate,
+      value_date:   valueDate,
       description:  desc,
       ref_no:       '',
       debit,
@@ -285,7 +338,14 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
     }
 
     const { entries, error, accountName } = parseSbiPdfText(pdfData.text);
-    if (error) return res.status(400).json({ success: false, message: error });
+    if (error) {
+      // Return extracted text in dev so we can tune the parser
+      return res.status(400).json({
+        success: false,
+        message: error,
+        debug_text_preview: pdfData.text.substring(0, 3000),
+      });
+    }
 
     const enriched = await autoMatchEntries(entries);
 

@@ -1,435 +1,407 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import {
+  Alert,
+  Autocomplete,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
+import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import axios from '../apiClient.js';
-import AddOrder1 from "../Pages/addOrder1";
-import { FaTrash } from "react-icons/fa";
 
+const money = (v) =>
+  `₹${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtDate = (d) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
 const AllTransaction = () => {
-    const [transactions, setTransactions] = useState([]);
-    const [filteredEntries, setFilteredEntries] = useState([]);
-    const [customers, setCustomers] = useState([]);
-    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-    const [filteredCustomers, setFilteredCustomers] = useState([]);
-    const [selectedCustomer, setSelectedCustomer] = useState(null);
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [showOrderModal, setShowOrderModal] = useState(false);
-    const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
-    const [openingBalance, setOpeningBalance] = useState(0);
-    const [closingBalance, setClosingBalance] = useState(0);
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [entryToDelete, setEntryToDelete] = useState(null);
+  const [transactions, setTransactions]     = useState([]);
+  const [customers, setCustomers]           = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [startDate, setStartDate]           = useState('');
+  const [endDate, setEndDate]               = useState('');
+  const [filteredEntries, setFilteredEntries] = useState([]);
+  const [openingBalance, setOpeningBalance] = useState(0);
+  const [closingBalance, setClosingBalance] = useState(0);
+  const [loading, setLoading]               = useState(true);
+  const [searching, setSearching]           = useState(false);
+  const [deleteTarget, setDeleteTarget]     = useState(null);
+  const [hasSearched, setHasSearched]       = useState(false);
 
-    useEffect(() => {
-        const fetchTransactions = async () => {
-            try {
-                const response = await axios.get('/api/transaction');
-                if (response.data.success) {
-                    setTransactions(response.data.result);
-                }
-            } catch (error) {
-                console.error('Error fetching transactions:', error);
-            }
-        };
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      axios.get('/api/transaction'),
+      axios.get('/api/customers/GetCustomersList'),
+    ])
+      .then(([txRes, custRes]) => {
+        if (txRes.data.success)   setTransactions(txRes.data.result);
+        if (custRes.data.success) setCustomers(custRes.data.result);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
 
-        const fetchCustomers = async () => {
-            try {
-                const response = await axios.get('/api/customers/GetCustomersList');
-                if (response.data.success) {
-                    setCustomers(response.data.result);
-                }
-            } catch (error) {
-                console.error('Error fetching customers:', error);
-            }
-        };
+  const bankAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
+  const customerMap  = customers.reduce((acc, c) => { acc[c.Customer_uuid] = c.Customer_name; return acc; }, {});
 
-        fetchTransactions();
-        fetchCustomers();
-    }, []);
+  const doSearch = useCallback((customer = selectedCustomer) => {
+    if (!customer) return;
+    setSearching(true);
+    setHasSearched(true);
 
-    const customerMap = customers.reduce((acc, customer) => {
-        acc[customer.Customer_uuid] = customer.Customer_name;
-        return acc;
-    }, {});
+    const uuid = customer.Customer_uuid;
+    let runDr = 0, runCr = 0;
 
-    const handleSearchInputChange = (e) => {
-        const searchTerm = e.target.value.trim().toLowerCase();
-        setCustomerSearchTerm(searchTerm);
+    const filtered = transactions.flatMap((txn) => {
+      const inRange =
+        (!startDate || new Date(txn.Transaction_date) >= new Date(startDate)) &&
+        (!endDate   || new Date(txn.Transaction_date) <= new Date(endDate));
+      if (!inRange) return [];
+      if (!txn.Journal_entry.some((e) => e.Account_id === uuid)) return [];
+      return txn.Journal_entry
+        .filter((e) => e.Account_id !== uuid)
+        .map((e) => ({
+          ...e,
+          Transaction_id:   txn.Transaction_id,
+          Transaction_date: txn.Transaction_date,
+          Description:      txn.Description,
+        }));
+    });
 
-        if (searchTerm) {
-            const filtered = customers.filter(customer =>
-                customer.Customer_name.toLowerCase().includes(searchTerm)
-            );
-            setFilteredCustomers(filtered);
-        } else {
-            setFilteredCustomers([]);
-        }
-    };
+    const withBalance = filtered.map((e) => {
+      if (e.Type === 'Debit') runDr += e.Amount || 0;
+      else                    runCr += e.Amount || 0;
+      return { ...e, Balance: runCr - runDr };
+    });
 
-    const handleCustomerSelect = (customer) => {
-        setSelectedCustomer(customer);
-        setCustomerSearchTerm(customer.Customer_name);
-        setFilteredCustomers([]);
-    };
-
-    const handleSearch = () => {
-        if (!selectedCustomer) {
-            setFilteredEntries([]);
-            setOpeningBalance(0);
-            setClosingBalance(0);
-            return;
-        }
-
-        const customerUUID = selectedCustomer.Customer_uuid;
-        let runningDebit = 0;
-        let runningCredit = 0;
-        let openingBalanceTemp = 0;
-        let closingBalanceTemp = 0;
-
-        const filtered = transactions.flatMap(transaction => {
-            const isWithinDateRange = (!startDate || new Date(transaction.Transaction_date) >= new Date(startDate)) &&
-                                      (!endDate || new Date(transaction.Transaction_date) <= new Date(endDate));
-            if (isWithinDateRange) {
-                const customerEntries = transaction.Journal_entry.filter(entry => entry.Account_id === customerUUID);
-                if (customerEntries.length > 0) {
-                    return transaction.Journal_entry
-                        .filter(entry => entry.Account_id !== customerUUID)
-                        .map(entry => ({
-                            ...entry,
-                            Transaction_id: transaction.Transaction_id,
-                            Transaction_date: transaction.Transaction_date,
-                            Description: transaction.Description,
-                        }));
-                }
-            }
-            return [];
+    let opDr = 0, opCr = 0;
+    if (startDate) {
+      transactions.forEach((txn) => {
+        if (new Date(txn.Transaction_date) >= new Date(startDate)) return;
+        if (!txn.Journal_entry.some((e) => e.Account_id === uuid)) return;
+        txn.Journal_entry.filter((e) => e.Account_id !== uuid).forEach((e) => {
+          if (e.Type === 'Debit') opDr += e.Amount || 0;
+          else                    opCr += e.Amount || 0;
         });
+      });
+    }
 
-        const updatedEntries = filtered.map(entry => {
-            if (entry.Type === 'Debit') {
-                runningDebit += entry.Amount || 0;
-            } else if (entry.Type === 'Credit') {
-                runningCredit += entry.Amount || 0;
-            }
+    setOpeningBalance(opCr - opDr);
+    setClosingBalance(runCr - runDr);
+    setFilteredEntries(withBalance);
+    setSearching(false);
+  }, [transactions, selectedCustomer, startDate, endDate]);
 
-            closingBalanceTemp = runningCredit - runningDebit;
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await axios.delete(`/api/transaction/${deleteTarget.Transaction_id}`);
+      setFilteredEntries((prev) =>
+        prev.filter(
+          (e) => !(e.Transaction_id === deleteTarget.Transaction_id && e.Account_id === deleteTarget.Account_id)
+        )
+      );
+    } catch (err) { console.error(err); }
+    finally { setDeleteTarget(null); }
+  };
 
-            return {
-                ...entry,
-                Balance: closingBalanceTemp,
-            };
-        });
+  const totals = filteredEntries.reduce(
+    (acc, e) => {
+      if (e.Type === 'Debit') acc.debit  += e.Amount || 0;
+      else                    acc.credit += e.Amount || 0;
+      return acc;
+    },
+    { debit: 0, credit: 0 }
+  );
 
-        // Calculate opening balance (just before start date)
-        const openingEntries = transactions.flatMap(transaction => {
-            if (startDate && new Date(transaction.Transaction_date) < new Date(startDate)) {
-                const customerEntries = transaction.Journal_entry.filter(entry => entry.Account_id === customerUUID);
-                return customerEntries.length > 0
-                    ? transaction.Journal_entry.filter(entry => entry.Account_id !== customerUUID).map(entry => ({
-                        ...entry,
-                        Transaction_id: transaction.Transaction_id,
-                        Transaction_date: transaction.Transaction_date,
-                        Description: transaction.Description,
-                    }))
-                    : [];
-            }
-            return [];
-        });
+  return (
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
 
-        let runningOpeningDebit = 0;
-        let runningOpeningCredit = 0;
-
-        openingEntries.forEach(entry => {
-            if (entry.Type === 'Debit') {
-                runningOpeningDebit += entry.Amount || 0;
-            } else if (entry.Type === 'Credit') {
-                runningOpeningCredit += entry.Amount || 0;
-            }
-        });
-
-        openingBalanceTemp = runningOpeningCredit - runningOpeningDebit;
-
-        setOpeningBalance(openingBalanceTemp);
-        setClosingBalance(closingBalanceTemp);
-        setFilteredEntries(updatedEntries);
-    };
-
-    const calculateTotals = () => {
-        const totals = filteredEntries.reduce(
-            (acc, entry) => {
-                if (entry.Type === 'Debit') {
-                    acc.debit += entry.Amount || 0;
-                } else if (entry.Type === 'Credit') {
-                    acc.credit += entry.Amount || 0;
-                }
-                return acc;
-            },
-            { debit: 0, credit: 0 }
-        );
-
-        const total = totals.credit - totals.debit;
-
-        return { debit: totals.debit, credit: totals.credit, total };
-    };
-
-    const totals = calculateTotals();
-
-    const handlePrint = () => {
-        window.print();
-    };
-
-    const handleOrder = () => {
-        setShowOrderModal(true);
-    };
-
-    const closeModal = () => {
-        setShowOrderModal(false);
-    };
-
-    const sortTable = (key) => {
-        let direction = 'asc';
-        if (sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-
-        const sortedEntries = [...filteredEntries].sort((a, b) => {
-            if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
-            if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
-            return 0;
-        });
-
-        setFilteredEntries(sortedEntries);
-    };
-    const formatDate = (date) => {
-    const d = new Date(date);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-};
-
-    return (
-        <>
-            <div className="no-print">
-            </div>
-            <div className="min-w-xl pt-12 pb-20">
-                <div className="flex flex-wrap bg-white p-4 space-x-4">
-                    <label className="flex flex-col">
-                        Start :
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="p-2 border rounded-md mt-2"
-                        />
-                    </label>
-                    <label className="flex flex-col">
-                        End :
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="p-2 border rounded-md mt-2"
-                        />
-                    </label>
-                </div>
-
-                <div className="mt-4 min-w-xl flex flex-wrap gap-2">
-                    {customers
-                        .filter((c) => c.Customer_group === 'Bank and Account')
-                        .map((customer) => (
-                            <button
-                                key={customer.Customer_uuid}
-                                onClick={() => {
-                                    handleCustomerSelect(customer);
-                                    setTimeout(handleSearch, 0); // Ensure selectedCustomer updates first
-                                }}
-                                className="px-4 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-600"
-                            >
-                                {customer.Customer_name}
-                            </button>
-                        ))}
-                </div>
-
-                <div className="mt-4 text-center">
-                    <input
-                        type="text"
-                        placeholder="Search Customer"
-                        value={customerSearchTerm}
-                        onChange={handleSearchInputChange}
-                        className="w-full p-2 border rounded-md"
-                    />
-
-                    {filteredCustomers.length > 0 && (
-                        <ul className="absolute bg-white border border-gray-300 w-full z-10 mt-1">
-                            {filteredCustomers.map((customer) => (
-                                <li
-                                    key={customer.Customer_uuid}
-                                    className="cursor-pointer p-2 hover:bg-gray-200"
-                                    onClick={() => handleCustomerSelect(customer)}
-                                >
-                                    {customer.Customer_name}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-
-                    <button
-                        onClick={handleSearch}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-700 mt-2"
-                    >
-                        Search
-                    </button>
-                </div>
-
-                <main className="overflow-x-auto mt-6">
-                    <div className="w-full min-w-xl overflow-x-scroll">
-                        {filteredEntries.length > 0 ? (
-                            <table className="min-w-full table-auto border-collapse">
-                                <thead className="bg-gray-100">
-                                    <tr>
-                                        <th
-                                            onClick={() => sortTable("Transaction_id")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            No
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Transaction_date")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Date
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Account_id")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Name
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Description")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Description
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Debit")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Credit
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Credit")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Debit
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Balance")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Balance
-                                        </th>
-                                        <th className="py-2 px-4">Actions</th>
-
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredEntries.map((entry, index) => (
-                                        <tr key={index} className="border-t">
-                                            <td className="py-2 px-4">{entry.Transaction_id}</td>
-                                            <td className="py-2 px-4">{formatDate(entry.Transaction_date)}</td>
-
-<td className="py-2 px-4">
-{customerMap[entry.Account_id]}
-</td>
-<td className="py-2 px-4">{entry.Description}</td>
-<td className="py-2 px-4">
-{entry.Type === 'Credit' ? entry.Amount : '-'}
-</td>
-<td className="py-2 px-4">
-{entry.Type === 'Debit' ? entry.Amount : '-'}
-</td>
-<td className="py-2 px-4">{entry.Balance}</td>
-<td className="py-2 px-4 text-center">
-    <button
-        onClick={() => {
-            setEntryToDelete(entry);
-            setShowDeleteModal(true);
+      {/* ── LEFT sidebar ── */}
+      <Paper
+        variant="outlined"
+        sx={{
+          width: 240, flexShrink: 0, borderRadius: 3,
+          display: { xs: 'none', md: 'flex' }, flexDirection: 'column',
+          p: 2, gap: 2,
         }}
-        className="text-red-600 hover:text-red-800"
-    >
-        <FaTrash />
-    </button>
-</td>
+      >
+        <Typography variant="subtitle2" fontWeight={700}>Filters</Typography>
+        <Divider />
 
-</tr>
-))}
-</tbody>
-</table>
+        <Stack spacing={1.5}>
+          <TextField
+            label="From"
+            type="date"
+            size="small"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+          />
+          <TextField
+            label="To"
+            type="date"
+            size="small"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            fullWidth
+          />
+        </Stack>
 
-) : (
-<p>No transactions found.</p>
-)}
-{showDeleteModal && (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-        <div className="bg-white p-6 rounded-lg w-80 text-center">
-            <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
-            <p>Are you sure you want to delete this transaction entry?</p>
-            <div className="mt-4 flex justify-center gap-4">
-                <button
-                    onClick={() => setShowDeleteModal(false)}
-                    className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={async () => {
-                        try {
-                            await axios.delete(`/api/transaction/${entryToDelete.Transaction_id}`);
-                            // Re-fetch transactions or manually remove the entry from state
-                            setFilteredEntries(prev =>
-                                prev.filter(e =>
-                                    !(
-                                        e.Transaction_id === entryToDelete.Transaction_id &&
-                                        e.Account_id === entryToDelete.Account_id
-                                    )
-                                )
-                            );
-                            setShowDeleteModal(false);
-                        } catch (error) {
-                            console.error("Delete failed", error);
-                        }
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                    Delete
-                </button>
-            </div>
-        </div>
-    </div>
-)}
+        <Divider />
 
-</div>
-</main>
-            
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          fontWeight={600}
+          sx={{ textTransform: 'uppercase', letterSpacing: 1 }}
+        >
+          Quick Select
+        </Typography>
+        <Stack spacing={0.75}>
+          {bankAccounts.map((c) => (
+            <Chip
+              key={c.Customer_uuid}
+              label={c.Customer_name}
+              clickable
+              color={selectedCustomer?.Customer_uuid === c.Customer_uuid ? 'primary' : 'default'}
+              variant={selectedCustomer?.Customer_uuid === c.Customer_uuid ? 'filled' : 'outlined'}
+              onClick={() => { setSelectedCustomer(c); setTimeout(() => doSearch(c), 0); }}
+              sx={{ justifyContent: 'flex-start' }}
+            />
+          ))}
+        </Stack>
 
-                <div className="flex items-center space-x-4">
-                    <div>
-                        <p>Opening Balance: {openingBalance}</p>
-                    </div>
-                    <div>
-                        <p>Closing Balance: {closingBalance}</p>
-                    </div>
-                </div>
-            </div>
+        <Divider />
 
-      
-        <div className="no-print">
-        </div>
-    </>
-);
+        <Autocomplete
+          size="small"
+          options={customers}
+          getOptionLabel={(o) => o.Customer_name || ''}
+          value={selectedCustomer}
+          onChange={(_, v) => setSelectedCustomer(v)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Search Account"
+              InputProps={{
+                ...params.InputProps,
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          )}
+        />
+
+        <Button
+          variant="contained"
+          fullWidth
+          onClick={() => doSearch()}
+          disabled={!selectedCustomer || searching}
+          startIcon={searching ? <CircularProgress size={14} /> : <SearchRoundedIcon />}
+        >
+          {searching ? 'Loading…' : 'Search'}
+        </Button>
+      </Paper>
+
+      {/* ── RIGHT main ── */}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+
+        {/* Header */}
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
+          <Box>
+            <Typography variant="h5" fontWeight={900}>Account Transaction</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {selectedCustomer
+                ? `Ledger for ${selectedCustomer.Customer_name}`
+                : 'Select an account from the left panel'}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1}>
+            {hasSearched && (
+              <Tooltip title="Refresh">
+                <IconButton size="small" onClick={() => doSearch()}>
+                  <RefreshRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Tooltip title="Print">
+              <IconButton size="small" onClick={() => window.print()}>
+                <PrintRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Stack>
+
+        {/* Loading */}
+        {loading && (
+          <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+        )}
+
+        {/* Initial placeholder */}
+        {!loading && !hasSearched && (
+          <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
+            <Typography color="text.secondary">
+              Select an account from the left and click <strong>Search</strong> to view its ledger.
+            </Typography>
+          </Paper>
+        )}
+
+        {/* Results */}
+        {!loading && hasSearched && (
+          <>
+            {/* Summary cards */}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+              {[
+                { label: 'Opening Balance',   value: openingBalance, color: 'text.primary' },
+                { label: 'Total Debit (DR)',   value: totals.debit,   color: 'success.dark' },
+                { label: 'Total Credit (CR)',  value: totals.credit,  color: 'error.dark' },
+                { label: 'Closing Balance',    value: closingBalance, color: closingBalance >= 0 ? 'success.dark' : 'error.dark' },
+              ].map(({ label, value, color }) => (
+                <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+                  <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                    <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+
+            {filteredEntries.length === 0 ? (
+              <Alert severity="info" sx={{ borderRadius: 3 }}>
+                No transactions found for the selected account and date range.
+              </Alert>
+            ) : (
+              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell sx={{ fontWeight: 700, width: 55 }}>#</TableCell>
+                      <TableCell sx={{ fontWeight: 700, width: 110 }}>Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: 'success.dark' }}>Debit (DR)</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: 'error.dark' }}>Credit (CR)</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>Balance</TableCell>
+                      <TableCell sx={{ width: 44 }} />
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredEntries.map((entry, i) => (
+                      <TableRow
+                        key={i}
+                        hover
+                        sx={{ bgcolor: entry.Type === 'Debit' ? 'success.50' : 'error.50' }}
+                      >
+                        <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>
+                          {entry.Transaction_id}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>
+                          {fmtDate(entry.Transaction_date)}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={customerMap[entry.Account_id] || entry.Account_id}
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontSize: 12 }}>
+                            {entry.Description}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          {entry.Type === 'Debit' ? (
+                            <Typography variant="body2" fontWeight={700} color="success.dark">
+                              {money(entry.Amount)}
+                            </Typography>
+                          ) : (
+                            <Typography color="text.disabled">—</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          {entry.Type === 'Credit' ? (
+                            <Typography variant="body2" fontWeight={700} color="error.dark">
+                              {money(entry.Amount)}
+                            </Typography>
+                          ) : (
+                            <Typography color="text.disabled">—</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography
+                            variant="body2"
+                            fontWeight={700}
+                            color={entry.Balance >= 0 ? 'success.dark' : 'error.dark'}
+                          >
+                            {money(entry.Balance)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="Delete transaction">
+                            <IconButton size="small" color="error" onClick={() => setDeleteTarget(entry)}>
+                              <DeleteRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </>
+        )}
+      </Box>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Delete Transaction?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Delete transaction <strong>#{deleteTarget?.Transaction_id}</strong>? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
 };
 
 export default AllTransaction;

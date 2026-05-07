@@ -384,6 +384,188 @@ function LedgerDayView({ txns, date, cashAccounts = [], bankAccounts = [] }) {
   );
 }
 
+// =================== BANK STATEMENT ENTRIES (unmatched, from uploaded bank statement) ===================
+function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts = [] }) {
+  const [editing, setEditing] = useState(false);
+  const [acct, setAcct]       = useState(entry.account_assigned || '');
+  const [saving, setSaving]   = useState(false);
+
+  const save = async (overrideAcct) => {
+    const finalAcct = overrideAcct ?? acct;
+    if (!finalAcct) return;
+    setSaving(true);
+    await onAssign(entry.statement_uuid, entry.entry_uuid, finalAcct);
+    setSaving(false);
+    setEditing(false);
+  };
+
+  const amt = entry.credit > 0 ? entry.credit : entry.debit;
+  const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+
+  return (
+    <TableRow
+      hover
+      sx={{
+        bgcolor: entry.entry_status === 'rejected' ? 'error.50' : '#ede7f6',
+        opacity: entry.entry_status === 'rejected' ? 0.5 : 1,
+      }}
+    >
+      <TableCell sx={{ width: 90, fontSize: 11, color: 'text.disabled' }}>
+        {entry.txn_date ? new Date(entry.txn_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
+      </TableCell>
+      <TableCell>
+        <Typography variant="body2" fontWeight={600} sx={{ fontSize: 12 }}>{entry.description || '—'}</Typography>
+        {entry.ref_no && <Typography variant="caption" color="text.disabled">{entry.ref_no}</Typography>}
+        <Chip
+          label={entry.direction === 'in' ? 'CR' : 'DR'}
+          size="small"
+          color={entry.direction === 'in' ? 'success' : 'error'}
+          variant="outlined"
+          sx={{ ml: 0.5, height: 16, fontSize: 9 }}
+        />
+      </TableCell>
+      <TableCell align="right">
+        <Typography variant="body2" fontWeight={700}>{money(amt)}</Typography>
+      </TableCell>
+      <TableCell sx={{ minWidth: 220 }}>
+        {editing ? (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Autocomplete
+              freeSolo size="small" options={ledgerAccounts}
+              value={acct}
+              onInputChange={(_, v) => setAcct(v)}
+              onChange={(_, v) => setAcct(v || '')}
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Select account" sx={{ width: 190 }} />
+              )}
+            />
+            <IconButton size="small" color="success" onClick={() => save()} disabled={saving || !acct}>
+              <CheckCircleRoundedIcon fontSize="small" />
+            </IconButton>
+            <IconButton size="small" onClick={() => { setEditing(false); setAcct(entry.account_assigned || ''); }}>
+              <CancelRoundedIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        ) : entry.account_assigned ? (
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Chip label={entry.account_assigned} size="small" color="secondary" variant="outlined" />
+            {entry.entry_status !== 'confirmed' && entry.entry_status !== 'rejected' && (
+              <IconButton size="small" onClick={() => { setAcct(entry.account_assigned); setEditing(true); }}>
+                <EditRoundedIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Stack>
+        ) : (
+          entry.entry_status !== 'rejected' && (
+            <Button
+              size="small" variant="outlined" color="secondary"
+              startIcon={<EditRoundedIcon sx={{ fontSize: 13 }} />}
+              onClick={() => setEditing(true)}
+              sx={{ fontSize: 11, py: 0.25, px: 1 }}
+            >
+              Assign Account
+            </Button>
+          )
+        )}
+      </TableCell>
+      <TableCell align="center" sx={{ width: 130 }}>
+        {entry.entry_status === 'confirmed' ? (
+          <Chip label="✓ Confirmed" color="success" size="small" />
+        ) : entry.entry_status === 'rejected' ? (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Chip label="Skipped" color="error" size="small" />
+            <Tooltip title="Restore">
+              <IconButton size="small" color="warning" onClick={() => onReject(entry.statement_uuid, entry.entry_uuid, false)}>
+                <CancelRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={0.5} justifyContent="center">
+            {entry.account_assigned && (
+              <Tooltip title="Confirm & post to ledger">
+                <Button
+                  size="small" variant="contained" color="secondary"
+                  onClick={() => onConfirm(entry.statement_uuid, entry.entry_uuid)}
+                  sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: 11, height: 22 }}
+                >
+                  ✓ Post
+                </Button>
+              </Tooltip>
+            )}
+            <Tooltip title="Skip this entry">
+              <IconButton size="small" color="error" onClick={() => onReject(entry.statement_uuid, entry.entry_uuid, true)}>
+                <CancelRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccounts }) {
+  if (!entries.length) return null;
+  const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+  const total = entries
+    .filter((e) => e.entry_status !== 'rejected')
+    .reduce((s, e) => s + (e.credit > 0 ? e.credit : e.debit), 0);
+
+  return (
+    <Paper
+      variant="outlined"
+      sx={{ p: 1.5, borderRadius: 3, borderColor: 'secondary.main', bgcolor: '#fdf5ff', mb: 2 }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+        <Box>
+          <Typography variant="subtitle2" fontWeight={700} color="secondary.dark">
+            Bank Statement Entries — Not in Diary
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            These entries are from your uploaded bank statement but have no matching diary entry.
+            Assign accounts and post them, then remind your team to write them in the physical diary.
+          </Typography>
+        </Box>
+        <Chip
+          label={`${entries.filter((e) => e.entry_status !== 'confirmed').length} pending`}
+          size="small" color="secondary" variant="outlined"
+        />
+      </Stack>
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, borderColor: 'secondary.light' }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow sx={{ bgcolor: '#ede7f6' }}>
+              <TableCell>Date</TableCell>
+              <TableCell>Description</TableCell>
+              <TableCell align="right">Amount</TableCell>
+              <TableCell>Account</TableCell>
+              <TableCell align="center">Action</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {entries.map((e) => (
+              <BankStmtEntryRow
+                key={e.entry_uuid}
+                entry={e}
+                onAssign={onAssign}
+                onConfirm={onConfirm}
+                onReject={onReject}
+                ledgerAccounts={ledgerAccounts}
+              />
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      <Stack direction="row" justifyContent="flex-end" sx={{ mt: 0.5 }}>
+        <Typography variant="caption" fontWeight={700} color="secondary.dark">
+          Total pending: {money(total)}
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 // =================== MAIN PAGE ===================
 export default function DayBook() {
   const { uuid: selectedUuid } = useParams();
@@ -396,6 +578,7 @@ export default function DayBook() {
   const [diary, setDiary]                 = useState(null);
   const [ledgerTxns, setLedgerTxns]       = useState(null); // historical transactions
   const [ledgerMeta, setLedgerMeta]       = useState({ cashAccounts: [], bankAccounts: [] });
+  const [bankStmtEntries, setBankStmtEntries] = useState([]); // unmatched bank statement entries for date
   const [loading, setLoading]             = useState(false);
   const [listLoading, setListLoading]     = useState(true);
   const [confirming, setConfirming]       = useState(false);
@@ -424,15 +607,23 @@ export default function DayBook() {
     }
   }, []);
 
-  // --- load single diary ---
+  // --- load single diary + bank statement entries for that date ---
   const loadDiary = useCallback(async (uid) => {
     if (!uid) return;
     setLoading(true);
     setError('');
     setSuccessMsg('');
+    setBankStmtEntries([]);
     try {
       const res = await axios.get(`/api/diary/${uid}`);
-      setDiary(res.data?.result || null);
+      const d = res.data?.result || null;
+      setDiary(d);
+      if (d?.diary_date) {
+        const dateStr = new Date(d.diary_date).toISOString().slice(0, 10);
+        axios.get(`/api/bank-statement/by-date?date=${dateStr}`)
+          .then((r) => setBankStmtEntries(Array.isArray(r.data?.result) ? r.data.result : []))
+          .catch(() => {});
+      }
     } catch {
       setError('Could not load diary. Please try again.');
     } finally {
@@ -505,6 +696,36 @@ export default function DayBook() {
       await handleUpdateEntry(e.entry_uuid, { account_assigned: e.account_assigned });
     }
   }, [diary, handleUpdateEntry]);
+
+  // --- bank statement entry handlers ---
+  const handleBsAssign = useCallback(async (stmtUuid, entryUuid, account) => {
+    await axios.put(`/api/bank-statement/${stmtUuid}/entry/${entryUuid}`, { account_assigned: account });
+    setBankStmtEntries((prev) =>
+      prev.map((e) => (e.entry_uuid === entryUuid ? { ...e, account_assigned: account } : e))
+    );
+  }, []);
+
+  const handleBsConfirm = useCallback(async (stmtUuid, entryUuid) => {
+    try {
+      await axios.post(`/api/bank-statement/${stmtUuid}/entry/${entryUuid}/confirm`, {
+        confirmed_by: loggedInUser,
+      });
+      setBankStmtEntries((prev) =>
+        prev.map((e) => (e.entry_uuid === entryUuid ? { ...e, entry_status: 'confirmed' } : e))
+      );
+      setSuccessMsg('Bank entry posted to ledger.');
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not confirm entry.');
+    }
+  }, [loggedInUser]);
+
+  const handleBsReject = useCallback(async (stmtUuid, entryUuid, reject) => {
+    const newStatus = reject ? 'rejected' : 'pending';
+    await axios.put(`/api/bank-statement/${stmtUuid}/entry/${entryUuid}`, { entry_status: newStatus });
+    setBankStmtEntries((prev) =>
+      prev.map((e) => (e.entry_uuid === entryUuid ? { ...e, entry_status: newStatus } : e))
+    );
+  }, []);
 
   // --- confirm all ---
   const handleConfirm = async () => {
@@ -765,9 +986,9 @@ export default function DayBook() {
               </Box>
             </Stack>
 
-            {/* Bank entries */}
+            {/* Bank entries (from diary) */}
             {bankEntries.length > 0 && (
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main' }}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main', mb: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                   <Typography variant="subtitle2" fontWeight={700} color="info.dark">
                     Bank Entries — Sanju SK Account
@@ -790,6 +1011,15 @@ export default function DayBook() {
                 </Typography>
               </Paper>
             )}
+
+            {/* Bank statement entries not in diary (purple section) */}
+            <BankStmtSection
+              entries={bankStmtEntries}
+              onAssign={handleBsAssign}
+              onConfirm={handleBsConfirm}
+              onReject={handleBsReject}
+              ledgerAccounts={ledgerAccounts}
+            />
           </>
         )}
       </Box>

@@ -6,7 +6,20 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
+const Transaction = require('../repositories/transaction');
+const Counter = require('../repositories/counter');
+const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
+
+// Return first bank account name from ledger master (Customer_group === 'Bank and Account', name ~sanju)
+async function getBankAccountName() {
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1 }
+  ).lean();
+  const bankNames = docs.map((d) => d.Customer_name).filter((n) => n && /sanju/i.test(n));
+  return bankNames[0] || 'Bank';
+}
 
 router.use(requireAuth);
 
@@ -491,6 +504,42 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/bank-statement/by-date?date=YYYY-MM-DD
+// Returns unmatched, non-confirmed bank statement entries for a given date
+router.get('/by-date', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ success: false, message: 'date query param required (YYYY-MM-DD)' });
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${date}T23:59:59.999Z`);
+
+    const statements = await BankStatement.find({
+      'entries.txn_date': { $gte: dayStart, $lte: dayEnd },
+    }).lean();
+
+    const entries = [];
+    for (const stmt of statements) {
+      for (const entry of stmt.entries || []) {
+        const d = new Date(entry.txn_date);
+        if (d < dayStart || d > dayEnd) continue;
+        if (entry.match_status === 'matched') continue;      // already has a diary entry
+        if (entry.entry_status === 'confirmed') continue;    // already confirmed
+        entries.push({
+          ...entry,
+          statement_uuid: stmt.statement_uuid,
+          account_name:   stmt.account_name,
+        });
+      }
+    }
+
+    return res.json({ success: true, result: entries });
+  } catch (err) {
+    logger.error({ err }, 'GET /bank-statement/by-date');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/bank-statement/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
@@ -503,15 +552,20 @@ router.get('/:uuid', async (req, res) => {
   }
 });
 
-// PUT /api/bank-statement/:uuid/entry/:entryUuid  — manual match / unmatch
+// PUT /api/bank-statement/:uuid/entry/:entryUuid  — update match or account assignment
 router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   try {
-    const { match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party } = req.body;
+    const {
+      match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party,
+      account_assigned, entry_status,
+    } = req.body;
     const setFields = {};
-    if (match_status              !== undefined) setFields['entries.$[e].match_status']              = match_status;
-    if (matched_diary_uuid        !== undefined) setFields['entries.$[e].matched_diary_uuid']        = matched_diary_uuid;
-    if (matched_diary_entry_uuid  !== undefined) setFields['entries.$[e].matched_diary_entry_uuid']  = matched_diary_entry_uuid;
-    if (matched_party             !== undefined) setFields['entries.$[e].matched_party']             = matched_party;
+    if (match_status             !== undefined) setFields['entries.$[e].match_status']             = match_status;
+    if (matched_diary_uuid       !== undefined) setFields['entries.$[e].matched_diary_uuid']       = matched_diary_uuid;
+    if (matched_diary_entry_uuid !== undefined) setFields['entries.$[e].matched_diary_entry_uuid'] = matched_diary_entry_uuid;
+    if (matched_party            !== undefined) setFields['entries.$[e].matched_party']            = matched_party;
+    if (account_assigned         !== undefined) setFields['entries.$[e].account_assigned']         = account_assigned;
+    if (entry_status             !== undefined) setFields['entries.$[e].entry_status']             = entry_status;
     if (match_status === 'manual') setFields['entries.$[e].match_status'] = 'manual';
 
     await BankStatement.updateOne(
@@ -524,6 +578,67 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     return res.json({ success: true, result: updated });
   } catch (err) {
     logger.error({ err }, 'PUT /bank-statement/:uuid/entry/:entryUuid');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// POST /api/bank-statement/:uuid/entry/:entryUuid/confirm
+// Confirms a bank statement entry → creates a double-entry transaction in the ledger
+router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
+  try {
+    const { confirmed_by } = req.body;
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
+    if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
+    if (!entry.account_assigned) {
+      return res.status(400).json({ success: false, message: 'Assign an account before confirming' });
+    }
+    if (entry.entry_status === 'confirmed') {
+      return res.status(400).json({ success: false, message: 'Entry is already confirmed' });
+    }
+
+    const bankAccount = await getBankAccountName();
+    const amount = entry.credit > 0 ? entry.credit : entry.debit;
+
+    const journal = entry.direction === 'in'
+      ? [
+          { Account_id: bankAccount,           Type: 'Debit',  Amount: amount },
+          { Account_id: entry.account_assigned, Type: 'Credit', Amount: amount },
+        ]
+      : [
+          { Account_id: entry.account_assigned, Type: 'Debit',  Amount: amount },
+          { Account_id: bankAccount,            Type: 'Credit', Amount: amount },
+        ];
+
+    const counter = await Counter.findByIdAndUpdate(
+      'transaction_number',
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    const txn = new Transaction({
+      Transaction_uuid: uuid(),
+      Transaction_id:   Number(counter?.seq || 1),
+      Transaction_date: entry.txn_date,
+      Description:      entry.description || entry.account_assigned,
+      Total_Debit:      amount,
+      Total_Credit:     amount,
+      Payment_mode:     'Bank',
+      Created_by:       confirmed_by || 'bank_statement',
+      Journal_entry:    journal,
+      Source:           'bank_statement',
+    });
+    await txn.save();
+
+    entry.entry_status    = 'confirmed';
+    entry.transaction_uuid = txn.Transaction_uuid;
+    await stmt.save();
+
+    return res.json({ success: true, message: 'Transaction created', result: stmt });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/entry/:entryUuid/confirm');
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });

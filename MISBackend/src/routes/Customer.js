@@ -120,42 +120,45 @@ router.post("/addCustomer", async (req, res) => {
 
 /* ----------------------------------------------------------------
    Get all customers (with usage flags)
+   Uses aggregation to avoid loading all orders/transactions into memory.
 ----------------------------------------------------------------- */
 router.get("/GetCustomersList", async (req, res) => {
   try {
-    const [customers, orders, transactions] = await Promise.all([
+    const [customers, usedOrderUuids, usedTxnUuids] = await Promise.all([
       Customers.find({}).lean(),
-      Order.find({}, "Customer_uuid").lean(),
-      Transaction.find({}, "Journal_entry Customer_uuid").lean(),
+      // Distinct Customer_uuids that appear in at least one order
+      Order.distinct("Customer_uuid", { Customer_uuid: { $exists: true, $ne: null } }),
+      // Distinct Customer_uuids that appear on transactions (direct field or journal entry)
+      Transaction.aggregate([
+        {
+          $facet: {
+            fromField: [
+              { $match: { Customer_uuid: { $exists: true, $ne: null } } },
+              { $group: { _id: "$Customer_uuid" } },
+            ],
+            fromJournal: [
+              { $unwind: "$Journal_entry" },
+              { $match: { "Journal_entry.Account_id": { $exists: true, $ne: "" } } },
+              { $group: { _id: "$Journal_entry.Account_id" } },
+            ],
+          },
+        },
+        {
+          $project: {
+            all: { $concatArrays: ["$fromField._id", "$fromJournal._id"] },
+          },
+        },
+      ]),
     ]);
 
-    // Orders usage by Customer_uuid
-    const usedFromOrders = new Set(
-      (orders || []).map((o) => S(o?.Customer_uuid)).filter(Boolean)
-    );
-
-    // Transactions usage: either Transaction.Customer_uuid
-    // or any Journal_entry[].Account_id equals Customer_uuid
-    const usedFromTransactions = new Set();
-
-    for (const tx of transactions || []) {
-      const txCust = S(tx?.Customer_uuid);
-      if (txCust) usedFromTransactions.add(txCust);
-
-      const entries = Array.isArray(tx?.Journal_entry) ? tx.Journal_entry : [];
-      for (const entry of entries) {
-        const acc = S(entry?.Account_id);
-        if (acc) usedFromTransactions.add(acc);
-      }
-    }
-
-    const allUsed = new Set([...usedFromOrders, ...usedFromTransactions]);
+    const txnUuids = usedTxnUuids[0]?.all || [];
+    const allUsed = new Set([...usedOrderUuids, ...txnUuids].filter(Boolean));
 
     const result = (customers || []).map((cust) => {
-      const uuid = S(cust?.Customer_uuid);
+      const custUuid = S(cust?.Customer_uuid);
       return {
         ...cust,
-        isUsed: uuid ? allUsed.has(uuid) : false,
+        isUsed: custUuid ? allUsed.has(custUuid) : false,
       };
     });
 

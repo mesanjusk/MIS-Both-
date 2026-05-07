@@ -167,20 +167,8 @@ router.put("/updateUser/:id", requireAuth, async (req, res) => {
   }
 });
 
-// AUTH TOKEN CHECK (local middleware kept for backward compat with GetLoggedInUser)
-const authenticateToken = (req, res, next) => {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.sendStatus(401);
-
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-};
-
 // GET LOGGED IN USER GROUP
-router.get('/GetLoggedInUser', authenticateToken, async (req, res) => {
+router.get('/GetLoggedInUser', requireAuth, async (req, res) => {
   try {
     const user = await Users.findById(req.user.id).select('User_group');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
@@ -214,40 +202,6 @@ router.get('/:id', requireAuth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching user',
-      error: error.message,
-    });
-  }
-});
-
-// UPDATE USER BY ID (Method 2) — protected
-router.put('/update/:id', requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const { User_name, Mobile_number, User_group, Allowed_Task_Groups } = req.body;
-
-  try {
-    const updatedUser = await Users.findOneAndUpdate(
-      { _id: id },
-      { User_name, Mobile_number, User_group, Allowed_Task_Groups },
-      { new: true }
-    ).select('-Password');
-
-    if (!updatedUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'User updated successfully',
-      result: updatedUser,
-    });
-  } catch (error) {
-    logger.error('Error updating user:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error updating user',
       error: error.message,
     });
   }

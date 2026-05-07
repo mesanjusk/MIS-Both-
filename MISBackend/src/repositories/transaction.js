@@ -30,6 +30,7 @@ const TransactionSchema=new mongoose.Schema({
 
 TransactionSchema.index({ Transaction_id: 1 });
 TransactionSchema.index({ Order_uuid: 1 });
+TransactionSchema.index({ Order_number: 1 });
 TransactionSchema.index({ Transaction_date: 1 });
 TransactionSchema.index({ Payment_mode: 1 });
 TransactionSchema.index({ Created_by: 1 });

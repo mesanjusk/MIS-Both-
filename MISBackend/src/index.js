@@ -139,7 +139,6 @@ app.get("/analytics", requireAuth, getAnalytics);
 
 // ---------- Legacy path redirects (301 permanent) ----------
 // These keep old clients working while you migrate them to /api/* paths
-const legacyRedirect = (newPath) => (_req, res) => res.redirect(301, `/api${newPath || _req.path}`);
 app.use("/user", (req, res) => res.redirect(301, `/api/users${req.path}`));
 app.use("/customer", (req, res) => res.redirect(301, `/api/customers${req.path}`));
 app.use("/order", (req, res) => res.redirect(301, `/api/orders${req.path}`));

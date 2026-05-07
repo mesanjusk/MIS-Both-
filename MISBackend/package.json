@@ -6,13 +6,13 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "ensure-indexes": "node src/scripts/ensureIndexes.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
-    "and": "^0.0.3",
     "axios": "^1.6.8",
     "cloudinary": "^2.8.0",
     "compression": "^1.7.4",

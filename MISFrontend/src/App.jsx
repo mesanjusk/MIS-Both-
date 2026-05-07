@@ -6,6 +6,15 @@ import Layout from './Pages/Layout';
 import { initVersionChecker } from './utils/versionChecker';
 import { ToastContainer } from './Components';
 import { ROUTE_ALIASES, ROUTES } from './constants/routes';
+import { useAuth } from './context/AuthContext';
+import { getStoredToken } from './utils/authStorage';
+
+function PrivateRoute() {
+  const { userName } = useAuth();
+  const token = getStoredToken();
+  if (!userName || !token) return <Navigate to={ROUTES.LOGIN} replace />;
+  return <Layout />;
+}
 
 const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
@@ -40,6 +49,7 @@ const DispatchQueue = lazy(() => import('./Pages/DispatchQueue'));
 const OwnerDashboard = lazy(() => import('./Pages/OwnerDashboard'));
 const PaymentFollowup = lazy(() => import('./Pages/PaymentFollowup'));
 const Vendor = lazy(() => import('./Pages/vendor'));
+const VendorHome = lazy(() => import('./Pages/vendorHome'));
 const VendorDetails = lazy(() => import('./Pages/vendorDetails'));
 const CustomerDetails = lazy(() => import('./Pages/CustomerDetails'));
 const WhatsAppCloudDashboard = lazy(() => import('./Pages/WhatsAppCloudDashboard'));
@@ -121,7 +131,7 @@ export default function App() {
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
-          <Route element={<Layout />}>
+          <Route element={<PrivateRoute />}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />
             <Route path={ROUTES.OWNER_DASHBOARD} element={withSuspense(<OwnerDashboard />)} />
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />
@@ -187,7 +197,7 @@ export default function App() {
 
             <Route path={ROUTES.VENDORS} element={withSuspense(<Vendor />)} />
             <Route path="/vendors/:id" element={withSuspense(<VendorDetails />)} />
-            <Route path={ROUTE_ALIASES.HOME_VENDOR} element={<Navigate to={ROUTES.VENDORS} replace />} />
+            <Route path={ROUTE_ALIASES.HOME_VENDOR} element={withSuspense(<VendorHome />)} />
 
             <Route path={ROUTES.WHATSAPP} element={withSuspense(<WhatsAppCloudDashboard />)} />
             <Route path={ROUTES.WHATSAPP_CLOUD} element={withSuspense(<WhatsAppCloudDashboard />)} />

@@ -12,9 +12,11 @@ export const addOrder = (payload) => axios.post("/api/orders/addOrder", payload)
 
 export const fetchBillList = () => axios.get("/order/GetBillList");
 
-export const fetchOrderStepsById = (orderId) => axios.get(`/order/getStepsByOrderId/${orderId}`);
+// Steps are embedded in the order document — fetch via the order endpoint
+export const fetchOrderStepsById = (orderId) => axios.get(`/api/orders/${orderId}`);
 
-export const updateOrderSteps = (payload) => axios.post("/order/updateOrderSteps", payload);
+// Update steps via the general order update endpoint
+export const updateOrderSteps = (payload) => axios.put(`/order/updateOrder/${payload.orderId}`, payload);
 
 export const toggleOrderStep = (payload) => axios.post("/order/steps/toggle", payload);
 

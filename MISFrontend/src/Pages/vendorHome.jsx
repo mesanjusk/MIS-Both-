@@ -1,35 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useState } from 'react';
+import { useNavigate } from "react-router-dom";
 import { addAttendance } from '../services/attendanceService.js';
+import { useAuth } from '../context/AuthContext';
+import { ROUTES } from '../constants/routes';
 
 export default function VendorHome() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [userName, setUserName] = useState('');
-  const [showOutButton, setShowOutButton] = useState(false); 
+  const { userName } = useAuth();
+  const [showOutButton, setShowOutButton] = useState(false);
 
-  useEffect(() => {
-    const userNameFromState = location.state?.id;
-    const loggedInUser = userNameFromState || localStorage.getItem('User_name');
-
-    if (loggedInUser) {
-      setUserName(loggedInUser);
-    } else {
-      navigate("/login");
-    }
-  }, [location.state, navigate]);
+  if (!userName) {
+    navigate(ROUTES.LOGIN, { replace: true });
+    return null;
+  }
 
   const saveAttendance = async (type) => {
     const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false });
-    const currentDate = new Date().toLocaleDateString(); 
+    const currentDate = new Date().toLocaleDateString();
 
     try {
       const response = await addAttendance({
         User_name: userName,
         Type: type,
         Status: 'Present',
-        Date: currentDate,  
-        Time: currentTime    
+        Date: currentDate,
+        Time: currentTime,
       });
 
       if (response.data.success) {
@@ -44,12 +39,12 @@ export default function VendorHome() {
 
   const handleInClick = () => {
     setShowOutButton(true);
-    saveAttendance('In'); 
+    saveAttendance('In');
   };
-  
+
   const handleOutClick = () => {
     setShowOutButton(false);
-    saveAttendance('Out'); 
+    saveAttendance('Out');
   };
 
   return (
@@ -75,7 +70,6 @@ export default function VendorHome() {
           )}
         </div>
       </div>
-
     </>
   );
 }

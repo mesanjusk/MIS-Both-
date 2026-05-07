@@ -40,7 +40,7 @@ const isProd = process.env.NODE_ENV === "production";
 
 const norm = (s) => String(s || "").trim();
 const normLower = (s) => String(s || "").trim().toLowerCase();
-const DEFAULT_ORDER_ASSIGNEE_NAME = "Sai";
+const DEFAULT_ORDER_ASSIGNEE_NAME = process.env.DEFAULT_ORDER_ASSIGNEE || "";
 const OFFICE_USER_GROUP = "office user";
 const isOfficeUser = (user = {}) => normLower(user.User_group) === OFFICE_USER_GROUP;
 const toDate = (v, fallback = new Date()) => (v ? new Date(v) : fallback);
@@ -1903,19 +1903,24 @@ router.post("/orders/:orderId/steps/:stepId/assign-vendor", async (req, res) => 
         return res.json({ ok: true, message: "Vendor saved (no posting for 0 amount)." });
       }
 
+      if (!process.env.PURCHASE_ACCOUNT_UUID) {
+        await session.abortTransaction();
+        return res.status(500).json({ ok: false, message: "PURCHASE_ACCOUNT_UUID env var is not set. Cannot post vendor transaction." });
+      }
+
       const lines = [
         { Account_id: `${resolvedVendor}`, Type: "Debit", Amount: amount },
-          // PURCHASE_ACCOUNT_UUID env var — set in .env (your Creditor/Bank account UUID)
-        { Account_id: process.env.PURCHASE_ACCOUNT_UUID || "fdf29a16-1e87-4f57-82d6-6b31040d3f1e", Type: "Credit", Amount: amount },
+        { Account_id: process.env.PURCHASE_ACCOUNT_UUID, Type: "Credit", Amount: amount },
       ];
 
       const txnDate = plannedDate ? new Date(plannedDate) : new Date();
 
-      const lastTxn = await Transaction.findOne({}, { Transaction_id: 1 })
-        .sort({ Transaction_id: -1 })
-        .session(session)
-        .lean();
-      const nextId = (lastTxn?.Transaction_id || 0) + 1;
+      const counterDoc = await Counter.findOneAndUpdate(
+        { _id: "transaction_id" },
+        { $inc: { seq: 1 } },
+        { upsert: true, new: true, session }
+      );
+      const nextId = counterDoc.seq;
 
       const txnDocs = await Transaction.create(
         [

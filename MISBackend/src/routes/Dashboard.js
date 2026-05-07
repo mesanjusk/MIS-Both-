@@ -51,18 +51,27 @@ router.get('/cash-book-summary', getCashBookSummary);
 
 router.get('/bank-book-summary', async (_req, res) => {
   try {
-    const txns = await Transaction.find({}).lean();
-    let total = 0;
-    for (const txn of txns) {
-      for (const entry of (txn.Journal_entry || [])) {
-        const acct = String(entry.Account_id || entry.Account || '').trim();
-        if (acct.toLowerCase() === 'bank') {
-          if (String(entry.Type).toLowerCase() === 'debit') total += Number(entry.Amount || 0);
-          else total -= Number(entry.Amount || 0);
-        }
-      }
-    }
-    res.json({ closingBalance: total, lastTransactionTime: new Date() });
+    const agg = await Transaction.aggregate([
+      { $unwind: '$Journal_entry' },
+      { $match: { 'Journal_entry.Account_id': { $regex: /^bank$/i } } },
+      {
+        $group: {
+          _id: null,
+          closingBalance: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: '$Journal_entry.Type' }, 'debit'] },
+                '$Journal_entry.Amount',
+                { $multiply: ['$Journal_entry.Amount', -1] },
+              ],
+            },
+          },
+          lastTxnDate: { $max: '$Transaction_date' },
+        },
+      },
+    ]);
+    const result = agg[0] || { closingBalance: 0, lastTxnDate: null };
+    res.json({ closingBalance: result.closingBalance, lastTransactionTime: result.lastTxnDate || new Date() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -70,20 +79,28 @@ router.get('/bank-book-summary', async (_req, res) => {
 
 router.get('/trial-balance', async (_req, res) => {
   try {
-    const txns = await Transaction.find({}).lean();
-    const map = {};
-    for (const txn of txns) {
-      for (const entry of (txn.Journal_entry || [])) {
-        const acct = String(entry.Account_id || entry.Account || '').trim();
-        if (!acct) continue;
-        if (!map[acct]) map[acct] = { accountName: acct, totalDebit: 0, totalCredit: 0 };
-        const amt = Number(entry.Amount || 0);
-        if (String(entry.Type).toLowerCase() === 'debit') map[acct].totalDebit += amt;
-        else map[acct].totalCredit += amt;
-      }
-    }
-    const accounts = Object.values(map).sort((a, b) => a.accountName.localeCompare(b.accountName));
-    res.json({ accounts });
+    const agg = await Transaction.aggregate([
+      { $unwind: '$Journal_entry' },
+      {
+        $group: {
+          _id: { $trim: { input: { $ifNull: ['$Journal_entry.Account_id', ''] } } },
+          totalDebit: {
+            $sum: {
+              $cond: [{ $eq: [{ $toLower: '$Journal_entry.Type' }, 'debit'] }, '$Journal_entry.Amount', 0],
+            },
+          },
+          totalCredit: {
+            $sum: {
+              $cond: [{ $eq: [{ $toLower: '$Journal_entry.Type' }, 'credit'] }, '$Journal_entry.Amount', 0],
+            },
+          },
+        },
+      },
+      { $match: { _id: { $ne: '' } } },
+      { $sort: { _id: 1 } },
+      { $project: { _id: 0, accountName: '$_id', totalDebit: 1, totalCredit: 1 } },
+    ]);
+    res.json({ accounts: agg });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

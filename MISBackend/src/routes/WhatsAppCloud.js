@@ -48,8 +48,8 @@ router.post('/embedded-signup/exchange-code', requireAuth, exchangeMetaToken);
 router.post('/manual-connect', requireAuth, manualConnect);
 
 // ---------- Account routes ----------
-router.get('/accounts', listAccounts);
-router.get('/status', getStatus);
+router.get('/accounts', requireAuth, listAccounts);
+router.get('/status', requireAuth, getStatus);
 router.delete('/accounts/:id', requireAuth, deleteAccount);
 
 // ---------- Messaging routes ----------

@@ -1,10 +1,8 @@
 import axios from '../apiClient.js';
 
 export const fetchTransactions = () => axios.get('/api/transaction');
-export const fetchOldTransactions = () => axios.get('/old-transaction/GetTransactionList');
 export const addTransaction = (payload, config) => axios.post('/api/transaction/addTransaction', payload, config);
-export const addOldTransaction = (payload, config) => axios.post('/old-transaction/addTransaction', payload, config);
-export const updateTransaction = (transactionId, payload) => axios.put(`/transaction/updateTransaction/${transactionId}`, payload);
-export const deleteTransactionById = (transactionId) => axios.delete(`/transaction/deleteByTransactionId/${transactionId}`);
-export const deleteTransactionEntry = (transactionId, accountId) => axios.delete(`/transaction/deleteEntry/${transactionId}/${accountId}`);
+// Update and delete use Transaction_uuid (not Transaction_id) — matches PUT/DELETE /api/transaction/:uuid
+export const updateTransaction = (transactionUuid, payload) => axios.put(`/api/transaction/${transactionUuid}`, payload);
+export const deleteTransactionById = (transactionUuid) => axios.delete(`/api/transaction/${transactionUuid}`);
 export const sendTaskMessage = (payload) => axios.post('/api/usertasks/send-message', payload);

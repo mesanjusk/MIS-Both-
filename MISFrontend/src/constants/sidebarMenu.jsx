@@ -21,6 +21,7 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
+import ManageSearchRoundedIcon from '@mui/icons-material/ManageSearchRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -105,6 +106,13 @@ export const SIDEBAR_GROUPS = [
       { label: 'Login', path: ROUTES.WHATSAPP_LOGIN_PAGE, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Flow Builder', path: ROUTES.FLOW_BUILDER, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, adminOnly: true },
       { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+    ],
+  },
+  {
+    label: 'Manage Data',
+    items: [
+      { label: 'All Transactions', path: ROUTES.MANAGE_TRANSACTIONS, icon: <ManageSearchRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'All Orders', path: ROUTES.MANAGE_ORDERS, icon: <ManageSearchRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {

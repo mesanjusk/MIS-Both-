@@ -410,6 +410,28 @@ router.put("/:uuid", upload.single("image"), async (req, res) => {
   }
 });
 
+// Renumber all transactions sequentially (admin maintenance)
+router.post("/renumber", async (req, res) => {
+  try {
+    const all = await Transaction.find({}).sort({ Transaction_date: 1, createdAt: 1 }).select("_id").lean();
+    const bulkOps = all.map((t, i) => ({
+      updateOne: { filter: { _id: t._id }, update: { $set: { Transaction_id: i + 1 } } },
+    }));
+    if (bulkOps.length) await Transaction.bulkWrite(bulkOps, { ordered: false });
+
+    await Counter.findByIdAndUpdate(
+      "transaction_number",
+      { $set: { seq: all.length } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: `Renumbered ${all.length} transactions starting from 1` });
+  } catch (err) {
+    logger.error("renumber transactions error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Delete transaction
 router.delete("/:uuid", async (req, res) => {
   try {

@@ -88,6 +88,8 @@ const PriorityReport = lazy(() => import('./Reports/priorityReport'));
 const DiaryUpload = lazy(() => import('./Pages/DiaryUpload'));
 const DayBook = lazy(() => import('./Pages/DayBook'));
 const BankReconciliation = lazy(() => import('./Pages/BankReconciliation'));
+const AllTransactionsPage = lazy(() => import('./Pages/AllTransactionsPage'));
+const AllOrdersPage = lazy(() => import('./Pages/AllOrdersPage'));
 
 function RouteLoader() {
   return (
@@ -234,6 +236,9 @@ export default function App() {
             <Route path={ROUTES.ALL_VENDORS} element={withSuspense(<AllVendors />)} />
             <Route path={ROUTES.REPORTS_BILLS} element={withSuspense(<AllBills />)} />
             <Route path={ROUTES.REPORTS_PRIORITY} element={withSuspense(<PriorityReport />)} />
+
+            <Route path={ROUTES.MANAGE_TRANSACTIONS} element={withSuspense(<AllTransactionsPage />)} />
+            <Route path={ROUTES.MANAGE_ORDERS} element={withSuspense(<AllOrdersPage />)} />
 
             <Route path={ROUTES.ADD_NOTE} element={withSuspense(<AddNote />)} />
             <Route path={ROUTE_ALIASES.ADD_NOTE_LOWER} element={<Navigate to={ROUTES.ADD_NOTE} replace />} />

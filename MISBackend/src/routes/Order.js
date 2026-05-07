@@ -1126,6 +1126,79 @@ router.get("/GetOrderList", async (req, res) => {
   }
 });
 
+// ── ALL ORDERS (admin management view, includes delivered/cancelled) ──────────
+router.get("/GetAllOrders", async (req, res) => {
+  try {
+    const { search = "", stage = "", billStatus = "", page = 1, limit = 200 } = req.query;
+    const filter = {};
+    if (stage) filter.stage = stage;
+    if (billStatus) filter.billStatus = billStatus;
+    if (search) {
+      const re = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+      filter.$or = [{ orderNote: re }, { "Items.Item": re }];
+    }
+    const skip = (Number(page) - 1) * Number(limit);
+    const [rows, total] = await Promise.all([
+      Orders.find(filter)
+        .sort({ Order_Number: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      Orders.countDocuments(filter),
+    ]);
+
+    // Attach customer name via lookup
+    const customerUuids = [...new Set(rows.map((r) => r.Customer_uuid).filter(Boolean))];
+    const customers = await Customers.find({ Customer_uuid: { $in: customerUuids } })
+      .select("Customer_uuid Customer_name")
+      .lean();
+    const custMap = Object.fromEntries(customers.map((c) => [c.Customer_uuid, c.Customer_name]));
+    const enriched = rows.map((r) => ({ ...r, Customer_name: custMap[r.Customer_uuid] || "" }));
+
+    res.json({ success: true, result: enriched, total });
+  } catch (err) {
+    logger.error("GetAllOrders error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── DELETE ORDER ─────────────────────────────────────────────────────────────
+router.delete("/:uuid", async (req, res) => {
+  try {
+    const { uuid: orderUuid } = req.params;
+    const order = await Orders.findOne({ Order_uuid: orderUuid }).lean();
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    await Orders.deleteOne({ Order_uuid: orderUuid });
+    res.json({ success: true, message: "Order deleted successfully" });
+  } catch (err) {
+    logger.error("deleteOrder error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── RENUMBER ALL ORDERS ──────────────────────────────────────────────────────
+router.post("/renumberOrders", async (req, res) => {
+  try {
+    const all = await Orders.find({}).sort({ createdAt: 1 }).select("_id").lean();
+    const bulkOps = all.map((o, i) => ({
+      updateOne: { filter: { _id: o._id }, update: { $set: { Order_Number: i + 1 } } },
+    }));
+    if (bulkOps.length) await Orders.bulkWrite(bulkOps, { ordered: false });
+
+    // Reset counter
+    await Counter.findByIdAndUpdate(
+      "order_number",
+      { $set: { seq: all.length } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: `Renumbered ${all.length} orders starting from 1` });
+  } catch (err) {
+    logger.error("renumberOrders error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get("/GetDeliveredList", async (req, res) => {
   try {
     const rows = await Orders.aggregate([

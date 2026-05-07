@@ -110,6 +110,10 @@ export const ROUTES = {
   ALL_VENDORS: '/AllVendors',
   CALL_LOGS: '/calllogs',
   FLOW_BUILDER: '/flow-builder',
+
+  // Admin management pages
+  MANAGE_TRANSACTIONS: '/manage/transactions',
+  MANAGE_ORDERS: '/manage/orders',
 };
 
 export const ROUTE_ALIASES = {

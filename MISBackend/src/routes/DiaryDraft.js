@@ -217,16 +217,26 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Fetch exact cash/bank account names from Customer master (Customer_group === 'Bank and Account')
+// Fetch exact cash/bank account UUIDs + names from Customer master
 async function getCashBankAccounts() {
   const docs = await Customer.find(
     { Customer_group: 'Bank and Account' },
-    { Customer_name: 1 }
+    { Customer_name: 1, Customer_uuid: 1 }
   ).lean();
-  const names = docs.map((d) => d.Customer_name).filter(Boolean);
-  const cashAccounts = names.filter((n) => /cash/i.test(n));
-  const bankAccounts = names.filter((n) => /sanju/i.test(n));
-  return { cashAccounts, bankAccounts, all: [...cashAccounts, ...bankAccounts] };
+  const cashDocs = docs.filter((d) => d.Customer_name && /cash/i.test(d.Customer_name));
+  const bankDocs = docs.filter((d) => d.Customer_name && /sanju/i.test(d.Customer_name));
+  const cashUuids = cashDocs.map((d) => d.Customer_uuid).filter(Boolean);
+  const bankUuids = bankDocs.map((d) => d.Customer_uuid).filter(Boolean);
+  const cashNames = cashDocs.map((d) => d.Customer_name);
+  const bankNames = bankDocs.map((d) => d.Customer_name);
+  // Include both UUIDs and names so old (name-based) and new (UUID-based) transactions both match
+  return {
+    cashAccounts: cashUuids,
+    cashNames,
+    bankAccounts: bankUuids,
+    bankNames,
+    all: [...cashUuids, ...bankUuids, ...cashNames, ...bankNames],
+  };
 }
 
 // GET /api/diary/ledger-dates — distinct dates with cash/bank transactions this FY
@@ -272,7 +282,7 @@ router.get('/ledger', async (req, res) => {
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd   = new Date(`${date}T23:59:59.999Z`);
 
-    const { cashAccounts, bankAccounts, all: targetAccounts } = await getCashBankAccounts();
+    const { cashAccounts, cashNames, bankAccounts, bankNames, all: targetAccounts } = await getCashBankAccounts();
 
     const txns = await Transaction.find({
       Transaction_date: { $gte: dayStart, $lte: dayEnd },
@@ -281,7 +291,8 @@ router.get('/ledger', async (req, res) => {
       .sort({ Transaction_id: 1 })
       .lean();
 
-    return res.json({ success: true, result: txns, meta: { cashAccounts, bankAccounts } });
+    // Return both UUIDs and names so frontend can match either format
+    return res.json({ success: true, result: txns, meta: { cashAccounts, cashNames, bankAccounts, bankNames } });
   } catch (err) {
     logger.error({ err }, 'GET /diary/ledger');
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -344,12 +355,16 @@ router.post('/:uuid/confirm', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Diary is already confirmed' });
     }
 
+    const { cashAccounts, bankAccounts } = await getCashBankAccounts();
+    const cashUuid = cashAccounts[0] || 'Cash';
+    const bankUuid = bankAccounts[0] || 'Bank';
+
     let created = 0;
     for (const entry of draft.entries) {
       if (entry.entry_status === 'rejected') continue;
       if (!entry.account_assigned)           continue;
 
-      const ledgerAccount = entry.book === 'bank' ? 'Bank' : 'Cash';
+      const ledgerAccount = entry.book === 'bank' ? bankUuid : cashUuid;
       const journal = entry.direction === 'in'
         ? [
             { Account_id: ledgerAccount,         Type: 'Debit',  Amount: entry.amount },

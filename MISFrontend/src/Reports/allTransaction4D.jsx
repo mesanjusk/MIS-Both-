@@ -116,14 +116,21 @@ export default function AllTransaction() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Exact account names from Customer master (Customer_group === 'Bank and Account')
+  // UUID → name map for all customers (for display in Account column)
+  const customerMap = customers.reduce((acc, c) => { if (c.Customer_uuid) acc[c.Customer_uuid] = c.Customer_name; return acc; }, {});
+
+  // Cash/Bank accounts — match by UUID (new txns) and name (old diary-confirmed txns)
   const ledgerAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
-  const cashAccounts   = ledgerAccounts.filter((c) => /cash/i.test(c.Customer_name)).map((c) => c.Customer_name);
-  const bankAccounts   = ledgerAccounts.filter((c) => /sanju/i.test(c.Customer_name)).map((c) => c.Customer_name);
-  const cashSet = new Set(cashAccounts.map((n) => n.toLowerCase()));
-  const bankSet = new Set(bankAccounts.map((n) => n.toLowerCase()));
-  const isCash  = (id) => cashSet.size ? cashSet.has((id || '').toLowerCase()) : /^cash$/i.test(id || '');
-  const isBank  = (id) => bankSet.size ? bankSet.has((id || '').toLowerCase()) : /sanju/i.test(id || '');
+  const cashDocs  = ledgerAccounts.filter((c) => /cash/i.test(c.Customer_name));
+  const bankDocs  = ledgerAccounts.filter((c) => /sanju/i.test(c.Customer_name));
+  const cashUuids = cashDocs.map((c) => c.Customer_uuid).filter(Boolean);
+  const bankUuids = bankDocs.map((c) => c.Customer_uuid).filter(Boolean);
+  const cashNameSet = new Set(cashDocs.map((c) => (c.Customer_name || '').toLowerCase()));
+  const bankNameSet = new Set(bankDocs.map((c) => (c.Customer_name || '').toLowerCase()));
+  const cashUuidSet = new Set(cashUuids);
+  const bankUuidSet = new Set(bankUuids);
+  const isCash = (id) => cashUuidSet.has(id) || cashNameSet.has((id || '').toLowerCase()) || (!cashUuidSet.size && /^cash$/i.test(id || ''));
+  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase()) || (!bankUuidSet.size && /sanju/i.test(id || ''));
 
   // Opening balance for an account = DR − CR of all txns BEFORE selected date
   const calcOpening = (isAccountFn) => {
@@ -151,11 +158,12 @@ export default function AllTransaction() {
         const acctLeg  = j.find((e) => isAccountFn(e.Account_id));
         const otherLeg = j.find((e) => e !== acctLeg);
         if (!acctLeg) return null;
+        const rawId = otherLeg?.Account_id || '—';
         return {
           txn,
           direction: acctLeg.Type === 'Debit' ? 'in' : 'out',
           amount:    acctLeg.Amount || txn.Total_Debit || 0,
-          account:   otherLeg?.Account_id || '—',
+          account:   customerMap[rawId] || rawId,
         };
       })
       .filter(Boolean);
@@ -220,7 +228,7 @@ export default function AllTransaction() {
             {/* ── CASH SECTION ── */}
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
-                Cash — {cashAccounts[0] || 'Cash'}
+                Cash — {cashDocs[0]?.Customer_name || 'Cash'}
               </Typography>
               <SummaryCards
                 opening={cashOpening}
@@ -246,7 +254,7 @@ export default function AllTransaction() {
             {/* ── BANK SECTION ── */}
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'info.main' }}>
               <Typography variant="subtitle1" fontWeight={800} color="info.dark" sx={{ mb: 1.5 }}>
-                Bank — {bankAccounts[0] || 'UPI Sanju SK'}
+                Bank — {bankDocs[0]?.Customer_name || 'UPI Sanju SK'}
               </Typography>
               <SummaryCards
                 opening={bankOpening}

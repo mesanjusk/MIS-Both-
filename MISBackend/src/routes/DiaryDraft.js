@@ -217,6 +217,18 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Fetch exact cash/bank account names from Customer master (Customer_group === 'Bank and Account')
+async function getCashBankAccounts() {
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1 }
+  ).lean();
+  const names = docs.map((d) => d.Customer_name).filter(Boolean);
+  const cashAccounts = names.filter((n) => /cash/i.test(n));
+  const bankAccounts = names.filter((n) => /sanju/i.test(n));
+  return { cashAccounts, bankAccounts, all: [...cashAccounts, ...bankAccounts] };
+}
+
 // GET /api/diary/ledger-dates — distinct dates with cash/bank transactions this FY
 router.get('/ledger-dates', async (req, res) => {
   try {
@@ -224,11 +236,16 @@ router.get('/ledger-dates', async (req, res) => {
     const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
 
+    const { all: targetAccounts } = await getCashBankAccounts();
+    if (!targetAccounts.length) {
+      return res.json({ success: true, result: [] });
+    }
+
     const dates = await Transaction.aggregate([
       {
         $match: {
           Transaction_date: { $gte: fyStart },
-          'Journal_entry.Account_id': { $regex: /cash|sanju|bank/i },
+          'Journal_entry.Account_id': { $in: targetAccounts },
         },
       },
       {
@@ -255,14 +272,16 @@ router.get('/ledger', async (req, res) => {
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd   = new Date(`${date}T23:59:59.999Z`);
 
+    const { cashAccounts, bankAccounts, all: targetAccounts } = await getCashBankAccounts();
+
     const txns = await Transaction.find({
       Transaction_date: { $gte: dayStart, $lte: dayEnd },
-      'Journal_entry.Account_id': { $regex: /cash|sanju|bank/i },
+      'Journal_entry.Account_id': { $in: targetAccounts },
     })
       .sort({ Transaction_id: 1 })
       .lean();
 
-    return res.json({ success: true, result: txns });
+    return res.json({ success: true, result: txns, meta: { cashAccounts, bankAccounts } });
   } catch (err) {
     logger.error({ err }, 'GET /diary/ledger');
     return res.status(500).json({ success: false, message: 'Internal server error' });

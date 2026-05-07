@@ -261,7 +261,7 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
 }
 
 // =================== LEDGER DAY VIEW (historical transactions, read-only) ===================
-function LedgerDayView({ txns, date }) {
+function LedgerDayView({ txns, date, cashAccounts = [], bankAccounts = [] }) {
   if (!txns.length) {
     return (
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, textAlign: 'center' }}>
@@ -270,17 +270,17 @@ function LedgerDayView({ txns, date }) {
     );
   }
 
-  // Classify each transaction based on its journal entries
-  const CASH_RE = /^cash$/i;
-  const BANK_RE = /sanju|^bank$/i;
+  const cashSet = new Set(cashAccounts.map((n) => n.toLowerCase()));
+  const bankSet = new Set(bankAccounts.map((n) => n.toLowerCase()));
+  const isCash = (id) => cashSet.size ? cashSet.has((id || '').toLowerCase()) : /^cash$/i.test(id || '');
+  const isBank = (id) => bankSet.size ? bankSet.has((id || '').toLowerCase()) : /sanju/i.test(id || '');
 
   const classified = txns.map((txn) => {
     const j = txn.Journal_entry || [];
-    // Find the cash or bank leg
-    const ledgerLeg = j.find((e) => CASH_RE.test(e.Account_id) || BANK_RE.test(e.Account_id));
+    const ledgerLeg = j.find((e) => isCash(e.Account_id) || isBank(e.Account_id));
     const otherLeg  = j.find((e) => e !== ledgerLeg);
 
-    const book      = ledgerLeg ? (BANK_RE.test(ledgerLeg.Account_id) ? 'bank' : 'cash') : 'cash';
+    const book      = ledgerLeg ? (isBank(ledgerLeg.Account_id) ? 'bank' : 'cash') : 'cash';
     const direction = ledgerLeg?.Type === 'Debit' ? 'in' : 'out';
     const account   = otherLeg?.Account_id || '—';
 
@@ -395,6 +395,7 @@ export default function DayBook() {
   const [ledgerDates, setLedgerDates]     = useState([]);  // historical dates
   const [diary, setDiary]                 = useState(null);
   const [ledgerTxns, setLedgerTxns]       = useState(null); // historical transactions
+  const [ledgerMeta, setLedgerMeta]       = useState({ cashAccounts: [], bankAccounts: [] });
   const [loading, setLoading]             = useState(false);
   const [listLoading, setListLoading]     = useState(true);
   const [confirming, setConfirming]       = useState(false);
@@ -449,12 +450,15 @@ export default function DayBook() {
   }, [selectedUuid, loadDiary]);
 
   useEffect(() => {
-    if (!ledgerDateParam) { setLedgerTxns(null); return; }
+    if (!ledgerDateParam) { setLedgerTxns(null); setLedgerMeta({ cashAccounts: [], bankAccounts: [] }); return; }
     setDiary(null);
     setLoading(true);
     setError('');
     axios.get(`/api/diary/ledger?date=${ledgerDateParam}`)
-      .then((res) => setLedgerTxns(Array.isArray(res.data?.result) ? res.data.result : []))
+      .then((res) => {
+        setLedgerTxns(Array.isArray(res.data?.result) ? res.data.result : []);
+        setLedgerMeta(res.data?.meta || { cashAccounts: [], bankAccounts: [] });
+      })
       .catch(() => setError('Could not load transactions.'))
       .finally(() => setLoading(false));
   }, [ledgerDateParam]);
@@ -463,7 +467,7 @@ export default function DayBook() {
     axios.get('/api/customers/GetCustomersList')
       .then((res) => {
         const accounts = (Array.isArray(res.data?.result) ? res.data.result : [])
-        
+          .filter((c) => c.Customer_group === 'Bank and Account')
           .map((c) => c.Customer_name)
           .filter(Boolean)
           .sort();
@@ -688,7 +692,12 @@ export default function DayBook() {
 
         {/* Historical ledger view (read-only) */}
         {ledgerDateParam && !loading && ledgerTxns && (
-          <LedgerDayView txns={ledgerTxns} date={ledgerDateParam} />
+          <LedgerDayView
+            txns={ledgerTxns}
+            date={ledgerDateParam}
+            cashAccounts={ledgerMeta.cashAccounts}
+            bankAccounts={ledgerMeta.bankAccounts}
+          />
         )}
 
         {loading && (

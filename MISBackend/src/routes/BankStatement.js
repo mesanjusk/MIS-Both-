@@ -250,6 +250,77 @@ function parseSbiPdfText(text) {
   return { entries, accountName, error };
 }
 
+// Parse SBI bank statement in fixed-width notepad/text format.
+// Dates: "D Mon YYYY" or "DD Mon YYYY".  Direction: prefix "TO" = debit/out, "BY"/"INB" = credit/in.
+function parseSbiTextFormat(text) {
+  const MONTH_MAP = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+
+  function parseSbiDate(str) {
+    if (!str) return null;
+    const m = str.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+    if (!m) return null;
+    const month = MONTH_MAP[m[2].toLowerCase()];
+    if (month === undefined) return null;
+    return new Date(Date.UTC(Number(m[3]), month, Number(m[1])));
+  }
+
+  let accountName = '';
+  const nameMatch = text.match(/account\s*(?:name|holder)?\s*[:\-]?\s*([A-Z][A-Z\s]{3,})/i);
+  if (nameMatch) accountName = nameMatch[1].trim();
+
+  const entries = [];
+  for (const line of text.split('\n')) {
+    const lineStr = line.trim();
+    if (!lineStr) continue;
+
+    const dateParts = [...lineStr.matchAll(/\b(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\b/g)];
+    if (!dateParts.length) continue;
+
+    const txnDate = parseSbiDate(dateParts[0][1]);
+    if (!txnDate) continue;
+    const valueDate = dateParts[1] ? (parseSbiDate(dateParts[1][1]) || txnDate) : txnDate;
+
+    const amounts = [...lineStr.matchAll(/([\d,]+\.\d{2})/g)];
+    if (amounts.length < 2) continue;
+
+    const balance = toAmt(amounts[amounts.length - 1][1]);
+    const credit  = toAmt(amounts[amounts.length - 2][1]);
+    const debit   = amounts.length >= 3 ? toAmt(amounts[amounts.length - 3][1]) : 0;
+    if (!debit && !credit) continue;
+
+    // Description: text between last date-match end and first-of-the-last-2/3-amounts start
+    const lastDate    = dateParts[dateParts.length - 1];
+    const lastDateEnd = lastDate.index + lastDate[0].length;
+    const amtOffset   = amounts.length >= 3 ? amounts.length - 3 : amounts.length - 2;
+    const firstAmtIdx = amounts[amtOffset].index;
+    let desc = lineStr.substring(lastDateEnd, firstAmtIdx).replace(/\s+/g, ' ').trim();
+    // Strip trailing standalone ref number (6+ digits)
+    desc = desc.replace(/\s+\d{6,}\s*$/, '').trim();
+
+    const descUpper = desc.toUpperCase();
+    let direction;
+    if (/^(TO |BY DEBIT|DEBIT)/.test(descUpper)) direction = 'out';
+    else if (/^(BY |INB |CREDIT|NEFT CR|IMPS CR)/.test(descUpper)) direction = 'in';
+    else direction = credit > 0 ? 'in' : 'out';
+
+    entries.push({
+      entry_uuid:   uuid(),
+      txn_date:     txnDate,
+      value_date:   valueDate,
+      description:  desc,
+      ref_no:       '',
+      debit,
+      credit,
+      balance,
+      direction,
+      match_status: 'unmatched',
+    });
+  }
+
+  const error = entries.length ? null : 'No transactions found in text format.';
+  return { entries, accountName, error };
+}
+
 // Auto-match bank statement entries against diary bank entries
 async function autoMatchEntries(stmtEntries) {
   if (!stmtEntries.length) return stmtEntries;
@@ -337,9 +408,14 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
       return res.status(422).json({ success: false, message: 'Could not read PDF. Make sure it is not password-protected.' });
     }
 
-    const { entries, error, accountName } = parseSbiPdfText(pdfData.text);
+    let parsed = parseSbiPdfText(pdfData.text);
+    // Fallback to fixed-width text format (works when PDF text looks like notepad export)
+    if (parsed.error || !parsed.entries.length) {
+      const fallback = parseSbiTextFormat(pdfData.text);
+      if (!fallback.error) parsed = fallback;
+    }
+    const { entries, error, accountName } = parsed;
     if (error) {
-      // Return extracted text in dev so we can tune the parser
       return res.status(400).json({
         success: false,
         message: error,
@@ -375,9 +451,14 @@ router.post('/upload-csv', async (req, res) => {
       return res.status(400).json({ success: false, message: 'csv_text and uploaded_by are required' });
     }
 
-    const { entries, error, accountName } = parseSbiCsv(csv_text);
+    let parsed = parseSbiCsv(csv_text);
+    // Fallback to fixed-width text/notepad format
+    if (parsed.error || !parsed.entries.length) {
+      parsed = parseSbiTextFormat(csv_text);
+    }
+    const { entries, error, accountName } = parsed;
     if (error) return res.status(400).json({ success: false, message: error });
-    if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found in CSV' });
+    if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found' });
 
     const enriched = await autoMatchEntries(entries);
 

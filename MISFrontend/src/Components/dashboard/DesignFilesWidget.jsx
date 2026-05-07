@@ -23,6 +23,11 @@ import {
   LinearProgress,
   Snackbar,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -596,6 +601,24 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
     }, 300);
   }, [inputValue]);
 
+  const handleQuickCreate = async () => {
+    setSubmitting(true); setError('');
+    try {
+      const res = await axios.post('/api/design-files/auto-temp-orders', {
+        files: selectedFiles.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+      });
+      const { created = 0, renamed = 0, failed = 0 } = res.data || {};
+      if (failed > 0) {
+        onSuccess(`${created} TEMP order${created !== 1 ? 's' : ''} created, ${renamed} renamed, ${failed} failed`, 'warning');
+      } else {
+        onSuccess(`${created} TEMP order${created !== 1 ? 's' : ''} created and renamed in Drive`, 'success');
+      }
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create temp orders');
+    } finally { setSubmitting(false); }
+  };
+
   const handleSubmit = async () => {
     if (!order) return;
     setSubmitting(true); setError('');
@@ -650,11 +673,268 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button variant="outlined" color="warning" onClick={handleQuickCreate}
+          disabled={selectedFiles.length === 0 || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+          sx={{ mr: 'auto', order: -1 }}
+        >
+          Quick Create {selectedFiles.length > 0 ? selectedFiles.length : ''} & Rename
+        </Button>
         <Button variant="contained" onClick={handleSubmit}
           disabled={!order || submitting}
           startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
         >
           Link to Order
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ─── Auto Temp Dialog ─────────────────────────────────────────────────────────
+function AutoTempDialog({ open, files, onClose, onSuccess }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!open) { setResult(null); setError(''); } }, [open]);
+
+  const handleRun = async () => {
+    setRunning(true); setError('');
+    try {
+      const res = await axios.post('/api/design-files/auto-temp-orders', {
+        files: files.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+      });
+      setResult(res.data);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed');
+    } finally { setRunning(false); }
+  };
+
+  const handleDone = () => {
+    if (result?.created > 0) onSuccess(`Created ${result.created} TEMP order${result.created !== 1 ? 's' : ''} and renamed Drive files`, 'success');
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onClose={result ? handleDone : onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Create Temp Orders</Typography>
+          <IconButton size="small" onClick={result ? handleDone : onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {!result ? (
+          <>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              This will create a TEMP placeholder order for each of the <strong>{files.length}</strong> unmatched file{files.length !== 1 ? 's' : ''} and rename them in Drive.
+            </Typography>
+            <Stack spacing={0.4}>
+              {files.map((f) => (
+                <Typography key={f.fileId} variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>• {f.fileName}</Typography>
+              ))}
+            </Stack>
+          </>
+        ) : (
+          <>
+            <Alert severity={result.failed > 0 ? 'warning' : 'success'} sx={{ mb: 1.5 }}>
+              {result.created} order{result.created !== 1 ? 's' : ''} created
+              {result.renamed != null ? `, ${result.renamed} file${result.renamed !== 1 ? 's' : ''} renamed` : ''}
+              {result.failed > 0 ? `, ${result.failed} failed` : ''}.
+            </Alert>
+            {result.results?.map((r, i) => (
+              <Typography key={i} variant="caption" sx={{ display: 'block', color: r.status === 'created' ? 'success.main' : 'error.main' }}>
+                {r.status === 'created' ? '✓' : '✗'} {r.fileName}{r.status === 'created' ? ` → Order #${r.orderNumber}` : ` — ${r.error || 'failed'}`}
+              </Typography>
+            ))}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        {!result ? (
+          <>
+            <Button onClick={onClose} disabled={running}>Cancel</Button>
+            <Button variant="contained" color="warning" onClick={handleRun} disabled={running || files.length === 0}
+              startIcon={running ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+            >
+              Create {files.length} Temp Order{files.length !== 1 ? 's' : ''}
+            </Button>
+          </>
+        ) : (
+          <Button variant="contained" onClick={handleDone}>Done</Button>
+        )}
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ─── Print Job Dialog ─────────────────────────────────────────────────────────
+function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
+  const [order, setOrder] = useState(null);
+  const [options, setOptions] = useState([]);
+  const [inputValue, setInputValue] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [vendor, setVendor] = useState(null);
+  const [vendors, setVendors] = useState([]);
+  const [loadingVendors, setLoadingVendors] = useState(false);
+  const [rows, setRows] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); return; }
+    setRows(selectedFiles.map((f) => ({ fileId: f.fileId, fileName: f.fileName, qty: 1, rate: '', amount: '' })));
+    setLoadingVendors(true);
+    axios.get('/api/vendors/masters', { params: { activeOnly: 'true' } })
+      .then((r) => setVendors(r.data?.result || []))
+      .catch(() => {})
+      .finally(() => setLoadingVendors(false));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await axios.get('/api/design-files/orders/search', { params: { q: inputValue } });
+        setOptions(res.data?.result || []);
+      } catch { setOptions([]); } finally { setSearching(false); }
+    }, 300);
+  }, [inputValue]);
+
+  const updateRow = (fileId, field, value) => {
+    setRows((prev) => prev.map((r) => {
+      if (r.fileId !== fileId) return r;
+      const updated = { ...r, [field]: value };
+      if (field === 'qty' || field === 'rate') {
+        const qty = parseFloat(field === 'qty' ? value : r.qty) || 0;
+        const rate = parseFloat(field === 'rate' ? value : r.rate) || 0;
+        updated.amount = qty && rate ? String(qty * rate) : '';
+      }
+      return updated;
+    }));
+  };
+
+  const total = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  const handleSubmit = async () => {
+    if (!vendor) return;
+    setSubmitting(true); setError('');
+    try {
+      const res = await axios.post('/api/design-files/create-print-job', {
+        orderUuid: order?.Order_uuid || null,
+        vendorUuid: vendor.Vendor_uuid,
+        files: rows.map((r) => ({
+          fileId: r.fileId, fileName: r.fileName,
+          qty: parseFloat(r.qty) || 1,
+          rate: parseFloat(r.rate) || 0,
+          amount: parseFloat(r.amount) || 0,
+        })),
+        totalAmount: total,
+      });
+      const pjNum = res.data?.printJobNumber;
+      onSuccess(`Print job ${pjNum != null ? pjLabel(pjNum) : ''} created for ${rows.length} file${rows.length !== 1 ? 's' : ''}`, 'success');
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create print job');
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>Create Print Bill</Typography>
+          <IconButton size="small" onClick={onClose}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Stack spacing={2}>
+          <Stack direction="row" spacing={2}>
+            <Autocomplete
+              sx={{ flex: 1 }}
+              options={options} value={order} onChange={(_, v) => setOrder(v)}
+              inputValue={inputValue} onInputChange={(_, v) => setInputValue(v)}
+              getOptionLabel={(o) => `#${o.Order_Number}${o.isTemporary ? ' [TEMP]' : ''} — ${o.orderNote || '(no note)'}`}
+              isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
+              loading={searching} disabled={submitting}
+              renderInput={(params) => (
+                <TextField {...params} label="Link to Order (optional)" placeholder="Search order…" size="small"
+                  InputProps={{ ...params.InputProps, endAdornment: <>{searching ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
+                />
+              )}
+            />
+            <Autocomplete
+              sx={{ flex: 1 }}
+              options={vendors} value={vendor} onChange={(_, v) => setVendor(v)}
+              getOptionLabel={(v) => v.Vendor_name}
+              isOptionEqualToValue={(a, b) => a.Vendor_uuid === b.Vendor_uuid}
+              loading={loadingVendors} disabled={submitting}
+              renderInput={(params) => (
+                <TextField {...params} label="Printer / Vendor *" size="small"
+                  InputProps={{ ...params.InputProps, endAdornment: <>{loadingVendors ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
+                />
+              )}
+            />
+          </Stack>
+
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>File</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 70 }}>Qty</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Rate (₹)</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Amount (₹)</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.fileId}>
+                  <TableCell sx={{ fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.fileName}>
+                    {r.fileName}
+                  </TableCell>
+                  <TableCell>
+                    <TextField size="small" type="number" value={r.qty}
+                      onChange={(e) => updateRow(r.fileId, 'qty', e.target.value)}
+                      disabled={submitting} inputProps={{ min: 1, style: { fontSize: 11, padding: '3px 6px' } }}
+                      sx={{ width: 60 }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField size="small" type="number" value={r.rate}
+                      onChange={(e) => updateRow(r.fileId, 'rate', e.target.value)}
+                      disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
+                      sx={{ width: 80 }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField size="small" type="number" value={r.amount}
+                      onChange={(e) => updateRow(r.fileId, 'amount', e.target.value)}
+                      disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
+                      sx={{ width: 80 }}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell colSpan={3} sx={{ fontSize: 12, fontWeight: 700, textAlign: 'right', borderBottom: 'none' }}>Total</TableCell>
+                <TableCell sx={{ fontSize: 12, fontWeight: 700, borderBottom: 'none' }}>₹{total.toFixed(2)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button variant="contained" color="error" onClick={handleSubmit}
+          disabled={!vendor || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
+        >
+          Create Print Bill
         </Button>
       </DialogActions>
     </Dialog>
@@ -809,6 +1089,8 @@ export default function DesignFilesWidget() {
   const [confirmFile, setConfirmFile] = useState(null);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [autoTempOpen, setAutoTempOpen] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
 
@@ -933,6 +1215,7 @@ export default function DesignFilesWidget() {
   const filteredFiles = activeTabDef.stageFilter ? files.filter((f) => activeTabDef.stageFilter(f.stageNumber)) : [];
   const selectedFiles = filteredFiles.filter((f) => selectedIds.has(f.fileId));
   const canSelect = !activeTabDef.viewOnly && activeTab !== 'archive';
+  const unmatchedInView = filteredFiles.filter((f) => !f.matched && !f.isDraft);
 
   function tabCount(tab) {
     if (!tab.stageFilter || !files.length) return 0;
@@ -1019,6 +1302,17 @@ export default function DesignFilesWidget() {
               </Typography>
             )}
           </Typography>
+
+          {/* Create Temp Orders — Pending tab */}
+          {activeTab === 'pending' && unmatchedInView.length > 0 && (
+            <Button size="small" variant="outlined" color="warning"
+              startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
+              onClick={() => setAutoTempOpen(true)}
+              sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+            >
+              Create Temp ({unmatchedInView.length})
+            </Button>
+          )}
 
           {/* Export + print buttons */}
           {activeTab !== 'archive' && filteredFiles.length > 0 && (
@@ -1153,6 +1447,17 @@ export default function DesignFilesWidget() {
                 </Button>
               )}
 
+              {/* Create Print Bill — Printing tab */}
+              {activeTab === 'printing' && (
+                <Button size="small" variant="outlined" color="error"
+                  startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                  onClick={() => setPrintDialogOpen(true)}
+                  sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+                >
+                  Create Print Bill
+                </Button>
+              )}
+
               {/* Export selected */}
               <Tooltip title="Export selected to CSV">
                 <IconButton size="small" onClick={() => exportCSV(true)} sx={{ p: 0.35, color: 'primary.main' }}>
@@ -1193,6 +1498,16 @@ export default function DesignFilesWidget() {
         open={linkDialogOpen} selectedFiles={selectedFiles}
         onClose={() => setLinkDialogOpen(false)}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setSelectedIds(new Set()); load(); }}
+      />
+      <AutoTempDialog
+        open={autoTempOpen} files={unmatchedInView}
+        onClose={() => setAutoTempOpen(false)}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
+      />
+      <PrintJobDialog
+        open={printDialogOpen} selectedFiles={selectedFiles}
+        onClose={() => setPrintDialogOpen(false)}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSelectedIds(new Set()); load(); }}
       />
       <Snackbar
         open={!!toast}

@@ -213,8 +213,16 @@ router.post("/addTransaction", upload.single("image"), async (req, res) => {
 
     await newTransaction.save();
 
-    // Keep order status safe: paid only when received amount covers order total.
-    await refreshOrderPaymentStatus({ orderUuid: Order_uuid, orderNumber: Order_number });
+    // Refresh order paid-status as a best-effort follow-up. The transaction
+    // record is already safely persisted above, so a failure here must not
+    // roll it back — the order will self-correct on the next payment event.
+    try {
+      await refreshOrderPaymentStatus({ orderUuid: Order_uuid, orderNumber: Order_number });
+    } catch (refreshErr) {
+      logger.error(
+        `refreshOrderPaymentStatus failed after saving txn ${newTransaction.Transaction_uuid}: ${refreshErr.message}`
+      );
+    }
 
     return res.status(201).json({
       success: true,
@@ -393,8 +401,11 @@ router.put("/:uuid", upload.single("image"), async (req, res) => {
       });
     }
 
-    // Recalculate paid/unpaid safely after edit.
-    await refreshOrderPaymentStatus({ orderUuid: updated.Order_uuid, orderNumber: updated.Order_number });
+    try {
+      await refreshOrderPaymentStatus({ orderUuid: updated.Order_uuid, orderNumber: updated.Order_number });
+    } catch (refreshErr) {
+      logger.error(`refreshOrderPaymentStatus failed after editing txn ${updated.Transaction_uuid}: ${refreshErr.message}`);
+    }
 
     return res.json({
       success: true,
@@ -428,8 +439,11 @@ router.delete("/:uuid", async (req, res) => {
       Transaction_uuid: transactionUuid,
     });
 
-    // Recalculate paid/unpaid safely after delete.
-    await refreshOrderPaymentStatus({ orderUuid: tx.Order_uuid, orderNumber: tx.Order_number });
+    try {
+      await refreshOrderPaymentStatus({ orderUuid: tx.Order_uuid, orderNumber: tx.Order_number });
+    } catch (refreshErr) {
+      logger.error(`refreshOrderPaymentStatus failed after deleting txn ${tx.Transaction_uuid}: ${refreshErr.message}`);
+    }
 
     return res.json({
       success: true,

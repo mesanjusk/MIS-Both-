@@ -227,6 +227,8 @@ OrdersSchema.index({ "Steps.posting.isPosted": 1 });
 OrdersSchema.index({ "vendorAssignments.vendorCustomerUuid": 1 });
 OrdersSchema.index({ "vendorAssignments.vendorUuid": 1 });
 OrdersSchema.index({ createdAt: -1 });
+OrdersSchema.index({ stage: 1, createdAt: -1 });
+OrdersSchema.index({ stage: 1, priority: 1, dueDate: 1 });
 
 function recalcTotals(doc) {
   doc.saleSubtotal = (doc.Items || []).reduce((s, it) => s + (+it.Amount || 0), 0);

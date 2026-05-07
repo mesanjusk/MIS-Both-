@@ -145,7 +145,7 @@ const notifyDeliveredOrder = async (order) => {
       const businessName = process.env.BUSINESS_NAME || process.env.APP_NAME || 'MIS System';
       const body = `Dear ${customerName}, your order #${order.Order_Number} is ready for delivery.\n\nAmount due: Rs ${amount}.\n\nPlease arrange payment. Thank you! - ${businessName}`;
       await sendWhatsAppText({ to: mobile, body, source: 'ORDER_DELIVERED', contactName: customerName });
-      console.log(`WhatsApp sent to ${mobile} for delivered order #${order.Order_Number}`);
+      logger.info(`WhatsApp notification sent for delivered order #${order.Order_Number}`);
     }
   } catch (error) {
     logger.error(`WhatsApp failed: ${error.message}`);

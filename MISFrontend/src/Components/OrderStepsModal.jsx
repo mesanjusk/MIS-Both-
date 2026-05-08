@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from '../apiClient.js';
+import toast from 'react-hot-toast';
 import StepDetailsModal from "./StepDetailsModal";
 import { useNavigate } from "react-router-dom";
 import Vendor from "../Pages/vendor";
@@ -114,11 +115,11 @@ if (savedSteps.length > 0) {
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       if (step.completed && !step.assignedTo) {
-        alert(`Please assign a user for step ${i + 1} before saving.`);
+        toast.error(`Please assign a user for step ${i + 1} before saving.`);
         return;
       }
       if (step.completed && step.paymentStatus === "Paid" && !step.paymentMode) {
-        alert(`Please select a payment mode for step ${i + 1}.`);
+        toast.error(`Please select a payment mode for step ${i + 1}.`);
         return;
       }
     }
@@ -131,14 +132,14 @@ if (savedSteps.length > 0) {
     try {
       const res = await axios.post("/order/updateOrderSteps", payload);
       if (res.data.success) {
-        alert("Steps saved successfully.");
+        toast.success("Steps saved successfully.");
         onClose();
       } else {
-        alert("Failed to save steps.");
+        toast.error("Failed to save steps.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error occurred while saving.");
+      toast.error("Error occurred while saving.");
     }
   };
 

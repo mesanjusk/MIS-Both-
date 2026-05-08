@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient.js';
@@ -132,20 +133,20 @@ const AllTransaction1 = () => {
 
     try {
       const { data: result } = await axios.post('/api/usertasks/send-message', payload);
-      alert(result.error ? 'Failed to send: ' + result.error : 'Message sent successfully.');
+      result.error ? toast.error('Failed to send: ' + result.error) : toast.success('Message sent successfully.');
     } catch (error) {
       console.error('Request failed:', error);
-      alert('Failed to send message.');
+      toast.error('Failed to send message.');
     }
   };
 
   const sendWhatsApp = (item) => {
     // Respect privacy rule
     if (shouldHideMobile(item)) {
-      return alert('Mobile number is hidden for this account group.');
+      toast.error('Mobile number is hidden for this account group.'); return;
     }
     if (!item.mobile || item.mobile === 'No phone number') {
-      return alert('No phone number available.');
+      toast.error('No phone number available.'); return;
     }
     if (window.confirm(`Send WhatsApp message to ${item.name}?\nBalance: ₹${item.balance}`)) {
       sendMessageToAPI(item.name, item.mobile, item.balance);

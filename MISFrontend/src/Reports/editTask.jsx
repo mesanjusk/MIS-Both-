@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { fetchTaskGroups, fetchTaskById, updateTask } from '../services/taskService.js';
 
 export default function EditTask({ taskId, closeModal }) {
@@ -41,7 +42,7 @@ export default function EditTask({ taskId, closeModal }) {
         e.preventDefault();
 
         if (!values.Task_name || !values.Task_group) {
-            alert('All fields are required.');
+            toast.error('All fields are required.');
             return;
         }
 
@@ -51,12 +52,13 @@ export default function EditTask({ taskId, closeModal }) {
         })
         .then(res => {
             if (res.data.success) {
-                alert('Task updated successfully!');
-                closeModal(); 
+                toast.success('Task updated successfully!');
+                closeModal();
             }
         })
         .catch(err => {
             console.error('Error updating task:', err);
+            toast.error('Failed to update task.');
         });
     };
 
@@ -65,7 +67,7 @@ export default function EditTask({ taskId, closeModal }) {
             <h2 className="text-xl font-bold mb-4">Edit Task</h2>
             <form onSubmit={handleSaveChanges}>
             <div className="self-start bg-white p-2 w-100 mb-2 rounded-lg">
-                <label>Task Name</label> 
+                <label>Task Name</label>
                 <br></br>
                 <input
                     type="text"

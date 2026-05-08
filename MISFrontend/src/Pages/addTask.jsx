@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { FormControl, InputLabel, MenuItem, Select } from '@mui/material';
 import PropTypes from 'prop-types';
 import { addTask, fetchTaskGroups } from '../services/taskService.js';
@@ -28,14 +29,14 @@ export default function AddTask({ closeModal }) {
     e.preventDefault();
     try {
       await addTask({ Task_name, Task_group });
-      alert('Task added successfully');
+      toast.success('Task added successfully');
       if (closeModal) closeModal();
       navigate('/home');
     } catch (error) {
       if (error.response?.status === 409) {
-        alert('Task already exists');
+        toast.error('Task already exists');
       } else {
-        alert(error.response?.data?.message || 'Error saving task');
+        toast.error(error.response?.data?.message || 'Error saving task');
         console.error(error);
       }
     }

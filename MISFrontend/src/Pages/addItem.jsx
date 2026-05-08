@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   Alert,
   Box,
@@ -129,13 +130,13 @@ export default function AddItem() {
           defaultCost: Number(row.defaultCost || 0),
         })),
       });
-      alert('Item added successfully');
+      toast.success('Item added successfully');
       navigate('/home');
     } catch (err) {
       if (err.response?.status === 409) {
-        alert('Item already exists');
+        toast.error('Item already exists');
       } else {
-        alert(err.response?.data?.message || 'Unable to save item');
+        toast.error(err.response?.data?.message || 'Unable to save item');
         console.error(err);
       }
     } finally {

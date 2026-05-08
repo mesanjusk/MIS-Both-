@@ -7,9 +7,11 @@ import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 export default function AddPayment() {
   const navigate = useNavigate();
   const [Payment_name, setPayment_Name] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
+    setSubmitting(true);
     try {
       await axios.post('/api/payment_mode/addPayment', { Payment_name });
       toast.success('Payment mode added successfully');
@@ -20,6 +22,8 @@ export default function AddPayment() {
       } else {
         toast.error(error.response?.data?.message || 'Error saving payment mode');
       }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -32,6 +36,7 @@ export default function AddPayment() {
       onChange={setPayment_Name}
       onSubmit={submit}
       submitLabel="Submit"
+      busy={submitting}
     />
   );
 }

@@ -7,9 +7,11 @@ import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 export default function AddCustGroup() {
   const navigate = useNavigate();
   const [Customer_group, setCustomer_Group] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
+    setSubmitting(true);
     try {
       await axios.post('/api/customergroup/addCustomergroup', { Customer_group });
       toast.success('Group added successfully');
@@ -20,6 +22,8 @@ export default function AddCustGroup() {
       } else {
         toast.error(error.response?.data?.message || 'Error saving group');
       }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -32,6 +36,7 @@ export default function AddCustGroup() {
       onChange={setCustomer_Group}
       onSubmit={submit}
       submitLabel="Submit"
+      busy={submitting}
     />
   );
 }

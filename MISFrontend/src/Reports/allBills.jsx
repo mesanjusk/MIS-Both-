@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { fetchBillListPaged, updateBillStatus } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
@@ -400,7 +401,7 @@ export default function AllBills() {
           billPaidAt: currentlyPaid ? order?.billPaidAt || null : null,
         });
 
-        alert("Failed to update bill status. Please try again.");
+        toast.error("Failed to update bill status. Please try again.");
       }
     },
     [getOrderKey, isPaid, upsertOrderPatch]
@@ -587,7 +588,7 @@ export default function AllBills() {
   const handleEditClick = (order) => {
     const id = order?._id || order?.Order_id || order?.Order_uuid || null;
     if (!id) {
-      alert("⚠️ Invalid order ID. Cannot open edit modal.");
+      toast.error("Invalid order ID. Cannot open edit modal.");
       return;
     }
     setSelectedOrder({ ...order, _id: order?._id || id });

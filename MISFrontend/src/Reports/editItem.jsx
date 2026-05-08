@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
 
 export default function EditItem({ itemId, closeModal }) {
@@ -41,22 +42,23 @@ export default function EditItem({ itemId, closeModal }) {
         e.preventDefault();
 
         if (!values.Item_name || !values.Item_group) {
-            alert('All fields are required.');
+            toast.error('All fields are required.');
             return;
         }
 
-        axios.put(`/item/update/${itemId}`, { 
+        axios.put(`/item/update/${itemId}`, {
             Item_name: values.Item_name,
             Item_group: values.Item_group,
         })
         .then(res => {
             if (res.data.success) {
-                alert('Item updated successfully!');
-                closeModal(); 
+                toast.success('Item updated successfully!');
+                closeModal();
             }
         })
         .catch(err => {
             console.error('Error updating item:', err);
+            toast.error('Failed to update item.');
         });
     };
 
@@ -65,7 +67,7 @@ export default function EditItem({ itemId, closeModal }) {
             <h2 className="text-xl font-bold mb-4">Edit Item</h2>
             <form onSubmit={handleSaveChanges}>
             <div className="self-start bg-white p-2 w-100 mb-2 rounded-lg">
-                <label>Item Name</label> 
+                <label>Item Name</label>
                 <br></br>
                 <input
                        type="text"

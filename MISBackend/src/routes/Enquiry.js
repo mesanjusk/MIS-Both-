@@ -10,11 +10,15 @@ router.use(requireAuth);
 router.post("/addEnquiry", async (req, res) => {
   const { Customer_name, Priority = "Normal", Item = "New Enquiry", Task = "Design", Delivery_Date, Assigned = "Sai", Remark } = req.body;
 
+  if (!Customer_name) {
+    return res.status(400).json({ success: false, message: "Customer_name is required" });
+  }
+
   try {
-   
-      const currentDate = new Date().toISOString().split('T')[0]; 
-      
-      const lastEnquiry = await Enquiry.findOne().sort({ Enquiry_Number: -1 });
+
+      const currentDate = new Date().toISOString().split('T')[0];
+
+      const lastEnquiry = await Enquiry.findOne().sort({ Enquiry_Number: -1 }).lean();
       const newEnquiryNumber = lastEnquiry ? lastEnquiry.Enquiry_Number + 1 : 1;
 
       const newEnquiry = new Enquiry({

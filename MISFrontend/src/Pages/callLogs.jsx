@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from '../apiClient.js';
+import toast from 'react-hot-toast';
 import CallUpdate from "../Pages/callUpdate";
 
 export default function CallLogs() {
@@ -36,11 +37,11 @@ export default function CallLogs() {
                 setCurrentPage(1); 
                 setShowForm(false);
             } else {
-                alert("Failed to fetch logs.");
+                toast.error("Failed to fetch logs.");
             }
         } catch (error) {
             console.error("API Error:", error);
-            alert("Error fetching call logs. Check console for details.");
+            toast.error("Error fetching call logs. Please try again.");
         }
     }
 

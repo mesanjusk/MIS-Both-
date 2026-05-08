@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../apiClient.js';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 export default function CallUpdate({ log, onClose }) {
   const navigate = useNavigate();
@@ -12,10 +13,9 @@ export default function CallUpdate({ log, onClose }) {
     duration: log?.duration || '',
   });
 
-  
   const handleSaveChanges = (e) => {
     e.preventDefault();
-  
+
     axios.post(`/calllogs/addCallLog`, {
         Name: values.cachedName,
         Mobile_number: values.callerId,
@@ -23,42 +23,36 @@ export default function CallUpdate({ log, onClose }) {
         Duration: values.duration,
         Status: values.Status,
     })
-    .then(res => {  
+    .then(res => {
         if (res.data.success) {
-            alert(res.data.message); 
+            toast.success(res.data.message || 'Saved successfully');
             onClose();
             navigate("/home");
         } else {
-            alert(res.data.message); 
+            toast.error(res.data.message || 'Save failed');
         }
     })
     .catch(err => {
         console.error('Error updating calllog:', err);
-        alert('CallLog save failed. Please try again.');
+        toast.error('CallLog save failed. Please try again.');
     });
-    
   };
-  
- 
+
   return (
     <>
 <div className=" max-w-lg " >
       <div className="w-4/4 vh-100 pt-10 flex flex-col">
         <div className="px-1 pt-4 bg-blue-200 grid grid-cols-12  items-center h-18"  >
-          
           <div className="w-12 h-12 p-2 col-start-1 col-end-1 bg-gray-100 rounded-full flex items-center justify-center">
             <strong className="text-l text-gray-500">{values.duration}</strong>
           </div>
           <div>
             <div className="p-2 col-start-2 col-end-5">
               <strong className="text-l text-gray-900">{values.cachedName}</strong>
-
               <br />
               <strong className="text-l text-gray-900">{values.callerId}</strong>
-            </div>        
-            
+            </div>
           </div>
-      
         </div>
 
         <div className="flex-1 overflow-y-scroll bg-gray-100 p-4">
@@ -84,7 +78,6 @@ export default function CallUpdate({ log, onClose }) {
             </div>
 
             <div className="pb-14 border-t border-gray-300">
-             
               <div className="flex items-center">
               <button type="submit" className="w-100 h-10 bg-blue-500 text-white shadow-lg flex items-center justify-center">
                  Save
@@ -93,12 +86,9 @@ export default function CallUpdate({ log, onClose }) {
                 </div>
             </div>
           </form>
-         
         </div>
       </div>
       </div>
-      
-
     </>
   );
 }

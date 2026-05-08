@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import {
     fetchCustomerGroups,
     fetchCustomerById,
@@ -52,18 +53,21 @@ export default function EditCustomer({ customerId, closeModal }) {
         e.preventDefault();
 
         if (!values.Customer_name || !values.Mobile_number || !values.Customer_group) {
-            alert('All fields are required.');
+            toast.error('All fields are required.');
             return;
         }
 
         updateCustomer(customerId, values)
             .then(res => {
                 if (res.data.success) {
-                    alert('Customer updated successfully!');
+                    toast.success('Customer updated successfully!');
                     closeModal();
                 }
             })
-            .catch(err => console.error('Error updating customer:', err));
+            .catch(err => {
+                console.error('Error updating customer:', err);
+                toast.error('Failed to update customer.');
+            });
     };
 
     return (

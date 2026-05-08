@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { Alert, Button, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import axios from '../apiClient.js';
 import { FullscreenAddFormLayout } from '../Components/ui';
@@ -35,13 +36,13 @@ export default function AddCategory() {
     e.preventDefault();
     try {
       if (!Customer_name) {
-        alert('Customer Name is required.');
+        toast.error('Customer Name is required.');
         return;
       }
       const payload = { Customer_name, Remark };
       const response = await axios.post('/api/enquiry/addEnquiry', payload);
       if (response.data.success) {
-        alert(response.data.message);
+        toast.success(response.data.message);
         setSavedEnquiry({
           ...payload,
           Customer_uuid: selectedCustomer?.Customer_uuid,
@@ -50,18 +51,18 @@ export default function AddCategory() {
           _id: response?.data?.result?._id,
         });
       } else {
-        alert('Failed to add Enquiry');
+        toast.error('Failed to add Enquiry');
       }
     } catch (err) {
       console.error('Error adding Enquiry:', err);
-      alert(err?.response?.data?.message || err.message || 'Error adding enquiry');
+      toast.error(err?.response?.data?.message || err.message || 'Error adding enquiry');
     }
   }
 
   const convertToOrder = async () => {
     if (!savedEnquiry) return;
     if (!savedEnquiry.Customer_uuid) {
-      alert('Customer UUID not found. Please select an existing customer before converting.');
+      toast.error('Customer UUID not found. Please select an existing customer before converting.');
       return;
     }
     setConverting(true);
@@ -77,10 +78,10 @@ export default function AddCategory() {
       const res = await axios.post('/api/orders/addOrder', orderPayload);
       const order = res?.data?.result || res?.data?.order || res?.data;
       const orderNumber = order?.Order_Number || res?.data?.Order_Number;
-      alert(`Order #${orderNumber || ''} created successfully!`);
+      toast.success(`Order #${orderNumber || ''} created successfully!`);
       navigate(`/orderUpdate/${order?._id || order?.Order_uuid || orderNumber}`);
     } catch (e) {
-      alert(`Failed to convert: ${e?.response?.data?.message || e?.response?.data?.error || e.message}`);
+      toast.error(`Failed to convert: ${e?.response?.data?.message || e?.response?.data?.error || e.message}`);
     } finally {
       setConverting(false);
     }

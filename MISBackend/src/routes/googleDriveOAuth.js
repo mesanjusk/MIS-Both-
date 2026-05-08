@@ -9,6 +9,14 @@ const { getGoogleDriveAuthUrl, saveGoogleTokensFromCode, isDriveAutomationEnable
  * Validates that a redirect URL is safe (same origin as configured frontend).
  * Prevents open-redirect attacks on the OAuth callback.
  */
+const escapeHtml = (str) =>
+  String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 function isSafeRedirect(url) {
   if (!url) return false;
   try {
@@ -68,7 +76,7 @@ router.get("/callback", async (req, res) => {
         </head>
         <body style="font-family: Arial, sans-serif; padding: 24px; line-height: 1.5;">
           <h2>Google Drive connected successfully</h2>
-          <p><strong>Connected account:</strong> ${result.email || "Unknown"}</p>
+          <p><strong>Connected account:</strong> ${escapeHtml(result.email || 'Unknown')}</p>
           <p>Redirecting back to your app...</p>
           <script>
             setTimeout(function () {
@@ -88,7 +96,7 @@ router.get("/callback", async (req, res) => {
         </head>
         <body style="font-family: Arial, sans-serif; padding: 24px; line-height: 1.5;">
           <h2>Google Drive connection failed</h2>
-          <p>${error.message}</p>
+          <p>${escapeHtml(error.message)}</p>
         </body>
       </html>
     `);

@@ -179,8 +179,16 @@ async function createTaskForOrder({ order, taskName = 'Design', assignedTo = 'No
   });
 
   if (appendStatus) {
-    const statusEntry = makeStatusEntry({ task: taskName, assigned: assignedTo, dueDate, order });
-    await Orders.updateOne({ _id: order._id }, { $push: { Status: statusEntry } }, { runValidators: false });
+    // Status_number derived atomically from current array size — no race condition.
+    const { Status_number: _ignored, ...baseEntry } = makeStatusEntry({ task: taskName, assigned: assignedTo, dueDate, order });
+    await Orders.findOneAndUpdate(
+      { _id: order._id },
+      [{ $set: { Status: { $concatArrays: [
+        { $ifNull: ['$Status', []] },
+        [{ ...baseEntry, Status_number: { $add: [{ $size: { $ifNull: ['$Status', []] } }, 1] } }],
+      ] } } }],
+      { runValidators: false }
+    );
   }
   return task;
 }
@@ -282,18 +290,25 @@ async function moveOrderStage({ orderUuid, stage, assignedTo = '', note = '', cr
   }
 
   const normalizedStage = normalizeStage(stage, order.stage || 'design');
-  const statusEntry = makeStatusEntry({ task: normalizedStage, assigned: assignedTo || createdBy || 'System', order });
-  await Orders.updateOne(
-    { _id: order._id },
-    {
-      $set: { stage: normalizedStage, ...(assignedTo && mongoose.isValidObjectId(assignedTo) ? { assignedTo } : {}) },
-      $push: {
-        stageHistory: { stage: normalizedStage, timestamp: new Date() },
-        Status: { ...statusEntry, Task: note ? `${normalizedStage} - ${note}` : normalizedStage },
-      },
-    },
-    { runValidators: false }
-  );
+  const { Status_number: _ignored, ...baseEntry } = makeStatusEntry({ task: normalizedStage, assigned: assignedTo || createdBy || 'System', order });
+  const taskLabel = note ? `${normalizedStage} - ${note}` : normalizedStage;
+
+  // Single aggregation-pipeline update so Status_number, stage, stageHistory, and
+  // Status array are all written atomically — no stale-snapshot race condition.
+  const setPayload = {
+    stage: normalizedStage,
+    stageHistory: { $concatArrays: [
+      { $ifNull: ['$stageHistory', []] },
+      [{ stage: normalizedStage, timestamp: new Date() }],
+    ] },
+    Status: { $concatArrays: [
+      { $ifNull: ['$Status', []] },
+      [{ ...baseEntry, Task: taskLabel, Status_number: { $add: [{ $size: { $ifNull: ['$Status', []] } }, 1] } }],
+    ] },
+  };
+  if (assignedTo && mongoose.isValidObjectId(assignedTo)) setPayload.assignedTo = assignedTo;
+
+  await Orders.findOneAndUpdate({ _id: order._id }, [{ $set: setPayload }], { runValidators: false });
 
   return Orders.findById(order._id).lean();
 }

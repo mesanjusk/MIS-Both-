@@ -15,29 +15,30 @@ router.post("/addUsertask", async (req, res) => {
   const { Usertask_name, User, Deadline, Remark } = req.body;
 
   try {
+    const data = await Usertasks.findOne({ Usertask_name });
+
+    if (data) {
+      return res.status(409).json({ success: false, message: "Task already exists" });
+    }
+
     const taskCounter = await Counter.findByIdAndUpdate(
       'usertask_number',
       { $inc: { seq: 1 } },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();
     const newTaskNumber = Number(taskCounter?.seq || 1);
-    const data = await Usertasks.findOne({ Usertask_name });
-
-    if (data) {
-      return res.status(409).json({ success: false, message: "Task already exists" });
-    } else {
-      const newTask = new Usertasks({
-        Usertask_name,
-        User,
-        Usertask_Number: newTaskNumber,
-        Date: new Date().toISOString().split("T")[0],
-        Time: new Date().toLocaleTimeString("en-US", { hour12: false }),
-        Usertask_uuid: uuid(),
-        Deadline,
-        Remark,
-        Status: "Pending"
-      });
-      await newTask.save();
+    const newTask = new Usertasks({
+      Usertask_name,
+      User,
+      Usertask_Number: newTaskNumber,
+      Date: new Date().toISOString().split("T")[0],
+      Time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+      Usertask_uuid: uuid(),
+      Deadline,
+      Remark,
+      Status: "Pending"
+    });
+    await newTask.save();
 
       // ✅ Format number before sending message
       try {
@@ -52,8 +53,7 @@ router.post("/addUsertask", async (req, res) => {
         logger.error("Failed to send WhatsApp message:", err.message);
       }
 
-      res.status(201).json({ success: true, result: newTask });
-    }
+    res.status(201).json({ success: true, result: newTask });
   } catch (e) {
     logger.error("Error saving Task:", e);
     res.status(500).json({ success: false, message: e.message || "Server error" });

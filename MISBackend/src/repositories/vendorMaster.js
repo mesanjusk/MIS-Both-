@@ -20,6 +20,9 @@ const vendorMasterSchema = new mongoose.Schema(
   { timestamps: true, collection: 'vendor_masters' }
 );
 
+vendorMasterSchema.index({ Active: 1 });
+vendorMasterSchema.index({ Vendor_type: 1, Active: 1 });
+
 vendorMasterSchema.pre('validate', function(next) {
   if (!this.Vendor_uuid) this.Vendor_uuid = uuidv4();
   next();

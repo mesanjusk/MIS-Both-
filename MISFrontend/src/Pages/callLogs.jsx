@@ -31,8 +31,6 @@ export default function CallLogs() {
                 }
             );
 
-            console.log("API Response:", response.data);
-
             if (response.data.success) {
                 setLogs(response.data.logs);
                 setCurrentPage(1); 

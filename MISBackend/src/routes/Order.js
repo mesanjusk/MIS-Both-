@@ -635,6 +635,10 @@ router.post("/addOrder", async (req, res) => {
       productionStepsEnabled,
     } = req.body;
 
+    if (!Customer_uuid) {
+      return res.status(400).json({ success: false, message: "Customer_uuid is required" });
+    }
+
     const rawType = typeof Type === "string" ? Type.trim().toLowerCase() : "";
 
     const isEnquiryOnly =

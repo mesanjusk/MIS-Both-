@@ -22,7 +22,7 @@ export default function WhatsApp({ order }) {
           setCustomers({});
         }
       })
-      .catch(err => console.log('Error fetching customers list:', err));
+      .catch(err => console.error('Error fetching customers list:', err));
   }, []);
   
 
@@ -56,11 +56,8 @@ export default function WhatsApp({ order }) {
       type: "order_update",
     };
   
-    console.log("Sending payload:", payload); 
-  
     try {
       const { data: result } = await axios.post('/api/usertasks/send-message', payload);
-      console.log("Message sent:", result);
 
       if (result.error) {
         alert("Failed to send: " + result.error);

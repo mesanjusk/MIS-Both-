@@ -48,7 +48,7 @@ export default function AllBills() {
                     setCustomers({});
                 }
             })
-            .catch(err => console.log('Error fetching data:', err));
+            .catch(err => console.error('Error fetching data:', err));
     }, []);
 
     // Table search & sort logic

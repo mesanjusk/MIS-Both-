@@ -33,7 +33,7 @@ export default function EditItem({ itemId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching item data:', err));
+                .catch(err => console.error('Error fetching item data:', err));
         }
     }, [itemId]);
 
@@ -56,7 +56,7 @@ export default function EditItem({ itemId, closeModal }) {
             }
         })
         .catch(err => {
-            console.log('Error updating item:', err);
+            console.error('Error updating item:', err);
         });
     };
 

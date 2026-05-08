@@ -18,7 +18,7 @@ export default function EditPriority({ priorityId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching priority data:', err));
+                .catch(err => console.error('Error fetching priority data:', err));
         }
     }, [priorityId]);
     
@@ -41,7 +41,7 @@ export default function EditPriority({ priorityId, closeModal }) {
             }
         })
         .catch(err => {
-            console.log('Error updating priority:', err);
+            console.error('Error updating priority:', err);
         });
     };
 

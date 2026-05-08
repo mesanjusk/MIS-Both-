@@ -53,7 +53,7 @@ export default function AddCategory() {
         alert('Failed to add Enquiry');
       }
     } catch (err) {
-      console.log('Error adding Enquiry:', err);
+      console.error('Error adding Enquiry:', err);
       alert(err?.response?.data?.message || err.message || 'Error adding enquiry');
     }
   }

@@ -33,7 +33,7 @@ export default function CallUpdate({ log, onClose }) {
         }
     })
     .catch(err => {
-        console.log('Error updating calllog:', err);
+        console.error('Error updating calllog:', err);
         alert('CallLog save failed. Please try again.');
     });
     

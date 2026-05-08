@@ -33,7 +33,7 @@ export default function EditTask({ taskId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching task data:', err));
+                .catch(err => console.error('Error fetching task data:', err));
         }
     }, [taskId]);
 
@@ -56,7 +56,7 @@ export default function EditTask({ taskId, closeModal }) {
             }
         })
         .catch(err => {
-            console.log('Error updating task:', err);
+            console.error('Error updating task:', err);
         });
     };
 

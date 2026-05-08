@@ -215,13 +215,13 @@ const saveAndEmitMessage = async (payload) => {
   if (payload.messageId) {
     const existing = await Message.findOne({ messageId: payload.messageId }).lean();
     if (existing) {
-      console.log(`[whatsapp] Skipped duplicate message ${payload.messageId}`);
+      logger.info(`[whatsapp] Skipped duplicate message ${payload.messageId}`);
       return { message: existing, isDuplicate: true };
     }
   }
 
   const savedMessage = await Message.create(payload);
-  console.log(`[whatsapp] Saved ${savedMessage.direction || 'unknown'} message ${savedMessage._id}`);
+  logger.info(`[whatsapp] Saved ${savedMessage.direction || 'unknown'} message ${savedMessage._id}`);
   emitNewMessage(savedMessage.toObject());
   return { message: savedMessage, isDuplicate: false };
 };
@@ -658,7 +658,7 @@ const processIncomingMediaMessage = async ({ messageRecordId, mediaId }) => {
 
     if (updated) {
       emitNewMessage(updated);
-      console.log(`[whatsapp] Media processed for message=${messageRecordId} mediaId=${mediaId}`);
+      logger.info(`[whatsapp] Media processed for message=${messageRecordId} mediaId=${mediaId}`);
     }
   } catch (error) {
     logger.error(`[whatsapp] Media processing failed for mediaId=${mediaId}:`, error.message);
@@ -673,14 +673,14 @@ const sendAutoReplyForIncomingMessage = async (incomingPayload) => {
 
   const contactDoc = await Contact.findOne({ phone: normalizePhone(incomingPayload.from) });
 
-  console.log('[whatsapp] Auto reply resolver input:', incomingText);
+  logger.debug('[whatsapp] Auto reply resolver input:', incomingText);
   const matchedRule = await resolveAutoReplyAction({
     incomingText,
     contactDoc,
     fromPhone: incomingPayload.from,
   });
-  console.log('[whatsapp] Auto reply matched keyword:', matchedRule?.keyword || null);
-  console.log('[whatsapp] Auto reply DB result:', matchedRule || null);
+  logger.debug('[whatsapp] Auto reply matched keyword:', matchedRule?.keyword || null);
+  logger.debug('[whatsapp] Auto reply DB result:', matchedRule || null);
 
   const fallbackReply = String(
     process.env.WHATSAPP_FALLBACK_REPLY || 'Thanks for your message. We will get back to you shortly.'
@@ -1315,7 +1315,7 @@ const verifyWebhook = (req, res) => {
 
 const receiveWebhook = (req, res) => {
   try {
-    console.log('Webhook event:', req.body);
+    logger.debug('Webhook event', { type: req.body?.type });
 
     const enforceSignature =
       String(process.env.WHATSAPP_ENFORCE_WEBHOOK_SIGNATURE).toLowerCase() !== 'false';
@@ -1472,7 +1472,7 @@ const receiveWebhook = (req, res) => {
           if (!isDuplicate && ['text', 'button', 'interactive'].includes(payload.type)) {
             try {
               const userMessage = String(payload?.text || payload?.message || '').trim();
-              console.log('Incoming message:', userMessage);
+              logger.debug('Incoming message', { from: userMessage?.from });
 
               const attendanceTriggerResult = await markWhatsAppStartAttendance(payload);
               if (attendanceTriggerResult.handled) {
@@ -1485,20 +1485,17 @@ const receiveWebhook = (req, res) => {
               });
 
               if (flowResult?.handled) {
-                console.log(
-                  '[whatsapp] Triggered flow ID:',
-                  flowResult?.flowId || flowResult?.session?.flowId || null
-                );
-                console.log('[whatsapp] Matched keyword:', flowResult?.matchedKeyword || null);
+                logger.debug('[whatsapp] Triggered flow ID:', flowResult?.flowId || flowResult?.session?.flowId || null);
+                logger.debug('[whatsapp] Matched keyword:', flowResult?.matchedKeyword || null);
                 continue;
               }
 
               const simpleFlowReply = await getFlowReply(userMessage);
-              console.log('Flow matched:', simpleFlowReply);
+              logger.debug('[whatsapp] Flow matched', { flowId: simpleFlowReply?.flowId });
 
               if (simpleFlowReply?.replyText) {
-                console.log('[whatsapp] Matched keyword:', simpleFlowReply.matchedKeyword || null);
-                console.log('[whatsapp] Triggered flow ID:', simpleFlowReply.flowId || null);
+                logger.debug('[whatsapp] Matched keyword:', simpleFlowReply.matchedKeyword || null);
+                logger.debug('[whatsapp] Triggered flow ID:', simpleFlowReply.flowId || null);
                 await dispatchTextMessage({
                   to: payload.from,
                   body: simpleFlowReply.replyText,

@@ -64,7 +64,7 @@ export default function BillUpdate({ order, onClose }) {
           setOrders([]);
         }
       })
-      .catch(err => console.log('Error fetching order list:', err));
+      .catch(err => console.error('Error fetching order list:', err));
   }, []);
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function BillUpdate({ order, onClose }) {
           setCustomers({});
         }
       })
-      .catch(err => console.log('Error fetching customers list:', err));
+      .catch(err => console.error('Error fetching customers list:', err));
   }, []);
 
   const handleSaveChanges = (e) => {
@@ -107,7 +107,7 @@ export default function BillUpdate({ order, onClose }) {
         }
       })
       .catch(err => {
-        console.log('Error updating vendor:', err);
+        console.error('Error updating vendor:', err);
       });
   };
 

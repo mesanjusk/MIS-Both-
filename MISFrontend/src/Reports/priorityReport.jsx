@@ -43,7 +43,7 @@ const PriorityReport = () => {
                     setPrioritys({});
                 }
             })
-            .catch(err => console.log('Error fetching priority list:', err));
+            .catch(err => console.error('Error fetching priority list:', err));
     }, []);
     
     const handleEdit = (priorityId) => {
@@ -76,10 +76,10 @@ const PriorityReport = () => {
                     return newPriority;
                 });
             } else {
-                console.log('Error deleting priority:', res.data.message);
+                console.error('Error deleting priority:', res.data.message);
             }
         })
-        .catch(err => console.log('Error deleting priority:', err));
+        .catch(err => console.error('Error deleting priority:', err));
     setShowDeleteModal(false); 
     };
     

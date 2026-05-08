@@ -44,7 +44,7 @@ export default function EditCustomer({ customerId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching customer data:', err));
+                .catch(err => console.error('Error fetching customer data:', err));
         }
     }, [customerId]);
 
@@ -63,7 +63,7 @@ export default function EditCustomer({ customerId, closeModal }) {
                     closeModal();
                 }
             })
-            .catch(err => console.log('Error updating customer:', err));
+            .catch(err => console.error('Error updating customer:', err));
     };
 
     return (

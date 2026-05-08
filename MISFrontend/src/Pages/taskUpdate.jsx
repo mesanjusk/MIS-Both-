@@ -25,7 +25,7 @@ export default function TaskUpdate({ task, onClose }) {
           setTasks([]);
         }
       })
-      .catch(err => console.log('Error fetching order list:', err));
+      .catch(err => console.error('Error fetching order list:', err));
   }, []);
   
   
@@ -48,7 +48,7 @@ export default function TaskUpdate({ task, onClose }) {
         }
       })
       .catch(err => {
-        console.log('Error updating order:', err);
+        console.error('Error updating order:', err);
       });
   };
 

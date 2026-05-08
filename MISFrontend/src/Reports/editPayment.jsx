@@ -18,7 +18,7 @@ export default function EditPayment({ paymentId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching payment data:', err));
+                .catch(err => console.error('Error fetching payment data:', err));
         }
     }, [paymentId]);
     
@@ -41,7 +41,7 @@ export default function EditPayment({ paymentId, closeModal }) {
             }
         })
         .catch(err => {
-            console.log('Error updating payment:', err);
+            console.error('Error updating payment:', err);
         });
     };
 

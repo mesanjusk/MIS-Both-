@@ -46,7 +46,7 @@ export default function AddNote({ onClose, order }) {
           }
         }
       })
-      .catch((err) => console.log('Error fetching customers list:', err));
+      .catch((err) => console.error('Error fetching customers list:', err));
   }, [Customer_uuid]);
 
   async function submit(e) {
@@ -64,7 +64,7 @@ export default function AddNote({ onClose, order }) {
         navigate('/allOrder');
       }
     } catch (e) {
-      console.log('Error updating transaction:', e);
+      console.error('Error updating transaction:', e);
     }
   }
 

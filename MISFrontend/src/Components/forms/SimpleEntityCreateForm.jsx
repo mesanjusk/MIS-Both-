@@ -15,6 +15,7 @@ export default function SimpleEntityCreateForm({
   children,
   secondaryActionLabel,
   onSecondaryAction,
+  busy,
 }) {
   return (
     <FullscreenAddFormLayout
@@ -22,6 +23,7 @@ export default function SimpleEntityCreateForm({
       onClose={onSecondaryAction}
       submitLabel={submitLabel}
       cancelLabel={secondaryActionLabel}
+      busy={busy}
     >
       <Paper sx={compactCardSx}>
         <Stack spacing={1.2}>
@@ -60,6 +62,7 @@ SimpleEntityCreateForm.propTypes = {
   children: PropTypes.node,
   secondaryActionLabel: PropTypes.string,
   onSecondaryAction: PropTypes.func,
+  busy: PropTypes.bool,
 };
 
 SimpleEntityCreateForm.defaultProps = {

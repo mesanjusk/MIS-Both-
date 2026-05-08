@@ -70,7 +70,14 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
 
 
 // ADD USER — protected: only authenticated users (admins) can create users
-router.post("/addUser", requireAuth, async (req, res) => {
+router.post("/addUser", requireAuth, validate({ body: z.object({
+  User_name:  z.string().min(1, 'User_name is required'),
+  Password:   z.string().min(8, 'Password must be at least 8 characters'),
+  Mobile_number: z.string().min(1, 'Mobile_number is required'),
+  User_group: z.string().min(1, 'User_group is required'),
+  Amount: z.any().optional(),
+  Allowed_Task_Groups: z.any().optional(),
+}) }), async (req, res) => {
   const {
     User_name,
     Password,
@@ -83,7 +90,7 @@ router.post("/addUser", requireAuth, async (req, res) => {
   try {
     const check = await Users.findOne({ Mobile_number });
     if (check) {
-      res.json("exist");
+      return res.status(409).json({ success: false, message: "User with this mobile number already exists" });
     } else {
       const newUser = new Users({
         User_name,
@@ -95,11 +102,11 @@ router.post("/addUser", requireAuth, async (req, res) => {
         User_uuid: uuid()
       });
       await newUser.save();
-      res.json("notexist");
+      return res.status(201).json({ success: true, result: { User_name: newUser.User_name, User_group: newUser.User_group } });
     }
   } catch (e) {
     logger.error("Error saving user:", e);
-    res.status(500).json("fail");
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 

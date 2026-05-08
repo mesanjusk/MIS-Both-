@@ -1,28 +1,29 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient.js';
+import toast from 'react-hot-toast';
 import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 
 export default function AddPayment() {
   const navigate = useNavigate();
   const [Payment_name, setPayment_Name] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
+    setSubmitting(true);
     try {
-      const res = await axios.post('/api/payment_mode/addPayment', {
-        Payment_name,
-      });
-
-      if (res.data === 'exist') {
-        alert('Name already exists');
-      } else if (res.data === 'notexist') {
-        alert('Name added successfully');
-        navigate('/home');
-      }
+      await axios.post('/api/payment_mode/addPayment', { Payment_name });
+      toast.success('Payment mode added successfully');
+      navigate('/home');
     } catch (error) {
-      alert('wrong details');
-      console.log(error);
+      if (error.response?.status === 409) {
+        toast.error('Payment mode already exists');
+      } else {
+        toast.error(error.response?.data?.message || 'Error saving payment mode');
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -35,6 +36,7 @@ export default function AddPayment() {
       onChange={setPayment_Name}
       onSubmit={submit}
       submitLabel="Submit"
+      busy={submitting}
     />
   );
 }

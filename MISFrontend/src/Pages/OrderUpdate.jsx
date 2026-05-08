@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 // src/Pages/OrderUpdate.jsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import axios from "../apiClient.js";
 import toast from "react-hot-toast";
 
@@ -209,13 +209,14 @@ export default function OrderUpdate({
   }, [taskGroups, values.Steps]);
 
   /* ---------------- Close on ESC ---------------- */
+  // Keep a ref so the listener never needs to be re-registered when onClose changes.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onClose?.();
-    };
+    const onKeyDown = (e) => { if (e.key === "Escape") onCloseRef.current?.(); };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, []);
 
   /* ---------------- Resolve Customer_name from UUID if missing ---------------- */
   useEffect(() => {
@@ -331,8 +332,8 @@ export default function OrderUpdate({
       });
       toast.success("Stage updated.");
     } catch (error) {
-      console.error("Failed to patch order stage", error);
-      toast.error("Unable to update stage.");
+      const msg = error?.response?.data?.message || "Unable to update stage.";
+      toast.error(msg);
     }
   };
 

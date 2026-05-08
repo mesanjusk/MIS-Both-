@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../apiClient.js';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import UpdateDelivery from '../Pages/updateDelivery';
 import EditOrder from '../Components/editOrder';
 import Print from '../Components/print';
@@ -64,7 +65,7 @@ export default function BillUpdate({ order, onClose }) {
           setOrders([]);
         }
       })
-      .catch(err => console.log('Error fetching order list:', err));
+      .catch(err => console.error('Error fetching order list:', err));
   }, []);
 
   useEffect(() => {
@@ -82,14 +83,14 @@ export default function BillUpdate({ order, onClose }) {
           setCustomers({});
         }
       })
-      .catch(err => console.log('Error fetching customers list:', err));
+      .catch(err => console.error('Error fetching customers list:', err));
   }, []);
 
   const handleSaveChanges = (e) => {
     e.preventDefault();
 
     if (!values.Task || !values.Assigned || !values.Delivery_Date) {
-      alert('All fields are required.');
+      toast.error('All fields are required.');
       return;
     }
 
@@ -101,13 +102,13 @@ export default function BillUpdate({ order, onClose }) {
     })
       .then(res => {
         if (res.data.success) {
-          alert('Vendor Save successfully!');
+          toast.success('Vendor saved successfully!');
           onClose(); 
           navigate("/allOrder");  
         }
       })
       .catch(err => {
-        console.log('Error updating vendor:', err);
+        console.error('Error updating vendor:', err);
       });
   };
 

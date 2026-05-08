@@ -147,7 +147,7 @@ async function sendOwnerDailySummary() {
     const ownerMobile = process.env.OWNER_WHATSAPP_NUMBER;
 
     if (!phoneNumberId || !accessToken || !ownerMobile) {
-      console.log('Daily owner summary skipped — WhatsApp credentials or OWNER_WHATSAPP_NUMBER not set');
+      logger.info('Daily owner summary skipped — WhatsApp credentials or OWNER_WHATSAPP_NUMBER not set');
       return { skipped: true };
     }
 
@@ -191,7 +191,7 @@ async function sendOwnerDailySummary() {
         text: { preview_url: false, body: summary },
       },
     });
-    console.log('Daily owner summary sent at', now.toISOString());
+    logger.info('Daily owner summary sent at', now.toISOString());
     return { sent: true };
   } catch (err) {
     logger.error('Failed to send daily owner summary:', err.message);

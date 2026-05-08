@@ -20,7 +20,7 @@ router.post(
     } = req.body;
 
     const existingGroup = await Itemgroup.findOne({ Item_group });
-    if (existingGroup) return res.json("exist");
+    if (existingGroup) return res.status(409).json({ success: false, message: "Item group already exists" });
 
     const newGroup = new Itemgroup({
       Item_group,
@@ -32,7 +32,7 @@ router.post(
     });
 
     await newGroup.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newGroup });
   })
 );
 

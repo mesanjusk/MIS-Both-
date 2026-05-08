@@ -9,6 +9,7 @@ import {
   Typography,
 } from '@mui/material';
 import { format } from 'date-fns';
+import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
 import AllOrder from '../Reports/allOrder';
 import UserTask from './userTask';
@@ -57,7 +58,7 @@ export default function Home() {
         setTask([]);
       }
     } catch (err) {
-      console.log('Error fetching data:', err);
+      toast.error('Failed to load tasks. Please refresh.');
     }
   };
 

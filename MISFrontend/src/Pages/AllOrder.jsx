@@ -399,6 +399,12 @@ export default function AllOrder() {
         </Box>
       )}
 
+      {loadError && (
+        <Alert severity="error" sx={{ mx: 2, mt: 1 }} onClose={() => {}}>
+          {loadError}
+        </Alert>
+      )}
+
       <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
         <AppBar position="sticky" elevation={0}>
           <Toolbar>

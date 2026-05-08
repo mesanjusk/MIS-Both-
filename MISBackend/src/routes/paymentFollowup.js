@@ -41,8 +41,7 @@ router.post("/add", async (req, res) => {
     }).lean();
 
     if (exists) {
-      // Match your existing front-end pattern
-      return res.send("exist");
+      return res.status(409).json({ success: false, message: "A similar follow-up already exists for this customer/date" });
     }
 
     const doc = await PaymentFollowup.create({
@@ -53,13 +52,10 @@ router.post("/add", async (req, res) => {
       remark: Remark,
       followup_date: Followup_date,
       status: "pending",
-      created_by: norm(req.user?.name || ""), // optional if you attach auth
+      created_by: norm(req.user?.name || ""),
     });
 
-    if (doc?._id) {
-      return res.send("notexist");
-    }
-    return res.json({ success: true, result: doc });
+    return res.status(201).json({ success: true, result: doc });
   } catch (err) {
     logger.error("Add payment follow-up error:", err);
     return res.status(500).json({ success: false, message: "Server error" });

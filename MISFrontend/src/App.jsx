@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import './apiClient.js';
 import Layout from './Pages/Layout';
+import ErrorBoundary from './Components/ErrorBoundary';
 import { initVersionChecker } from './utils/versionChecker';
 import { ToastContainer } from './Components';
 import { ROUTE_ALIASES, ROUTES } from './constants/routes';
@@ -121,7 +122,7 @@ export default function App() {
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
-          <Route element={<Layout />}>
+          <Route element={<ErrorBoundary><Layout /></ErrorBoundary>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />
             <Route path={ROUTES.OWNER_DASHBOARD} element={withSuspense(<OwnerDashboard />)} />
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />

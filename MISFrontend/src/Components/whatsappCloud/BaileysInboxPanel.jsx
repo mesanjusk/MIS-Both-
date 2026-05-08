@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { getStoredToken } from '../../utils/authStorage';
 import {
   Alert,
   Avatar,
@@ -157,7 +158,7 @@ export default function BaileysInboxPanel() {
 
   // Real-time Socket.IO listener
   useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    const socket = io(SOCKET_URL, { transports: ['websocket', 'polling'], auth: { token: getStoredToken() } });
     socket.on('new_message', (data) => {
       const msg = data?.message || data;
       if (data?.provider !== 'baileys' || !msg) return;

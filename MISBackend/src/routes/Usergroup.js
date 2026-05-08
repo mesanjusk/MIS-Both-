@@ -4,6 +4,9 @@ const Usergroup = require("../repositories/usergroup");
 const { v4: uuid } = require("uuid");
 const asyncHandler = require("../utils/asyncHandler");
 const AppError = require("../utils/AppError");
+const { requireAuth } = require("../middleware/auth");
+
+router.use(requireAuth);
 
 router.post(
   "/addUsergroup",
@@ -12,7 +15,7 @@ router.post(
 
     const check = await Usergroup.findOne({ User_group });
     if (check) {
-      return res.json("exist");
+      return res.status(409).json({ success: false, message: "User group already exists" });
     }
 
     const newGroup = new Usergroup({
@@ -21,14 +24,14 @@ router.post(
     });
 
     await newGroup.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newGroup });
   })
 );
 
 router.get(
   "/GetUsergroupList",
   asyncHandler(async (_req, res) => {
-    const data = await Usergroup.find({});
+    const data = await Usergroup.find({}).lean();
 
     if (!data.length) {
       throw new AppError("User Group Not found", 200);

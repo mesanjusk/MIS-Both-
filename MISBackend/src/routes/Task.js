@@ -15,7 +15,7 @@ router.post("/addTask", async (req, res) => {
         const check=await Tasks.findOne({ Task_name: Task_name })
        
         if(check){
-            res.json("exist")
+            return res.status(409).json({ success: false, message: "Task already exists" });
         }
         else{
           const newTask = new Tasks({
@@ -28,14 +28,14 @@ router.post("/addTask", async (req, res) => {
               ? String(status).toLowerCase()
               : "pending"
         });
-        await newTask.save(); 
-        res.json("notexist");
+        await newTask.save();
+        return res.status(201).json({ success: true, result: newTask });
         }
 
     }
     catch(e){
       logger.error("Error saving Task:", e);
-      res.status(500).json("fail");
+      res.status(500).json({ success: false, message: e.message || "Server error" });
     }
   });
 
@@ -69,11 +69,11 @@ router.get("/", async (req, res) => {
 
   router.get("/GetTaskList", async (req, res) => {
     try {
-      let data = await Tasks.find({});
-  
+      let data = await Tasks.find({}).lean();
+
       if (data.length)
         res.json({ success: true, result: data.filter((a) => a.Task_name) });
-      else res.json({ success: false, message: "Task Not found" });
+      else res.status(404).json({ success: false, message: "Task Not found" });
     } catch (err) {
       logger.error("Error fetching Task:", err);
         res.status(500).json({ success: false, message: err });

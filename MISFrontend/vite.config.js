@@ -14,10 +14,23 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // Forward all /api requests to backend (local dev only)
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-mui':   ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          'vendor-charts': ['recharts'],
+          'vendor-socket': ['socket.io-client'],
+          'vendor-pdf':   ['jspdf', 'jspdf-autotable'],
+          'vendor-xlsx':  ['xlsx'],
+        },
       },
     },
   },

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { Alert, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import axios from '../apiClient.js';
 import { FullscreenAddFormLayout } from '../Components/ui';
@@ -20,16 +21,16 @@ export default function AddItemGroup() {
   async function submit(e) {
     e.preventDefault();
     try {
-      const res = await axios.post('/api/itemgroup/addItemgroup', form);
-      if (res.data === 'exist') {
-        alert('Group already exists');
-      } else if (res.data === 'notexist') {
-        alert('Group added successfully');
-        navigate('/home');
-      }
+      await axios.post('/api/itemgroup/addItemgroup', form);
+      toast.success('Group added successfully');
+      navigate('/home');
     } catch (error) {
-      alert('Unable to save item group');
-      console.error(error);
+      if (error.response?.status === 409) {
+        toast.error('Group already exists');
+      } else {
+        toast.error(error.response?.data?.message || 'Unable to save item group');
+        console.error(error);
+      }
     }
   }
 

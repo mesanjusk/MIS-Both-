@@ -6,8 +6,18 @@ const Customers = require('../repositories/customer');
 const PaymentFollowup = require('../repositories/paymentFollowup');
 const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
+const Counter = require('../repositories/counter');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const logger = require('../utils/logger');
+
+const nextUsertaskNumber = async () => {
+  const doc = await Counter.findByIdAndUpdate(
+    'usertask_number',
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+  return Number(doc?.seq || 1);
+};
 
 const VALID_STAGES = [
   'enquiry',
@@ -62,8 +72,7 @@ const autoCreateDesignerTask = async (order) => {
     if (!designers.length) return null;
 
     const designer = designers[0];
-    const lastUsertask = await Usertasks.findOne().sort({ Usertask_Number: -1 }).lean();
-    const nextNumber = Number(lastUsertask?.Usertask_Number || 0) + 1;
+    const nextNumber = await nextUsertaskNumber();
     const deadline = order.dueDate || order.Delivery_Date || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     const now = new Date();
 
@@ -110,8 +119,7 @@ const autoCreatePostDesignTask = async (order) => {
     if (!coordinators.length) return null;
 
     const coordinator = coordinators[0];
-    const lastUsertask = await Usertasks.findOne().sort({ Usertask_Number: -1 }).lean();
-    const nextNumber = Number(lastUsertask?.Usertask_Number || 0) + 1;
+    const nextNumber = await nextUsertaskNumber();
     const deadline = order.dueDate || order.Delivery_Date || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     const now = new Date();
 
@@ -145,7 +153,7 @@ const notifyDeliveredOrder = async (order) => {
       const businessName = process.env.BUSINESS_NAME || process.env.APP_NAME || 'MIS System';
       const body = `Dear ${customerName}, your order #${order.Order_Number} is ready for delivery.\n\nAmount due: Rs ${amount}.\n\nPlease arrange payment. Thank you! - ${businessName}`;
       await sendWhatsAppText({ to: mobile, body, source: 'ORDER_DELIVERED', contactName: customerName });
-      console.log(`WhatsApp sent to ${mobile} for delivered order #${order.Order_Number}`);
+      logger.info(`WhatsApp notification sent for delivered order #${order.Order_Number}`);
     }
   } catch (error) {
     logger.error(`WhatsApp failed: ${error.message}`);

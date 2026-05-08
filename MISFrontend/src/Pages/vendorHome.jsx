@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from "react-router-dom";
 import { addAttendance } from '../services/attendanceService.js';
@@ -33,7 +34,7 @@ export default function VendorHome() {
       });
 
       if (response.data.success) {
-        alert(`Attendance saved successfully for ${type}`);
+        toast.success(`Attendance saved successfully for ${type}`);
       } else {
         console.error('Failed to save attendance:', response.data.message);
       }

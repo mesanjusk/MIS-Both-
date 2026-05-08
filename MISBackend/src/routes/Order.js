@@ -635,6 +635,10 @@ router.post("/addOrder", async (req, res) => {
       productionStepsEnabled,
     } = req.body;
 
+    if (!Customer_uuid) {
+      return res.status(400).json({ success: false, message: "Customer_uuid is required" });
+    }
+
     const rawType = typeof Type === "string" ? Type.trim().toLowerCase() : "";
 
     const isEnquiryOnly =
@@ -1111,13 +1115,17 @@ const latestStatusProjectionStages = [
 
 router.get("/GetOrderList", async (req, res) => {
   try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "500", 10), 1), 1000);
+    const stage = req.query.stage ? String(req.query.stage).trim() : null;
+
+    const matchStage = { latestTaskLower: { $nin: ["delivered", "cancel", "cancelled"] } };
+    if (stage) matchStage.stage = stage;
+
     const rows = await Orders.aggregate([
       ...latestStatusProjectionStages,
-      {
-        $match: {
-          latestTaskLower: { $nin: ["delivered", "cancel", "cancelled"] },
-        },
-      },
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      { $limit: limit },
     ]);
     res.json({ success: true, result: rows });
   } catch (err) {
@@ -1385,8 +1393,8 @@ router.get("/allvendors", async (req, res) => {
       const num = +search;
       match.$or = [
         { Order_Number: Number.isNaN(num) ? -1 : num },
-        { Customer_uuid: new RegExp(search, "i") },
-        { "Items.Remark": new RegExp(search, "i") },
+        { Customer_uuid: new RegExp(escapeRegex(search), "i") },
+        { "Items.Remark": new RegExp(escapeRegex(search), "i") },
       ];
     }
 
@@ -1704,8 +1712,8 @@ router.get("/reports/vendor-missing", async (req, res) => {
       const num = +search;
       match.$or = [
         { Order_Number: Number.isNaN(num) ? -1 : num },
-        { Customer_uuid: new RegExp(search, "i") },
-        { "Items.Remark": new RegExp(search, "i") },
+        { Customer_uuid: new RegExp(escapeRegex(search), "i") },
+        { "Items.Remark": new RegExp(escapeRegex(search), "i") },
       ];
     }
 

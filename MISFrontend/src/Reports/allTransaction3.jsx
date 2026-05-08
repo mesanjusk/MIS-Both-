@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from '../apiClient.js';
 import { useLocation, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import AddOrder1 from "../Pages/addOrder1";
 import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -33,7 +34,7 @@ const AllTransaction3 = () => {
 
   useEffect(() => {
     if (!customerUuid || !customerName) {
-      alert("Customer not found. Redirecting...");
+      toast.error("Customer not found. Redirecting...");
       navigate("/allTransaction1");
       return;
     }
@@ -260,11 +261,11 @@ const AllTransaction3 = () => {
         );
         setShowEditModal(false);
       } else {
-        alert('Update failed');
+        toast.error('Update failed');
       }
     } catch (err) {
       console.error(err);
-      alert('Error updating transaction');
+      toast.error('Error updating transaction');
     }
   };
 
@@ -275,11 +276,11 @@ const AllTransaction3 = () => {
       if (res.data?.success) {
         setTransactions(prev => prev.filter(t => t.Transaction_id !== txnId));
       } else {
-        alert('Delete failed');
+        toast.error('Delete failed');
       }
     } catch (err) {
       console.error(err);
-      alert('Error deleting transaction');
+      toast.error('Error deleting transaction');
     }
   };
   // ---------------------------------------------

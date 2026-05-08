@@ -69,26 +69,24 @@ export default function AddUser({ closeModal }) {
     }
 
     try {
-      const response = await axios.post('/api/users/addUser', {
+      await axios.post('/api/users/addUser', {
         User_name,
         Password,
         Mobile_number,
         User_group,
         Allowed_Task_Groups,
       });
-
-      if (response.data === 'exist') {
-        toast.warning('User already exists');
-      } else if (response.data === 'notexist') {
-        toast.success('User added successfully');
-        setTimeout(() => {
-          if (closeModal) closeModal();
-          else navigate('/home');
-        }, 1500);
-      }
+      toast.success('User added successfully');
+      setTimeout(() => {
+        if (closeModal) closeModal();
+        else navigate('/home');
+      }, 1500);
     } catch (err) {
-      toast.error('Error submitting form');
-      console.log(err);
+      if (err.response?.status === 409) {
+        toast.warning(err.response?.data?.message || 'User already exists');
+      } else {
+        toast.error(err.response?.data?.message || 'Error submitting form');
+      }
     }
   }
 

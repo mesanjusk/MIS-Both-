@@ -1,28 +1,29 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient.js';
+import toast from 'react-hot-toast';
 import SimpleEntityCreateForm from '../Components/forms/SimpleEntityCreateForm';
 
 export default function AddCustGroup() {
   const navigate = useNavigate();
   const [Customer_group, setCustomer_Group] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
+    setSubmitting(true);
     try {
-      const res = await axios.post('/api/customergroup/addCustomergroup', {
-        Customer_group,
-      });
-
-      if (res.data === 'exist') {
-        alert('Group already exists');
-      } else if (res.data === 'notexist') {
-        alert('Group added successfully');
-        navigate('/home');
-      }
+      await axios.post('/api/customergroup/addCustomergroup', { Customer_group });
+      toast.success('Group added successfully');
+      navigate('/home');
     } catch (error) {
-      alert('wrong details');
-      console.log(error);
+      if (error.response?.status === 409) {
+        toast.error('Group already exists');
+      } else {
+        toast.error(error.response?.data?.message || 'Error saving group');
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -35,6 +36,7 @@ export default function AddCustGroup() {
       onChange={setCustomer_Group}
       onSubmit={submit}
       submitLabel="Submit"
+      busy={submitting}
     />
   );
 }

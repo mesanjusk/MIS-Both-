@@ -33,10 +33,15 @@ const buildCombinedAssignments = async (user) => {
   const orderSnapshot = await getPendingOrdersForUser(user.User_name).catch(() => ({ orders: [] }));
   const orderAssignments = Array.isArray(orderSnapshot?.orders) ? orderSnapshot.orders : [];
 
-  const allUsertasks = await Usertasks.find({}).lean();
-  const usertaskAssignments = allUsertasks.filter(
-    (task) => isPendingUsertask(task) && matchUsertaskToUser(task, user)
-  );
+  const mobileDigits = String(user?.Mobile_number || '').replace(/\D/g, '');
+  const userFilter = mobileDigits
+    ? { $or: [{ User: user.User_name }, { User: mobileDigits }] }
+    : { User: user.User_name };
+  const allUsertasks = await Usertasks.find({
+    ...userFilter,
+    Status: { $nin: ['Completed', 'Done', 'completed', 'done'] },
+  }).lean();
+  const usertaskAssignments = allUsertasks.filter((task) => matchUsertaskToUser(task, user));
 
   return {
     orders: orderAssignments,
@@ -183,7 +188,17 @@ router.use(requireAuth);
 
 router.get("/GetAttendanceList", async (req, res) => {
   try {
-    const data = await Attendance.find({});
+    const filter = {};
+    if (req.query.from || req.query.to) {
+      filter.Date = {};
+      if (req.query.from) filter.Date.$gte = new Date(req.query.from);
+      if (req.query.to) filter.Date.$lte = new Date(req.query.to);
+    } else {
+      const since = new Date();
+      since.setDate(since.getDate() - 90);
+      filter.Date = { $gte: since };
+    }
+    const data = await Attendance.find(filter).sort({ Date: -1 });
     if (data.length > 0) {
       const result = data.map((record) => {
         const recordObj = record.toObject ? record.toObject() : record;
@@ -201,7 +216,7 @@ router.get("/GetAttendanceList", async (req, res) => {
       });
       res.json({ success: true, result });
     } else {
-      res.json({ success: false, message: "Details not found" });
+      res.status(404).json({ success: false, message: "Details not found" });
     }
   } catch (err) {
     logger.error("Error fetching attendance:", err);

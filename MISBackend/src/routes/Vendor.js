@@ -101,7 +101,7 @@ router.post('/addVendor', async (req, res) => {
     }
 
     const check = await VendorsLegacy.findOne({ Order_Number: Order_Number });
-    if (check) return res.json('exist');
+    if (check) return res.status(409).json({ success: false, message: "Vendor assignment already exists for this order" });
 
     const matchedItem = await Items.findOne({ $or: [{ Item_name: Item_uuid }, { Item_uuid: Item_uuid }] });
     if (!matchedItem) {
@@ -116,10 +116,10 @@ router.post('/addVendor', async (req, res) => {
       Vendor_uuid: uuid(),
     });
     await newVendor.save();
-    res.json('notexist');
+    res.status(201).json({ success: true, result: newVendor });
   } catch (e) {
     logger.error('Error saving vendor:', e);
-    res.status(500).json('fail');
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 

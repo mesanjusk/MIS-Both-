@@ -24,7 +24,7 @@ router.post("/addUsertask", async (req, res) => {
     const data = await Usertasks.findOne({ Usertask_name });
 
     if (data) {
-      res.json("exist");
+      return res.status(409).json({ success: false, message: "Task already exists" });
     } else {
       const newTask = new Usertasks({
         Usertask_name,
@@ -52,11 +52,11 @@ router.post("/addUsertask", async (req, res) => {
         logger.error("Failed to send WhatsApp message:", err.message);
       }
 
-      res.json("notexist");
+      res.status(201).json({ success: true, result: newTask });
     }
   } catch (e) {
     logger.error("Error saving Task:", e);
-    res.status(500).json("fail");
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 

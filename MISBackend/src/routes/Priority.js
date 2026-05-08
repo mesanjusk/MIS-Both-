@@ -16,7 +16,7 @@ router.post(
 
     const check = await Priority.findOne({ Priority_name });
     if (check) {
-      return res.json("exist");
+      return res.status(409).json({ success: false, message: "Priority already exists" });
     }
 
     const newPriority = new Priority({
@@ -25,7 +25,7 @@ router.post(
     });
 
     await newPriority.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newPriority });
   })
 );
 

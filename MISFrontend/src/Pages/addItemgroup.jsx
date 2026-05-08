@@ -20,16 +20,16 @@ export default function AddItemGroup() {
   async function submit(e) {
     e.preventDefault();
     try {
-      const res = await axios.post('/api/itemgroup/addItemgroup', form);
-      if (res.data === 'exist') {
-        alert('Group already exists');
-      } else if (res.data === 'notexist') {
-        alert('Group added successfully');
-        navigate('/home');
-      }
+      await axios.post('/api/itemgroup/addItemgroup', form);
+      alert('Group added successfully');
+      navigate('/home');
     } catch (error) {
-      alert('Unable to save item group');
-      console.error(error);
+      if (error.response?.status === 409) {
+        alert('Group already exists');
+      } else {
+        alert(error.response?.data?.message || 'Unable to save item group');
+        console.error(error);
+      }
     }
   }
 

@@ -28,21 +28,18 @@ export default function PaymentModal({ isOpen, onClose, isEdit, existingData, on
           alert('Failed to update');
         }
       } else {
-        const res = await addPayment({
-          Payment_name,
-        });
-
-        if (res.data === 'exist') {
-          alert('Name already exists');
-        } else if (res.data === 'notexist') {
-          alert('Payment added successfully');
-          onSuccess();
-          onClose();
-        }
+        await addPayment({ Payment_name });
+        alert('Payment added successfully');
+        onSuccess();
+        onClose();
       }
     } catch (err) {
-      console.error(err);
-      alert('Error while submitting');
+      if (err.response?.status === 409) {
+        alert('Name already exists');
+      } else {
+        console.error(err);
+        alert('Error while submitting');
+      }
     }
   };
 

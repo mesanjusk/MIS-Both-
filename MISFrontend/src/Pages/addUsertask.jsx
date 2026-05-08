@@ -98,9 +98,7 @@ export default function AddUsertask() {
 
     const finalDeadline = isDeadlineChecked && Deadline ? Deadline : new Date().toLocaleDateString('en-CA');
     try {
-      const res = await axios.post('/api/usertasks/addUsertask', { Usertask_name, User, Deadline: finalDeadline, Remark, LinkedOrder, TaskStatus });
-      if (res.data === 'exist') return toast.error('Task already exists');
-      if (res.data !== 'notexist') return toast.error('Something went wrong.');
+      await axios.post('/api/usertasks/addUsertask', { Usertask_name, User, Deadline: finalDeadline, Remark, LinkedOrder, TaskStatus });
 
       const phoneNumber = extractPhoneNumber(selectedUser);
       setMobileToSend(phoneNumber);
@@ -114,8 +112,12 @@ export default function AddUsertask() {
 
       setShowInvoiceModal(true);
     } catch (error) {
-      toast.error('Something went wrong.');
-      console.error(error);
+      if (error.response?.status === 409) {
+        toast.error('Task already exists');
+      } else {
+        toast.error(error.response?.data?.message || 'Something went wrong.');
+        console.error(error);
+      }
     }
   };
 

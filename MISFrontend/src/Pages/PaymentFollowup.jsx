@@ -215,7 +215,7 @@ export default function PaymentFollowup() {
       setWhatsAppMessage('');
       setMobileToSend('');
 
-      const res = await axios.post('/api/paymentfollowup/add', {
+      await axios.post('/api/paymentfollowup/add', {
         Customer,
         Amount: Number(Amount),
         Title: Title?.trim(),
@@ -223,31 +223,30 @@ export default function PaymentFollowup() {
         Remark: Remark?.trim(),
       });
 
-      if (res.data === 'exist') {
-        toast.error('A similar follow-up already exists for this customer/date.');
-      } else {
-        const selectedCustomer = findCustomerRecord(customerDetails, Customer);
-        const phoneNumber = getCustomerPhone(selectedCustomer);
-        const message = `Hello ${Customer}, we will follow up with you for ₹${Number(Amount)}. Thank you!`;
+      const selectedCustomer = findCustomerRecord(customerDetails, Customer);
+      const phoneNumber = getCustomerPhone(selectedCustomer);
+      const message = `Hello ${Customer}, we will follow up with you for ₹${Number(Amount)}. Thank you!`;
 
-        toast.success('Payment follow-up added.');
-        setWhatsAppMessage(message);
-        setMobileToSend(phoneNumber);
-        setIsTransactionSaved(true);
+      toast.success('Payment follow-up added.');
+      setWhatsAppMessage(message);
+      setMobileToSend(phoneNumber);
+      setIsTransactionSaved(true);
 
-        if (sendWhatsAppAfterSave) {
-          if (!phoneNumber) {
-            toast.error('Customer phone number is missing for WhatsApp');
-            return;
-          }
-          await sendWhatsApp(phoneNumber, message, selectedCustomer);
+      if (sendWhatsAppAfterSave) {
+        if (!phoneNumber) {
+          toast.error('Customer phone number is missing for WhatsApp');
+          return;
         }
+        await sendWhatsApp(phoneNumber, message, selectedCustomer);
       }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message || err?.message || 'Unknown error';
-      console.error('Save follow-up error:', msg, err?.response?.data);
-      toast.error(`Something went wrong: ${msg}`);
+      if (err?.response?.status === 409) {
+        toast.error(err.response.data?.message || 'A similar follow-up already exists for this customer/date.');
+      } else {
+        const msg = err?.response?.data?.message || err?.message || 'Unknown error';
+        console.error('Save follow-up error:', msg, err?.response?.data);
+        toast.error(`Something went wrong: ${msg}`);
+      }
     } finally {
       setSubmitting(false);
     }

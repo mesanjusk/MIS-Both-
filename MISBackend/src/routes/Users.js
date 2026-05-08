@@ -90,7 +90,7 @@ router.post("/addUser", requireAuth, validate({ body: z.object({
   try {
     const check = await Users.findOne({ Mobile_number });
     if (check) {
-      res.json("exist");
+      return res.status(409).json({ success: false, message: "User with this mobile number already exists" });
     } else {
       const newUser = new Users({
         User_name,
@@ -102,11 +102,11 @@ router.post("/addUser", requireAuth, validate({ body: z.object({
         User_uuid: uuid()
       });
       await newUser.save();
-      res.json("notexist");
+      return res.status(201).json({ success: true, result: { User_name: newUser.User_name, User_group: newUser.User_group } });
     }
   } catch (e) {
     logger.error("Error saving user:", e);
-    res.status(500).json("fail");
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 

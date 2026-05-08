@@ -14,21 +14,21 @@ router.post("/addCustomergroup", async (req, res) => {
         const check=await Customergroup.findOne({ Customer_group: Customer_group })
 
         if(check){
-            res.json("exist")
+            return res.status(409).json({ success: false, message: "Customer group already exists" });
         }
         else{
           const newGroup = new Customergroup({
             Customer_group,
             Customer_group_uuid: uuid()
         });
-        await newGroup.save(); 
-        res.json("notexist");
+        await newGroup.save();
+        return res.status(201).json({ success: true, result: newGroup });
         }
 
     }
     catch(e){
       logger.error("Error saving group:", e);
-      res.status(500).json("fail");
+      res.status(500).json({ success: false, message: e.message || "Server error" });
     }
   });
 

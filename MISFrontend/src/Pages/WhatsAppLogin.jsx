@@ -17,7 +17,6 @@ export default function WhatsAppLogin() {
     s = io(base, { auth: { token: getStoredToken() } });
     socket = s;
     s.on('qr', (data) => {
-      console.log("QR Code Data:", data);
       setQrCode(data);
       setIsModalOpen(true);
     });

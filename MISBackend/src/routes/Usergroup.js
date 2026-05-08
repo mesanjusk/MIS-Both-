@@ -15,7 +15,7 @@ router.post(
 
     const check = await Usergroup.findOne({ User_group });
     if (check) {
-      return res.json("exist");
+      return res.status(409).json({ success: false, message: "User group already exists" });
     }
 
     const newGroup = new Usergroup({
@@ -24,7 +24,7 @@ router.post(
     });
 
     await newGroup.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newGroup });
   })
 );
 

@@ -69,11 +69,11 @@ router.get("/", async (req, res) => {
 
   router.get("/GetTaskList", async (req, res) => {
     try {
-      let data = await Tasks.find({});
-  
+      let data = await Tasks.find({}).lean();
+
       if (data.length)
         res.json({ success: true, result: data.filter((a) => a.Task_name) });
-      else res.json({ success: false, message: "Task Not found" });
+      else res.status(404).json({ success: false, message: "Task Not found" });
     } catch (err) {
       logger.error("Error fetching Task:", err);
         res.status(500).json({ success: false, message: err });

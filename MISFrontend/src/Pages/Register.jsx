@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import { useState } from "react";
 import axios from '../apiClient.js';
 import { useNavigate } from "react-router-dom";
@@ -12,7 +13,7 @@ export default function Register() {
       await axios.post("/users/register", form);
       navigate("/");
     } catch {
-      alert("Registration error");
+      toast.error("Registration error");
     }
   };
 

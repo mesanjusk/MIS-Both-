@@ -216,7 +216,7 @@ router.get("/GetAttendanceList", async (req, res) => {
       });
       res.json({ success: true, result });
     } else {
-      res.json({ success: false, message: "Details not found" });
+      res.status(404).json({ success: false, message: "Details not found" });
     }
   } catch (err) {
     logger.error("Error fetching attendance:", err);

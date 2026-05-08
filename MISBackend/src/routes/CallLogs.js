@@ -16,20 +16,18 @@ router.post("/addCallLog", async (req, res) => {
         const check = await CallLogs.findOne({ Mobile_number });
 
         if (check) {
-            return res.json({ success: false, message: "CallLog already exists." });
-        } else {
-            const newCall = new CallLogs({
-                Name,
-                Mobile_number,
-                Type,
-                Duration,
-                Status,
-                CallLog_uuid: uuid(),
-            });
-
-            await newCall.save();
-            return res.json({ success: true, message: "CallLog saved successfully!" });
+            return res.status(409).json({ success: false, message: "CallLog already exists." });
         }
+        const newCall = new CallLogs({
+            Name,
+            Mobile_number,
+            Type,
+            Duration,
+            Status,
+            CallLog_uuid: uuid(),
+        });
+        await newCall.save();
+        return res.status(201).json({ success: true, message: "CallLog saved successfully!" });
     } catch (e) {
         logger.error("Error saving call:", e);
         return res.status(500).json({ success: false, message: "Error saving CallLog" });

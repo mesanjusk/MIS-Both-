@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Paper, Stack, TextField, Typography } from '@mui/material';
@@ -60,7 +61,7 @@ export default function AddNote({ onClose, order }) {
       });
 
       if (response.data.success) {
-        alert('Note added successfully!');
+        toast.success('Note added successfully!');
         navigate('/allOrder');
       }
     } catch (e) {

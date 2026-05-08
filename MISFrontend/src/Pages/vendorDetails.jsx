@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useEffect, useState } from 'react'; 
 import axios from '../apiClient.js'; 
 import { useNavigate } from 'react-router-dom';
@@ -79,12 +80,12 @@ export default function VendorDetails({ onClose, order }) {
                 });
 
                 if (!transactionResponse.data.success) {
-                    alert("Failed to add Transaction.");
+                    toast.error("Failed to add Transaction.");
                     return;
                 }
             }
 
-            alert("Order added successfully!");
+            toast.success("Order added successfully!");
             navigate("/allOrder");
 
         } catch (e) {

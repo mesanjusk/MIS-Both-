@@ -32,7 +32,7 @@ router.post(
 router.get(
   "/GetPriorityList",
   asyncHandler(async (_req, res) => {
-    const data = await Priority.find({});
+    const data = await Priority.find({}).lean();
 
     if (!data.length) {
       throw new AppError("Priority Not found", 200);

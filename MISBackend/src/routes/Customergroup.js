@@ -36,11 +36,11 @@ router.post("/addCustomergroup", async (req, res) => {
 
   router.get("/GetCustomergroupList", async (req, res) => {
     try {
-      let data = await Customergroup.find({});
-  
+      let data = await Customergroup.find({}).lean();
+
       if (data.length)
         res.json({ success: true, result: data.filter((a) => a.Customer_group) });
-      else res.json({ success: false, message: "Customer Group Not found" });
+      else res.status(404).json({ success: false, message: "Customer Group Not found" });
     } catch (err) {
       logger.error("Error fetching group:", err);
         res.status(500).json({ success: false, message: err });

@@ -31,7 +31,7 @@ router.post(
 router.get(
   "/GetTaskgroupList",
   asyncHandler(async (_req, res) => {
-    const data = await Taskgroup.find({});
+    const data = await Taskgroup.find({}).lean();
 
     if (!data.length) {
       throw new AppError("Task Group Not found", 200);

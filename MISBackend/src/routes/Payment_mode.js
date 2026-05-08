@@ -32,7 +32,7 @@ router.post(
 router.get(
   "/GetPaymentList",
   asyncHandler(async (_req, res) => {
-    const data = await Payment_mode.find({});
+    const data = await Payment_mode.find({}).lean();
 
     if (!data.length) {
       throw new AppError("Payment Not found", 200);

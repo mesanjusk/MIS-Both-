@@ -51,7 +51,10 @@ router.get('/cash-book-summary', getCashBookSummary);
 
 router.get('/bank-book-summary', async (_req, res) => {
   try {
-    const txns = await Transaction.find({}).lean();
+    const now = new Date();
+    const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
+    const txns = await Transaction.find({ Transaction_date: { $gte: fyStart } }).lean();
     let total = 0;
     for (const txn of txns) {
       for (const entry of (txn.Journal_entry || [])) {
@@ -70,7 +73,10 @@ router.get('/bank-book-summary', async (_req, res) => {
 
 router.get('/trial-balance', async (_req, res) => {
   try {
-    const txns = await Transaction.find({}).lean();
+    const now = new Date();
+    const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
+    const txns = await Transaction.find({ Transaction_date: { $gte: fyStart } }).lean();
     const map = {};
     for (const txn of txns) {
       for (const entry of (txn.Journal_entry || [])) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { addPayment, updatePayment } from '../services/paymentService.js';
 
 export default function PaymentModal({ isOpen, onClose, isEdit, existingData, onSuccess }) {
@@ -21,24 +22,24 @@ export default function PaymentModal({ isOpen, onClose, isEdit, existingData, on
         });
 
         if (res.data.success) {
-          alert('Payment updated successfully');
+          toast.success('Payment updated successfully');
           onSuccess();
           onClose();
         } else {
-          alert('Failed to update');
+          toast.error('Failed to update');
         }
       } else {
         await addPayment({ Payment_name });
-        alert('Payment added successfully');
+        toast.success('Payment added successfully');
         onSuccess();
         onClose();
       }
     } catch (err) {
       if (err.response?.status === 409) {
-        alert('Name already exists');
+        toast.error('Name already exists');
       } else {
         console.error(err);
-        alert('Error while submitting');
+        toast.error('Error while submitting');
       }
     }
   };

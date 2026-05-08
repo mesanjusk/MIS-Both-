@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
 
 export default function EditPayment({ paymentId, closeModal }) {
@@ -27,7 +28,7 @@ export default function EditPayment({ paymentId, closeModal }) {
         e.preventDefault();
 
         if (!values.Payment_name) {
-            alert('All fields are required.');
+            toast.error('All fields are required.');
             return;
         }
 
@@ -36,7 +37,7 @@ export default function EditPayment({ paymentId, closeModal }) {
         })
         .then(res => {
             if (res.data.success) {
-                alert('Payment updated successfully!');
+                toast.success('Payment updated successfully!');
                 closeModal(); 
             }
         })

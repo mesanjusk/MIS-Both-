@@ -31,7 +31,7 @@ router.post(
 router.get(
   "/GetUsergroupList",
   asyncHandler(async (_req, res) => {
-    const data = await Usergroup.find({});
+    const data = await Usergroup.find({}).lean();
 
     if (!data.length) {
       throw new AppError("User Group Not found", 200);

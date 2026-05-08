@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   Button,
   Checkbox,
@@ -83,17 +84,17 @@ export default function AddCustomer({ onClose }) {
     setDuplicateNameError('');
 
     if (!form.Customer_name.trim()) {
-      alert('Customer name is required.');
+      toast.error('Customer name is required.');
       return;
     }
 
     if (!form.Customer_group.trim()) {
-      alert('Customer group is required.');
+      toast.error('Customer group is required.');
       return;
     }
 
     if (form.Mobile_number && !/^\d{10}$/.test(form.Mobile_number)) {
-      alert('Please enter a valid 10-digit mobile number.');
+      toast.error('Please enter a valid 10-digit mobile number.');
       return;
     }
 
@@ -105,7 +106,7 @@ export default function AddCustomer({ onClose }) {
       }
     } catch (error) {
       console.error('Error checking for duplicate name:', error);
-      alert('Error checking for duplicate name');
+      toast.error('Error checking for duplicate name');
       return;
     }
 
@@ -123,7 +124,7 @@ export default function AddCustomer({ onClose }) {
       const res = await axios.post('/api/customers/addCustomer', payload);
 
       if (res.data.success) {
-        alert('Customer added successfully');
+        toast.success('Customer added successfully');
         if (onClose) onClose();
         else {
           navigate(returnTo, {
@@ -135,18 +136,18 @@ export default function AddCustomer({ onClose }) {
           });
         }
       } else {
-        alert('Failed to add Customer.');
+        toast.error('Failed to add Customer.');
       }
     } catch (error) {
       console.error('Error adding customer:', error);
-      alert(error?.response?.data?.message || 'Error adding customer');
+      toast.error(error?.response?.data?.message || 'Error adding customer');
     }
   };
 
   const handleAddGroup = async () => {
     const groupName = newGroupName.trim();
     if (!groupName) {
-      alert('Please enter customer group name.');
+      toast.error('Please enter customer group name.');
       return;
     }
 
@@ -165,13 +166,13 @@ export default function AddCustomer({ onClose }) {
         handleChange('Customer_group', groupName);
         setGroupDialogOpen(false);
         setNewGroupName('');
-        alert('Customer group added successfully');
+        toast.success('Customer group added successfully');
       } else {
-        alert(res.data.message || 'Failed to add customer group.');
+        toast.error(res.data.message || 'Failed to add customer group.');
       }
     } catch (error) {
       console.error('Error adding customer group:', error);
-      alert('Error adding customer group');
+      toast.error('Error adding customer group');
     } finally {
       setGroupLoading(false);
     }

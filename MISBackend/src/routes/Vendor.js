@@ -59,6 +59,7 @@ async function ensureVendorMaster(vendorPayload = {}) {
     Vendor_uuid: vendorPayload.vendor_uuid || uuid(),
     Vendor_name: String(vendorPayload.vendor_name || '').trim(),
     Mobile_number: String(vendorPayload.mobile_number || ''),
+    Email: String(vendorPayload.email || '').trim(),
     Address: String(vendorPayload.address || ''),
     GST: String(vendorPayload.gst || ''),
     Opening_balance: toNumber(vendorPayload.opening_balance, 0),
@@ -277,6 +278,7 @@ router.put('/masters/:vendorUuid', async (req, res) => {
         $set: {
           Vendor_name: String(req.body.vendor_name || '').trim(),
           Mobile_number: String(req.body.mobile_number || ''),
+          Email: String(req.body.email || '').trim(),
           Address: String(req.body.address || ''),
           GST: String(req.body.gst || ''),
           Payment_terms: String(req.body.payment_terms || ''),

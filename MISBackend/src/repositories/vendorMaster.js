@@ -11,6 +11,7 @@ const vendorMasterSchema = new mongoose.Schema(
     Opening_balance: { type: Number, default: 0 },
     Opening_balance_type: { type: String, enum: ['payable', 'advance', 'none'], default: 'none' },
     Payment_terms: { type: String, default: '' },
+    Email: { type: String, default: '', trim: true },
     Vendor_type: { type: String, enum: ['material', 'jobwork', 'mixed'], default: 'mixed' },
     Active: { type: Boolean, default: true },
     Notes: { type: String, default: '' },

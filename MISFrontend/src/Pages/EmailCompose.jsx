@@ -1,31 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Box, Button, Chip, CircularProgress, Divider, IconButton, MenuItem,
-  Paper, Stack, TextField, Tooltip, Typography,
+  Box, Button, Chip, CircularProgress, Divider, IconButton, LinearProgress,
+  MenuItem, Paper, Stack, TextField, Typography,
 } from '@mui/material';
-import AttachFileRoundedIcon    from '@mui/icons-material/AttachFileRounded';
-import CloseRoundedIcon         from '@mui/icons-material/CloseRounded';
-import SendRoundedIcon          from '@mui/icons-material/SendRounded';
-import CheckCircleRoundedIcon   from '@mui/icons-material/CheckCircleRounded';
-import ReceiptLongRoundedIcon   from '@mui/icons-material/ReceiptLongRounded';
+import AttachFileRoundedIcon  from '@mui/icons-material/AttachFileRounded';
+import CloseRoundedIcon       from '@mui/icons-material/CloseRounded';
+import SendRoundedIcon        from '@mui/icons-material/SendRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import toast from 'react-hot-toast';
-import axios from '../apiClient';
-import { sendEmail, getGmailAccounts } from '../services/gmailService';
+import { sendEmail } from '../services/gmailService';
 import { fetchVendorMasters } from '../services/vendorService';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
 
-const LARGE_MB    = 24;
-const MAX_FILES   = 20;
+const LARGE_MB  = 24;
+const MAX_FILES = 20;
 
 function parseFilename(name) {
   const nameOnly = name.replace(/\.[^.]+$/, '').trim();
   const parts    = nameOnly.split(/\s*-\s*/);
   if (parts.length < 3) return null;
-  const sizeQty  = parts[1].trim();
+  const sizeQty = parts[1].trim();
   if (!sizeQty.includes('=')) return null;
-  const eqIdx    = sizeQty.lastIndexOf('=');
-  const qty      = parseInt(sizeQty.slice(eqIdx + 1), 10);
+  const eqIdx = sizeQty.lastIndexOf('=');
+  const qty   = parseInt(sizeQty.slice(eqIdx + 1), 10);
   if (!Number.isFinite(qty) || qty <= 0) return null;
   return {
     customer: parts[0].trim(),
@@ -37,23 +36,20 @@ function parseFilename(name) {
 
 export default function EmailCompose() {
   const [vendors, setVendors]       = useState([]);
-  const [accounts, setAccounts]     = useState([]);
   const [files, setFiles]           = useState([]);
   const [sending, setSending]       = useState(false);
+  const [progress, setProgress]     = useState(0);
   const [result, setResult]         = useState(null);
-  const [form, setForm]             = useState({
-    toEmail: '', toName: '', vendorUuid: '', gmailAccountId: '', subject: '', bodyText: '',
-  });
+  const [form, setForm]             = useState({ vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
   const fileInputRef = useRef();
   const navigate     = useNavigate();
 
   const load = useCallback(async () => {
     try {
-      const [vendorRows, accRes] = await Promise.all([fetchVendorMasters(), getGmailAccounts()]);
-      setVendors(Array.isArray(vendorRows) ? vendorRows : []);
-      setAccounts(Array.isArray(accRes?.result) ? accRes.result.filter((a) => a.isActive && a.isConnected) : []);
+      const rows = await fetchVendorMasters();
+      setVendors(Array.isArray(rows) ? rows : []);
     } catch {
-      toast.error('Failed to load data');
+      toast.error('Failed to load vendors');
     }
   }, []);
 
@@ -65,17 +61,18 @@ export default function EmailCompose() {
       ...p,
       vendorUuid,
       toEmail: vendor?.Email || p.toEmail,
-      toName:  vendor?.Vendor_name || p.toName,
     }));
   };
 
   const handleFiles = (incoming) => {
-    const next = [...files];
-    for (const f of incoming) {
-      if (next.length >= MAX_FILES) break;
-      if (!next.find((x) => x.name === f.name && x.size === f.size)) next.push(f);
-    }
-    setFiles(next);
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const f of incoming) {
+        if (next.length >= MAX_FILES) break;
+        if (!next.find((x) => x.name === f.name && x.size === f.size)) next.push(f);
+      }
+      return next;
+    });
   };
 
   const removeFile = (idx) => setFiles((prev) => prev.filter((_, i) => i !== idx));
@@ -85,39 +82,35 @@ export default function EmailCompose() {
       toast.error('Recipient email and subject are required');
       return;
     }
-    if (accounts.length === 0) {
-      toast.error('No Gmail account connected. Go to Gmail Accounts to add one.');
-      return;
-    }
 
     setSending(true);
+    setProgress(0);
     try {
       const fd = new FormData();
-      fd.append('toEmail',        form.toEmail);
-      fd.append('toName',         form.toName);
-      fd.append('vendorUuid',     form.vendorUuid);
-      fd.append('subject',        form.subject);
-      fd.append('bodyText',       form.bodyText);
-      fd.append('gmailAccountId', form.gmailAccountId);
+      fd.append('toEmail',    form.toEmail);
+      fd.append('vendorUuid', form.vendorUuid);
+      fd.append('subject',    form.subject);
+      fd.append('bodyText',   form.bodyText);
       files.forEach((f) => fd.append('files', f));
 
-      const res = await sendEmail(fd);
+      const res = await sendEmail(fd, setProgress);
       setResult(res);
       toast.success(res.message || 'Email sent!');
     } catch (err) {
       toast.error(err?.response?.data?.message || err?.message || 'Send failed');
     } finally {
       setSending(false);
+      setProgress(0);
     }
   };
 
   const reset = () => {
     setResult(null);
     setFiles([]);
-    setForm({ toEmail: '', toName: '', vendorUuid: '', gmailAccountId: '', subject: '', bodyText: '' });
+    setForm({ vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
   };
 
-  // Success screen
+  // ── Success screen ──────────────────────────────────────────────────────────
   if (result) {
     return (
       <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 600 }}>
@@ -134,8 +127,8 @@ export default function EmailCompose() {
                   Draft PO #{result.poNumber} auto-created
                 </Typography>
               </Stack>
-              <Typography variant="caption" color="text.secondary">
-                Pricing is set to ₹1 (placeholder). Admin must update actual amount.
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                {result.autoPoNote}
               </Typography>
             </Paper>
           )}
@@ -154,74 +147,49 @@ export default function EmailCompose() {
     );
   }
 
+  const parsed    = files.map((f) => ({ name: f.name, info: parseFilename(f.name) }));
   const largeMbFiles = files.filter((f) => f.size >= LARGE_MB * 1024 * 1024);
-  const parsed       = files.map((f) => ({ name: f.name, info: parseFilename(f.name) }));
-  const allParsed    = parsed.every((p) => p.info !== null);
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 700 }}>
       <Typography variant="h5" fontWeight={900} sx={{ mb: 2 }}>Send Email to Vendor</Typography>
 
-      {accounts.length === 0 && (
-        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2, borderColor: 'error.main', bgcolor: 'error.50' }}>
-          <Typography color="error" fontWeight={700}>No Gmail account connected.</Typography>
-          <Button size="small" sx={{ mt: 0.5 }} onClick={() => navigate(ROUTES.GMAIL_ACCOUNTS)}>
-            Go to Gmail Accounts →
-          </Button>
-        </Paper>
-      )}
-
       <Stack spacing={2}>
         {/* Vendor selector */}
         <TextField
-          select label="Vendor (optional — auto-fills email)" size="small"
+          select label="Select Vendor *" size="small"
           value={form.vendorUuid}
           onChange={(e) => handleVendorChange(e.target.value)}
           fullWidth
+          helperText="Vendor email auto-fills if saved on the vendor record"
         >
           <MenuItem value="">— Select vendor —</MenuItem>
           {vendors.map((v) => (
-            <MenuItem key={v.Vendor_uuid} value={v.Vendor_uuid}>{v.Vendor_name}</MenuItem>
-          ))}
-        </TextField>
-
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-          <TextField
-            label="Recipient Email *" size="small" type="email"
-            value={form.toEmail} onChange={(e) => setForm((p) => ({ ...p, toEmail: e.target.value }))}
-            fullWidth
-          />
-          <TextField
-            label="Recipient Name" size="small"
-            value={form.toName} onChange={(e) => setForm((p) => ({ ...p, toName: e.target.value }))}
-            fullWidth
-          />
-        </Stack>
-
-        <TextField
-          select label="Send from (Gmail account)" size="small"
-          value={form.gmailAccountId}
-          onChange={(e) => setForm((p) => ({ ...p, gmailAccountId: e.target.value }))}
-          fullWidth
-          helperText="Leave blank to auto-select the account with available quota"
-        >
-          <MenuItem value="">Auto-select</MenuItem>
-          {accounts.map((a) => (
-            <MenuItem key={a.accountId} value={a.accountId}>
-              {a.email} ({a.dailySentCount}/{a.dailyLimit} sent today)
+            <MenuItem key={v.Vendor_uuid} value={v.Vendor_uuid}>
+              {v.Vendor_name}{v.Email ? ` — ${v.Email}` : ''}
             </MenuItem>
           ))}
         </TextField>
 
+        {/* Recipient email — auto-filled from vendor, editable */}
+        <TextField
+          label="Recipient Email *" size="small" type="email"
+          value={form.toEmail}
+          onChange={(e) => setForm((p) => ({ ...p, toEmail: e.target.value }))}
+          fullWidth
+        />
+
         <TextField
           label="Subject *" size="small"
-          value={form.subject} onChange={(e) => setForm((p) => ({ ...p, subject: e.target.value }))}
+          value={form.subject}
+          onChange={(e) => setForm((p) => ({ ...p, subject: e.target.value }))}
           fullWidth
         />
 
         <TextField
           label="Message body" multiline minRows={4}
-          value={form.bodyText} onChange={(e) => setForm((p) => ({ ...p, bodyText: e.target.value }))}
+          value={form.bodyText}
+          onChange={(e) => setForm((p) => ({ ...p, bodyText: e.target.value }))}
           fullWidth
           placeholder="Write your message here. Download links for large files will be appended automatically."
         />
@@ -236,11 +204,13 @@ export default function EmailCompose() {
             variant="outlined" startIcon={<AttachFileRoundedIcon />} size="small"
             onClick={() => fileInputRef.current?.click()}
           >
-            Attach Files
+            Attach Design Files
           </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-            Files ≥{LARGE_MB}MB will be uploaded to Google Drive and a download link sent.
-          </Typography>
+          {largeMbFiles.length > 0 && (
+            <Typography variant="caption" color="info.main" sx={{ ml: 1 }}>
+              {largeMbFiles.length} file{largeMbFiles.length > 1 ? 's' : ''} over 24 MB — will be sent via Google Drive link
+            </Typography>
+          )}
         </Box>
 
         {/* File list */}
@@ -249,24 +219,24 @@ export default function EmailCompose() {
             <Typography variant="caption" fontWeight={700} sx={{ mb: 0.5, display: 'block' }}>
               Attachments ({files.length})
             </Typography>
-            <Stack spacing={0.5}>
+            <Stack spacing={0.6}>
               {files.map((f, idx) => {
                 const isLarge = f.size >= LARGE_MB * 1024 * 1024;
                 const info    = parseFilename(f.name);
                 return (
-                  <Stack key={idx} direction="row" alignItems="center" spacing={1}>
+                  <Stack key={idx} direction="row" alignItems="flex-start" spacing={1}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="caption" noWrap sx={{ display: 'block' }}>{f.name}</Typography>
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ mt: 0.3 }}>
                         <Chip size="small" label={`${(f.size / 1024 / 1024).toFixed(1)} MB`} />
-                        {isLarge && <Chip size="small" color="warning" label="→ Drive link" />}
+                        {isLarge && <Chip size="small" color="info" label="→ Drive link" />}
                         {info
-                          ? <Chip size="small" color="success" label={`${info.customer} | ${info.size} | ×${info.qty} | ${info.item}`} />
-                          : <Chip size="small" color="default" label="filename not parseable" />
+                          ? <Chip size="small" color="success" label={`${info.customer} | ${info.size} ×${info.qty} | ${info.item}`} />
+                          : <Chip size="small" color="warning" label="Suspense PO item" />
                         }
                       </Stack>
                     </Box>
-                    <IconButton size="small" onClick={() => removeFile(idx)}>
+                    <IconButton size="small" onClick={() => removeFile(idx)} sx={{ mt: 0.5 }}>
                       <CloseRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
@@ -277,35 +247,51 @@ export default function EmailCompose() {
         )}
 
         {/* Auto-PO preview */}
-        {form.vendorUuid && files.length > 0 && (
-          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: allParsed ? 'success.main' : 'warning.main' }}>
-            <Typography variant="caption" fontWeight={700} color={allParsed ? 'success.dark' : 'warning.dark'}>
-              {allParsed
-                ? '✓ All filenames parsed — Draft PO will be auto-created on send'
-                : '⚠ Some filenames could not be parsed — only parsed files will be added to auto-PO'}
+        {form.vendorUuid && (
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, borderColor: 'primary.light' }}>
+            <Typography variant="caption" fontWeight={700} color="primary.dark">
+              Purchase Order preview (auto-created on send)
             </Typography>
-            {parsed.filter((p) => p.info).map((p, i) => (
+            {files.length === 0 && (
+              <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 1 }}>
+                • Suspense — qty 1 — ₹1 placeholder
+              </Typography>
+            )}
+            {parsed.map((p, i) => (
               <Typography key={i} variant="caption" display="block" color="text.secondary" sx={{ ml: 1 }}>
-                • {p.info.item} ({p.info.size}) × {p.info.qty} — for {p.info.customer}
+                {p.info
+                  ? `• ${p.info.item} (${p.info.size}) × ${p.info.qty} — for ${p.info.customer} — ₹1 placeholder`
+                  : `• Suspense (${p.name}) — qty 1 — ₹1 placeholder`
+                }
               </Typography>
             ))}
-            {parsed.filter((p) => !p.info).map((p, i) => (
-              <Typography key={i} variant="caption" display="block" color="error" sx={{ ml: 1 }}>
-                ✗ {p.name} — expected format: "Customer - Size=Qty - Item"
-              </Typography>
-            ))}
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-              PO will use ₹1 as placeholder pricing. Admin updates actual amount later.
+            <Typography variant="caption" color="text.disabled" display="block" sx={{ mt: 0.5 }}>
+              Admin must update actual pricing in Purchase Orders.
             </Typography>
           </Paper>
+        )}
+
+        {/* Upload progress bar */}
+        {sending && (
+          <Box>
+            <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                {progress < 100 ? 'Uploading files...' : 'Processing on server...'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">{progress}%</Typography>
+            </Stack>
+            <LinearProgress variant={progress < 100 ? 'determinate' : 'indeterminate'} value={progress} />
+          </Box>
         )}
 
         <Divider />
 
         <Stack direction="row" spacing={1}>
           <Button
-            variant="contained" startIcon={sending ? <CircularProgress size={16} color="inherit" /> : <SendRoundedIcon />}
-            onClick={handleSend} disabled={sending || accounts.length === 0}
+            variant="contained"
+            startIcon={sending ? <CircularProgress size={16} color="inherit" /> : <SendRoundedIcon />}
+            onClick={handleSend}
+            disabled={sending}
             sx={{ minWidth: 140 }}
           >
             {sending ? 'Sending...' : 'Send Email'}

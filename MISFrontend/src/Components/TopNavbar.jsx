@@ -15,12 +15,13 @@ import {
   Toolbar,
   Typography,
 } from '@mui/material';
-import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
+
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 
@@ -28,12 +29,11 @@ const isUuidOrId = (s) => /^[0-9a-f]{8,}[-0-9a-f]*$/i.test(s) || /^[a-f0-9]{24}$
 
 const titleFromPath = (pathname = '/home') => {
   const parts = pathname.split('/').filter(Boolean);
-  // Skip trailing UUID/ObjectId segments — use the meaningful parent segment
   const segment = [...parts].reverse().find((p) => !isUuidOrId(p)) || parts.at(-1) || 'home';
   return segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
-export default function TopNavbar({ onToggleSidebar }) {
+export default function TopNavbar() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
@@ -59,22 +59,16 @@ export default function TopNavbar({ onToggleSidebar }) {
     <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: (t) => `1px solid ${t.palette.divider}` }}>
       <Toolbar sx={{ minHeight: { xs: 58, md: 64 }, px: { xs: 1, md: 1.5 }, gap: 1 }}>
 
-        {/* Mobile sidebar toggle */}
-        <IconButton onClick={onToggleSidebar} size="small" sx={{ display: { md: 'none' } }}>
-          <MenuRoundedIcon fontSize="small" />
-        </IconButton>
-
-        {/* Page title + date */}
         <Stack sx={{ minWidth: 0, mr: { xs: 0.5, md: 1.5 } }}>
           <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800, lineHeight: 1.2 }}>
             {titleFromPath(pathname)}
           </Typography>
+
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: { xs: 'none', sm: 'block' } }}>
             {userGroup || 'Workspace'} • {todayLabel}
           </Typography>
         </Stack>
 
-        {/* Search bar */}
         <TextField
           size="small"
           placeholder="Search customer, order, payment..."
@@ -93,17 +87,14 @@ export default function TopNavbar({ onToggleSidebar }) {
           }}
         />
 
-        {/* Spacer */}
         <Box sx={{ flex: 1 }} />
 
-        {/* Notifications */}
         <IconButton size="small" aria-label="notifications">
           <Badge color="primary" variant="dot">
             <NotificationsNoneRoundedIcon fontSize="small" />
           </Badge>
         </IconButton>
 
-        {/* User avatar + menu */}
         <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)}>
           <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.72rem', fontWeight: 800 }}>
             {userName ? userName.slice(0, 2).toUpperCase() : 'NA'}
@@ -121,18 +112,23 @@ export default function TopNavbar({ onToggleSidebar }) {
             <Typography variant="subtitle2">{userName || 'Guest'}</Typography>
             <Typography variant="caption" color="text.secondary">{userGroup || 'Unknown role'}</Typography>
           </Box>
+
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.HOME); }}>
             <HomeRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Home
           </MenuItem>
+
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.BUSINESS_CONTROL); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Business Control
           </MenuItem>
+
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.POST_PRINTING_CONTROL); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Post Printing
           </MenuItem>
+
           <MenuItem onClick={() => { setMenuAnchor(null); navigate(ROUTES.WORKFLOW_TEMPLATES); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Workflow Templates
           </MenuItem>
+
           <MenuItem onClick={() => { setMenuAnchor(null); handleLogout(); }}>
             <LogoutRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Logout
           </MenuItem>
@@ -142,6 +138,4 @@ export default function TopNavbar({ onToggleSidebar }) {
   );
 }
 
-TopNavbar.propTypes = {
-  onToggleSidebar: PropTypes.func.isRequired,
-};
+TopNavbar.propTypes = {};

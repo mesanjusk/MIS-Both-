@@ -9,25 +9,26 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
-import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+
+import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import EmailRoundedIcon from '@mui/icons-material/EmailRounded';
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
-import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
-import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
-import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
+
 import { ROUTES } from '../constants/routes';
 
 const NAVBAR_HEIGHT = 64;
 const RIGHT_SIDEBAR_WIDTH = 80;
 
-/* ── Rail item: icon centred + label below ─────────────────────────── */
 function RailItem({ icon, label, onClick, selected = false, accent }) {
   const theme = useTheme();
   const color = accent || theme.palette.primary.main;
@@ -57,6 +58,7 @@ function RailItem({ icon, label, onClick, selected = false, accent }) {
         <Box sx={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}>
           {icon}
         </Box>
+
         <Typography
           sx={{
             fontSize: '0.6rem',
@@ -77,7 +79,6 @@ function RailItem({ icon, label, onClick, selected = false, accent }) {
   );
 }
 
-/* ── Section label ─────────────────────────────────────────────────── */
 function SectionLabel({ children }) {
   return (
     <Typography
@@ -97,8 +98,7 @@ function SectionLabel({ children }) {
   );
 }
 
-/* ── Right Sidebar ─────────────────────────────────────────────────── */
-export default function RightSidebar({ onNewOrderClick, onCustomize }) {
+export default function RightSidebar({ onCustomize, openUpi }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
@@ -108,33 +108,33 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
 
   const quickActions = [
     {
-      label: 'Order',
-      icon: <AddShoppingCartRoundedIcon fontSize="small" />,
-      onClick: onNewOrderClick,
+      label: 'Day Book',
+      icon: <MenuBookRoundedIcon fontSize="small" />,
+      onClick: () => navigate('/dayBook'),
       accent: theme.palette.primary.main,
     },
     {
-      label: 'Receipt',
-      icon: <ReceiptLongRoundedIcon fontSize="small" />,
-      onClick: () => navigate(ROUTES.RECEIPT),
+      label: 'Send Email',
+      icon: <EmailRoundedIcon fontSize="small" />,
+      onClick: () => navigate('/sendEmail'),
       accent: theme.palette.success.main,
     },
     {
-      label: 'Payment',
+      label: 'UPI Payment',
       icon: <PaymentsRoundedIcon fontSize="small" />,
-      onClick: () => navigate(ROUTES.PAYMENT),
+      onClick: openUpi,
       accent: theme.palette.warning.main,
     },
     {
-      label: 'Followup',
-      icon: <NotificationsActiveRoundedIcon fontSize="small" />,
-      onClick: () => navigate(ROUTES.FOLLOWUPS),
+      label: 'Transaction 4D',
+      icon: <ReceiptLongRoundedIcon fontSize="small" />,
+      onClick: () => navigate('/allTransaction4d'),
       accent: theme.palette.error.main,
     },
     {
-      label: 'Task',
-      icon: <AddTaskRoundedIcon fontSize="small" />,
-      onClick: () => navigate(ROUTES.TASKS_NEW),
+      label: 'Attendance',
+      icon: <PeopleRoundedIcon fontSize="small" />,
+      onClick: () => navigate('/attendanceReport'),
       accent: theme.palette.secondary.main,
     },
   ];
@@ -166,10 +166,8 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
         overflow: 'hidden',
       }}
     >
-      {/* Spacer for fixed navbar */}
       <Box sx={{ height: NAVBAR_HEIGHT, flexShrink: 0 }} />
 
-      {/* ── Quick Actions (fixed top) ── */}
       <Box sx={{ px: 0.75, pt: 1, pb: 0.5, flexShrink: 0 }}>
         <SectionLabel>Actions</SectionLabel>
         <Stack spacing={0.25}>
@@ -181,7 +179,6 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
 
       <Divider sx={{ mx: 1 }} />
 
-      {/* ── Quick Links (scrollable middle) ── */}
       <Box sx={{ px: 0.75, py: 0.5, flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         <SectionLabel>Links</SectionLabel>
         <Stack spacing={0.25}>
@@ -200,7 +197,6 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
 
       <Divider sx={{ mx: 1 }} />
 
-      {/* ── Customize (pinned bottom) ── */}
       <Box sx={{ px: 0.75, py: 0.75, flexShrink: 0 }}>
         <RailItem
           icon={<DashboardCustomizeRoundedIcon fontSize="small" />}
@@ -214,10 +210,6 @@ export default function RightSidebar({ onNewOrderClick, onCustomize }) {
 }
 
 RightSidebar.propTypes = {
-  onNewOrderClick: PropTypes.func,
   onCustomize: PropTypes.func,
-};
-RightSidebar.defaultProps = {
-  onNewOrderClick: null,
-  onCustomize: null,
+  openUpi: PropTypes.func,
 };

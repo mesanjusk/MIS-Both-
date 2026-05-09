@@ -10,6 +10,7 @@ import {
   CardContent,
   Checkbox,
   Chip,
+  FormControlLabel,
   CircularProgress,
   Collapse,
   Dialog,
@@ -944,10 +945,11 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [rows, setRows] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [hasPostPrint, setHasPostPrint] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); return; }
+    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); setHasPostPrint(false); return; }
     setRows(selectedFiles.map((f) => ({
       fileId: f.fileId,
       fileName: f.fileName,
@@ -1007,6 +1009,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
           amount: parseFloat(r.amount) || 0,
         })),
         totalAmount: total,
+        hasPostPrint,
       });
       const pjNum = res.data?.printJobNumber;
       onSuccess(`Print job ${pjNum != null ? pjLabel(pjNum) : ''} created for ${rows.length} file${rows.length !== 1 ? 's' : ''}`, 'success');
@@ -1119,14 +1122,27 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
           </Table>
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button variant="contained" color="error" onClick={handleSubmit}
-          disabled={!vendor || submitting}
-          startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
-        >
-          Create Print Bill
-        </Button>
+      <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={hasPostPrint}
+              onChange={(e) => setHasPostPrint(e.target.checked)}
+              disabled={submitting}
+              size="small"
+            />
+          }
+          label={<Typography variant="body2">Requires Post-Print Task (lamination / cutting / packing)</Typography>}
+        />
+        <Stack direction="row" spacing={1}>
+          <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleSubmit}
+            disabled={!vendor || submitting}
+            startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
+          >
+            Create Print Bill
+          </Button>
+        </Stack>
       </DialogActions>
     </Dialog>
   );

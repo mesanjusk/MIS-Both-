@@ -10,6 +10,7 @@ const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Counter = require('../repositories/counter');
 const Items = require('../repositories/items');
+const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
 const logger = require('../utils/logger');
 
@@ -230,8 +231,29 @@ router.get('/masters', async (req, res) => {
   try {
     const query = {};
     if (String(req.query.activeOnly || '').toLowerCase() === 'true') query.Active = true;
-    const vendors = await VendorMaster.find(query).sort({ Vendor_name: 1 }).lean();
-    res.json({ success: true, result: vendors });
+    const [vendorMasters, customerVendors] = await Promise.all([
+      VendorMaster.find(query).sort({ Vendor_name: 1 }).lean(),
+      Customers.find({ PartyRoles: 'vendor', Status: 'active' }, {
+        Customer_uuid: 1, Customer_name: 1, Mobile_number: 1, Customer_group: 1,
+      }).sort({ Customer_name: 1 }).lean(),
+    ]);
+
+    const masterUuids = new Set(vendorMasters.map((v) => v.Vendor_uuid));
+    const fromCustomers = customerVendors
+      .filter((c) => !masterUuids.has(c.Customer_uuid))
+      .map((c) => ({
+        Vendor_uuid: c.Customer_uuid,
+        Vendor_name: c.Customer_name,
+        Mobile_number: c.Mobile_number || '',
+        Active: true,
+        source: 'customer',
+        Customer_group: c.Customer_group,
+      }));
+
+    const result = [...vendorMasters, ...fromCustomers].sort((a, b) =>
+      String(a.Vendor_name).localeCompare(String(b.Vendor_name))
+    );
+    res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

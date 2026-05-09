@@ -1304,7 +1304,7 @@ router.get('/scan-archive', async (_req, res) => {
 // ─── POST /api/design-files/create-print-job ─────────────────────────────────
 router.post('/create-print-job', async (req, res) => {
   try {
-    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
+    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes, hasPostPrint } = req.body || {};
 
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
@@ -1329,6 +1329,7 @@ router.post('/create-print-job', async (req, res) => {
       Process: 'printing',
       Amount: resolvedTotal,
       Status: 'draft',
+      HasPostPrint: Boolean(hasPostPrint),
       Notes: notes || JSON.stringify(items.map((i) => ({
         file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
       }))),
@@ -1352,7 +1353,8 @@ router.post('/create-print-job', async (req, res) => {
       workId: work._id,
       ledgerEntryId: ledger._id,
       totalAmount: resolvedTotal,
-      orderNumber: order.Order_Number,
+      orderNumber: order?.Order_Number ?? null,
+      hasPostPrint: Boolean(hasPostPrint),
     });
   } catch (err) {
     logger.error({ err }, 'design-files/create-print-job error');

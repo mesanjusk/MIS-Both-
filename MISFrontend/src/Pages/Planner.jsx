@@ -24,10 +24,7 @@ export default function Planner() {
 
   // Fetch all daily task logs
   const fetchLogs = async () => {
-    const token = localStorage.getItem("token");
-    const res = await axios.get(`/api/tasks?period=daily&date=${date}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const res = await axios.get(`/api/tasks?period=daily&date=${date}`);
     const logsByTask = {};
     res.data.tasks?.forEach(t => logsByTask[t.name] = t);
     setLogs(logsByTask);
@@ -88,7 +85,6 @@ export default function Planner() {
   };
   const saveTaskLog = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem("token");
     await axios.post("/api/tasks", {
       name: taskModal.task,
       date,
@@ -96,8 +92,6 @@ export default function Planner() {
       loggedHours: Number(taskForm.loggedHours),
       progress: Number(taskForm.progress),
       small: {}
-    }, {
-      headers: { Authorization: `Bearer ${token}` }
     });
     closeTaskModal();
     fetchLogs();

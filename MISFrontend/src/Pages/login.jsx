@@ -18,7 +18,7 @@ import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios, { getApiBase } from '../apiClient.js';
 import { MobileContainer, toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
-import { setStoredToken } from '../utils/authStorage';
+import { getStoredToken, setStoredToken } from '../utils/authStorage';
 
 const BACKEND_BASE = getApiBase() || import.meta.env.VITE_API_SERVER || 'https://misbackend-e078.onrender.com';
 
@@ -31,7 +31,7 @@ export default function Login() {
   const { setAuthData, userName, userGroup } = useAuth();
 
   useEffect(() => {
-    if (!userName) return;
+    if (!userName || !getStoredToken()) return;
 
     const target = userGroup === 'Vendor' ? '/vendorHome' : '/home';
     navigate(target, { replace: true });

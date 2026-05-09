@@ -998,9 +998,9 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
     setSubmitting(true); setError('');
     try {
       const res = await axios.post('/api/design-files/create-print-job', {
-        orderUuid: order?.Order_uuid || null,
+        orderUuid: order?.Order_uuid || undefined,
         vendorUuid: vendor.Vendor_uuid,
-        files: rows.map((r) => ({
+        items: rows.map((r) => ({
           fileId: r.fileId, fileName: r.fileName, itemName: r.itemName || r.fileName,
           qty: parseFloat(r.qty) || 1,
           rate: parseFloat(r.rate) || 0,

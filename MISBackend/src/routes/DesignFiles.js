@@ -1306,15 +1306,15 @@ router.post('/create-print-job', async (req, res) => {
   try {
     const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
 
-    if (!orderUuid) return res.status(400).json({ success: false, message: 'orderUuid required' });
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
 
-    const [order, vendor] = await Promise.all([
-      Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean(),
+    const lookups = await Promise.all([
+      orderUuid ? Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean() : null,
       VendorMaster.findOne({ Vendor_uuid: vendorUuid }, { Vendor_uuid: 1, Vendor_name: 1 }).lean(),
     ]);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const [order, vendor] = lookups;
+    if (orderUuid && !order) return res.status(404).json({ success: false, message: 'Order not found' });
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
     const resolvedVendorName = vendor.Vendor_name || vendorName || '';
@@ -1325,8 +1325,7 @@ router.post('/create-print-job', async (req, res) => {
       work_uuid: workUuid,
       Vendor_uuid: vendor.Vendor_uuid,
       Vendor_name: resolvedVendorName,
-      Order_uuid: order.Order_uuid,
-      Order_Number: order.Order_Number,
+      ...(order ? { Order_uuid: order.Order_uuid, Order_Number: order.Order_Number } : {}),
       Process: 'printing',
       Amount: resolvedTotal,
       Status: 'draft',
@@ -1342,9 +1341,8 @@ router.post('/create-print-job', async (req, res) => {
       dr_cr: 'cr',
       amount: resolvedTotal,
       job_uuid: workUuid,
-      order_uuid: order.Order_uuid,
-      order_number: order.Order_Number,
-      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''} for order #${order.Order_Number}`,
+      ...(order ? { order_uuid: order.Order_uuid, order_number: order.Order_Number } : {}),
+      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''}${order ? ` for order #${order.Order_Number}` : ''}`,
       reference_type: 'print_job',
       reference_id: workUuid,
     });

@@ -7,6 +7,16 @@ import ErrorBoundary from './Components/ErrorBoundary';
 import { initVersionChecker } from './utils/versionChecker';
 import { ToastContainer } from './Components';
 import { ROUTE_ALIASES, ROUTES } from './constants/routes';
+import { useAuth } from './context/AuthContext';
+import { getStoredToken } from './utils/authStorage';
+
+function RequireAuth({ children }) {
+  const { userName } = useAuth();
+  if (!userName || !getStoredToken()) {
+    return <Navigate to={ROUTES.LOGIN} replace />;
+  }
+  return children;
+}
 
 const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
@@ -125,7 +135,7 @@ export default function App() {
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
-          <Route element={<ErrorBoundary><Layout /></ErrorBoundary>}>
+          <Route element={<RequireAuth><ErrorBoundary><Layout /></ErrorBoundary></RequireAuth>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />
             <Route path={ROUTES.OWNER_DASHBOARD} element={withSuspense(<OwnerDashboard />)} />
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />

@@ -1,4 +1,5 @@
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
+import EmailRoundedIcon from '@mui/icons-material/EmailRounded';
 import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
@@ -90,6 +91,14 @@ export const SIDEBAR_GROUPS = [
       { label: 'Add Task Group', path: ROUTES.ADD_TASK_GROUP, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Priority', path: ROUTES.ADD_PRIORITY, icon: <TuneRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Vendors', path: ROUTES.ALL_VENDORS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+    ],
+  },
+  {
+    label: 'Email',
+    items: [
+      { label: 'Send Email',      path: ROUTES.EMAIL_COMPOSE,  icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'Designer', 'OfficeStaff'] },
+      { label: 'Email History',   path: ROUTES.EMAIL_HISTORY,  icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'] },
+      { label: 'Gmail Accounts',  path: ROUTES.GMAIL_ACCOUNTS, icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner'] },
     ],
   },
   {

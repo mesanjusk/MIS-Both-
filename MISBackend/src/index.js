@@ -64,6 +64,7 @@ const { initSocket } = require("./socket");
 const BaileysRouter = require("./routes/Baileys");
 const DiaryDraft = require("./routes/DiaryDraft");
 const BankStatement = require("./routes/BankStatement");
+const Gmail = require("./routes/Gmail");
 
 const app = express();
 const server = http.createServer(app);
@@ -126,6 +127,7 @@ app.use("/api/stock", Stock);
 app.use("/api/diary", DiaryDraft);
 app.use("/api/bank-statement", BankStatement);
 app.use("/api/google-drive", googleDriveOAuthRoutes);
+app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);
 app.use("/api", Chat);

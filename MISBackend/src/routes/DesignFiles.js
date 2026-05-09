@@ -33,6 +33,7 @@ const VendorMaster = require('../repositories/vendorMaster');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
+const { postVendorBill, postCustomerInvoice } = require('../services/accountingPostingService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -905,6 +906,24 @@ router.post('/confirm-final', async (req, res) => {
       logger.warn('rename block error — %s', renameBlockErr?.message);
     }
 
+    const itemsTotal = isDetailed
+      ? (orderDoc.items || []).reduce((s, it) => s + (Number(it.Amount) || 0), 0)
+      : 0;
+    if (itemsTotal > 0) {
+      try {
+        await postCustomerInvoice({
+          amount: itemsTotal,
+          orderUuid,
+          orderNumber: orderNum,
+          customerUuid,
+          description: `Order #${orderNum} - ${customer.Customer_name}`,
+          sourceSuffix: orderUuid,
+        });
+      } catch (acctErr) {
+        logger.warn({ acctErr }, 'confirm-final accounting post failed (non-fatal)');
+      }
+    }
+
     return res.json({ success: true, orderNumber: orderNum, orderUuid, newName, renamed });
   } catch (err) {
     logger.error({ err }, 'design-files/confirm-final error');
@@ -1304,57 +1323,77 @@ router.get('/scan-archive', async (_req, res) => {
 // ─── POST /api/design-files/create-print-job ─────────────────────────────────
 router.post('/create-print-job', async (req, res) => {
   try {
-    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
+    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes, hasPostPrint } = req.body || {};
 
-    if (!orderUuid) return res.status(400).json({ success: false, message: 'orderUuid required' });
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
 
-    const [order, vendor] = await Promise.all([
-      Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean(),
+    const [order, vendorFromMaster, vendorFromCustomer] = await Promise.all([
+      orderUuid ? Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean() : null,
       VendorMaster.findOne({ Vendor_uuid: vendorUuid }, { Vendor_uuid: 1, Vendor_name: 1 }).lean(),
+      Customers.findOne({ Customer_uuid: vendorUuid, PartyRoles: 'vendor' }, { Customer_uuid: 1, Customer_name: 1 }).lean(),
     ]);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
+    if (orderUuid && !order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const vendorDoc = vendorFromMaster
+      ? { Vendor_uuid: vendorFromMaster.Vendor_uuid, Vendor_name: vendorFromMaster.Vendor_name }
+      : vendorFromCustomer
+        ? { Vendor_uuid: vendorFromCustomer.Customer_uuid, Vendor_name: vendorFromCustomer.Customer_name }
+        : null;
+    if (!vendorDoc) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
-    const resolvedVendorName = vendor.Vendor_name || vendorName || '';
+    const resolvedVendorName = vendorDoc.Vendor_name || vendorName || '';
     const resolvedTotal = Number(totalAmount) || items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
     const workUuid = uuidv4();
 
     const work = await VendorWork.create({
       work_uuid: workUuid,
-      Vendor_uuid: vendor.Vendor_uuid,
+      Vendor_uuid: vendorDoc.Vendor_uuid,
       Vendor_name: resolvedVendorName,
-      Order_uuid: order.Order_uuid,
-      Order_Number: order.Order_Number,
+      ...(order ? { Order_uuid: order.Order_uuid, Order_Number: order.Order_Number } : {}),
       Process: 'printing',
       Amount: resolvedTotal,
       Status: 'draft',
+      HasPostPrint: Boolean(hasPostPrint),
       Notes: notes || JSON.stringify(items.map((i) => ({
         file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
       }))),
     });
 
     const ledger = await VendorLedger.create({
-      vendor_uuid: vendor.Vendor_uuid,
+      vendor_uuid: vendorDoc.Vendor_uuid,
       vendor_name: resolvedVendorName,
       entry_type: 'job_bill',
       dr_cr: 'cr',
       amount: resolvedTotal,
       job_uuid: workUuid,
-      order_uuid: order.Order_uuid,
-      order_number: order.Order_Number,
-      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''} for order #${order.Order_Number}`,
+      ...(order ? { order_uuid: order.Order_uuid, order_number: order.Order_Number } : {}),
+      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''}${order ? ` for order #${order.Order_Number}` : ''}`,
       reference_type: 'print_job',
       reference_id: workUuid,
     });
+
+    if (resolvedTotal > 0) {
+      try {
+        await postVendorBill({
+          amount: resolvedTotal,
+          orderUuid: order?.Order_uuid || null,
+          orderNumber: order?.Order_Number || null,
+          description: `Print job bill - ${resolvedVendorName}${order ? ` - Order #${order.Order_Number}` : ''}`,
+          sourceSuffix: workUuid,
+          allowDuplicate: false,
+        });
+      } catch (acctErr) {
+        logger.warn({ acctErr }, 'print-job accounting post failed (non-fatal)');
+      }
+    }
 
     return res.json({
       success: true,
       workId: work._id,
       ledgerEntryId: ledger._id,
       totalAmount: resolvedTotal,
-      orderNumber: order.Order_Number,
+      orderNumber: order?.Order_Number ?? null,
+      hasPostPrint: Boolean(hasPostPrint),
     });
   } catch (err) {
     logger.error({ err }, 'design-files/create-print-job error');

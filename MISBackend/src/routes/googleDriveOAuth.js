@@ -38,7 +38,7 @@ function isSafeRedirect(url) {
 }
 
 
-router.get("/connect", requireAuth, async (req, res) => {
+router.get("/connect", async (req, res) => {
   try {
     const { returnTo } = req.query;
     const url = getGoogleDriveAuthUrl(returnTo || "");

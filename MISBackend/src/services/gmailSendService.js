@@ -8,7 +8,7 @@ const VendorMaster   = require('../repositories/vendorMaster');
 const Counter        = require('../repositories/counter');
 const logger         = require('../utils/logger');
 
-// Stay under Gmail 25MB MIME overhead — use Drive for files at or above this size
+// Files at or above this size go to Google Drive instead of inline attachment
 const LARGE_FILE_BYTES = 24 * 1024 * 1024;
 
 /**
@@ -16,8 +16,8 @@ const LARGE_FILE_BYTES = 24 * 1024 * 1024;
  *   "CustomerName - SizexSize=Qty - ItemName.ext"
  *
  * Examples:
- *   "Sanju - 3x5=1 - star.pdf"   → { customer:"Sanju", size:"3x5", qty:1, item:"star" }
- *   "Ravi - 4x6=10 - flex.cdr"   → { customer:"Ravi",  size:"4x6", qty:10, item:"flex" }
+ *   "Sanju - 3x5=1 - star.pdf"  → { customer:"Sanju", size:"3x5", qty:1, item:"star" }
+ *   "Ravi - 4x6=10 - flex.cdr"  → { customer:"Ravi",  size:"4x6", qty:10, item:"flex" }
  */
 function parseFilename(filename) {
   const nameOnly = filename.replace(/\.[^.]+$/, '').trim();
@@ -78,10 +78,18 @@ async function uploadLargeFileToDrive(file) {
   const { getAuthorizedDriveClient } = require('./googleDriveOAuthService');
   const { Readable } = require('stream');
 
-  const drive  = await getAuthorizedDriveClient();
-  const stream = Readable.from(file.buffer);
+  let drive;
+  try {
+    drive = await getAuthorizedDriveClient();
+  } catch (err) {
+    throw new Error(
+      `File "${file.originalname}" is ${(file.size / 1024 / 1024).toFixed(1)} MB (over 24 MB limit). ` +
+      `Google Drive is not connected — please connect Google Drive first, then retry.`
+    );
+  }
 
-  const meta = { name: file.originalname };
+  const stream = Readable.from(file.buffer);
+  const meta   = { name: file.originalname };
   if (process.env.GMAIL_DRIVE_FOLDER_ID) meta.parents = [process.env.GMAIL_DRIVE_FOLDER_ID];
 
   const created = await drive.files.create({
@@ -112,38 +120,73 @@ async function nextPoNumber() {
   return Number(counter?.seq || 1);
 }
 
+/**
+ * Always creates a PO regardless of filename parse success:
+ * - Parsed files  → use customer/size/qty/item from filename
+ * - Unparseable   → "Suspense" item, qty=1, rate=1
+ * - No files at all → one "Suspense" line item
+ */
 async function createAutoPO({ vendorUuid, vendorName, parsedItems, sentBy, emailId }) {
-  const items = parsedItems
-    .filter((p) => p.parseSuccess)
-    .map((p) => ({
-      itemName: [p.parsedItem, p.parsedSize ? `(${p.parsedSize})` : ''].filter(Boolean).join(' '),
-      qty:      p.parsedQty,
-      unit:     'Nos',
-      rate:     1,
-      amount:   1,
-    }));
+  const items = [];
 
-  if (!items.length) return null;
+  for (const p of parsedItems) {
+    if (p.parseSuccess) {
+      items.push({
+        itemName: [p.parsedItem, p.parsedSize ? `(${p.parsedSize})` : ''].filter(Boolean).join(' '),
+        qty:      p.parsedQty,
+        unit:     'Nos',
+        rate:     1,
+        amount:   1,
+      });
+    } else {
+      items.push({
+        itemName: 'Suspense',
+        qty:      1,
+        unit:     'Nos',
+        rate:     1,
+        amount:   1,
+      });
+    }
+  }
+
+  // If no attachments at all, still create one suspense line
+  if (!items.length) {
+    items.push({ itemName: 'Suspense', qty: 1, unit: 'Nos', rate: 1, amount: 1 });
+  }
 
   return PurchaseOrder.create({
-    PO_Number:  await nextPoNumber(),
+    PO_Number:   await nextPoNumber(),
     Vendor_uuid: vendorUuid,
     Vendor_name: vendorName,
     Items:       items,
     totalAmount: items.length,
     status:      'draft',
-    notes:       `Auto-created from email dispatch. Ref: ${emailId}. Admin: please update actual pricing.`,
+    notes:       `Auto-created from email dispatch. Ref: ${emailId}. Admin: update actual pricing.`,
     createdBy:   sentBy,
   });
 }
 
-async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subject, bodyText, files, sentBy }) {
+async function sendEmail({ preferredAccountId, toEmail, vendorUuid, subject, bodyText, files, sentBy }) {
+  // Reject large files early if Drive is not reachable
+  const largeFiles = (files || []).filter((f) => f.size >= LARGE_FILE_BYTES);
+  if (largeFiles.length) {
+    const { getAuthorizedDriveClient } = require('./googleDriveOAuthService');
+    try {
+      await getAuthorizedDriveClient();
+    } catch {
+      throw new Error(
+        `${largeFiles.map((f) => f.originalname).join(', ')} exceed${largeFiles.length === 1 ? 's' : ''} 24 MB. ` +
+        'Connect Google Drive in the dashboard before sending large files.'
+      );
+    }
+  }
+
   const account = await selectBestAccount(preferredAccountId);
   const { client } = await getAuthorizedGmailClient(account.accountId);
   const gmail = google.gmail({ version: 'v1', auth: client });
 
-  const directFiles      = [];
-  const driveFiles       = [];
+  const directFiles       = [];
+  const driveFiles        = [];
   const allAttachmentMeta = [];
 
   for (const file of files || []) {
@@ -151,15 +194,10 @@ async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subj
     const baseMeta = { ...parsed, originalName: file.originalname, mimeType: file.mimetype, fileSize: file.size };
 
     if (file.size >= LARGE_FILE_BYTES) {
-      try {
-        const driveResult = await uploadLargeFileToDrive(file);
-        const entry = { ...baseMeta, ...driveResult, storageMethod: 'google_drive' };
-        driveFiles.push(entry);
-        allAttachmentMeta.push(entry);
-      } catch (err) {
-        logger.warn({ err: err.message, file: file.originalname }, '[gmail] Drive upload failed for large file');
-        allAttachmentMeta.push({ ...baseMeta, storageMethod: 'google_drive', driveShareableLink: '', driveFileId: '' });
-      }
+      const driveResult = await uploadLargeFileToDrive(file);
+      const entry = { ...baseMeta, ...driveResult, storageMethod: 'google_drive' };
+      driveFiles.push(entry);
+      allAttachmentMeta.push(entry);
     } else {
       const entry = { ...baseMeta, storageMethod: 'gmail_attachment', data: file.buffer.toString('base64') };
       directFiles.push(entry);
@@ -171,13 +209,13 @@ async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subj
   if (driveFiles.length) {
     fullBody += '\n\n--- Large File Download Links ---';
     driveFiles.forEach((f) => {
-      fullBody += `\n${f.originalName}: ${f.driveShareableLink || '(upload failed)'}`;
+      fullBody += `\n${f.originalName}: ${f.driveShareableLink}`;
     });
   }
 
   const raw = buildMime({
     from:        account.email,
-    to:          toName ? `${toName} <${toEmail}>` : toEmail,
+    to:          toEmail,
     subject,
     bodyText:    fullBody,
     attachments: directFiles.map((f) => ({ name: f.originalName, mimeType: f.mimeType, data: f.data })),
@@ -188,7 +226,7 @@ async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subj
   let lastError      = '';
 
   try {
-    const res     = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
+    const res      = await gmail.users.messages.send({ userId: 'me', requestBody: { raw } });
     gmailMessageId = res.data.id || '';
 
     const today = new Date().toISOString().slice(0, 10);
@@ -228,7 +266,7 @@ async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subj
     fromEmail:          account.email,
     sentBy,
     toEmail,
-    toName:             toName || '',
+    toName:             '',
     vendorUuid:         vendorUuid || '',
     subject,
     bodyText:           fullBody,
@@ -239,17 +277,18 @@ async function sendEmail({ preferredAccountId, toEmail, toName, vendorUuid, subj
     sentAt: new Date(),
   });
 
+  // Always create PO when sending to a vendor (even if no attachments / no parseable filenames)
   let po = null;
   if (vendorUuid && status === 'sent') {
     const vendor = await VendorMaster.findOne({ Vendor_uuid: vendorUuid }).lean();
     if (vendor) {
       try {
         po = await createAutoPO({
-          vendorUuid:   vendor.Vendor_uuid,
-          vendorName:   vendor.Vendor_name,
-          parsedItems:  allAttachmentMeta,
+          vendorUuid:  vendor.Vendor_uuid,
+          vendorName:  vendor.Vendor_name,
+          parsedItems: allAttachmentMeta,
           sentBy,
-          emailId:      emailRecord.emailId,
+          emailId:     emailRecord.emailId,
         });
         if (po) {
           await EmailHistory.updateOne({ _id: emailRecord._id }, { $set: { poUuid: po.PO_uuid } });

@@ -15,6 +15,7 @@ const CustomersSchema = new mongoose.Schema({
   Customer_uuid: { type: String },
   Customer_name: { type: String, required: true },
   Mobile_number: { type: String },
+  Email: { type: String, default: '', trim: true },
   Customer_group: { type: String, required: true },
   Status: { type: String, default: "active" },
   Tags: { type: [String], default: [] },

@@ -182,7 +182,7 @@ export default function CustomerReport() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {['Customer_name', 'Mobile_number', 'Customer_group', 'Status', 'LastInteraction', 'Tags'].map((header) => (
+                {['Customer_name', 'Mobile_number', 'Email', 'Customer_group', 'Status', 'LastInteraction', 'Tags'].map((header) => (
                   <TableCell key={header} onClick={() => handleSort(header)} sx={{ fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                     {header.replace(/_/g, ' ')} {sortField === header ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </TableCell>
@@ -199,6 +199,7 @@ export default function CustomerReport() {
                     </Button>
                   </TableCell>
                   <TableCell>{customer.Mobile_number || '-'}</TableCell>
+                  <TableCell>{customer.Email || '-'}</TableCell>
                   <TableCell>{customer.Customer_group || '-'}</TableCell>
                   <TableCell>{customer.Status || '-'}</TableCell>
                   <TableCell>{formatDate(customer.LastInteraction)}</TableCell>

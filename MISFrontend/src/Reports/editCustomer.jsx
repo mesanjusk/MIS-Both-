@@ -13,6 +13,7 @@ export default function EditCustomer({ customerId, closeModal }) {
     const [values, setValues] = useState({
         Customer_name: '',
         Mobile_number: '',
+        Email: '',
         Customer_group: '',
         Status: 'active',
         Tags: [],
@@ -39,6 +40,7 @@ export default function EditCustomer({ customerId, closeModal }) {
                         setValues({
                             Customer_name: customer.Customer_name || '',
                             Mobile_number: customer.Mobile_number || '',
+                            Email: customer.Email || '',
                             Customer_group: customer.Customer_group || '',
                             Status: customer.Status || 'active',
                             Tags: customer.Tags || [],
@@ -67,7 +69,7 @@ export default function EditCustomer({ customerId, closeModal }) {
         e.preventDefault();
 
         if (!values.Customer_name || !values.Customer_group) {
-            toast.error('Name and group are required.');
+
             return;
         }
 
@@ -110,6 +112,17 @@ export default function EditCustomer({ customerId, closeModal }) {
                             value={values.Mobile_number}
                             onChange={(e) => setValues({ ...values, Mobile_number: e.target.value })}
                         />
+                    </div>
+                    <div>
+                        <label className="block text-gray-700 text-sm mb-1">Email</label>
+                        <input
+                            type="email"
+                            className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={values.Email}
+                            onChange={(e) => setValues({ ...values, Email: e.target.value })}
+                            placeholder="vendor@example.com"
+                        />
+                        <small className="text-gray-500">Used to auto-fill recipient when sending emails</small>
                     </div>
                     <div>
                         <label className="block text-gray-700 text-sm mb-1">Customer Group</label>

@@ -1,6 +1,8 @@
 import axios from "axios";
 import { getStoredToken, clearStoredToken } from "./utils/authStorage";
 
+let redirectingToLogin = false;
+
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
 const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
@@ -43,8 +45,11 @@ client.interceptors.response.use(
     // On 401 (expired / invalid token), clear storage and send to login.
     // Skip if the failing request is already the login endpoint itself.
     if (status === 401 && !originalConfig.url?.includes('/login')) {
-      clearStoredToken();
-      window.location.href = '/login';
+      if (!redirectingToLogin) {
+        redirectingToLogin = true;
+        clearStoredToken();
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
 

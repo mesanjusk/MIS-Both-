@@ -27,7 +27,7 @@ export default function Print({ order }) {
           setCustomers({});
         }
       })
-      .catch(err => console.log('Error fetching customers list:', err));
+      .catch(err => console.error('Error fetching customers list:', err));
   }, []);
      
  useEffect(() => {

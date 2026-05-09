@@ -41,6 +41,8 @@ const VendorWorkSchema = new mongoose.Schema(
     },
 
     Notes: { type: String, default: '' },
+
+    HasPostPrint: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

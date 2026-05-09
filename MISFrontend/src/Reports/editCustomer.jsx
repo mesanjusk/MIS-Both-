@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import {
     fetchCustomerGroups,
     fetchCustomerById,
@@ -12,9 +13,11 @@ export default function EditCustomer({ customerId, closeModal }) {
     const [values, setValues] = useState({
         Customer_name: '',
         Mobile_number: '',
+        Email: '',
         Customer_group: '',
         Status: 'active',
         Tags: [],
+        PartyRoles: ['customer'],
         LastInteraction: ''
     });
 
@@ -37,42 +40,62 @@ export default function EditCustomer({ customerId, closeModal }) {
                         setValues({
                             Customer_name: customer.Customer_name || '',
                             Mobile_number: customer.Mobile_number || '',
+                            Email: customer.Email || '',
                             Customer_group: customer.Customer_group || '',
                             Status: customer.Status || 'active',
                             Tags: customer.Tags || [],
+                            PartyRoles: Array.isArray(customer.PartyRoles) && customer.PartyRoles.length
+                                ? customer.PartyRoles
+                                : ['customer'],
                             LastInteraction: customer.LastInteraction || ''
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching customer data:', err));
+                .catch(err => console.error('Error fetching customer data:', err));
         }
     }, [customerId]);
+
+    const handleRoleToggle = (role) => {
+        setValues((prev) => {
+            const exists = prev.PartyRoles.includes(role);
+            const next = exists
+                ? prev.PartyRoles.filter((r) => r !== role)
+                : [...prev.PartyRoles, role];
+            return { ...prev, PartyRoles: next.length ? next : ['customer'] };
+        });
+    };
 
     const handleSaveChanges = (e) => {
         e.preventDefault();
 
-        if (!values.Customer_name || !values.Mobile_number || !values.Customer_group) {
-            alert('All fields are required.');
+        if (!values.Customer_name || !values.Customer_group) {
+
             return;
         }
 
-        updateCustomer(customerId, values)
+        updateCustomer(customerId, {
+            ...values,
+            Tags: [...new Set([...(values.Tags || []), ...(values.PartyRoles || [])])],
+        })
             .then(res => {
                 if (res.data.success) {
-                    alert('Customer updated successfully!');
+                    toast.success('Customer updated successfully!');
                     closeModal();
                 }
             })
-            .catch(err => console.log('Error updating customer:', err));
+            .catch(err => {
+                console.error('Error updating customer:', err);
+                toast.error('Failed to update customer.');
+            });
     };
 
     return (
         <div className="flex justify-center items-center bg-[#eae6df] min-h-screen">
             <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-                <h2 className="text-2xl font-semibold text-blue-600 mb-4 text-center">Edit Customer</h2>
+                <h2 className="text-2xl font-semibold text-blue-600 mb-4 text-center">Edit Customer / Party</h2>
                 <form onSubmit={handleSaveChanges} className="space-y-4">
                     <div>
-                        <label className="block text-gray-700 text-sm mb-1">Customer Name</label>
+                        <label className="block text-gray-700 text-sm mb-1">Customer / Party Name</label>
                         <input
                             type="text"
                             className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -91,6 +114,17 @@ export default function EditCustomer({ customerId, closeModal }) {
                         />
                     </div>
                     <div>
+                        <label className="block text-gray-700 text-sm mb-1">Email</label>
+                        <input
+                            type="email"
+                            className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={values.Email}
+                            onChange={(e) => setValues({ ...values, Email: e.target.value })}
+                            placeholder="vendor@example.com"
+                        />
+                        <small className="text-gray-500">Used to auto-fill recipient when sending emails</small>
+                    </div>
+                    <div>
                         <label className="block text-gray-700 text-sm mb-1">Customer Group</label>
                         <select
                             className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -103,6 +137,29 @@ export default function EditCustomer({ customerId, closeModal }) {
                                 <option key={index} value={group}>{group}</option>
                             ))}
                         </select>
+                    </div>
+                    <div>
+                        <label className="block text-gray-700 text-sm mb-1">Role</label>
+                        <div className="flex gap-4 mt-1">
+                            <label className="flex items-center gap-1 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={values.PartyRoles.includes('customer')}
+                                    onChange={() => handleRoleToggle('customer')}
+                                    className="accent-blue-500"
+                                />
+                                Use as Customer
+                            </label>
+                            <label className="flex items-center gap-1 text-sm text-gray-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={values.PartyRoles.includes('vendor')}
+                                    onChange={() => handleRoleToggle('vendor')}
+                                    className="accent-blue-500"
+                                />
+                                Use as Vendor
+                            </label>
+                        </div>
                     </div>
                     <div>
                         <label className="block text-gray-700 text-sm mb-1">Status</label>
@@ -122,9 +179,9 @@ export default function EditCustomer({ customerId, closeModal }) {
                             type="text"
                             className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             value={values.Tags.join(", ")}
-                            onChange={(e) => setValues({ ...values, Tags: e.target.value.split(",") })}
+                            onChange={(e) => setValues({ ...values, Tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) })}
                         />
-                        <small className="text-gray-500">Enter tags separated by commas</small>
+                        <small className="text-gray-500">Comma separated</small>
                     </div>
                     <div>
                         <label className="block text-gray-700 text-sm mb-1">Last Interaction</label>

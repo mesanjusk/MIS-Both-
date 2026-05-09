@@ -1,435 +1,284 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
 import axios from '../apiClient.js';
-import AddOrder1 from "../Pages/addOrder1";
-import { FaTrash } from "react-icons/fa";
 
+const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+const fmtDate = (d) =>
+  d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+const todayStr = () => new Date().toISOString().slice(0, 10);
 
-const AllTransaction = () => {
-    const [transactions, setTransactions] = useState([]);
-    const [filteredEntries, setFilteredEntries] = useState([]);
-    const [customers, setCustomers] = useState([]);
-    const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-    const [filteredCustomers, setFilteredCustomers] = useState([]);
-    const [selectedCustomer, setSelectedCustomer] = useState(null);
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [showOrderModal, setShowOrderModal] = useState(false);
-    const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
-    const [openingBalance, setOpeningBalance] = useState(0);
-    const [closingBalance, setClosingBalance] = useState(0);
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [entryToDelete, setEntryToDelete] = useState(null);
+// ── Section table (same columns as Day Book) ──────────────────────────────────
+function TxnTable({ rows, title, color }) {
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+        <Typography variant="caption" fontWeight={700} color={color}
+          sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+          {title}
+        </Typography>
+        <Typography variant="caption" fontWeight={700} color={color}>{money(total)}</Typography>
+      </Stack>
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, width: 55 }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Mode</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((row, i) => (
+              <TableRow key={i} hover>
+                <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>{row.txn.Transaction_id}</TableCell>
+                <TableCell>
+                  <Typography variant="body2">{row.txn.Description}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip label={row.account} size="small" color="primary" variant="outlined" />
+                </TableCell>
+                <TableCell>
+                  <Chip label={row.txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
+                </TableCell>
+                <TableCell align="right">
+                  <Typography variant="body2" fontWeight={700}>{money(row.amount)}</Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+}
 
-    useEffect(() => {
-        const fetchTransactions = async () => {
-            try {
-                const response = await axios.get('/api/transaction');
-                if (response.data.success) {
-                    setTransactions(response.data.result);
-                }
-            } catch (error) {
-                console.error('Error fetching transactions:', error);
-            }
+// ── 4 summary cards per account section ──────────────────────────────────────
+function SummaryCards({ opening, receipts, payments, closing, prefix }) {
+  return (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+      {[
+        { label: 'Opening Balance',        value: opening,  color: 'text.primary' },
+        { label: `${prefix} Receipts (+)`, value: receipts, color: 'success.dark' },
+        { label: `${prefix} Payments (−)`, value: payments, color: 'error.dark' },
+        { label: 'Closing Balance',        value: closing,  color: closing >= 0 ? 'success.dark' : 'error.dark' },
+      ].map(({ label, value, color }) => (
+        <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+          <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+            <Typography variant="caption" color="text.secondary">{label}</Typography>
+            <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
+          </CardContent>
+        </Card>
+      ))}
+    </Stack>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+export default function AllTransaction() {
+  const [selectedDate, setSelectedDate] = useState(todayStr());
+  const [transactions, setTransactions] = useState([]);
+  const [customers, setCustomers]       = useState([]);
+  const [loading, setLoading]           = useState(true);
+
+  // Original endpoints from allTransaction4D
+  useEffect(() => {
+    Promise.all([
+      axios.get('/api/transaction'),
+      axios.get('/api/customers/GetCustomersList'),
+    ])
+      .then(([txRes, custRes]) => {
+        if (txRes.data.success)   setTransactions(txRes.data.result);
+        if (custRes.data.success) setCustomers(custRes.data.result);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  // UUID → name map for all customers (for display in Account column)
+  const customerMap = customers.reduce((acc, c) => { if (c.Customer_uuid) acc[c.Customer_uuid] = c.Customer_name; return acc; }, {});
+
+  // Cash/Bank accounts — match by UUID (new txns) and name (old diary-confirmed txns)
+  const ledgerAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
+  const cashDocs  = ledgerAccounts.filter((c) => /cash/i.test(c.Customer_name));
+  const bankDocs  = ledgerAccounts.filter((c) => /sanju/i.test(c.Customer_name));
+  const cashUuids = cashDocs.map((c) => c.Customer_uuid).filter(Boolean);
+  const bankUuids = bankDocs.map((c) => c.Customer_uuid).filter(Boolean);
+  const cashNameSet = new Set(cashDocs.map((c) => (c.Customer_name || '').toLowerCase()));
+  const bankNameSet = new Set(bankDocs.map((c) => (c.Customer_name || '').toLowerCase()));
+  const cashUuidSet = new Set(cashUuids);
+  const bankUuidSet = new Set(bankUuids);
+  const isCash = (id) => cashUuidSet.has(id) || cashNameSet.has((id || '').toLowerCase()) || (!cashUuidSet.size && /^cash$/i.test(id || ''));
+  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase()) || (!bankUuidSet.size && /sanju/i.test(id || ''));
+
+  // Opening balance for an account = DR − CR of all txns BEFORE selected date
+  const calcOpening = (isAccountFn) => {
+    let dr = 0, cr = 0;
+    for (const txn of transactions) {
+      if (new Date(txn.Transaction_date).toISOString().slice(0, 10) >= selectedDate) continue;
+      for (const leg of txn.Journal_entry || []) {
+        if (!isAccountFn(leg.Account_id)) continue;
+        if (leg.Type === 'Debit') dr += leg.Amount || 0;
+        else                      cr += leg.Amount || 0;
+      }
+    }
+    return dr - cr;
+  };
+
+  // Transactions for selected date, classified by account leg
+  const dayTxns = transactions.filter(
+    (txn) => new Date(txn.Transaction_date).toISOString().slice(0, 10) === selectedDate
+  );
+
+  const classify = (isAccountFn) =>
+    dayTxns
+      .map((txn) => {
+        const j        = txn.Journal_entry || [];
+        const acctLeg  = j.find((e) => isAccountFn(e.Account_id));
+        const otherLeg = j.find((e) => e !== acctLeg);
+        if (!acctLeg) return null;
+        const rawId = otherLeg?.Account_id || '—';
+        return {
+          txn,
+          direction: acctLeg.Type === 'Debit' ? 'in' : 'out',
+          amount:    acctLeg.Amount || txn.Total_Debit || 0,
+          account:   customerMap[rawId] || rawId,
         };
+      })
+      .filter(Boolean);
 
-        const fetchCustomers = async () => {
-            try {
-                const response = await axios.get('/api/customers/GetCustomersList');
-                if (response.data.success) {
-                    setCustomers(response.data.result);
-                }
-            } catch (error) {
-                console.error('Error fetching customers:', error);
-            }
-        };
+  const cashRows = classify(isCash);
+  const bankRows = classify(isBank);
 
-        fetchTransactions();
-        fetchCustomers();
-    }, []);
+  const cashIn  = cashRows.filter((r) => r.direction === 'in');
+  const cashOut = cashRows.filter((r) => r.direction === 'out');
+  const bankIn  = bankRows.filter((r) => r.direction === 'in');
+  const bankOut = bankRows.filter((r) => r.direction === 'out');
 
-    const customerMap = customers.reduce((acc, customer) => {
-        acc[customer.Customer_uuid] = customer.Customer_name;
-        return acc;
-    }, {});
+  const cashReceipts = cashIn.reduce((s, r)  => s + r.amount, 0);
+  const cashPayments = cashOut.reduce((s, r) => s + r.amount, 0);
+  const bankReceipts = bankIn.reduce((s, r)  => s + r.amount, 0);
+  const bankPayments = bankOut.reduce((s, r) => s + r.amount, 0);
 
-    const handleSearchInputChange = (e) => {
-        const searchTerm = e.target.value.trim().toLowerCase();
-        setCustomerSearchTerm(searchTerm);
+  const cashOpening  = calcOpening(isCash);
+  const bankOpening  = calcOpening(isBank);
+  const cashClosing  = cashOpening + cashReceipts - cashPayments;
+  const bankClosing  = bankOpening + bankReceipts - bankPayments;
 
-        if (searchTerm) {
-            const filtered = customers.filter(customer =>
-                customer.Customer_name.toLowerCase().includes(searchTerm)
-            );
-            setFilteredCustomers(filtered);
-        } else {
-            setFilteredCustomers([]);
-        }
-    };
+  return (
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
 
-    const handleCustomerSelect = (customer) => {
-        setSelectedCustomer(customer);
-        setCustomerSearchTerm(customer.Customer_name);
-        setFilteredCustomers([]);
-    };
+      {/* ── LEFT sidebar ── */}
+      <Paper
+        variant="outlined"
+        sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: 'none', md: 'block' }, p: 2 }}
+      >
+        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>Account Ledger</Typography>
+        <Divider sx={{ mb: 2 }} />
+        <TextField
+          label="Date"
+          type="date"
+          size="small"
+          fullWidth
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+      </Paper>
 
-    const handleSearch = () => {
-        if (!selectedCustomer) {
-            setFilteredEntries([]);
-            setOpeningBalance(0);
-            setClosingBalance(0);
-            return;
-        }
+      {/* ── RIGHT panel ── */}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
 
-        const customerUUID = selectedCustomer.Customer_uuid;
-        let runningDebit = 0;
-        let runningCredit = 0;
-        let openingBalanceTemp = 0;
-        let closingBalanceTemp = 0;
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
+          <Box>
+            <Typography variant="h5" fontWeight={900}>
+              Account Ledger{selectedDate ? ` — ${fmtDate(selectedDate)}` : ''}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Cash and bank transactions for the selected date
+            </Typography>
+          </Box>
+        </Stack>
 
-        const filtered = transactions.flatMap(transaction => {
-            const isWithinDateRange = (!startDate || new Date(transaction.Transaction_date) >= new Date(startDate)) &&
-                                      (!endDate || new Date(transaction.Transaction_date) <= new Date(endDate));
-            if (isWithinDateRange) {
-                const customerEntries = transaction.Journal_entry.filter(entry => entry.Account_id === customerUUID);
-                if (customerEntries.length > 0) {
-                    return transaction.Journal_entry
-                        .filter(entry => entry.Account_id !== customerUUID)
-                        .map(entry => ({
-                            ...entry,
-                            Transaction_id: transaction.Transaction_id,
-                            Transaction_date: transaction.Transaction_date,
-                            Description: transaction.Description,
-                        }));
-                }
-            }
-            return [];
-        });
+        {loading && <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>}
 
-        const updatedEntries = filtered.map(entry => {
-            if (entry.Type === 'Debit') {
-                runningDebit += entry.Amount || 0;
-            } else if (entry.Type === 'Credit') {
-                runningCredit += entry.Amount || 0;
-            }
+        {!loading && (
+          <>
+            {/* ── CASH SECTION ── */}
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
+                Cash — {cashDocs[0]?.Customer_name || 'Cash'}
+              </Typography>
+              <SummaryCards
+                opening={cashOpening}
+                receipts={cashReceipts}
+                payments={cashPayments}
+                closing={cashClosing}
+                prefix="Cash"
+              />
+              {cashRows.length === 0 ? (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>No cash transactions for this date.</Alert>
+              ) : (
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                  <Box sx={{ flex: 1 }}>
+                    <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" />
+                  </Box>
+                </Stack>
+              )}
+            </Paper>
 
-            closingBalanceTemp = runningCredit - runningDebit;
-
-            return {
-                ...entry,
-                Balance: closingBalanceTemp,
-            };
-        });
-
-        // Calculate opening balance (just before start date)
-        const openingEntries = transactions.flatMap(transaction => {
-            if (startDate && new Date(transaction.Transaction_date) < new Date(startDate)) {
-                const customerEntries = transaction.Journal_entry.filter(entry => entry.Account_id === customerUUID);
-                return customerEntries.length > 0
-                    ? transaction.Journal_entry.filter(entry => entry.Account_id !== customerUUID).map(entry => ({
-                        ...entry,
-                        Transaction_id: transaction.Transaction_id,
-                        Transaction_date: transaction.Transaction_date,
-                        Description: transaction.Description,
-                    }))
-                    : [];
-            }
-            return [];
-        });
-
-        let runningOpeningDebit = 0;
-        let runningOpeningCredit = 0;
-
-        openingEntries.forEach(entry => {
-            if (entry.Type === 'Debit') {
-                runningOpeningDebit += entry.Amount || 0;
-            } else if (entry.Type === 'Credit') {
-                runningOpeningCredit += entry.Amount || 0;
-            }
-        });
-
-        openingBalanceTemp = runningOpeningCredit - runningOpeningDebit;
-
-        setOpeningBalance(openingBalanceTemp);
-        setClosingBalance(closingBalanceTemp);
-        setFilteredEntries(updatedEntries);
-    };
-
-    const calculateTotals = () => {
-        const totals = filteredEntries.reduce(
-            (acc, entry) => {
-                if (entry.Type === 'Debit') {
-                    acc.debit += entry.Amount || 0;
-                } else if (entry.Type === 'Credit') {
-                    acc.credit += entry.Amount || 0;
-                }
-                return acc;
-            },
-            { debit: 0, credit: 0 }
-        );
-
-        const total = totals.credit - totals.debit;
-
-        return { debit: totals.debit, credit: totals.credit, total };
-    };
-
-    const totals = calculateTotals();
-
-    const handlePrint = () => {
-        window.print();
-    };
-
-    const handleOrder = () => {
-        setShowOrderModal(true);
-    };
-
-    const closeModal = () => {
-        setShowOrderModal(false);
-    };
-
-    const sortTable = (key) => {
-        let direction = 'asc';
-        if (sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
-
-        const sortedEntries = [...filteredEntries].sort((a, b) => {
-            if (a[key] < b[key]) return direction === 'asc' ? -1 : 1;
-            if (a[key] > b[key]) return direction === 'asc' ? 1 : -1;
-            return 0;
-        });
-
-        setFilteredEntries(sortedEntries);
-    };
-    const formatDate = (date) => {
-    const d = new Date(date);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-};
-
-    return (
-        <>
-            <div className="no-print">
-            </div>
-            <div className="min-w-xl pt-12 pb-20">
-                <div className="flex flex-wrap bg-white p-4 space-x-4">
-                    <label className="flex flex-col">
-                        Start :
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="p-2 border rounded-md mt-2"
-                        />
-                    </label>
-                    <label className="flex flex-col">
-                        End :
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="p-2 border rounded-md mt-2"
-                        />
-                    </label>
-                </div>
-
-                <div className="mt-4 min-w-xl flex flex-wrap gap-2">
-                    {customers
-                        .filter((c) => c.Customer_group === 'Bank and Account')
-                        .map((customer) => (
-                            <button
-                                key={customer.Customer_uuid}
-                                onClick={() => {
-                                    handleCustomerSelect(customer);
-                                    setTimeout(handleSearch, 0); // Ensure selectedCustomer updates first
-                                }}
-                                className="px-4 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-600"
-                            >
-                                {customer.Customer_name}
-                            </button>
-                        ))}
-                </div>
-
-                <div className="mt-4 text-center">
-                    <input
-                        type="text"
-                        placeholder="Search Customer"
-                        value={customerSearchTerm}
-                        onChange={handleSearchInputChange}
-                        className="w-full p-2 border rounded-md"
-                    />
-
-                    {filteredCustomers.length > 0 && (
-                        <ul className="absolute bg-white border border-gray-300 w-full z-10 mt-1">
-                            {filteredCustomers.map((customer) => (
-                                <li
-                                    key={customer.Customer_uuid}
-                                    className="cursor-pointer p-2 hover:bg-gray-200"
-                                    onClick={() => handleCustomerSelect(customer)}
-                                >
-                                    {customer.Customer_name}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-
-                    <button
-                        onClick={handleSearch}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md shadow-md hover:bg-blue-700 mt-2"
-                    >
-                        Search
-                    </button>
-                </div>
-
-                <main className="overflow-x-auto mt-6">
-                    <div className="w-full min-w-xl overflow-x-scroll">
-                        {filteredEntries.length > 0 ? (
-                            <table className="min-w-full table-auto border-collapse">
-                                <thead className="bg-gray-100">
-                                    <tr>
-                                        <th
-                                            onClick={() => sortTable("Transaction_id")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            No
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Transaction_date")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Date
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Account_id")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Name
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Description")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Description
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Debit")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Credit
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Credit")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Debit
-                                        </th>
-                                        <th
-                                            onClick={() => sortTable("Balance")}
-                                            className="py-2 px-4 cursor-pointer"
-                                        >
-                                            Balance
-                                        </th>
-                                        <th className="py-2 px-4">Actions</th>
-
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredEntries.map((entry, index) => (
-                                        <tr key={index} className="border-t">
-                                            <td className="py-2 px-4">{entry.Transaction_id}</td>
-                                            <td className="py-2 px-4">{formatDate(entry.Transaction_date)}</td>
-
-<td className="py-2 px-4">
-{customerMap[entry.Account_id]}
-</td>
-<td className="py-2 px-4">{entry.Description}</td>
-<td className="py-2 px-4">
-{entry.Type === 'Credit' ? entry.Amount : '-'}
-</td>
-<td className="py-2 px-4">
-{entry.Type === 'Debit' ? entry.Amount : '-'}
-</td>
-<td className="py-2 px-4">{entry.Balance}</td>
-<td className="py-2 px-4 text-center">
-    <button
-        onClick={() => {
-            setEntryToDelete(entry);
-            setShowDeleteModal(true);
-        }}
-        className="text-red-600 hover:text-red-800"
-    >
-        <FaTrash />
-    </button>
-</td>
-
-</tr>
-))}
-</tbody>
-</table>
-
-) : (
-<p>No transactions found.</p>
-)}
-{showDeleteModal && (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-        <div className="bg-white p-6 rounded-lg w-80 text-center">
-            <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
-            <p>Are you sure you want to delete this transaction entry?</p>
-            <div className="mt-4 flex justify-center gap-4">
-                <button
-                    onClick={() => setShowDeleteModal(false)}
-                    className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={async () => {
-                        try {
-                            await axios.delete(`/api/transaction/${entryToDelete.Transaction_id}`);
-                            // Re-fetch transactions or manually remove the entry from state
-                            setFilteredEntries(prev =>
-                                prev.filter(e =>
-                                    !(
-                                        e.Transaction_id === entryToDelete.Transaction_id &&
-                                        e.Account_id === entryToDelete.Account_id
-                                    )
-                                )
-                            );
-                            setShowDeleteModal(false);
-                        } catch (error) {
-                            console.error("Delete failed", error);
-                        }
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                    Delete
-                </button>
-            </div>
-        </div>
-    </div>
-)}
-
-</div>
-</main>
-            
-
-                <div className="flex items-center space-x-4">
-                    <div>
-                        <p>Opening Balance: {openingBalance}</p>
-                    </div>
-                    <div>
-                        <p>Closing Balance: {closingBalance}</p>
-                    </div>
-                </div>
-            </div>
-
-      
-        <div className="no-print">
-        </div>
-    </>
-);
-};
-
-export default AllTransaction;
+            {/* ── BANK SECTION ── */}
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'info.main' }}>
+              <Typography variant="subtitle1" fontWeight={800} color="info.dark" sx={{ mb: 1.5 }}>
+                Bank — {bankDocs[0]?.Customer_name || 'UPI Sanju SK'}
+              </Typography>
+              <SummaryCards
+                opening={bankOpening}
+                receipts={bankReceipts}
+                payments={bankPayments}
+                closing={bankClosing}
+                prefix="Bank"
+              />
+              {bankRows.length === 0 ? (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>No bank transactions for this date.</Alert>
+              ) : (
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                  <Box sx={{ flex: 1 }}>
+                    <TxnTable rows={bankIn}  title="Bank Receipts (IN)"  color="success.dark" />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <TxnTable rows={bankOut} title="Bank Payments (OUT)" color="error.dark" />
+                  </Box>
+                </Stack>
+              )}
+            </Paper>
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+}

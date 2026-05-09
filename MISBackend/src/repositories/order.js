@@ -219,6 +219,7 @@ const OrdersSchema = new mongoose.Schema(
 );
 
 OrdersSchema.index({ Customer_uuid: 1 });
+OrdersSchema.index({ Customer_uuid: 1, createdAt: -1 });
 OrdersSchema.index({ Amount: 1 });
 OrdersSchema.index({ "Items.Item": 1 });
 OrdersSchema.index({ "workRows.itemName": 1 });
@@ -227,6 +228,8 @@ OrdersSchema.index({ "Steps.posting.isPosted": 1 });
 OrdersSchema.index({ "vendorAssignments.vendorCustomerUuid": 1 });
 OrdersSchema.index({ "vendorAssignments.vendorUuid": 1 });
 OrdersSchema.index({ createdAt: -1 });
+OrdersSchema.index({ stage: 1, createdAt: -1 });
+OrdersSchema.index({ stage: 1, priority: 1, dueDate: 1 });
 
 function recalcTotals(doc) {
   doc.saleSubtotal = (doc.Items || []).reduce((s, it) => s + (+it.Amount || 0), 0);

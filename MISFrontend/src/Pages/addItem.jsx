@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   Alert,
   Box,
@@ -116,7 +117,7 @@ export default function AddItem() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const res = await axios.post('/api/items/addItem', {
+      await axios.post('/api/items/addItem', {
         ...form,
         openingStock: Number(form.openingStock || 0),
         reorderLevel: Number(form.reorderLevel || 0),
@@ -129,16 +130,15 @@ export default function AddItem() {
           defaultCost: Number(row.defaultCost || 0),
         })),
       });
-
-      if (res.data === 'exist') {
-        alert('Item already exists');
-      } else if (res.data === 'notexist') {
-        alert('Item added successfully');
-        navigate('/home');
-      }
+      toast.success('Item added successfully');
+      navigate('/home');
     } catch (err) {
-      alert('Unable to save item');
-      console.error(err);
+      if (err.response?.status === 409) {
+        toast.error('Item already exists');
+      } else {
+        toast.error(err.response?.data?.message || 'Unable to save item');
+        console.error(err);
+      }
     } finally {
       setSubmitting(false);
     }

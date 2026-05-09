@@ -33,6 +33,7 @@ const VendorMaster = require('../repositories/vendorMaster');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
+const { postVendorBill, postCustomerInvoice } = require('../services/accountingPostingService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -331,7 +332,14 @@ router.get('/scan', async (_req, res) => {
       };
     });
 
-    return res.json({ success: true, files: enriched, summary });
+    // 7. Stale draft links — draft records whose file is no longer visible in today's Drive scan
+    const currentFileIds = new Set(enriched.map((f) => f.fileId));
+    const staleLinks = await DesignFileLink.find(
+      { linkStatus: 'draft', driveFileId: { $nin: [...currentFileIds] } },
+      { driveFileId: 1, fileName: 1, stageNumber: 1, stageLabel: 1, linkedAt: 1 }
+    ).lean();
+
+    return res.json({ success: true, files: enriched, summary, staleLinks });
   } catch (err) {
     logger.error({ err }, 'design-files/scan error');
     if (err?.reconnectRequired) {
@@ -450,12 +458,23 @@ router.get('/orders/search', async (req, res) => {
         }
       : {};
     const orders = await Orders.find(filter, {
-      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1, isTemporary: 1,
+      Order_uuid: 1, Order_Number: 1, orderNote: 1, stage: 1, isTemporary: 1, Customer_uuid: 1,
     })
       .sort({ Order_Number: -1 })
       .limit(20)
       .lean();
-    return res.json({ success: true, result: orders });
+
+    const cuuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const custDocs = cuuids.length
+      ? await Customers.find({ Customer_uuid: { $in: cuuids } }, { Customer_uuid: 1, Customer_name: 1 }).lean()
+      : [];
+    const custMap = {};
+    custDocs.forEach((c) => { custMap[c.Customer_uuid] = c.Customer_name; });
+
+    return res.json({
+      success: true,
+      result: orders.map((o) => ({ ...o, customerName: custMap[o.Customer_uuid] || null })),
+    });
   } catch (err) {
     logger.error({ err }, 'design-files/orders/search error');
     return res.status(500).json({ success: false, message: err.message });
@@ -784,33 +803,52 @@ router.post('/auto-scan-link', async (req, res) => {
  */
 router.post('/confirm-final', async (req, res) => {
   try {
-    const { fileId, fileName, customerUuid, itemDetails, mobileNumber } = req.body || {};
+    const { fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items } = req.body || {};
 
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
     if (!customerUuid) return res.status(400).json({ success: false, message: 'customerUuid required' });
-    if (!itemDetails) return res.status(400).json({ success: false, message: 'itemDetails required' });
+
+    const isDetailed = orderMode === 'items' && Array.isArray(items) && items.length > 0;
+    if (!isDetailed && !itemDetails) {
+      return res.status(400).json({ success: false, message: 'itemDetails required' });
+    }
 
     const customer = await Customers.findOne({ Customer_uuid: customerUuid }).lean();
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
     const orderNum = await nextOrderNumber();
     const orderUuid = uuidv4();
+    const noteText = isDetailed ? '' : (itemDetails || '');
+    const firstItemName = isDetailed ? (items[0]?.itemName || items[0]?.Item_name || 'Design') : '';
 
-    const order = new Orders({
+    const orderDoc = {
       Order_uuid: orderUuid,
       Order_Number: orderNum,
       Customer_uuid: customerUuid,
-      orderNote: itemDetails,
-      orderMode: 'note',
+      orderNote: noteText,
+      orderMode: isDetailed ? 'items' : 'note',
+      Remark: noteText,
       stage: 'design',
       priority: 'medium',
       stageHistory: [{ stage: 'design', timestamp: new Date() }],
       driveFile: { status: 'skipped' },
-    });
+    };
+    if (isDetailed) {
+      orderDoc.items = items.map((it) => ({
+        Item_uuid: it.Item_uuid || uuidv4(),
+        Item_name: it.itemName || it.Item_name || '',
+        Quantity: Number(it.qty || 1),
+        Rate: Number(it.rate || 0),
+        Amount: Number(it.amount || 0),
+        Remark: '',
+      }));
+    }
+    const order = new Orders(orderDoc);
     await order.save();
 
     // Build new filename
+    const descPart = isDetailed ? sanitize(firstItemName) : sanitize(itemDetails);
     const dotIdx = fileName.lastIndexOf('.');
     const ext = dotIdx !== -1 ? fileName.slice(dotIdx + 1) : '';
     const mobile = mobileNumber || customer.Mobile_number || '';
@@ -819,7 +857,7 @@ router.post('/confirm-final', async (req, res) => {
       '-',
       sanitize(customer.Customer_name),
       '-',
-      sanitize(itemDetails),
+      descPart,
       '-',
       sanitize(mobile),
     ].join(' ').replace(/\s+-\s+-\s+/g, ' - ') + (ext ? `.${ext}` : '');
@@ -866,6 +904,24 @@ router.post('/confirm-final', async (req, res) => {
       }
     } catch (renameBlockErr) {
       logger.warn('rename block error — %s', renameBlockErr?.message);
+    }
+
+    const itemsTotal = isDetailed
+      ? (orderDoc.items || []).reduce((s, it) => s + (Number(it.Amount) || 0), 0)
+      : 0;
+    if (itemsTotal > 0) {
+      try {
+        await postCustomerInvoice({
+          amount: itemsTotal,
+          orderUuid,
+          orderNumber: orderNum,
+          customerUuid,
+          description: `Order #${orderNum} - ${customer.Customer_name}`,
+          sourceSuffix: orderUuid,
+        });
+      } catch (acctErr) {
+        logger.warn({ acctErr }, 'confirm-final accounting post failed (non-fatal)');
+      }
     }
 
     return res.json({ success: true, orderNumber: orderNum, orderUuid, newName, renamed });
@@ -1066,11 +1122,20 @@ router.post('/rename-print-file', async (req, res) => {
 
 // ─── GET /api/design-files/scan-archive ──────────────────────────────────────
 /**
- * Scans the month-wise archive root folder (DRIVE_ARCHIVE_FOLDER_ID).
- * Finds the subfolder matching the current month (YYYY-MM or month-name year).
- * Falls back to the most recently modified subfolder.
- * Returns all files with match status — highlights unmatched ones.
+ * Scans the month-wise archive folder with 3-level traversal:
+ *   Archive Root → Month Folder → Date Subfolders → Final/Printing Subfolders → Files
+ *
+ * Returns data grouped by date for the frontend to render as collapsible date groups.
  */
+
+/** Identify section type from archive subfolder name (Final / Printing) */
+function archiveSectionStage(name = '') {
+  const lower = name.toLowerCase();
+  if (lower.includes('final')) return 8;
+  if (lower.includes('print')) return 9;
+  return null;
+}
+
 router.get('/scan-archive', async (_req, res) => {
   try {
     const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
@@ -1080,79 +1145,115 @@ router.get('/scan-archive', async (_req, res) => {
 
     const drive = await getAuthorizedDriveClient();
 
-    // Find the current-month subfolder inside the archive root
-    const subfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
+    // 1. Find the current-month subfolder inside the archive root
+    const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
 
     let monthFolder = null;
-    if (subfolders.length) {
+    if (monthSubfolders.length) {
       const now = new Date();
       const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
       const monthName = monthNames[now.getMonth()];
       const year = String(now.getFullYear());
 
-      monthFolder = subfolders.find((f) => {
+      monthFolder = monthSubfolders.find((f) => {
         const n = f.name.toLowerCase().replace(/[/_]/g, '-');
         return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
       });
 
-      // Fallback: most recently modified subfolder
       if (!monthFolder) {
-        monthFolder = [...subfolders].sort(
+        monthFolder = [...monthSubfolders].sort(
           (a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime)
         )[0];
       }
     }
 
     if (!monthFolder) {
-      return res.json({ success: true, files: [], folderName: null, summary: { total: 0, unmatched: 0 } });
+      return res.json({
+        success: true, monthFolderName: null,
+        dates: [], summary: { total: 0, unmatched: 0 },
+      });
     }
 
-    // Scan one level inside the month folder (may contain stage sub-subfolders or flat files)
-    const monthChildren = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
-    const stageFolders = monthChildren
-      .map((f) => ({ ...f, stageNumber: folderStageNumber(f.name) }))
-      .filter((f) => f.stageNumber !== null);
+    // 2. List date subfolders inside the month folder
+    const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
 
-    let allFiles = [];
+    // Sort date folders by name descending (newest date first)
+    dateFolders.sort((a, b) => b.name.localeCompare(a.name));
 
-    if (stageFolders.length) {
-      // Archive folder has stage subfolders (Final, Printing, …)
-      const scans = await Promise.all(
-        stageFolders.map(async (folder) => {
-          const files = await listChildren(drive, folder.id);
-          return files.map((file) => ({
-            fileId: file.id,
-            fileName: file.name,
-            modifiedTime: file.modifiedTime,
-            size: file.size || null,
-            folderName: folder.name,
-            stageNumber: folder.stageNumber,
-            stageLabel: stageLabel(folder.stageNumber),
-            stageColor: stageColor(folder.stageNumber),
-            extractedOrderNumber: extractOrderNumber(file.name),
-          }));
-        })
-      );
-      allFiles = scans.flat();
-    } else {
-      // Flat files directly inside the month folder
-      const flatFiles = await listChildren(drive, monthFolder.id);
-      allFiles = flatFiles.map((file) => ({
-        fileId: file.id,
-        fileName: file.name,
-        modifiedTime: file.modifiedTime,
-        size: file.size || null,
-        folderName: monthFolder.name,
-        stageNumber: null,
-        stageLabel: null,
-        stageColor: null,
-        extractedOrderNumber: extractOrderNumber(file.name),
-      }));
-    }
+    // 3. For each date folder, scan Final/Printing subfolders
+    const allFilesFlat = [];
+    const dateGroups = await Promise.all(
+      dateFolders.map(async (dateFolder) => {
+        const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
 
-    // Batch-match by order number
-    const orderNumbers = [...new Set(allFiles.map((f) => f.extractedOrderNumber).filter(Boolean))];
+        const sections = await Promise.all(
+          sectionFolders.map(async (sectionFolder) => {
+            const sectionStageNum = archiveSectionStage(sectionFolder.name);
+            const files = await listChildren(drive, sectionFolder.id);
+            const mapped = files.map((file) => ({
+              fileId: file.id,
+              fileName: file.name,
+              modifiedTime: file.modifiedTime,
+              size: file.size || null,
+              dateFolderName: dateFolder.name,
+              sectionFolderName: sectionFolder.name,
+              stageNumber: sectionStageNum,
+              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+              extractedOrderNumber: extractOrderNumber(file.name),
+            }));
+            allFilesFlat.push(...mapped);
+            return {
+              sectionName: sectionFolder.name,
+              stageNumber: sectionStageNum,
+              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+              files: mapped,
+            };
+          })
+        );
+
+        // Also handle flat files directly in the date folder (no section subfolder)
+        const flatFiles = (await listChildren(drive, dateFolder.id)).filter(
+          (f) => f.mimeType !== 'application/vnd.google-apps.folder'
+        );
+        const flatMapped = flatFiles.map((file) => ({
+          fileId: file.id,
+          fileName: file.name,
+          modifiedTime: file.modifiedTime,
+          size: file.size || null,
+          dateFolderName: dateFolder.name,
+          sectionFolderName: null,
+          stageNumber: null,
+          stageLabel: null,
+          stageColor: null,
+          extractedOrderNumber: extractOrderNumber(file.name),
+        }));
+        if (flatMapped.length) {
+          allFilesFlat.push(...flatMapped);
+          sections.push({
+            sectionName: 'Other',
+            stageNumber: null,
+            stageLabel: null,
+            stageColor: null,
+            files: flatMapped,
+          });
+        }
+
+        return {
+          dateName: dateFolder.name,
+          dateFolderId: dateFolder.id,
+          sections: sections.filter((s) => s.files.length > 0),
+          fileCount: sections.reduce((s, sec) => s + sec.files.length, 0) + flatMapped.length,
+        };
+      })
+    );
+
+    const activeDates = dateGroups.filter((d) => d.fileCount > 0);
+
+    // 4. Batch-match by order number across all files
+    const orderNumbers = [...new Set(allFilesFlat.map((f) => f.extractedOrderNumber).filter(Boolean))];
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
@@ -1162,7 +1263,7 @@ router.get('/scan-archive', async (_req, res) => {
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
 
-    let enriched = allFiles.map((file) => {
+    function enrichFile(file) {
       const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
       return {
         ...file,
@@ -1172,23 +1273,42 @@ router.get('/scan-archive', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
-        linkedViaManual: false,
       };
-    });
+    }
 
-    // Apply links for still-unmatched
-    enriched = await applyLinks(enriched);
+    // 5. Apply enrichment to the nested structure
+    const enrichedDates = activeDates.map((dateGroup) => ({
+      ...dateGroup,
+      sections: dateGroup.sections.map((section) => ({
+        ...section,
+        files: section.files.map(enrichFile),
+      })),
+    }));
+
+    // Also apply DesignFileLink matches for archive files
+    const allEnrichedFlat = enrichedDates.flatMap((d) => d.sections.flatMap((s) => s.files));
+    const linkedEnrichedFlat = await applyLinks(allEnrichedFlat);
+    const linkedById = {};
+    linkedEnrichedFlat.forEach((f) => { linkedById[f.fileId] = f; });
+
+    const finalDates = enrichedDates.map((dateGroup) => ({
+      ...dateGroup,
+      sections: dateGroup.sections.map((section) => ({
+        ...section,
+        files: section.files.map((f) => linkedById[f.fileId] || f),
+      })),
+    }));
 
     const summary = {
-      total: enriched.length,
-      matched: enriched.filter((f) => f.matched).length,
-      unmatched: enriched.filter((f) => !f.matched).length,
+      total: linkedEnrichedFlat.length,
+      matched: linkedEnrichedFlat.filter((f) => f.matched).length,
+      unmatched: linkedEnrichedFlat.filter((f) => !f.matched).length,
     };
 
     return res.json({
       success: true,
-      files: enriched,
-      folderName: monthFolder.name,
+      monthFolderName: monthFolder.name,
+      dates: finalDates,
       summary,
     });
   } catch (err) {
@@ -1203,57 +1323,77 @@ router.get('/scan-archive', async (_req, res) => {
 // ─── POST /api/design-files/create-print-job ─────────────────────────────────
 router.post('/create-print-job', async (req, res) => {
   try {
-    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
+    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes, hasPostPrint } = req.body || {};
 
-    if (!orderUuid) return res.status(400).json({ success: false, message: 'orderUuid required' });
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
 
-    const [order, vendor] = await Promise.all([
-      Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean(),
+    const [order, vendorFromMaster, vendorFromCustomer] = await Promise.all([
+      orderUuid ? Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean() : null,
       VendorMaster.findOne({ Vendor_uuid: vendorUuid }, { Vendor_uuid: 1, Vendor_name: 1 }).lean(),
+      Customers.findOne({ Customer_uuid: vendorUuid, PartyRoles: 'vendor' }, { Customer_uuid: 1, Customer_name: 1 }).lean(),
     ]);
-    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
+    if (orderUuid && !order) return res.status(404).json({ success: false, message: 'Order not found' });
+    const vendorDoc = vendorFromMaster
+      ? { Vendor_uuid: vendorFromMaster.Vendor_uuid, Vendor_name: vendorFromMaster.Vendor_name }
+      : vendorFromCustomer
+        ? { Vendor_uuid: vendorFromCustomer.Customer_uuid, Vendor_name: vendorFromCustomer.Customer_name }
+        : null;
+    if (!vendorDoc) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
-    const resolvedVendorName = vendor.Vendor_name || vendorName || '';
+    const resolvedVendorName = vendorDoc.Vendor_name || vendorName || '';
     const resolvedTotal = Number(totalAmount) || items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
     const workUuid = uuidv4();
 
     const work = await VendorWork.create({
       work_uuid: workUuid,
-      Vendor_uuid: vendor.Vendor_uuid,
+      Vendor_uuid: vendorDoc.Vendor_uuid,
       Vendor_name: resolvedVendorName,
-      Order_uuid: order.Order_uuid,
-      Order_Number: order.Order_Number,
+      ...(order ? { Order_uuid: order.Order_uuid, Order_Number: order.Order_Number } : {}),
       Process: 'printing',
       Amount: resolvedTotal,
       Status: 'draft',
+      HasPostPrint: Boolean(hasPostPrint),
       Notes: notes || JSON.stringify(items.map((i) => ({
         file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
       }))),
     });
 
     const ledger = await VendorLedger.create({
-      vendor_uuid: vendor.Vendor_uuid,
+      vendor_uuid: vendorDoc.Vendor_uuid,
       vendor_name: resolvedVendorName,
       entry_type: 'job_bill',
       dr_cr: 'cr',
       amount: resolvedTotal,
       job_uuid: workUuid,
-      order_uuid: order.Order_uuid,
-      order_number: order.Order_Number,
-      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''} for order #${order.Order_Number}`,
+      ...(order ? { order_uuid: order.Order_uuid, order_number: order.Order_Number } : {}),
+      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''}${order ? ` for order #${order.Order_Number}` : ''}`,
       reference_type: 'print_job',
       reference_id: workUuid,
     });
+
+    if (resolvedTotal > 0) {
+      try {
+        await postVendorBill({
+          amount: resolvedTotal,
+          orderUuid: order?.Order_uuid || null,
+          orderNumber: order?.Order_Number || null,
+          description: `Print job bill - ${resolvedVendorName}${order ? ` - Order #${order.Order_Number}` : ''}`,
+          sourceSuffix: workUuid,
+          allowDuplicate: false,
+        });
+      } catch (acctErr) {
+        logger.warn({ acctErr }, 'print-job accounting post failed (non-fatal)');
+      }
+    }
 
     return res.json({
       success: true,
       workId: work._id,
       ledgerEntryId: ledger._id,
       totalAmount: resolvedTotal,
-      orderNumber: order.Order_Number,
+      orderNumber: order?.Order_Number ?? null,
+      hasPostPrint: Boolean(hasPostPrint),
     });
   } catch (err) {
     logger.error({ err }, 'design-files/create-print-job error');

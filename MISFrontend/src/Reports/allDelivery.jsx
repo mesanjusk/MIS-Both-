@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { fetchDeliveredOrders } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
@@ -269,7 +270,7 @@ export default function AllDelivery() {
   // Card click -> UpdateDelivery (existing behavior)
   const handleEditClick = (order) => {
     const id = order._id || order.Order_id || null;
-    if (!id) return alert("⚠️ Invalid order ID.");
+    if (!id) return toast.error("Invalid order ID.");
     setSelectedOrder({ ...order, _id: id });
     setEditOpen(true);
   };
@@ -277,7 +278,7 @@ export default function AllDelivery() {
   // Customer click -> OrderUpdate (existing behavior)
   const handleOrderUpdateClick = (order) => {
     const id = order._id || order.Order_id || null;
-    if (!id) return alert("⚠️ Invalid order ID.");
+    if (!id) return toast.error("Invalid order ID.");
     setSelectedOrder({ ...order, _id: id });
     setOrderUpdateOpen(true);
   };

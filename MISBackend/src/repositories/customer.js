@@ -15,6 +15,7 @@ const CustomersSchema = new mongoose.Schema({
   Customer_uuid: { type: String },
   Customer_name: { type: String, required: true },
   Mobile_number: { type: String },
+  Email: { type: String, default: '', trim: true },
   Customer_group: { type: String, required: true },
   Status: { type: String, default: "active" },
   Tags: { type: [String], default: [] },
@@ -45,7 +46,7 @@ CustomersSchema.pre("validate", function (next) {
 });
 
 CustomersSchema.index({ Customer_name: 1 });
-CustomersSchema.index({ Mobile_number: 1 });
+CustomersSchema.index({ Mobile_number: 1 }, { unique: true, sparse: true });
 CustomersSchema.index({ Customer_group: 1 });
 CustomersSchema.index({ Status: 1 });
 CustomersSchema.index({ Customer_uuid: 1 });

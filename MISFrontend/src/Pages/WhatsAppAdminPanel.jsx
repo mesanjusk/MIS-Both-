@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   fetchSessions as fetchSessionsApi,
   resetSession as resetSessionApi,
@@ -34,28 +35,28 @@ export default function WhatsAppAdminPanel() {
     if (!window.confirm(`Reset session ${sessionId}?`)) return;
     try {
       await resetSessionApi(sessionId);
-      alert(`✅ Session ${sessionId} reset.`);
+      toast.success(`Session ${sessionId} reset.`);
       fetchSessions();
     } catch (err) {
-      alert(`❌ Failed to reset session ${sessionId}`);
+      toast.error(`Failed to reset session ${sessionId}`);
       console.error(err);
     }
   };
 
   const startSession = async (sessionId) => {
     if (!sessionId || sessionId.trim() === '') {
-      alert('❌ Session ID is required.');
+      toast.error('Session ID is required.');
       return;
     }
 
     setLoading(true);
     try {
       await startSessionApi(sessionId.trim());
-      alert(`✅ Session ${sessionId} started.`);
+      toast.success(`Session ${sessionId} started.`);
       setNewSessionId('');
       fetchSessions();
     } catch (err) {
-      alert(`❌ Failed to start session ${sessionId}`);
+      toast.error(`Failed to start session ${sessionId}`);
       console.error(err);
     } finally {
       setLoading(false);

@@ -93,6 +93,11 @@ export const ROUTES = {
   DAY_BOOK:            '/accounts/day-book',
   BANK_RECONCILIATION: '/accounts/bank-reconciliation',
 
+  // Gmail / Email
+  GMAIL_ACCOUNTS: '/gmail/accounts',
+  EMAIL_COMPOSE:  '/gmail/compose',
+  EMAIL_HISTORY:  '/gmail/history',
+
   // legacy aliases still used in old code
   ADD_ORDER: '/addOrder',
   ADD_ORDER_V2: '/addOrder1',

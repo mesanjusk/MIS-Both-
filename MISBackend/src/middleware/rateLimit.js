@@ -25,7 +25,7 @@ const createRateLimiter = ({ windowMs, maxRequests, message }) => {
 };
 
 const whatsappLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, message: 'Too many WhatsApp requests.' });
-const authLimiter = createRateLimiter({ windowMs: 15 * 60_000, maxRequests: 20, message: 'Too many login attempts.' });
-const generalLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 100 });
+const authLimiter     = createRateLimiter({ windowMs: 5 * 60_000, maxRequests: 5, message: 'Too many login attempts. Try again in 5 minutes.' });
+const generalLimiter  = createRateLimiter({ windowMs: 60_000, maxRequests: 100 });
 
 module.exports = { createRateLimiter, whatsappLimiter, authLimiter, generalLimiter };

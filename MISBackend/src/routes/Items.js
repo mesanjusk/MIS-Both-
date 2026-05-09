@@ -64,7 +64,7 @@ router.post("/addItem", async (req, res) => {
 
   try {
     const check = await Items.findOne({ Item_name: Item_name });
-    if (check) return res.json("exist");
+    if (check) return res.status(409).json({ success: false, message: "Item already exists" });
 
     const newItem = new Items({
       Item_name,
@@ -85,10 +85,10 @@ router.post("/addItem", async (req, res) => {
       bom: normalizeBom(bom),
     });
     await newItem.save();
-    res.json("notexist");
+    return res.status(201).json({ success: true, result: newItem });
   } catch (e) {
     logger.error("Error saving Item:", e);
-    res.status(500).json("fail");
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 

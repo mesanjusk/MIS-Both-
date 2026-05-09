@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import './apiClient.js';
 import Layout from './Pages/Layout';
+import ErrorBoundary from './Components/ErrorBoundary';
 import { initVersionChecker } from './utils/versionChecker';
 import { ToastContainer } from './Components';
 import { ROUTE_ALIASES, ROUTES } from './constants/routes';
@@ -88,6 +89,9 @@ const PriorityReport = lazy(() => import('./Reports/priorityReport'));
 const DiaryUpload = lazy(() => import('./Pages/DiaryUpload'));
 const DayBook = lazy(() => import('./Pages/DayBook'));
 const BankReconciliation = lazy(() => import('./Pages/BankReconciliation'));
+const GmailAccounts = lazy(() => import('./Pages/GmailAccounts'));
+const EmailCompose  = lazy(() => import('./Pages/EmailCompose'));
+const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
 
 function RouteLoader() {
   return (
@@ -121,7 +125,7 @@ export default function App() {
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
-          <Route element={<Layout />}>
+          <Route element={<ErrorBoundary><Layout /></ErrorBoundary>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />
             <Route path={ROUTES.OWNER_DASHBOARD} element={withSuspense(<OwnerDashboard />)} />
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />
@@ -234,6 +238,10 @@ export default function App() {
             <Route path={ROUTES.ALL_VENDORS} element={withSuspense(<AllVendors />)} />
             <Route path={ROUTES.REPORTS_BILLS} element={withSuspense(<AllBills />)} />
             <Route path={ROUTES.REPORTS_PRIORITY} element={withSuspense(<PriorityReport />)} />
+
+            <Route path={ROUTES.GMAIL_ACCOUNTS} element={withSuspense(<GmailAccounts />)} />
+            <Route path={ROUTES.EMAIL_COMPOSE}  element={withSuspense(<EmailCompose />)} />
+            <Route path={ROUTES.EMAIL_HISTORY}  element={withSuspense(<EmailHistory />)} />
 
             <Route path={ROUTES.ADD_NOTE} element={withSuspense(<AddNote />)} />
             <Route path={ROUTE_ALIASES.ADD_NOTE_LOWER} element={<Navigate to={ROUTES.ADD_NOTE} replace />} />

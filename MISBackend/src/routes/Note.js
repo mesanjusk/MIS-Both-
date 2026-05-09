@@ -9,10 +9,14 @@ router.use(requireAuth);
 router.post("/addNote", async (req, res) => {
   const { Customer_uuid, Note_name, Order_uuid } = req.body;
 
+  if (!Note_name || !Customer_uuid) {
+    return res.status(400).json({ success: false, message: "Note_name and Customer_uuid are required" });
+  }
+
   try {
-      const check = await Note.findOne({ Note_name: Note_name });
+      const check = await Note.findOne({ Note_name }).lean();
       if (check) {
-          return res.json({ success: false, message: "Note already exists" });
+          return res.status(409).json({ success: false, message: "Note already exists" });
       }
 
       const newNote = new Note({
@@ -22,7 +26,7 @@ router.post("/addNote", async (req, res) => {
           Note_uuid: uuid(),
       });
       await newNote.save();
-      res.json({ success: true, message: "Note added successfully" });
+      res.status(201).json({ success: true, message: "Note added successfully" });
   } catch (e) {
       res.status(500).json({ success: false, message: "Internal server error" });
   }
@@ -33,7 +37,7 @@ router.post("/addNote", async (req, res) => {
 router.get("/:Order_uuid", async (req, res) => {
   const { Order_uuid } = req.params;
   try {
-    const notes = await Note.find({ Order_uuid });
+    const notes = await Note.find({ Order_uuid }).lean();
 
     if (notes.length === 0) {
          return res.status(404).json({

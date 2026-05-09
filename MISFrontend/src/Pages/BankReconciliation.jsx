@@ -258,7 +258,7 @@ export default function BankReconciliation() {
               <ListItem>
                 <ListItemText
                   primary="No statements yet"
-                  secondary="Upload SBI CSV to start"
+                  secondary="Upload SBI PDF / CSV / TXT"
                   primaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
                 />
               </ListItem>
@@ -273,7 +273,7 @@ export default function BankReconciliation() {
           <Box>
             <Typography variant="h5" fontWeight={900}>Bank Reconciliation</Typography>
             <Typography variant="body2" color="text.secondary">
-              Upload SBI bank statement PDF or CSV — auto-matched against diary bank entries
+              Upload SBI bank statement (PDF, CSV, or notepad TXT) — auto-matched against diary bank entries
             </Typography>
           </Box>
           <Button
@@ -298,10 +298,10 @@ export default function BankReconciliation() {
                 startIcon={<UploadFileRoundedIcon />}
                 color={pdfFile ? 'success' : 'primary'}
               >
-                {pdfFile ? `PDF: ${pdfFile.name}` : 'Choose PDF or CSV'}
+                {pdfFile ? `${pdfFile.name}` : 'Choose PDF / CSV / TXT'}
                 <input
                   type="file"
-                  accept=".pdf,.csv,application/pdf,text/csv"
+                  accept=".pdf,.csv,.txt,application/pdf,text/csv,text/plain"
                   hidden
                   onChange={handleFileChange}
                 />
@@ -315,7 +315,7 @@ export default function BankReconciliation() {
 
             {!pdfFile && (
               <>
-                <Typography variant="caption" color="text.secondary">— or paste CSV text below —</Typography>
+                <Typography variant="caption" color="text.secondary">— or paste CSV / text statement below —</Typography>
                 <TextField
                   multiline
                   minRows={3}
@@ -347,7 +347,7 @@ export default function BankReconciliation() {
         {!selectedUuid && !loading && (
           <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
             <Typography color="text.secondary">
-              Upload a PDF or CSV bank statement above, or select one from the list.
+              Upload a PDF, CSV, or TXT bank statement above, or select one from the list.
             </Typography>
           </Paper>
         )}

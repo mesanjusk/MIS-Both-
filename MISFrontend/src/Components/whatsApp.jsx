@@ -1,5 +1,6 @@
 import React, { useState, useEffect} from 'react';
 import axios from '../apiClient.js';
+import toast from 'react-hot-toast';
 
 export default function WhatsApp({ order }) {
      const [customers, setCustomers] = useState({});
@@ -22,7 +23,7 @@ export default function WhatsApp({ order }) {
           setCustomers({});
         }
       })
-      .catch(err => console.log('Error fetching customers list:', err));
+      .catch(err => console.error('Error fetching customers list:', err));
   }, []);
   
 
@@ -31,7 +32,7 @@ export default function WhatsApp({ order }) {
     const customer = customers[customerUUID];
   
     if (!customer) {
-      alert("Customer information not found.");
+      toast.error("Customer information not found.");
       return;
     }
   
@@ -39,14 +40,14 @@ export default function WhatsApp({ order }) {
     let phoneNumber = customer.Mobile_number?.toString().trim() || "";
   
     if (!phoneNumber) {
-      alert("Phone number is missing.");
+      toast.error("Phone number is missing.");
       return;
     }
   
     phoneNumber = phoneNumber.replace(/\D/g, "");
   
     if (phoneNumber.length !== 10) {
-      alert("Phone number must be 10 digits.");
+      toast.error("Phone number must be 10 digits.");
       return;
     }
   
@@ -56,20 +57,17 @@ export default function WhatsApp({ order }) {
       type: "order_update",
     };
   
-    console.log("Sending payload:", payload); 
-  
     try {
       const { data: result } = await axios.post('/api/usertasks/send-message', payload);
-      console.log("Message sent:", result);
 
       if (result.error) {
-        alert("Failed to send: " + result.error);
+        toast.error("Failed to send: " + result.error);
       } else {
-        alert("Message sent successfully.");
+        toast.success("Message sent successfully.");
       }
     } catch (error) {
       console.error("Request failed:", error);
-      alert("Failed to send message.");
+      toast.error("Failed to send message.");
     }
   };
 

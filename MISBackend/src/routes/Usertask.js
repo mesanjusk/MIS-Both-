@@ -2,9 +2,10 @@ const { requireAuth } = require('../middleware/auth');
 const express = require("express");
 const router = express.Router();
 const Usertasks = require("../repositories/usertask");
+const Counter = require("../repositories/counter");
 const { v4: uuid } = require("uuid");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
-const normalizeWhatsAppNumber = require("../utils/normalizeNumber"); // ✅ New import
+const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
 
 // Add new user task and optionally send WhatsApp message to user
@@ -14,25 +15,30 @@ router.post("/addUsertask", async (req, res) => {
   const { Usertask_name, User, Deadline, Remark } = req.body;
 
   try {
-    const lastUsertask = await Usertasks.findOne().sort({ Usertask_Number: -1 });
-    const newTaskNumber = lastUsertask ? lastUsertask.Usertask_Number + 1 : 1;
     const data = await Usertasks.findOne({ Usertask_name });
 
     if (data) {
-      res.json("exist");
-    } else {
-      const newTask = new Usertasks({
-        Usertask_name,
-        User,
-        Usertask_Number: newTaskNumber,
-        Date: new Date().toISOString().split("T")[0],
-        Time: new Date().toLocaleTimeString("en-US", { hour12: false }),
-        Usertask_uuid: uuid(),
-        Deadline,
-        Remark,
-        Status: "Pending"
-      });
-      await newTask.save();
+      return res.status(409).json({ success: false, message: "Task already exists" });
+    }
+
+    const taskCounter = await Counter.findByIdAndUpdate(
+      'usertask_number',
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+    const newTaskNumber = Number(taskCounter?.seq || 1);
+    const newTask = new Usertasks({
+      Usertask_name,
+      User,
+      Usertask_Number: newTaskNumber,
+      Date: new Date().toISOString().split("T")[0],
+      Time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+      Usertask_uuid: uuid(),
+      Deadline,
+      Remark,
+      Status: "Pending"
+    });
+    await newTask.save();
 
       // ✅ Format number before sending message
       try {
@@ -47,11 +53,10 @@ router.post("/addUsertask", async (req, res) => {
         logger.error("Failed to send WhatsApp message:", err.message);
       }
 
-      res.json("notexist");
-    }
+    res.status(201).json({ success: true, result: newTask });
   } catch (e) {
     logger.error("Error saving Task:", e);
-    res.status(500).json("fail");
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 
@@ -76,10 +81,10 @@ router.post('/send-message', async (req, res) => {
 // Get all user tasks
 router.get("/GetUsertaskList", async (req, res) => {
   try {
-    let data = await Usertasks.find({});
+    let data = await Usertasks.find({}).lean();
     if (data.length)
       res.json({ success: true, result: data.filter((a) => a.Usertask_name) });
-    else res.json({ success: false, message: "Task Not found" });
+    else res.status(404).json({ success: false, message: "Task Not found" });
   } catch (err) {
     logger.error("Error fetching Task:", err);
     res.status(500).json({ success: false, message: err });

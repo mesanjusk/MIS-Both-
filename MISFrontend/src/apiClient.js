@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getStoredToken } from "./utils/authStorage";
+import { getStoredToken, clearStoredToken } from "./utils/authStorage";
 
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
@@ -37,7 +37,17 @@ client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalConfig = error?.config || {};
+    const status = error?.response?.status;
     const isNetworkFailure = !error?.response;
+
+    // On 401 (expired / invalid token), clear storage and send to login.
+    // Skip if the failing request is already the login endpoint itself.
+    if (status === 401 && !originalConfig.url?.includes('/login')) {
+      clearStoredToken();
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
     const canRetryRemote =
       isLocalhost &&
       SERVER_API &&

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { FormControl, InputLabel, MenuItem, Select } from '@mui/material';
 import PropTypes from 'prop-types';
 import { addTask, fetchTaskGroups } from '../services/taskService.js';
@@ -27,23 +28,17 @@ export default function AddTask({ closeModal }) {
   async function submit(e) {
     e.preventDefault();
     try {
-      const res = await addTask({
-        Task_name,
-        Task_group,
-      });
-
-      if (res.data === 'exist') {
-        alert('Task already exists');
-      } else if (res.data === 'notexist') {
-        alert('Task added successfully');
-        if (closeModal) {
-          closeModal();
-        }
-        navigate('/home');
-      }
+      await addTask({ Task_name, Task_group });
+      toast.success('Task added successfully');
+      if (closeModal) closeModal();
+      navigate('/home');
     } catch (error) {
-      alert('wrong details');
-      console.log(error);
+      if (error.response?.status === 409) {
+        toast.error('Task already exists');
+      } else {
+        toast.error(error.response?.data?.message || 'Error saving task');
+        console.error(error);
+      }
     }
   }
 

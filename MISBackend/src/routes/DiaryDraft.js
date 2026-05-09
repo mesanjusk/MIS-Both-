@@ -217,6 +217,88 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Fetch exact cash/bank account UUIDs + names from Customer master
+async function getCashBankAccounts() {
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1, Customer_uuid: 1 }
+  ).lean();
+  const cashDocs = docs.filter((d) => d.Customer_name && /cash/i.test(d.Customer_name));
+  const bankDocs = docs.filter((d) => d.Customer_name && /sanju/i.test(d.Customer_name));
+  const cashUuids = cashDocs.map((d) => d.Customer_uuid).filter(Boolean);
+  const bankUuids = bankDocs.map((d) => d.Customer_uuid).filter(Boolean);
+  const cashNames = cashDocs.map((d) => d.Customer_name);
+  const bankNames = bankDocs.map((d) => d.Customer_name);
+  // Include both UUIDs and names so old (name-based) and new (UUID-based) transactions both match
+  return {
+    cashAccounts: cashUuids,
+    cashNames,
+    bankAccounts: bankUuids,
+    bankNames,
+    all: [...cashUuids, ...bankUuids, ...cashNames, ...bankNames],
+  };
+}
+
+// GET /api/diary/ledger-dates — distinct dates with cash/bank transactions this FY
+router.get('/ledger-dates', async (req, res) => {
+  try {
+    const now = new Date();
+    const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
+
+    const { all: targetAccounts } = await getCashBankAccounts();
+    if (!targetAccounts.length) {
+      return res.json({ success: true, result: [] });
+    }
+
+    const dates = await Transaction.aggregate([
+      {
+        $match: {
+          Transaction_date: { $gte: fyStart },
+          'Journal_entry.Account_id': { $in: targetAccounts },
+        },
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$Transaction_date' } },
+        },
+      },
+      { $sort: { _id: -1 } },
+    ]);
+
+    return res.json({ success: true, result: dates.map((d) => d._id) });
+  } catch (err) {
+    logger.error({ err }, 'GET /diary/ledger-dates');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// GET /api/diary/ledger?date=YYYY-MM-DD — cash/bank transactions for a specific date
+router.get('/ledger', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ success: false, message: 'date query param required (YYYY-MM-DD)' });
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${date}T23:59:59.999Z`);
+
+    const { cashAccounts, cashNames, bankAccounts, bankNames, all: targetAccounts } = await getCashBankAccounts();
+
+    const txns = await Transaction.find({
+      Transaction_date: { $gte: dayStart, $lte: dayEnd },
+      'Journal_entry.Account_id': { $in: targetAccounts },
+    })
+      .sort({ Transaction_id: 1 })
+      .lean();
+
+    // Return both UUIDs and names so frontend can match either format
+    return res.json({ success: true, result: txns, meta: { cashAccounts, cashNames, bankAccounts, bankNames } });
+  } catch (err) {
+    logger.error({ err }, 'GET /diary/ledger');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/diary/:uuid  — single diary with all entries
 router.get('/:uuid', async (req, res) => {
   try {
@@ -273,12 +355,16 @@ router.post('/:uuid/confirm', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Diary is already confirmed' });
     }
 
+    const { cashAccounts, bankAccounts } = await getCashBankAccounts();
+    const cashUuid = cashAccounts[0] || 'Cash';
+    const bankUuid = bankAccounts[0] || 'Bank';
+
     let created = 0;
     for (const entry of draft.entries) {
       if (entry.entry_status === 'rejected') continue;
       if (!entry.account_assigned)           continue;
 
-      const ledgerAccount = entry.book === 'bank' ? 'Bank' : 'Cash';
+      const ledgerAccount = entry.book === 'bank' ? bankUuid : cashUuid;
       const journal = entry.direction === 'in'
         ? [
             { Account_id: ledgerAccount,         Type: 'Debit',  Amount: entry.amount },

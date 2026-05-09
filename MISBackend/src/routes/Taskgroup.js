@@ -15,7 +15,7 @@ router.post(
 
     const check = await Taskgroup.findOne({ Task_group });
     if (check) {
-      return res.json("exist");
+      return res.status(409).json({ success: false, message: "Task group already exists" });
     }
 
     const newGroup = new Taskgroup({
@@ -24,14 +24,14 @@ router.post(
     });
 
     await newGroup.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newGroup });
   })
 );
 
 router.get(
   "/GetTaskgroupList",
   asyncHandler(async (_req, res) => {
-    const data = await Taskgroup.find({});
+    const data = await Taskgroup.find({}).lean();
 
     if (!data.length) {
       throw new AppError("Task Group Not found", 200);

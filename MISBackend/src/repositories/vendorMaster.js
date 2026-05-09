@@ -11,6 +11,7 @@ const vendorMasterSchema = new mongoose.Schema(
     Opening_balance: { type: Number, default: 0 },
     Opening_balance_type: { type: String, enum: ['payable', 'advance', 'none'], default: 'none' },
     Payment_terms: { type: String, default: '' },
+    Email: { type: String, default: '', trim: true },
     Vendor_type: { type: String, enum: ['material', 'jobwork', 'mixed'], default: 'mixed' },
     Active: { type: Boolean, default: true },
     Notes: { type: String, default: '' },
@@ -19,6 +20,9 @@ const vendorMasterSchema = new mongoose.Schema(
   },
   { timestamps: true, collection: 'vendor_masters' }
 );
+
+vendorMasterSchema.index({ Active: 1 });
+vendorMasterSchema.index({ Vendor_type: 1, Active: 1 });
 
 vendorMasterSchema.pre('validate', function(next) {
   if (!this.Vendor_uuid) this.Vendor_uuid = uuidv4();

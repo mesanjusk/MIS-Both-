@@ -6,7 +6,20 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
+const Transaction = require('../repositories/transaction');
+const Counter = require('../repositories/counter');
+const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
+
+// Return first bank account name from ledger master (Customer_group === 'Bank and Account', name ~sanju)
+async function getBankAccountName() {
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1 }
+  ).lean();
+  const bankNames = docs.map((d) => d.Customer_name).filter((n) => n && /sanju/i.test(n));
+  return bankNames[0] || 'Bank';
+}
 
 router.use(requireAuth);
 
@@ -250,6 +263,77 @@ function parseSbiPdfText(text) {
   return { entries, accountName, error };
 }
 
+// Parse SBI bank statement in fixed-width notepad/text format.
+// Dates: "D Mon YYYY" or "DD Mon YYYY".  Direction: prefix "TO" = debit/out, "BY"/"INB" = credit/in.
+function parseSbiTextFormat(text) {
+  const MONTH_MAP = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+
+  function parseSbiDate(str) {
+    if (!str) return null;
+    const m = str.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/);
+    if (!m) return null;
+    const month = MONTH_MAP[m[2].toLowerCase()];
+    if (month === undefined) return null;
+    return new Date(Date.UTC(Number(m[3]), month, Number(m[1])));
+  }
+
+  let accountName = '';
+  const nameMatch = text.match(/account\s*(?:name|holder)?\s*[:\-]?\s*([A-Z][A-Z\s]{3,})/i);
+  if (nameMatch) accountName = nameMatch[1].trim();
+
+  const entries = [];
+  for (const line of text.split('\n')) {
+    const lineStr = line.trim();
+    if (!lineStr) continue;
+
+    const dateParts = [...lineStr.matchAll(/\b(\d{1,2}\s+[A-Za-z]{3}\s+\d{4})\b/g)];
+    if (!dateParts.length) continue;
+
+    const txnDate = parseSbiDate(dateParts[0][1]);
+    if (!txnDate) continue;
+    const valueDate = dateParts[1] ? (parseSbiDate(dateParts[1][1]) || txnDate) : txnDate;
+
+    const amounts = [...lineStr.matchAll(/([\d,]+\.\d{2})/g)];
+    if (amounts.length < 2) continue;
+
+    const balance = toAmt(amounts[amounts.length - 1][1]);
+    const credit  = toAmt(amounts[amounts.length - 2][1]);
+    const debit   = amounts.length >= 3 ? toAmt(amounts[amounts.length - 3][1]) : 0;
+    if (!debit && !credit) continue;
+
+    // Description: text between last date-match end and first-of-the-last-2/3-amounts start
+    const lastDate    = dateParts[dateParts.length - 1];
+    const lastDateEnd = lastDate.index + lastDate[0].length;
+    const amtOffset   = amounts.length >= 3 ? amounts.length - 3 : amounts.length - 2;
+    const firstAmtIdx = amounts[amtOffset].index;
+    let desc = lineStr.substring(lastDateEnd, firstAmtIdx).replace(/\s+/g, ' ').trim();
+    // Strip trailing standalone ref number (6+ digits)
+    desc = desc.replace(/\s+\d{6,}\s*$/, '').trim();
+
+    const descUpper = desc.toUpperCase();
+    let direction;
+    if (/^(TO |BY DEBIT|DEBIT)/.test(descUpper)) direction = 'out';
+    else if (/^(BY |INB |CREDIT|NEFT CR|IMPS CR)/.test(descUpper)) direction = 'in';
+    else direction = credit > 0 ? 'in' : 'out';
+
+    entries.push({
+      entry_uuid:   uuid(),
+      txn_date:     txnDate,
+      value_date:   valueDate,
+      description:  desc,
+      ref_no:       '',
+      debit,
+      credit,
+      balance,
+      direction,
+      match_status: 'unmatched',
+    });
+  }
+
+  const error = entries.length ? null : 'No transactions found in text format.';
+  return { entries, accountName, error };
+}
+
 // Auto-match bank statement entries against diary bank entries
 async function autoMatchEntries(stmtEntries) {
   if (!stmtEntries.length) return stmtEntries;
@@ -337,9 +421,14 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
       return res.status(422).json({ success: false, message: 'Could not read PDF. Make sure it is not password-protected.' });
     }
 
-    const { entries, error, accountName } = parseSbiPdfText(pdfData.text);
+    let parsed = parseSbiPdfText(pdfData.text);
+    // Fallback to fixed-width text format (works when PDF text looks like notepad export)
+    if (parsed.error || !parsed.entries.length) {
+      const fallback = parseSbiTextFormat(pdfData.text);
+      if (!fallback.error) parsed = fallback;
+    }
+    const { entries, error, accountName } = parsed;
     if (error) {
-      // Return extracted text in dev so we can tune the parser
       return res.status(400).json({
         success: false,
         message: error,
@@ -375,9 +464,14 @@ router.post('/upload-csv', async (req, res) => {
       return res.status(400).json({ success: false, message: 'csv_text and uploaded_by are required' });
     }
 
-    const { entries, error, accountName } = parseSbiCsv(csv_text);
+    let parsed = parseSbiCsv(csv_text);
+    // Fallback to fixed-width text/notepad format
+    if (parsed.error || !parsed.entries.length) {
+      parsed = parseSbiTextFormat(csv_text);
+    }
+    const { entries, error, accountName } = parsed;
     if (error) return res.status(400).json({ success: false, message: error });
-    if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found in CSV' });
+    if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found' });
 
     const enriched = await autoMatchEntries(entries);
 
@@ -410,6 +504,42 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/bank-statement/by-date?date=YYYY-MM-DD
+// Returns unmatched, non-confirmed bank statement entries for a given date
+router.get('/by-date', async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ success: false, message: 'date query param required (YYYY-MM-DD)' });
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd   = new Date(`${date}T23:59:59.999Z`);
+
+    const statements = await BankStatement.find({
+      'entries.txn_date': { $gte: dayStart, $lte: dayEnd },
+    }).lean();
+
+    const entries = [];
+    for (const stmt of statements) {
+      for (const entry of stmt.entries || []) {
+        const d = new Date(entry.txn_date);
+        if (d < dayStart || d > dayEnd) continue;
+        if (entry.match_status === 'matched') continue;      // already has a diary entry
+        if (entry.entry_status === 'confirmed') continue;    // already confirmed
+        entries.push({
+          ...entry,
+          statement_uuid: stmt.statement_uuid,
+          account_name:   stmt.account_name,
+        });
+      }
+    }
+
+    return res.json({ success: true, result: entries });
+  } catch (err) {
+    logger.error({ err }, 'GET /bank-statement/by-date');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/bank-statement/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
@@ -422,15 +552,20 @@ router.get('/:uuid', async (req, res) => {
   }
 });
 
-// PUT /api/bank-statement/:uuid/entry/:entryUuid  — manual match / unmatch
+// PUT /api/bank-statement/:uuid/entry/:entryUuid  — update match or account assignment
 router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   try {
-    const { match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party } = req.body;
+    const {
+      match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party,
+      account_assigned, entry_status,
+    } = req.body;
     const setFields = {};
-    if (match_status              !== undefined) setFields['entries.$[e].match_status']              = match_status;
-    if (matched_diary_uuid        !== undefined) setFields['entries.$[e].matched_diary_uuid']        = matched_diary_uuid;
-    if (matched_diary_entry_uuid  !== undefined) setFields['entries.$[e].matched_diary_entry_uuid']  = matched_diary_entry_uuid;
-    if (matched_party             !== undefined) setFields['entries.$[e].matched_party']             = matched_party;
+    if (match_status             !== undefined) setFields['entries.$[e].match_status']             = match_status;
+    if (matched_diary_uuid       !== undefined) setFields['entries.$[e].matched_diary_uuid']       = matched_diary_uuid;
+    if (matched_diary_entry_uuid !== undefined) setFields['entries.$[e].matched_diary_entry_uuid'] = matched_diary_entry_uuid;
+    if (matched_party            !== undefined) setFields['entries.$[e].matched_party']            = matched_party;
+    if (account_assigned         !== undefined) setFields['entries.$[e].account_assigned']         = account_assigned;
+    if (entry_status             !== undefined) setFields['entries.$[e].entry_status']             = entry_status;
     if (match_status === 'manual') setFields['entries.$[e].match_status'] = 'manual';
 
     await BankStatement.updateOne(
@@ -443,6 +578,67 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     return res.json({ success: true, result: updated });
   } catch (err) {
     logger.error({ err }, 'PUT /bank-statement/:uuid/entry/:entryUuid');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// POST /api/bank-statement/:uuid/entry/:entryUuid/confirm
+// Confirms a bank statement entry → creates a double-entry transaction in the ledger
+router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
+  try {
+    const { confirmed_by } = req.body;
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
+    if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
+    if (!entry.account_assigned) {
+      return res.status(400).json({ success: false, message: 'Assign an account before confirming' });
+    }
+    if (entry.entry_status === 'confirmed') {
+      return res.status(400).json({ success: false, message: 'Entry is already confirmed' });
+    }
+
+    const bankAccount = await getBankAccountName();
+    const amount = entry.credit > 0 ? entry.credit : entry.debit;
+
+    const journal = entry.direction === 'in'
+      ? [
+          { Account_id: bankAccount,           Type: 'Debit',  Amount: amount },
+          { Account_id: entry.account_assigned, Type: 'Credit', Amount: amount },
+        ]
+      : [
+          { Account_id: entry.account_assigned, Type: 'Debit',  Amount: amount },
+          { Account_id: bankAccount,            Type: 'Credit', Amount: amount },
+        ];
+
+    const counter = await Counter.findByIdAndUpdate(
+      'transaction_number',
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    const txn = new Transaction({
+      Transaction_uuid: uuid(),
+      Transaction_id:   Number(counter?.seq || 1),
+      Transaction_date: entry.txn_date,
+      Description:      entry.description || entry.account_assigned,
+      Total_Debit:      amount,
+      Total_Credit:     amount,
+      Payment_mode:     'Bank',
+      Created_by:       confirmed_by || 'bank_statement',
+      Journal_entry:    journal,
+      Source:           'bank_statement',
+    });
+    await txn.save();
+
+    entry.entry_status    = 'confirmed';
+    entry.transaction_uuid = txn.Transaction_uuid;
+    await stmt.save();
+
+    return res.json({ success: true, message: 'Transaction created', result: stmt });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/entry/:entryUuid/confirm');
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });

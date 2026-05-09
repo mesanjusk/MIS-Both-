@@ -10,6 +10,7 @@ const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Counter = require('../repositories/counter');
 const Items = require('../repositories/items');
+const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
 const logger = require('../utils/logger');
 
@@ -58,6 +59,7 @@ async function ensureVendorMaster(vendorPayload = {}) {
     Vendor_uuid: vendorPayload.vendor_uuid || uuid(),
     Vendor_name: String(vendorPayload.vendor_name || '').trim(),
     Mobile_number: String(vendorPayload.mobile_number || ''),
+    Email: String(vendorPayload.email || '').trim(),
     Address: String(vendorPayload.address || ''),
     GST: String(vendorPayload.gst || ''),
     Opening_balance: toNumber(vendorPayload.opening_balance, 0),
@@ -101,7 +103,7 @@ router.post('/addVendor', async (req, res) => {
     }
 
     const check = await VendorsLegacy.findOne({ Order_Number: Order_Number });
-    if (check) return res.json('exist');
+    if (check) return res.status(409).json({ success: false, message: "Vendor assignment already exists for this order" });
 
     const matchedItem = await Items.findOne({ $or: [{ Item_name: Item_uuid }, { Item_uuid: Item_uuid }] });
     if (!matchedItem) {
@@ -116,10 +118,10 @@ router.post('/addVendor', async (req, res) => {
       Vendor_uuid: uuid(),
     });
     await newVendor.save();
-    res.json('notexist');
+    res.status(201).json({ success: true, result: newVendor });
   } catch (e) {
     logger.error('Error saving vendor:', e);
-    res.status(500).json('fail');
+    res.status(500).json({ success: false, message: e.message || "Server error" });
   }
 });
 
@@ -230,8 +232,29 @@ router.get('/masters', async (req, res) => {
   try {
     const query = {};
     if (String(req.query.activeOnly || '').toLowerCase() === 'true') query.Active = true;
-    const vendors = await VendorMaster.find(query).sort({ Vendor_name: 1 }).lean();
-    res.json({ success: true, result: vendors });
+    const [vendorMasters, customerVendors] = await Promise.all([
+      VendorMaster.find(query).sort({ Vendor_name: 1 }).lean(),
+      Customers.find({ PartyRoles: 'vendor', Status: 'active' }, {
+        Customer_uuid: 1, Customer_name: 1, Mobile_number: 1, Customer_group: 1,
+      }).sort({ Customer_name: 1 }).lean(),
+    ]);
+
+    const masterUuids = new Set(vendorMasters.map((v) => v.Vendor_uuid));
+    const fromCustomers = customerVendors
+      .filter((c) => !masterUuids.has(c.Customer_uuid))
+      .map((c) => ({
+        Vendor_uuid: c.Customer_uuid,
+        Vendor_name: c.Customer_name,
+        Mobile_number: c.Mobile_number || '',
+        Active: true,
+        source: 'customer',
+        Customer_group: c.Customer_group,
+      }));
+
+    const result = [...vendorMasters, ...fromCustomers].sort((a, b) =>
+      String(a.Vendor_name).localeCompare(String(b.Vendor_name))
+    );
+    res.json({ success: true, result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -255,6 +278,7 @@ router.put('/masters/:vendorUuid', async (req, res) => {
         $set: {
           Vendor_name: String(req.body.vendor_name || '').trim(),
           Mobile_number: String(req.body.mobile_number || ''),
+          Email: String(req.body.email || '').trim(),
           Address: String(req.body.address || ''),
           GST: String(req.body.gst || ''),
           Payment_terms: String(req.body.payment_terms || ''),

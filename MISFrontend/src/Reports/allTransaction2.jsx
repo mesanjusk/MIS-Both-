@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from '../apiClient.js';
 import AddOrder1 from "../Pages/addOrder1";
+import toast from 'react-hot-toast';
 import { FaWhatsapp, FaSortUp, FaSortDown } from 'react-icons/fa';
 
 const AllTransaction2 = () => {
@@ -107,19 +108,19 @@ const AllTransaction2 = () => {
         try {
             const { data: result } = await axios.post('/api/usertasks/send-message', payload);
             if (result.error) {
-                alert("Failed to send: " + result.error);
+                toast.error("Failed to send: " + result.error);
             } else {
-                alert("Message sent successfully.");
+                toast.success("Message sent successfully.");
             }
         } catch (error) {
             console.error("Request failed:", error);
-            alert("Failed to send message.");
+            toast.error("Failed to send message.");
         }
     };
 
     const sendWhatsApp = (name, phone, balance) => {
         if (phone === 'No phone number') {
-            alert("No phone number available for this customer.");
+            toast.error("No phone number available for this customer.");
             return;
         }
         sendMessageToAPI(name, phone, balance);

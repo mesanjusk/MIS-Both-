@@ -1,3 +1,4 @@
+import toast from 'react-hot-toast';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../apiClient.js';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +26,7 @@ export default function TaskUpdate({ task, onClose }) {
           setTasks([]);
         }
       })
-      .catch(err => console.log('Error fetching order list:', err));
+      .catch(err => console.error('Error fetching order list:', err));
   }, []);
   
   
@@ -42,13 +43,13 @@ export default function TaskUpdate({ task, onClose }) {
       })
       .then(res => {
         if (res.data.success) {
-          alert('Task updated successfully!');
+          toast.success('Task updated successfully!');
           onClose(); 
           navigate("/home");  
         }
       })
       .catch(err => {
-        console.log('Error updating order:', err);
+        console.error('Error updating order:', err);
       });
   };
 

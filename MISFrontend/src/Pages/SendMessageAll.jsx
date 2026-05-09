@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import normalizeWhatsAppNumber from '../utils/normalizeNumber';
 import { fetchSessions, sendTestMessage } from '../services/whatsappService.js';
 
@@ -9,31 +10,31 @@ export default function SendMessagePanel() {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    const fetchSessions = async () => {
+    const loadSessions = async () => {
       try {
         const res = await fetchSessions();
         if (res.data.success) setSessions(res.data.sessions);
       } catch (err) {
-        console.error('❌ Failed to load sessions:', err);
+        console.error('Failed to load sessions:', err);
       }
     };
-    fetchSessions();
+    loadSessions();
   }, []);
 
   const sendMessage = async () => {
     try {
       const number = normalizeWhatsAppNumber(to);
       await sendTestMessage({ sessionId, to: number, message });
-      alert('✅ Message sent!');
+      toast.success('Message sent!');
     } catch (err) {
       console.error(err);
-      alert('❌ Failed to send message');
+      toast.error('Failed to send message');
     }
   };
 
   return (
     <div className="max-w-xl mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-4">📤 Send WhatsApp Message</h2>
+      <h2 className="text-2xl font-bold mb-4">Send WhatsApp Message</h2>
 
       <div className="mb-4">
         <label className="block text-sm font-medium">Session</label>

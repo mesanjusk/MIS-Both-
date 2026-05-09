@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from "react-router-dom";
+import toast from 'react-hot-toast';
 import { fetchCustomers } from '../services/customerService.js';
 import { fetchPayments } from '../services/paymentService.js';
 import { updateOrder } from '../services/orderService.js';
@@ -72,13 +73,13 @@ export default function UpdateCustomer({order, onClose}) {
         try {
             const customer = customerOptions.find(option => option.Customer_name === Customer_name);
            
-            if (!customer) return alert("Invalid Customer selection.");
+            if (!customer) return toast.error("Invalid Customer selection.");
 
            await updateOrder(order.Order_uuid, {
                 Customer_uuid: customer.Customer_uuid,
             })   .then(res => {
               if (res.data.success) {
-                alert('Order updated successfully!');
+                toast.success('Order updated successfully!');
                 onClose(); 
                 navigate("/allOrder");  
               }

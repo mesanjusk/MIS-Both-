@@ -16,7 +16,7 @@ router.post(
 
     const existingPayment = await Payment_mode.findOne({ Payment_name });
     if (existingPayment) {
-      return res.json("exist");
+      return res.status(409).json({ success: false, message: "Payment mode already exists" });
     }
 
     const newPayment = new Payment_mode({
@@ -25,14 +25,14 @@ router.post(
     });
 
     await newPayment.save();
-    res.json("notexist");
+    res.status(201).json({ success: true, result: newPayment });
   })
 );
 
 router.get(
   "/GetPaymentList",
   asyncHandler(async (_req, res) => {
-    const data = await Payment_mode.find({});
+    const data = await Payment_mode.find({}).lean();
 
     if (!data.length) {
       throw new AppError("Payment Not found", 200);

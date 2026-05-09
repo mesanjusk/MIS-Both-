@@ -4,18 +4,20 @@ const logger = require('../utils/logger');
 
 const updateOrderStatus = async (orderId, newStatus) => {
   try {
-    const order = await Orders.findById(orderId);
-    if (!order) {
-      return { success: false, message: 'Order not found' };
-    }
-
-    const currentStatusNumbers = order.Status.map(status => status.Status_number);
-    const maxStatusNumber = Math.max(...currentStatusNumbers, 0);
-    const nextStatusNumber = maxStatusNumber + 1;
-
+    // Aggregation pipeline update: Status_number is derived from $size of the
+    // current array inside the same atomic write — no separate read, no race condition.
     const updatedOrder = await Orders.findOneAndUpdate(
       { _id: orderId },
-      { $push: { Status: { ...newStatus, Status_number: nextStatusNumber } } },
+      [{
+        $set: {
+          Status: {
+            $concatArrays: [
+              { $ifNull: ['$Status', []] },
+              [{ ...newStatus, Status_number: { $add: [{ $size: { $ifNull: ['$Status', []] } }, 1] } }],
+            ],
+          },
+        },
+      }],
       { new: true }
     );
 

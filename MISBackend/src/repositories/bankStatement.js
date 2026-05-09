@@ -15,6 +15,10 @@ const bankStatementEntrySchema = new mongoose.Schema({
   matched_diary_uuid:        { type: String, default: null },
   matched_diary_entry_uuid:  { type: String, default: null },
   matched_party:             { type: String, default: '' },
+  // Day Book assignment fields
+  account_assigned:          { type: String, default: '' },
+  entry_status:              { type: String, enum: ['pending', 'confirmed', 'rejected'], default: 'pending' },
+  transaction_uuid:          { type: String, default: null },
 });
 
 const BankStatementSchema = new mongoose.Schema({

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { fetchPriorityById, updatePriority } from '../services/priorityService.js';
 
 export default function EditPriority({ priorityId, closeModal }) {
@@ -18,16 +19,16 @@ export default function EditPriority({ priorityId, closeModal }) {
                         });
                     }
                 })
-                .catch(err => console.log('Error fetching priority data:', err));
+                .catch(err => console.error('Error fetching priority data:', err));
         }
     }, [priorityId]);
-    
+
 
     const handleSaveChanges = (e) => {
         e.preventDefault();
 
         if (!values.Priority_name) {
-            alert('All fields are required.');
+            toast.error('All fields are required.');
             return;
         }
 
@@ -36,12 +37,13 @@ export default function EditPriority({ priorityId, closeModal }) {
         })
         .then(res => {
             if (res.data.success) {
-                alert('Priority updated successfully!');
-                closeModal(); 
+                toast.success('Priority updated successfully!');
+                closeModal();
             }
         })
         .catch(err => {
-            console.log('Error updating priority:', err);
+            console.error('Error updating priority:', err);
+            toast.error('Failed to update priority.');
         });
     };
 
@@ -50,7 +52,7 @@ export default function EditPriority({ priorityId, closeModal }) {
             <h2 className="text-xl font-bold mb-4">Edit Priority</h2>
             <form onSubmit={handleSaveChanges}>
             <div className="self-start bg-white p-2 w-100 mb-2 rounded-lg">
-                <label>Priority Name</label> 
+                <label>Priority Name</label>
                 <br></br>
                 <input
                     type="text"

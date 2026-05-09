@@ -67,6 +67,7 @@ router.post("/addCustomer", async (req, res) => {
   const {
     Customer_name,
     Mobile_number,
+    Email,
     Customer_group,
     Status,
     Tags,
@@ -96,6 +97,7 @@ router.post("/addCustomer", async (req, res) => {
     const newCustomer = new Customers({
       Customer_name: name,
       Mobile_number: mobile, // null if blank
+      Email: S(Email || ''),
       Customer_group,
       Status,
       Tags,
@@ -294,11 +296,27 @@ router.get("/:id", async (req, res) => {
 /* ----------------------------------------------------------------
    Update a customer
 ----------------------------------------------------------------- */
+router.patch("/:uuid/email", async (req, res) => {
+  try {
+    const updated = await Customers.findOneAndUpdate(
+      { Customer_uuid: req.params.uuid },
+      { $set: { Email: S(req.body.email || '') } },
+      { new: true }
+    ).lean();
+    if (!updated) return res.status(404).json({ success: false, message: 'Customer not found' });
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('Patch customer email error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 router.put("/update/:id", async (req, res) => {
   const { id } = req.params;
   const {
     Customer_name,
     Mobile_number,
+    Email,
     Customer_group,
     Status,
     Tags,
@@ -312,6 +330,7 @@ router.put("/update/:id", async (req, res) => {
       {
         Customer_name,
         Mobile_number,
+        Email: S(Email || ''),
         Customer_group,
         Status,
         Tags,

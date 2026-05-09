@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box, Button, Chip, CircularProgress, Divider, IconButton, LinearProgress,
-  MenuItem, Paper, Stack, TextField, Typography,
+  ListSubheader, MenuItem, Paper, Stack, TextField, Typography,
 } from '@mui/material';
 import AttachFileRoundedIcon  from '@mui/icons-material/AttachFileRounded';
 import CloseRoundedIcon       from '@mui/icons-material/CloseRounded';
@@ -11,6 +11,7 @@ import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import toast from 'react-hot-toast';
 import { sendEmail } from '../services/gmailService';
 import { fetchVendorMasters } from '../services/vendorService';
+import { fetchCustomers } from '../services/customerService';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
 
@@ -35,33 +36,47 @@ function parseFilename(name) {
 }
 
 export default function EmailCompose() {
-  const [vendors, setVendors]       = useState([]);
-  const [files, setFiles]           = useState([]);
-  const [sending, setSending]       = useState(false);
-  const [progress, setProgress]     = useState(0);
-  const [result, setResult]         = useState(null);
-  const [form, setForm]             = useState({ vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
+  const [vendors, setVendors]                 = useState([]);
+  const [customerVendors, setCustomerVendors] = useState([]);
+  const [files, setFiles]                     = useState([]);
+  const [sending, setSending]                 = useState(false);
+  const [progress, setProgress]               = useState(0);
+  const [result, setResult]                   = useState(null);
+  const [form, setForm] = useState({ recipientKey: '', vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
   const fileInputRef = useRef();
   const navigate     = useNavigate();
 
   const load = useCallback(async () => {
     try {
-      const rows = await fetchVendorMasters();
-      setVendors(Array.isArray(rows) ? rows : []);
+      const [vendorRows, customerRes] = await Promise.all([
+        fetchVendorMasters(),
+        fetchCustomers(),
+      ]);
+      setVendors(Array.isArray(vendorRows) ? vendorRows : []);
+      const allCustomers = customerRes?.data?.result || [];
+      setCustomerVendors(
+        allCustomers.filter((c) => Array.isArray(c.PartyRoles) && c.PartyRoles.includes('vendor'))
+      );
     } catch {
-      toast.error('Failed to load vendors');
+      toast.error('Failed to load recipients');
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const handleVendorChange = (vendorUuid) => {
-    const vendor = vendors.find((v) => v.Vendor_uuid === vendorUuid);
-    setForm((p) => ({
-      ...p,
-      vendorUuid,
-      toEmail: vendor?.Email || p.toEmail,
-    }));
+  const handleRecipientChange = (key) => {
+    let email = '';
+    let uuid  = '';
+    if (key.startsWith('v_')) {
+      const vendor = vendors.find((v) => v.Vendor_uuid === key.slice(2));
+      email = vendor?.Email || '';
+      uuid  = vendor?.Vendor_uuid || '';
+    } else if (key.startsWith('c_')) {
+      const cust = customerVendors.find((c) => c.Customer_uuid === key.slice(2));
+      email = cust?.Email || '';
+      uuid  = cust?.Customer_uuid || '';
+    }
+    setForm((p) => ({ ...p, recipientKey: key, vendorUuid: uuid, toEmail: email || p.toEmail }));
   };
 
   const handleFiles = (incoming) => {
@@ -107,7 +122,7 @@ export default function EmailCompose() {
   const reset = () => {
     setResult(null);
     setFiles([]);
-    setForm({ vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
+    setForm({ recipientKey: '', vendorUuid: '', toEmail: '', subject: '', bodyText: '' });
   };
 
   // ── Success screen ──────────────────────────────────────────────────────────
@@ -147,7 +162,7 @@ export default function EmailCompose() {
     );
   }
 
-  const parsed    = files.map((f) => ({ name: f.name, info: parseFilename(f.name) }));
+  const parsed       = files.map((f) => ({ name: f.name, info: parseFilename(f.name) }));
   const largeMbFiles = files.filter((f) => f.size >= LARGE_MB * 1024 * 1024);
 
   return (
@@ -155,23 +170,41 @@ export default function EmailCompose() {
       <Typography variant="h5" fontWeight={900} sx={{ mb: 2 }}>Send Email to Vendor</Typography>
 
       <Stack spacing={2}>
-        {/* Vendor selector */}
+        {/* Recipient selector — Vendor accounts + Customer-Vendors */}
         <TextField
-          select label="Select Vendor *" size="small"
-          value={form.vendorUuid}
-          onChange={(e) => handleVendorChange(e.target.value)}
+          select label="Select Recipient *" size="small"
+          value={form.recipientKey}
+          onChange={(e) => handleRecipientChange(e.target.value)}
           fullWidth
-          helperText="Vendor email auto-fills if saved on the vendor record"
+          helperText="Email auto-fills if saved on the vendor/customer record"
+          SelectProps={{ MenuProps: { PaperProps: { style: { maxHeight: 360 } } } }}
         >
-          <MenuItem value="">— Select vendor —</MenuItem>
+          <MenuItem value="">— Select recipient —</MenuItem>
+
+          {vendors.length > 0 && (
+            <ListSubheader disableSticky sx={{ lineHeight: '28px', fontWeight: 700, fontSize: 11 }}>
+              VENDOR ACCOUNTS
+            </ListSubheader>
+          )}
           {vendors.map((v) => (
-            <MenuItem key={v.Vendor_uuid} value={v.Vendor_uuid}>
+            <MenuItem key={`v_${v.Vendor_uuid}`} value={`v_${v.Vendor_uuid}`}>
               {v.Vendor_name}{v.Email ? ` — ${v.Email}` : ''}
+            </MenuItem>
+          ))}
+
+          {customerVendors.length > 0 && (
+            <ListSubheader disableSticky sx={{ lineHeight: '28px', fontWeight: 700, fontSize: 11 }}>
+              CUSTOMER VENDORS
+            </ListSubheader>
+          )}
+          {customerVendors.map((c) => (
+            <MenuItem key={`c_${c.Customer_uuid}`} value={`c_${c.Customer_uuid}`}>
+              {c.Customer_name}{c.Email ? ` — ${c.Email}` : ''}
             </MenuItem>
           ))}
         </TextField>
 
-        {/* Recipient email — auto-filled from vendor, editable */}
+        {/* Recipient email — auto-filled from selection, editable */}
         <TextField
           label="Recipient Email *" size="small" type="email"
           value={form.toEmail}

@@ -7,3 +7,4 @@ export const fetchCustomerById = (customerId) => axios.get(`/api/customers/${cus
 export const updateCustomer = (customerId, payload) => axios.put(`/api/customers/update/${customerId}`, payload);
 export const deleteCustomer = (customerId) => axios.delete(`/api/customers/DeleteCustomer/${customerId}`);
 export const checkDuplicateCustomer = (name) => axios.get(`/api/customers/checkDuplicateName?name=${name}`);
+export const updateCustomerEmail = (uuid, email) => axios.patch(`/api/customers/${uuid}/email`, { email });

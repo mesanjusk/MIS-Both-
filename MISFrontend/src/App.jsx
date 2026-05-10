@@ -87,6 +87,7 @@ const BankReconciliation = lazy(() => import('./Pages/BankReconciliation'));
 const GmailAccounts = lazy(() => import('./Pages/GmailAccounts'));
 const EmailCompose  = lazy(() => import('./Pages/EmailCompose'));
 const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
+const OpeningBalance = lazy(() => import('./Pages/OpeningBalance'));
 
 function RouteLoader() {
   return (
@@ -157,6 +158,7 @@ export default function App() {
             <Route path="/addTransaction1" element={<Navigate to={ROUTES.PAYMENT} replace />} />
             <Route path={ROUTES.TRIAL_BALANCE} element={withSuspense(<TrialBalance />)} />
             <Route path={ROUTES.FOLLOWUPS} element={withSuspense(<PaymentFollowup />)} />
+            <Route path={ROUTES.OPENING_BALANCE} element={withSuspense(<OpeningBalance />)} />
             <Route path={ROUTES.DIARY_UPLOAD} element={withSuspense(<DiaryUpload />)} />
             <Route path={`${ROUTES.DAY_BOOK}/:uuid`} element={withSuspense(<DayBook />)} />
             <Route path={ROUTES.DAY_BOOK} element={withSuspense(<DayBook />)} />

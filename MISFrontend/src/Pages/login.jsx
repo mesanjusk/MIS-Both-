@@ -101,6 +101,7 @@ export default function Login() {
         userName: User_name,
         userGroup: data.userGroup,
         mobileNumber: data.userMobile || data.userMob || '',
+        permissions: data.permissions || {},
       });
 
       toast.success('Login successful. Redirecting...');

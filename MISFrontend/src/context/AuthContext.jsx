@@ -3,6 +3,7 @@ import { ROLE_TYPES, isAdminRole, isOfficeRole, normalizeRole } from "../constan
 import {
   STORAGE_KEYS,
   clearStoredSession,
+  getStoredPermissions,
   persistAuthState,
   pickFirst,
 } from "../utils/authStorage";
@@ -11,6 +12,7 @@ const initialAuthState = () => ({
   userName: pickFirst([STORAGE_KEYS.userName]),
   userGroup: pickFirst([STORAGE_KEYS.userGroup]),
   mobileNumber: pickFirst([STORAGE_KEYS.mobileNumber]),
+  permissions: getStoredPermissions(),
 });
 
 const AuthContext = createContext(null);
@@ -40,6 +42,7 @@ export function AuthProvider({ children }) {
       role: authState.userGroup || ROLE_TYPES.OFFICE,
       isAdmin: isAdminRole(authState.userGroup),
       isOfficeUser: isOfficeRole(authState.userGroup) || !authState.userGroup,
+      permissions: authState.permissions || {},
       setAuthData,
       clearAuth,
     }),

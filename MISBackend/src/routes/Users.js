@@ -57,6 +57,7 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
         token: token,
         userGroup: user.User_group,
         userMobile: user.Mobile_number,
+        permissions: user.permissions || {},
       });
 
     } else {
@@ -185,6 +186,27 @@ const authenticateToken = (req, res, next) => {
     next();
   });
 };
+
+// UPDATE USER PERMISSIONS — admin only
+router.put('/updateUserPermissions/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { permissions } = req.body;
+  if (!permissions || typeof permissions !== 'object') {
+    return res.status(400).json({ success: false, message: 'permissions object required' });
+  }
+  try {
+    const user = await Users.findByIdAndUpdate(
+      id,
+      { $set: { permissions } },
+      { new: true }
+    ).select('-Password');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    res.json({ success: true, result: user });
+  } catch (error) {
+    logger.error('Error updating permissions:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 // GET LOGGED IN USER GROUP
 router.get('/GetLoggedInUser', authenticateToken, async (req, res) => {

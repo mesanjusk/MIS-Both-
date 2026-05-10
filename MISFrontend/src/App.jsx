@@ -21,13 +21,11 @@ function RequireAuth({ children }) {
 const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
 const Dashboard = lazy(() => import('./Pages/Dashboard'));
-const DashboardV2 = lazy(() => import('./Pages/DashboardV2'));
 const AllAttandance = lazy(() => import('./Pages/AllAttandance'));
 const AttendanceReport = lazy(() => import('./Pages/AttendanceReport'));
 const PendingTasks = lazy(() => import('./Pages/PendingTasks'));
 const UserTask = lazy(() => import('./Pages/userTask'));
 const AddUsertask = lazy(() => import('./Pages/addUsertask'));
-const AddEnquiry = lazy(() => import('./Pages/addEnquiry'));
 const AddCustomer = lazy(() => import('./Pages/addCustomer'));
 const AddUser = lazy(() => import('./Pages/addUser'));
 const AddUsergroup = lazy(() => import('./Pages/addUsergroup'));
@@ -44,11 +42,7 @@ const OrderUpdate = lazy(() => import('./Pages/OrderUpdate'));
 const UpdateDelivery = lazy(() => import('./Pages/updateDelivery'));
 const AddTransaction = lazy(() => import('./Pages/AddTransaction'));
 const AddTransaction1 = lazy(() => import('./Pages/addTransaction1'));
-const CashLedger = lazy(() => import('./Pages/CashLedger'));
-const BankBook = lazy(() => import('./Pages/BankBook'));
 const TrialBalance = lazy(() => import('./Pages/TrialBalance'));
-const DispatchQueue = lazy(() => import('./Pages/DispatchQueue'));
-const OwnerDashboard = lazy(() => import('./Pages/OwnerDashboard'));
 const PaymentFollowup = lazy(() => import('./Pages/PaymentFollowup'));
 const Vendor = lazy(() => import('./Pages/vendor'));
 const VendorDetails = lazy(() => import('./Pages/vendorDetails'));
@@ -64,19 +58,12 @@ const PaymentReport = lazy(() => import('./Reports/paymentReport'));
 const ItemReport = lazy(() => import('./Reports/itemReport'));
 const TaskReport = lazy(() => import('./Reports/taskReport'));
 const UserReport = lazy(() => import('./Reports/userReport'));
-const VendorBills = lazy(() => import('./Reports/vendorBills'));
-const AllVendors = lazy(() => import('./Reports/AllVendors'));
 const AddPayable = lazy(() => import('./Pages/addPayable'));
 const AddRecievable = lazy(() => import('./Pages/addRecievable'));
-const AddNote = lazy(() => import('./Pages/addNote'));
 const AddPayment = lazy(() => import('./Pages/addPayment'));
 const CallLogs = lazy(() => import('./Pages/callLogs'));
 const FlowBuilderPage = lazy(() => import('./Pages/FlowBuilderPage'));
 const UpiCollectPublic = lazy(() => import('./Pages/UpiCollectPublic'));
-const MigrateOrders = lazy(() => import('./Pages/MigrateOrders'));
-const Planner = lazy(() => import('./Pages/Planner'));
-const Review = lazy(() => import('./Pages/Review'));
-const Team = lazy(() => import('./Pages/Team'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
 const SendMessageAll = lazy(() => import('./Pages/SendMessageAll'));
 const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
@@ -88,9 +75,7 @@ const WhatsAppSendPage = lazy(() => import('./Pages/WhatsAppSendPage'));
 const WhatsAppSession = lazy(() => import('./Pages/WhatsAppSession'));
 const AddCustomergroup = lazy(() => import('./Pages/addCustomergroup'));
 const AddPriority = lazy(() => import('./Pages/addPriority'));
-const SearchMobile = lazy(() => import('./Pages/searchMobile'));
 const AllBills = lazy(() => import('./Reports/allBills'));
-const AccountTransaction = lazy(() => import('./Reports/accountTransaction'));
 const AllTransaction1 = lazy(() => import('./Reports/allTransaction1'));
 const AllTransaction2 = lazy(() => import('./Reports/allTransaction2'));
 const AllTransaction3 = lazy(() => import('./Reports/allTransaction3'));
@@ -133,11 +118,9 @@ export default function App() {
           <Route path={ROUTES.LOGIN} element={withSuspense(<Login />)} />
           <Route path={ROUTES.REGISTER} element={withSuspense(<Register />)} />
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
-          <Route path={ROUTES.DASHBOARD_V2} element={withSuspense(<DashboardV2 />)} />
 
           <Route element={<RequireAuth><ErrorBoundary><Layout /></ErrorBoundary></RequireAuth>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />
-            <Route path={ROUTES.OWNER_DASHBOARD} element={withSuspense(<OwnerDashboard />)} />
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />
 
             <Route path={ROUTES.ATTENDANCE} element={withSuspense(<AllAttandance />)} />
@@ -146,14 +129,6 @@ export default function App() {
             <Route path={ROUTES.PENDING_TASKS} element={withSuspense(<PendingTasks />)} />
             <Route path={ROUTES.MY_TASKS} element={withSuspense(<UserTask />)} />
             <Route path={ROUTES.TASKS_NEW} element={withSuspense(<AddUsertask />)} />
-            <Route path={ROUTES.TASKS_PLANNER} element={withSuspense(<Planner />)} />
-            <Route path={ROUTES.TASKS_TEAM} element={withSuspense(<Team />)} />
-            <Route path={ROUTES.TASKS_REVIEW} element={withSuspense(<Review />)} />
-            <Route path={ROUTE_ALIASES.PLANNER_OLD} element={<Navigate to={ROUTES.TASKS_PLANNER} replace />} />
-            <Route path={ROUTE_ALIASES.TEAM_OLD} element={<Navigate to={ROUTES.TASKS_TEAM} replace />} />
-            <Route path={ROUTE_ALIASES.REVIEW_OLD} element={<Navigate to={ROUTES.TASKS_REVIEW} replace />} />
-
-            <Route path={ROUTES.ENQUIRIES_NEW} element={withSuspense(<AddEnquiry />)} />
             <Route path={ROUTES.ADD_CUSTOMER} element={withSuspense(<AddCustomer />)} />
             <Route path={ROUTES.ADD_CUSTOMER_GROUP} element={withSuspense(<AddCustomergroup />)} />
             <Route path={ROUTES.ADD_USER} element={withSuspense(<AddUser />)} />
@@ -172,20 +147,14 @@ export default function App() {
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={withSuspense(<PostPrintingControl />)} />
             <Route path={ROUTES.WORKFLOW_TEMPLATES} element={withSuspense(<WorkflowTemplates />)} />
             <Route path={ROUTES.PURCHASE_ORDERS} element={withSuspense(<PurchaseOrder />)} />
-            <Route path={ROUTES.DISPATCH_QUEUE} element={withSuspense(<DispatchQueue />)} />
-            <Route path={ROUTES.MIGRATE_ORDERS} element={withSuspense(<MigrateOrders />)} />
             <Route path="/orderUpdate/:id" element={withSuspense(<OrderUpdate />)} />
             <Route path="/updateDelivery/:id" element={withSuspense(<UpdateDelivery />)} />
             <Route path="/customers/:id" element={withSuspense(<CustomerDetails />)} />
-            <Route path={ROUTES.SEARCH_MOBILE} element={withSuspense(<SearchMobile />)} />
-            <Route path={ROUTE_ALIASES.SEARCH_MOBILE_OLD} element={<Navigate to={ROUTES.SEARCH_MOBILE} replace />} />
 
             <Route path={ROUTES.RECEIPT} element={withSuspense(<AddTransaction />)} />
             <Route path="/addTransaction" element={<Navigate to={ROUTES.RECEIPT} replace />} />
             <Route path={ROUTES.PAYMENT} element={withSuspense(<AddTransaction1 />)} />
             <Route path="/addTransaction1" element={<Navigate to={ROUTES.PAYMENT} replace />} />
-            <Route path={ROUTES.CASH_LEDGER} element={withSuspense(<CashLedger />)} />
-            <Route path={ROUTES.BANK_BOOK} element={withSuspense(<BankBook />)} />
             <Route path={ROUTES.TRIAL_BALANCE} element={withSuspense(<TrialBalance />)} />
             <Route path={ROUTES.FOLLOWUPS} element={withSuspense(<PaymentFollowup />)} />
             <Route path={ROUTES.DIARY_UPLOAD} element={withSuspense(<DiaryUpload />)} />
@@ -233,7 +202,6 @@ export default function App() {
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_1_TYPO} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_1} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_2_LOWER} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_2} replace />} />
             <Route path={ROUTES.AGING_REPORT} element={withSuspense(<AgingReport />)} />
-            <Route path={ROUTES.ACCOUNT_TRANSACTION} element={withSuspense(<AccountTransaction />)} />
             <Route path="/allTransaction" element={withSuspense(<AllTransaction />)} />
             <Route path="/reports/customers" element={withSuspense(<CustomerReport />)} />
             <Route path="/customerReport" element={withSuspense(<CustomerReport />)} />
@@ -244,8 +212,6 @@ export default function App() {
             <Route path="/taskReport" element={withSuspense(<TaskReport />)} />
             <Route path="/reports/users" element={withSuspense(<UserReport />)} />
             <Route path="/userReport" element={withSuspense(<UserReport />)} />
-            <Route path={ROUTES.VENDOR_BILLS} element={withSuspense(<VendorBills />)} />
-            <Route path={ROUTES.ALL_VENDORS} element={withSuspense(<AllVendors />)} />
             <Route path={ROUTES.REPORTS_BILLS} element={withSuspense(<AllBills />)} />
             <Route path={ROUTES.REPORTS_PRIORITY} element={withSuspense(<PriorityReport />)} />
 
@@ -253,8 +219,6 @@ export default function App() {
             <Route path={ROUTES.EMAIL_COMPOSE}  element={withSuspense(<EmailCompose />)} />
             <Route path={ROUTES.EMAIL_HISTORY}  element={withSuspense(<EmailHistory />)} />
 
-            <Route path={ROUTES.ADD_NOTE} element={withSuspense(<AddNote />)} />
-            <Route path={ROUTE_ALIASES.ADD_NOTE_LOWER} element={<Navigate to={ROUTES.ADD_NOTE} replace />} />
             <Route path={ROUTES.CALL_LOGS} element={withSuspense(<CallLogs />)} />
             <Route path={ROUTES.FLOW_BUILDER} element={withSuspense(<FlowBuilderPage />)} />
 

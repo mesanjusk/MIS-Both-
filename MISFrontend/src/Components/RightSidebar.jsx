@@ -20,7 +20,6 @@ import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
-import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
@@ -147,7 +146,6 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
     { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: '/allTransaction' },
     { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },
-    { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.DISPATCH_QUEUE },
   ];
 
   return (

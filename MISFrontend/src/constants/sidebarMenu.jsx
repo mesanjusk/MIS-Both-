@@ -2,7 +2,6 @@ import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import EmailRoundedIcon from '@mui/icons-material/EmailRounded';
 import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
-import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
 import PersonAddRoundedIcon from '@mui/icons-material/PersonAddRounded';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import GroupRoundedIcon from '@mui/icons-material/GroupRounded';
@@ -19,6 +18,7 @@ import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
+import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -30,21 +30,28 @@ export const SIDEBAR_GROUPS = [
     label: 'Overview',
     items: [
       { label: 'Dashboard', path: ROUTES.HOME, icon: <DashboardRoundedIcon fontSize="small" />, roles: ['all'] },
+    ],
+  },
+  {
+    label: 'Attendance Report',
+    items: [
       { label: 'Attendance', path: ROUTES.ATTENDANCE, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
       { label: 'Attendance Report', path: ROUTES.ATTENDANCE_REPORT, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Order Tasks', path: ROUTES.PENDING_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'My Day', path: ROUTES.MY_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ['all'] },
+      { label: 'Users Report', path: ROUTES.REPORTS_USERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Add User', path: ROUTES.ADD_USER, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Add User Group', path: ROUTES.ADD_USER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {
-    label: 'Operations Center',
+    label: 'Orders Reports',
     items: [
-      { label: 'New Order', path: ROUTES.ORDERS_NEW, icon: <AddShoppingCartRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'DataEntry'] },
-      { label: 'Order Board', path: ROUTES.ORDERS_BOARD, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'Designer'] },
       { label: 'Purchase Orders', path: ROUTES.PURCHASE_ORDERS, icon: <RequestQuoteRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Operations Center', path: ROUTES.BUSINESS_CONTROL, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Deliveries', path: ROUTES.REPORTS_DELIVERY, icon: <LocalShippingRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'] },
-      { label: 'Call Logs', path: ROUTES.CALL_LOGS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Delivery Report', path: ROUTES.REPORTS_DELIVERY, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Bills Report', path: ROUTES.REPORTS_BILLS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
     ],
   },
   {
@@ -54,36 +61,51 @@ export const SIDEBAR_GROUPS = [
       { label: 'Diary Upload', path: ROUTES.DIARY_UPLOAD, icon: <UploadFileRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Day Book', path: ROUTES.DAY_BOOK, icon: <MenuBookRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Bank Reconciliation', path: ROUTES.BANK_RECONCILIATION, icon: <AccountBalanceRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Receipt Entry', path: ROUTES.RECEIPT, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Payment Entry', path: ROUTES.PAYMENT, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Quick Payment', path: ROUTES.ADD_PAYMENT, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+    ],
+  },
+  {
+    label: 'Account Reports',
+    items: [
       { label: 'UPI Payment', path: ROUTES.UPI_PAYMENT, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Record Expense', path: ROUTES.ADD_PAYABLE, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Record Income', path: ROUTES.ADD_RECEIVABLE, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Payment Reminders', path: ROUTES.FOLLOWUPS, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Trial Balance', path: ROUTES.TRIAL_BALANCE, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Account Book', path: ROUTES.ALL_TRANSACTION, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Transactions 1', path: ROUTES.REPORTS_TRANSACTION_1, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Transactions 2', path: ROUTES.REPORTS_TRANSACTION_2, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Transactions 3', path: ROUTES.REPORTS_TRANSACTION_3, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Transactions 4D', path: ROUTES.REPORTS_TRANSACTION_4D, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Account Transaction', path: ROUTES.REPORTS_TRANSACTIONS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Payments Report', path: ROUTES.PAYMENT_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
     ],
   },
   {
-    label: 'Masters',
+    label: 'Collection Reports',
     items: [
+      { label: 'Aging Report', path: ROUTES.AGING_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+    ],
+  },
+  {
+    label: 'Dashboard Reports',
+    items: [
+      { label: 'Customers Report', path: ROUTES.REPORTS_CUSTOMERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer', path: ROUTES.ADD_CUSTOMER, icon: <PersonAddRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer Group', path: ROUTES.ADD_CUSTOMER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Add User', path: ROUTES.ADD_USER, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Add User Group', path: ROUTES.ADD_USER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Items Report', path: ROUTES.REPORTS_ITEMS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Item', path: ROUTES.ADD_ITEM, icon: <Inventory2RoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Item Group', path: ROUTES.ADD_ITEM_GROUP, icon: <Inventory2RoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Tasks Report', path: ROUTES.REPORTS_TASKS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Task Master', path: ROUTES.ADD_TASK, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Task Group', path: ROUTES.ADD_TASK_GROUP, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Priority Report', path: ROUTES.REPORTS_PRIORITY, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Priority', path: ROUTES.ADD_PRIORITY, icon: <TuneRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {
     label: 'Email',
     items: [
-      { label: 'Send Email',      path: ROUTES.EMAIL_COMPOSE,  icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'Designer', 'OfficeStaff'] },
-      { label: 'Email History',   path: ROUTES.EMAIL_HISTORY,  icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'] },
-      { label: 'Gmail Accounts',  path: ROUTES.GMAIL_ACCOUNTS, icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner'] },
+      { label: 'Email History', path: ROUTES.EMAIL_HISTORY, icon: <EmailRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'] },
     ],
   },
   {
@@ -102,24 +124,9 @@ export const SIDEBAR_GROUPS = [
     ],
   },
   {
-    label: 'Reports',
+    label: 'Call Logs',
     items: [
-      { label: 'Orders Report', path: ROUTES.REPORTS_ORDERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Delivery Report', path: ROUTES.REPORTS_DELIVERY, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Account Book', path: ROUTES.ALL_TRANSACTION, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 1', path: ROUTES.REPORTS_TRANSACTION_1, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 2', path: ROUTES.REPORTS_TRANSACTION_2, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 3', path: ROUTES.REPORTS_TRANSACTION_3, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 4D', path: ROUTES.REPORTS_TRANSACTION_4D, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Bills Report', path: ROUTES.REPORTS_BILLS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Trial Balance', path: ROUTES.TRIAL_BALANCE, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Aging Report', path: ROUTES.AGING_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Customers Report', path: ROUTES.REPORTS_CUSTOMERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Payments Report', path: ROUTES.PAYMENT_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Items Report', path: ROUTES.REPORTS_ITEMS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Tasks Report', path: ROUTES.REPORTS_TASKS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Priority Report', path: ROUTES.REPORTS_PRIORITY, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Users Report', path: ROUTES.REPORTS_USERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Call Logs', path: ROUTES.CALL_LOGS, icon: <PhoneRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
     ],
   },
 ];

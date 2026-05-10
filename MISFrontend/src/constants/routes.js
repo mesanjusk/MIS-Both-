@@ -78,6 +78,7 @@ export const ROUTES = {
   DIARY_UPLOAD:        '/accounts/diary-upload',
   DAY_BOOK:            '/accounts/day-book',
   BANK_RECONCILIATION: '/accounts/bank-reconciliation',
+  OPENING_BALANCE:     '/accounts/opening-balance',
 
   // Gmail / Email
   GMAIL_ACCOUNTS: '/gmail/accounts',

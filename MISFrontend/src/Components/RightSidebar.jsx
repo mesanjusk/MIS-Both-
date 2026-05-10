@@ -15,6 +15,7 @@ import EmailRoundedIcon from '@mui/icons-material/EmailRounded';
 import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
@@ -109,13 +110,13 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     {
       label: 'Day Book',
       icon: <MenuBookRoundedIcon fontSize="small" />,
-      onClick: () => navigate('/dayBook'),
+      onClick: () => navigate(ROUTES.DAY_BOOK),
       accent: theme.palette.primary.main,
     },
     {
       label: 'Send Email',
       icon: <EmailRoundedIcon fontSize="small" />,
-      onClick: () => navigate('/sendEmail'),
+      onClick: () => navigate(ROUTES.EMAIL_COMPOSE),
       accent: theme.palette.success.main,
     },
     {
@@ -127,25 +128,26 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     {
       label: 'Transaction 4D',
       icon: <ReceiptLongRoundedIcon fontSize="small" />,
-      onClick: () => navigate('/allTransaction4d'),
+      onClick: () => navigate(ROUTES.REPORTS_TRANSACTION_4D),
       accent: theme.palette.error.main,
     },
     {
       label: 'Attendance',
       icon: <PeopleRoundedIcon fontSize="small" />,
-      onClick: () => navigate('/attendanceReport'),
+      onClick: () => navigate(ROUTES.ATTENDANCE_REPORT),
       accent: theme.palette.secondary.main,
     },
   ];
 
   const quickLinks = [
-    { label: 'Orders', icon: <AssignmentRoundedIcon fontSize="small" />, path: '/allOrder' },
+    { label: 'Orders', icon: <AssignmentRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_ORDERS },
     { label: 'Business', icon: <StoreRoundedIcon fontSize="small" />, path: ROUTES.BUSINESS_CONTROL },
     { label: 'Post Print', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.POST_PRINTING_CONTROL },
     { label: 'Workflows', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.WORKFLOW_TEMPLATES },
     { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
-    { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: '/allTransaction' },
+    { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: ROUTES.ALL_TRANSACTION },
     { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },
+    { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_DELIVERY },
   ];
 
   return (

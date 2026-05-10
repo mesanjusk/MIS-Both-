@@ -182,6 +182,7 @@ export default function Layout() {
         <RightSidebar
           onNewOrderClick={handleNewOrderClick}
           onCustomize={openCustomize}
+          openUpi={openUpi}
         />
 
         {/* ── Google Drive reconnect dialog ── */}

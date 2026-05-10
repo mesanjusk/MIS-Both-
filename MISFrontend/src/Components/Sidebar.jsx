@@ -46,8 +46,9 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
-  const { clearAuth, userName } = useAuth();
+  const { clearAuth, userName, permissions } = useAuth();
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
+  const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
   const [openGroups, setOpenGroups] = useState(() =>
     Object.fromEntries(SIDEBAR_GROUPS.map((group) => [group.label, true])),
   );
@@ -69,11 +70,14 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
 
   const groups = useMemo(
     () =>
-      SIDEBAR_GROUPS.map((group) => ({
-        ...group,
-        items: group.items.filter((item) => canShowItem(item, roleKey)),
-      })).filter((group) => group.items.length),
-    [roleKey],
+      SIDEBAR_GROUPS
+        .filter((group) => allowedGroups.length === 0 || allowedGroups.includes(group.label))
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => canShowItem(item, roleKey)),
+        }))
+        .filter((group) => group.items.length),
+    [roleKey, allowedGroups],
   );
 
   const handleNavigate = (path) => {

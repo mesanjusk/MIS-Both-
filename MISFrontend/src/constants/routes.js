@@ -98,6 +98,9 @@ export const ROUTES = {
   PRIORITY_REPORT: '/priorityReport',
   CALL_LOGS: '/calllogs',
   FLOW_BUILDER: '/flow-builder',
+
+  // Admin
+  ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
 };
 
 export const ROUTE_ALIASES = {

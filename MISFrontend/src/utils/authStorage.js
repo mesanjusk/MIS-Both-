@@ -17,6 +17,7 @@ export const STORAGE_KEYS = {
   userName: "mis_userName",
   userGroup: "mis_userGroup",
   mobileNumber: "mis_mobileNumber",
+  permissions: "mis_permissions",
 };
 
 // Legacy keys that many pages across the app still read directly
@@ -89,9 +90,24 @@ export function pickFirst(keys) {
   return "";
 }
 
+export function getStoredPermissions() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.permissions);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function setStoredPermissions(perms) {
+  if (perms) localStorage.setItem(STORAGE_KEYS.permissions, JSON.stringify(perms));
+  else localStorage.removeItem(STORAGE_KEYS.permissions);
+}
+
 /** Write auth state to BOTH new and legacy keys so all pages work */
 export function persistAuthState(nextState = {}) {
-  const { userName = "", userGroup = "", mobileNumber = "" } = nextState;
+  const { userName = "", userGroup = "", mobileNumber = "", permissions } = nextState;
+  if (permissions !== undefined) setStoredPermissions(permissions);
 
   if (userName) {
     localStorage.setItem(STORAGE_KEYS.userName,       userName);
@@ -122,4 +138,5 @@ export function clearStoredSession() {
   Object.values(STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
   Object.values(LEGACY_WRITE_KEYS).forEach((key) => localStorage.removeItem(key));
   clearStoredToken();
+  localStorage.removeItem(STORAGE_KEYS.permissions);
 }

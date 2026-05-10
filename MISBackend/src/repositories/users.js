@@ -16,6 +16,28 @@ const UsersSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  permissions: {
+    type: {
+      sidebarGroups: { type: [String], default: [] }, // empty = show all role-allowed groups
+      canCreateOrders: { type: Boolean, default: true },
+      canEditOrders:   { type: Boolean, default: true },
+      canDeleteOrders: { type: Boolean, default: false },
+      canViewReports:  { type: Boolean, default: true },
+      canViewAccounts: { type: Boolean, default: true },
+      canExportData:   { type: Boolean, default: false },
+      dashboardCards:  { type: [String], default: [] }, // empty = show all cards
+    },
+    default: () => ({
+      sidebarGroups: [],
+      canCreateOrders: true,
+      canEditOrders: true,
+      canDeleteOrders: false,
+      canViewReports: true,
+      canViewAccounts: true,
+      canExportData: false,
+      dashboardCards: [],
+    }),
+  },
 });
 
 UsersSchema.index({ User_name: 1 });

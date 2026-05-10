@@ -19,6 +19,7 @@ import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
+import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -127,6 +128,12 @@ export const SIDEBAR_GROUPS = [
     label: 'Call Logs',
     items: [
       { label: 'Call Logs', path: ROUTES.CALL_LOGS, icon: <PhoneRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
 ];

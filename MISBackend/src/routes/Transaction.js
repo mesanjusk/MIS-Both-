@@ -1,59 +1,56 @@
 const { requireAuth } = require('../middleware/auth');
-const express = require("express");
-const router = express.Router();
+const express = require('express');
+const router  = express.Router();
 
-const Transaction = require("../repositories/transaction");
-const Counter = require('../repositories/counter');
+const Transaction = require('../repositories/transaction');
+const Counter     = require('../repositories/counter');
+const Orders      = require('../repositories/order');
+const { refreshOrderPaymentStatus }    = require('../services/businessWorkflowService');
+const { validateBalancedJournal }      = require('../services/accountingPostingService');
+const { resolve: resolveAccount, isUuid, updateBalancesForJournal } = require('../services/accountRegistry');
+const { v4: uuid } = require('uuid');
 
-const Orders = require("../repositories/order"); // kept for legacy helpers
-const { refreshOrderPaymentStatus } = require("../services/businessWorkflowService");
-const { v4: uuid } = require("uuid");
+const multer     = require('multer');
+const cloudinary = require('../utils/cloudinary.js');
+const logger     = require('../utils/logger');
 
-const multer = require("multer");
-const cloudinary = require("../utils/cloudinary.js");
-const logger = require('../utils/logger');
-
-// Multer using in-memory storage; we will stream files to Cloudinary manually
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
+const upload  = multer({ storage });
 
-// Helper to upload a file buffer to Cloudinary and return the secure URL
+// ---------------------------------------------------------------------------
+// Cloudinary helper
+// ---------------------------------------------------------------------------
+
 async function uploadToCloudinary(file) {
   if (!file) return null;
-
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        folder: "transactions",
-        resource_type: "image",
-        allowed_formats: ["jpg", "png", "jpeg", "webp"],
-        transformation: [
-          {
-            width: 1920,
-            height: 1080,
-            crop: "limit",
-            quality: "auto:best",
-          },
-        ],
+        folder:        'transactions',
+        resource_type: 'image',
+        allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+        transformation: [{ width: 1920, height: 1080, crop: 'limit', quality: 'auto:best' }],
       },
       (error, result) => {
         if (error) return reject(error);
         resolve(result.secure_url);
       }
     );
-
     stream.end(file.buffer);
   });
 }
 
-/* ----------------- helpers ----------------- */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 const toNum = (v) => {
-  const n = Number(String(v ?? "").replace(/[₹,\s]/g, "").trim());
+  const n = Number(String(v ?? '').replace(/[₹,\s]/g, '').trim());
   return Number.isFinite(n) ? n : 0;
 };
 
 function buildOrderFilter(Order_uuid, Order_number) {
-  const ou = String(Order_uuid || "").trim();
+  const ou = String(Order_uuid  || '').trim();
   const on = toNum(Order_number);
   if (ou) return { Order_uuid: ou };
   if (on) return { Order_Number: on };
@@ -62,19 +59,15 @@ function buildOrderFilter(Order_uuid, Order_number) {
 
 async function markOrderPaid({ Order_uuid, Order_number, txn }) {
   const filter = buildOrderFilter(Order_uuid, Order_number);
-  if (!filter) return; // nothing to link
-
-  const paidBy = String(txn?.Created_by || "system").trim();
-  const paidNote = String(txn?.Description || "").trim();
-
+  if (!filter) return;
   await Orders.updateOne(filter, {
     $set: {
-      billStatus: "paid",
-      billPaidAt: new Date(),
-      billPaidBy: paidBy || "system",
-      billPaidNote: paidNote || null,
+      billStatus:    'paid',
+      billPaidAt:    new Date(),
+      billPaidBy:    String(txn?.Created_by || 'system').trim(),
+      billPaidNote:  String(txn?.Description || '').trim() || null,
       billPaidTxnUuid: txn?.Transaction_uuid || null,
-      billPaidTxnId: txn?.Transaction_id ?? null,
+      billPaidTxnId:   txn?.Transaction_id   ?? null,
     },
   });
 }
@@ -82,37 +75,61 @@ async function markOrderPaid({ Order_uuid, Order_number, txn }) {
 async function maybeMarkOrderUnpaid({ Order_uuid, Order_number }) {
   const filter = buildOrderFilter(Order_uuid, Order_number);
   if (!filter) return;
-
-  // If any transaction still exists for the same order, keep paid
   const stillExists = await Transaction.exists({
     $or: [
-      ...(Order_uuid ? [{ Order_uuid: String(Order_uuid).trim() }] : []),
-      ...(toNum(Order_number) ? [{ Order_number: toNum(Order_number) }] : []),
+      ...(Order_uuid           ? [{ Order_uuid:   String(Order_uuid).trim() }] : []),
+      ...(toNum(Order_number) ? [{ Order_number:  toNum(Order_number)       }] : []),
     ],
   });
-
   if (stillExists) return;
-
   await Orders.updateOne(filter, {
     $set: {
-      billStatus: "unpaid",
-      billPaidAt: null,
-      billPaidBy: null,
-      billPaidNote: null,
+      billStatus:    'unpaid',
+      billPaidAt:    null,
+      billPaidBy:    null,
+      billPaidNote:  null,
       billPaidTxnUuid: null,
-      billPaidTxnId: null,
+      billPaidTxnId:   null,
     },
   });
 }
 
-// All transaction routes require authentication
+/**
+ * Resolve account identifiers inside a raw journal-entry array.
+ *
+ * Each element may have Account_id set to either:
+ *   a) An account name string (legacy / frontend input) → resolved to UUID
+ *   b) A UUID already                                  → used as-is
+ *
+ * Account_name is always populated with the human-readable name so that
+ * display and heuristics (isBusinessCustomerReceipt) keep working.
+ */
+async function resolveJournalAccounts(rawLines = []) {
+  return Promise.all(
+    rawLines.map(async (line) => {
+      const id  = String(line.Account_id || '').trim();
+      const { uuid: accountUuid, name: accountName } = await resolveAccount(id);
+      return {
+        Account_id:   accountUuid,
+        Account_name: line.Account_name || accountName,
+        Type:         String(line.Type   || '').trim(),
+        Amount:       toNum(line.Amount),
+      };
+    })
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auth guard
+// ---------------------------------------------------------------------------
+
 router.use(requireAuth);
 
+// ---------------------------------------------------------------------------
+// POST /addTransaction  – create a new manual transaction
+// ---------------------------------------------------------------------------
 
-// =================== ROUTES ===================
-
-// Add Transaction
-router.post("/addTransaction", upload.single("image"), async (req, res) => {
+router.post('/addTransaction', upload.single('image'), async (req, res) => {
   try {
     const {
       Description,
@@ -133,117 +150,93 @@ router.post("/addTransaction", upload.single("image"), async (req, res) => {
       Source,
     } = req.body;
 
-    if (
-      !Description ||
-      !Transaction_date ||
-      Total_Debit === undefined ||
-      Total_Credit === undefined ||
-      !Payment_mode ||
-      !Created_by
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Required fields are missing.",
-      });
+    if (!Description || !Transaction_date || Total_Debit === undefined || Total_Credit === undefined || !Payment_mode || !Created_by) {
+      return res.status(400).json({ success: false, message: 'Required fields are missing.' });
     }
 
-    // Parse Journal_entry (can be JSON string from frontend)
-    let Journal_entry = [];
+    // Parse Journal_entry
+    let rawJournal = [];
     try {
-      if (typeof journalEntryRaw === "string") {
-        Journal_entry = JSON.parse(journalEntryRaw);
-      } else if (Array.isArray(journalEntryRaw)) {
-        Journal_entry = journalEntryRaw;
-      } else {
-        Journal_entry = [];
-      }
-    } catch (parseErr) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid JSON format for Journal_entry",
-      });
+      if (typeof journalEntryRaw === 'string') rawJournal = JSON.parse(journalEntryRaw);
+      else if (Array.isArray(journalEntryRaw)) rawJournal = journalEntryRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid JSON format for Journal_entry' });
     }
 
-    if (!Array.isArray(Journal_entry) || !Journal_entry.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Journal_entry must be a non-empty array.",
-      });
+    if (!Array.isArray(rawJournal) || !rawJournal.length) {
+      return res.status(400).json({ success: false, message: 'Journal_entry must be a non-empty array.' });
     }
 
-    const badIdx = Journal_entry.findIndex(
-      (e) => !e.Account_id || !e.Type || e.Amount === undefined
-    );
+    const badIdx = rawJournal.findIndex((e) => !e.Account_id || !e.Type || e.Amount === undefined);
     if (badIdx !== -1) {
-      return res.status(400).json({
-        success: false,
-        message: `Journal_entry[${badIdx}] is missing Account_id, Type, or Amount.`,
-      });
+      return res.status(400).json({ success: false, message: `Journal_entry[${badIdx}] is missing Account_id, Type, or Amount.` });
     }
 
-    // upload to Cloudinary (if file present)
-    const file = req.file;
-    const imageUrl = file ? await uploadToCloudinary(file) : null;
+    // Resolve account names → UUIDs (backward-compatible)
+    const Journal_entry = await resolveJournalAccounts(rawJournal);
 
-    // Generate Transaction ID atomically using Counter to prevent race conditions
+    // Enforce double-entry balance
+    try {
+      validateBalancedJournal(Journal_entry);
+    } catch (balErr) {
+      return res.status(400).json({ success: false, message: balErr.message });
+    }
+
+    const imageUrl = req.file ? await uploadToCloudinary(req.file) : null;
+
+    // Atomic transaction ID
     const txnCounter = await Counter.findByIdAndUpdate(
       'transaction_number',
       { $inc: { seq: 1 } },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();
-    const newTransactionNumber = Number(txnCounter?.seq || 1);
 
     const newTransaction = new Transaction({
       Transaction_uuid: uuid(),
-      Transaction_id: newTransactionNumber,
-      Order_uuid: Order_uuid || null,
-      Order_number: toNum(Order_number) || null,
+      Transaction_id:   Number(txnCounter?.seq || 1),
+      Order_uuid:       Order_uuid  || null,
+      Order_number:     toNum(Order_number) || null,
       Transaction_date,
-      Total_Debit: toNum(Total_Debit),
-      Total_Credit: toNum(Total_Credit),
+      Total_Debit:      toNum(Total_Debit),
+      Total_Credit:     toNum(Total_Credit),
       Journal_entry,
       Payment_mode,
       Description,
-      image: imageUrl,
+      image:            imageUrl,
       Created_by,
-      Customer_uuid: Customer_uuid || null,
-      Upi_reference: Upi_reference || '',
-      Upi_status: Upi_status || '',
-      Upi_app: Upi_app || '',
-      Upi_payee_vpa: Upi_payee_vpa || '',
+      Customer_uuid:    Customer_uuid    || null,
+      Upi_reference:    Upi_reference    || '',
+      Upi_status:       Upi_status       || '',
+      Upi_app:          Upi_app          || '',
+      Upi_payee_vpa:    Upi_payee_vpa    || '',
       Upi_response_raw: Upi_response_raw || null,
-      Source: Source || '',
+      Source:           Source           || '',
     });
 
     await newTransaction.save();
 
-    // Refresh order paid-status as a best-effort follow-up. The transaction
-    // record is already safely persisted above, so a failure here must not
-    // roll it back — the order will self-correct on the next payment event.
+    // Update account balances (non-blocking)
+    updateBalancesForJournal(Journal_entry).catch(() => {});
+
+    // Refresh order payment status
     try {
       await refreshOrderPaymentStatus({ orderUuid: Order_uuid, orderNumber: Order_number });
     } catch (refreshErr) {
-      logger.error(
-        `refreshOrderPaymentStatus failed after saving txn ${newTransaction.Transaction_uuid}: ${refreshErr.message}`
-      );
+      logger.error(`refreshOrderPaymentStatus failed after saving txn ${newTransaction.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.status(201).json({
-      success: true,
-      message: "Transaction created successfully",
-      result: newTransaction,
-    });
+    return res.status(201).json({ success: true, message: 'Transaction created successfully', result: newTransaction });
   } catch (error) {
-    logger.error("Error in /addTransaction:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    logger.error('Error in /addTransaction:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
-// Get all transactions with optional filters
-router.get("/", async (req, res) => {
+// ---------------------------------------------------------------------------
+// GET /  – list with optional filters
+// ---------------------------------------------------------------------------
+
+router.get('/', async (req, res) => {
   try {
     const { fromDate, toDate, paymentMode, createdBy, customerUuid, accountFilter, limit } = req.query;
 
@@ -252,86 +245,95 @@ router.get("/", async (req, res) => {
     if (fromDate || toDate) {
       filter.Transaction_date = {};
       if (fromDate) filter.Transaction_date.$gte = new Date(fromDate);
-      if (toDate) filter.Transaction_date.$lte = new Date(toDate);
+      if (toDate)   filter.Transaction_date.$lte = new Date(toDate);
     }
 
-    if (paymentMode) filter.Payment_mode = paymentMode;
-    if (createdBy) filter.Created_by = createdBy;
+    if (paymentMode)  filter.Payment_mode  = paymentMode;
+    if (createdBy)    filter.Created_by    = createdBy;
     if (customerUuid) filter.Customer_uuid = customerUuid;
 
     if (accountFilter) {
       const acct = String(accountFilter).trim();
-      const variants = Array.from(new Set([acct, acct.toLowerCase(), acct.toUpperCase()]));
-      filter.Journal_entry = {
-        $elemMatch: {
-          $or: [
-            { Account_id: { $in: variants } },
-            { Account: { $in: variants } },
-          ],
-        },
-      };
+
+      // If the caller supplies a UUID, use it directly.
+      // Otherwise resolve the account name → UUID first so we always query by
+      // stable UUID regardless of how the filter was expressed.
+      let accountUuid = isUuid(acct) ? acct : null;
+
+      if (!accountUuid) {
+        try {
+          // resolveAccount auto-creates missing accounts; use getUuid only when
+          // the account is expected to exist already.
+          const { getUuid } = require('../services/accountRegistry');
+          accountUuid = await getUuid(acct);
+        } catch {
+          // Account not found – fall back to legacy name-string search so that
+          // historical records (created before the UUID migration) are still found.
+        }
+      }
+
+      if (accountUuid) {
+        filter['Journal_entry.Account_id'] = accountUuid;
+      } else {
+        // Legacy fallback: search by account name in both Account_id and Account_name
+        const variants = Array.from(new Set([acct, acct.toLowerCase(), acct.toUpperCase()]));
+        filter.Journal_entry = {
+          $elemMatch: {
+            $or: [
+              { Account_id:   { $in: variants } },
+              { Account_name: { $in: variants } },
+            ],
+          },
+        };
+      }
     }
 
-    const safeLimit = Math.min(Math.max(Number(limit || 0), 0), 2000);
+    const safeLimit = Math.min(Math.max(toNum(limit), 0), 2000);
     let query = Transaction.find(filter).sort({ Transaction_date: -1 });
     if (safeLimit) query = query.limit(safeLimit);
 
     const transactions = await query.lean();
-
-    return res.json({
-      success: true,
-      result: transactions,
-    });
+    return res.json({ success: true, result: transactions });
   } catch (error) {
-    logger.error("Error in GET /transactions:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch transactions",
-    });
+    logger.error('Error in GET /transactions:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
   }
 });
-// Distinct payment modes
-router.get("/distinctPaymentModes", async (req, res) => {
+
+// ---------------------------------------------------------------------------
+// GET /distinctPaymentModes
+// ---------------------------------------------------------------------------
+
+router.get('/distinctPaymentModes', async (req, res) => {
   try {
-    const modes = await Transaction.distinct("Payment_mode");
+    const modes = await Transaction.distinct('Payment_mode');
     return res.json({ success: true, result: modes });
   } catch (error) {
-    logger.error("Error in GET /transactions/distinctPaymentModes:", error);
-    return res.status(500).json({ success: false, message: "Failed to fetch modes" });
+    logger.error('Error in GET /transactions/distinctPaymentModes:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch modes' });
   }
 });
 
-// Get single transaction by uuid
-router.get("/:uuid", async (req, res) => {
+// ---------------------------------------------------------------------------
+// GET /:uuid  – single transaction
+// ---------------------------------------------------------------------------
+
+router.get('/:uuid', async (req, res) => {
   try {
-    const { uuid: transactionUuid } = req.params;
-
-    const tx = await Transaction.findOne({
-      Transaction_uuid: transactionUuid,
-    }).lean();
-
-    if (!tx) {
-      return res.status(404).json({
-        success: false,
-        message: "Transaction not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      result: tx,
-    });
+    const tx = await Transaction.findOne({ Transaction_uuid: req.params.uuid }).lean();
+    if (!tx) return res.status(404).json({ success: false, message: 'Transaction not found' });
+    return res.json({ success: true, result: tx });
   } catch (error) {
-    logger.error("Error in GET /transactions/:uuid:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch transaction",
-    });
+    logger.error('Error in GET /transactions/:uuid:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch transaction' });
   }
 });
 
-// Update transaction (without changing ID)
-router.put("/:uuid", upload.single("image"), async (req, res) => {
+// ---------------------------------------------------------------------------
+// PUT /:uuid  – update a transaction
+// ---------------------------------------------------------------------------
+
+router.put('/:uuid', upload.single('image'), async (req, res) => {
   try {
     const { uuid: transactionUuid } = req.params;
 
@@ -354,43 +356,46 @@ router.put("/:uuid", upload.single("image"), async (req, res) => {
       Source,
     } = req.body;
 
-    // Parse Journal_entry as in create route
-    let Journal_entry = [];
+    let rawJournal = [];
     try {
-      if (typeof journalEntryRaw === "string") {
-        Journal_entry = JSON.parse(journalEntryRaw);
-      } else if (Array.isArray(journalEntryRaw)) {
-        Journal_entry = journalEntryRaw;
-      } else {
-        Journal_entry = [];
-      }
-    } catch (parseErr) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid JSON format for Journal_entry",
-      });
+      if (typeof journalEntryRaw === 'string') rawJournal = JSON.parse(journalEntryRaw);
+      else if (Array.isArray(journalEntryRaw)) rawJournal = journalEntryRaw;
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid JSON format for Journal_entry' });
     }
 
-    const file = req.file;
-    const imageUrl = file ? await uploadToCloudinary(file) : undefined;
+    // Resolve account names → UUIDs in updated journal lines
+    const Journal_entry = rawJournal.length ? await resolveJournalAccounts(rawJournal) : [];
+
+    if (Journal_entry.length) {
+      try {
+        validateBalancedJournal(Journal_entry);
+      } catch (balErr) {
+        return res.status(400).json({ success: false, message: balErr.message });
+      }
+    }
+
+    const imageUrl    = req.file ? await uploadToCloudinary(req.file) : undefined;
 
     const updateData = {
       Description,
       Transaction_date,
-      Order_uuid: Order_uuid || null,
-      Order_number: toNum(Order_number) || null,
-      Total_Debit: toNum(Total_Debit),
-      Total_Credit: toNum(Total_Credit),
+      Order_uuid:       Order_uuid || null,
+      Order_number:     toNum(Order_number) || null,
+      Total_Debit:      toNum(Total_Debit),
+      Total_Credit:     toNum(Total_Credit),
       Payment_mode,
       Created_by,
       Journal_entry,
-      Customer_uuid: Customer_uuid || null,
+      Customer_uuid:    Customer_uuid    || null,
+      Upi_reference:    Upi_reference    || '',
+      Upi_status:       Upi_status       || '',
+      Upi_app:          Upi_app          || '',
+      Upi_payee_vpa:    Upi_payee_vpa    || '',
+      Upi_response_raw: Upi_response_raw || null,
+      Source:           Source           || '',
     };
-
-    // Only overwrite image if we actually uploaded a new one
-    if (imageUrl !== undefined) {
-      updateData.image = imageUrl;
-    }
+    if (imageUrl !== undefined) updateData.image = imageUrl;
 
     const updated = await Transaction.findOneAndUpdate(
       { Transaction_uuid: transactionUuid },
@@ -398,12 +403,10 @@ router.put("/:uuid", upload.single("image"), async (req, res) => {
       { new: true }
     );
 
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: "Transaction not found",
-      });
-    }
+    if (!updated) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    // Recalculate account balances after edit (non-blocking)
+    if (Journal_entry.length) updateBalancesForJournal(Journal_entry).catch(() => {});
 
     try {
       await refreshOrderPaymentStatus({ orderUuid: updated.Order_uuid, orderNumber: updated.Order_number });
@@ -411,37 +414,23 @@ router.put("/:uuid", upload.single("image"), async (req, res) => {
       logger.error(`refreshOrderPaymentStatus failed after editing txn ${updated.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.json({
-      success: true,
-      message: "Transaction updated successfully",
-      result: updated,
-    });
+    return res.json({ success: true, message: 'Transaction updated successfully', result: updated });
   } catch (error) {
-    logger.error("Error in PUT /transactions/:uuid:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update transaction",
-    });
+    logger.error('Error in PUT /transactions/:uuid:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update transaction' });
   }
 });
 
-// Delete transaction
-router.delete("/:uuid", async (req, res) => {
+// ---------------------------------------------------------------------------
+// DELETE /:uuid
+// ---------------------------------------------------------------------------
+
+router.delete('/:uuid', async (req, res) => {
   try {
-    const { uuid: transactionUuid } = req.params;
+    const tx = await Transaction.findOne({ Transaction_uuid: req.params.uuid }).lean();
+    if (!tx) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
-    // get tx first (to know order link)
-    const tx = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
-    if (!tx) {
-      return res.status(404).json({
-        success: false,
-        message: "Transaction not found",
-      });
-    }
-
-    const deleted = await Transaction.findOneAndDelete({
-      Transaction_uuid: transactionUuid,
-    });
+    await Transaction.findOneAndDelete({ Transaction_uuid: req.params.uuid });
 
     try {
       await refreshOrderPaymentStatus({ orderUuid: tx.Order_uuid, orderNumber: tx.Order_number });
@@ -449,20 +438,11 @@ router.delete("/:uuid", async (req, res) => {
       logger.error(`refreshOrderPaymentStatus failed after deleting txn ${tx.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.json({
-      success: true,
-      message: "Transaction deleted successfully",
-    });
+    return res.json({ success: true, message: 'Transaction deleted successfully' });
   } catch (error) {
-    logger.error("Error in DELETE /transactions/:uuid:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete transaction",
-    });
+    logger.error('Error in DELETE /transactions/:uuid:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete transaction' });
   }
 });
-
-
-
 
 module.exports = router;

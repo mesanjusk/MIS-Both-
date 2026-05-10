@@ -95,6 +95,8 @@ function getOrderTotal(order = {}) {
 
 function isBusinessCustomerReceipt(txn = {}) {
   const source = cleanString(txn.Source).toLowerCase();
+
+  // Primary check: Source field is authoritative (set by accountingPostingService)
   if (source.startsWith(BUSINESS_SOURCES.CUSTOMER_RECEIPT) || source.startsWith(BUSINESS_SOURCES.CUSTOMER_ADVANCE)) return true;
   if (
     source.startsWith(BUSINESS_SOURCES.CUSTOMER_INVOICE) ||
@@ -104,12 +106,28 @@ function isBusinessCustomerReceipt(txn = {}) {
     source.startsWith(BUSINESS_SOURCES.CASH_EXPENSE)
   ) return false;
 
+  // Secondary check: payment mode (any real payment mode is a receipt)
   const paymentMode = cleanString(txn.Payment_mode).toLowerCase();
   if (paymentMode && paymentMode !== 'journal') return true;
 
+  // Fallback: inspect journal lines.
+  // Account_name is the denormalized display field added by the refactored posting
+  // service.  For legacy records where Account_id still holds the account name,
+  // we fall back to Account_id so historical data keeps working correctly.
   const lines = Array.isArray(txn.Journal_entry) ? txn.Journal_entry : [];
-  const hasCustomerCredit = lines.some((line) => cleanString(line.Account_id).toLowerCase().includes('customer') && cleanString(line.Type).toLowerCase().startsWith('c'));
-  const hasCashDebit = lines.some((line) => ['cash', 'bank', 'upi'].includes(cleanString(line.Account_id).toLowerCase()) && cleanString(line.Type).toLowerCase().startsWith('d'));
+  const accountDisplayName = (line) =>
+    cleanString(line.Account_name || line.Account_id).toLowerCase();
+
+  const hasCustomerCredit = lines.some(
+    (line) =>
+      accountDisplayName(line).includes('customer') &&
+      cleanString(line.Type).toLowerCase().startsWith('c')
+  );
+  const hasCashDebit = lines.some(
+    (line) =>
+      ['cash', 'bank', 'upi'].includes(accountDisplayName(line)) &&
+      cleanString(line.Type).toLowerCase().startsWith('d')
+  );
   return hasCustomerCredit && hasCashDebit;
 }
 

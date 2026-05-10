@@ -8,18 +8,9 @@ const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
 const Transaction = require('../repositories/transaction');
 const Counter = require('../repositories/counter');
-const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
-
-// Return first bank account name from ledger master (Customer_group === 'Bank and Account', name ~sanju)
-async function getBankAccountName() {
-  const docs = await Customer.find(
-    { Customer_group: 'Bank and Account' },
-    { Customer_name: 1 }
-  ).lean();
-  const bankNames = docs.map((d) => d.Customer_name).filter((n) => n && /sanju/i.test(n));
-  return bankNames[0] || 'Bank';
-}
+const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
+const { SYSTEM_ACCOUNTS, BUSINESS_SOURCES } = require('../services/accountingPostingService');
 
 router.use(requireAuth);
 
@@ -583,7 +574,7 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
 });
 
 // POST /api/bank-statement/:uuid/entry/:entryUuid/confirm
-// Confirms a bank statement entry → creates a double-entry transaction in the ledger
+// Confirms a bank statement entry → creates a UUID-based double-entry transaction.
 router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
   try {
     const { confirmed_by } = req.body;
@@ -599,17 +590,22 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Entry is already confirmed' });
     }
 
-    const bankAccount = await getBankAccountName();
     const amount = entry.credit > 0 ? entry.credit : entry.debit;
+
+    // Resolve both accounts to UUID + name pairs
+    const [bankAcct, assignedAcct] = await Promise.all([
+      resolveAccount(SYSTEM_ACCOUNTS.BANK),
+      resolveAccount(entry.account_assigned),
+    ]);
 
     const journal = entry.direction === 'in'
       ? [
-          { Account_id: bankAccount,           Type: 'Debit',  Amount: amount },
-          { Account_id: entry.account_assigned, Type: 'Credit', Amount: amount },
+          { Account_id: bankAcct.uuid,     Account_name: bankAcct.name,     Type: 'Debit',  Amount: amount },
+          { Account_id: assignedAcct.uuid, Account_name: assignedAcct.name, Type: 'Credit', Amount: amount },
         ]
       : [
-          { Account_id: entry.account_assigned, Type: 'Debit',  Amount: amount },
-          { Account_id: bankAccount,            Type: 'Credit', Amount: amount },
+          { Account_id: assignedAcct.uuid, Account_name: assignedAcct.name, Type: 'Debit',  Amount: amount },
+          { Account_id: bankAcct.uuid,     Account_name: bankAcct.name,     Type: 'Credit', Amount: amount },
         ];
 
     const counter = await Counter.findByIdAndUpdate(
@@ -628,11 +624,14 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
       Payment_mode:     'Bank',
       Created_by:       confirmed_by || 'bank_statement',
       Journal_entry:    journal,
-      Source:           'bank_statement',
+      Source:           BUSINESS_SOURCES.BANK_STATEMENT,
     });
     await txn.save();
 
-    entry.entry_status    = 'confirmed';
+    // Update account balances (non-blocking)
+    updateBalancesForJournal(journal).catch(() => {});
+
+    entry.entry_status     = 'confirmed';
     entry.transaction_uuid = txn.Transaction_uuid;
     await stmt.save();
 

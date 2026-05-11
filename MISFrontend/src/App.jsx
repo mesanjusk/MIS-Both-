@@ -53,6 +53,7 @@ const AllDelivery = lazy(() => import('./Reports/allDelivery'));
 const AllTransaction = lazy(() => import('./Reports/allTransaction'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
 const PurchaseOrder = lazy(() => import('./Pages/purchaseOrder'));
+const PostPrintingJob = lazy(() => import('./Pages/PostPrintingJob'));
 const CustomerReport = lazy(() => import('./Reports/customerReport'));
 const PaymentReport = lazy(() => import('./Reports/paymentReport'));
 const ItemReport = lazy(() => import('./Reports/itemReport'));
@@ -149,6 +150,7 @@ export default function App() {
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={withSuspense(<PostPrintingControl />)} />
             <Route path={ROUTES.WORKFLOW_TEMPLATES} element={withSuspense(<WorkflowTemplates />)} />
             <Route path={ROUTES.PURCHASE_ORDERS} element={withSuspense(<PurchaseOrder />)} />
+            <Route path={ROUTES.POST_PRINTING_JOBS} element={withSuspense(<PostPrintingJob />)} />
             <Route path="/orderUpdate/:id" element={withSuspense(<OrderUpdate />)} />
             <Route path="/updateDelivery/:id" element={withSuspense(<UpdateDelivery />)} />
             <Route path="/customers/:id" element={withSuspense(<CustomerDetails />)} />

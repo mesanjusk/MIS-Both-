@@ -32,9 +32,20 @@ const productionJobSchema = new mongoose.Schema(
   {
     job_uuid: { type: String, unique: true, index: true },
     job_number: { type: Number, unique: true, sparse: true },
+    job_category: {
+      type: String,
+      enum: ['general', 'post_printing'],
+      default: 'general',
+      index: true,
+    },
     job_type: {
       type: String,
-      enum: ['purchase', 'printing', 'lamination', 'cutting', 'packing', 'manual', 'other'],
+      enum: [
+        'purchase', 'printing',
+        'lamination', 'uv_coating', 'cutting', 'foiling',
+        'binding', 'packing', 'finishing', 'embossing', 'quality_check',
+        'manual', 'other',
+      ],
       default: 'manual',
       index: true,
     },
@@ -46,6 +57,9 @@ const productionJobSchema = new mongoose.Schema(
     vendor_uuid: { type: String, default: '', index: true },
     vendor_name: { type: String, default: '' },
     job_date: { type: Date, default: Date.now, index: true },
+    expected_completion: { type: Date, default: null },
+    order_uuid: { type: String, default: '', index: true },
+    order_number: { type: Number, default: null },
     status: { type: String, enum: ['draft', 'in_progress', 'completed', 'cancelled'], default: 'draft', index: true },
     inputItems: { type: [qtyItemSchema], default: [] },
     outputItems: { type: [qtyItemSchema], default: [] },

@@ -28,3 +28,18 @@ export const saveWhatsAppAttendanceSettings = async (payload) => unwrap(await ax
 
 export const fetchVendorSummaries = async () => unwrap(await axios.get('/api/vendors/masters/summary'));
 export const fetchVendorOrderLedger = async (vendorUuid) => unwrap(await axios.get(`/vendors/masters/${vendorUuid}/order-ledger`));
+
+export const fetchPostPrintJobs = async (filters = {}) =>
+  unwrap(await axios.get('/api/vendors/production-jobs', { params: { job_category: 'post_printing', ...filters } }));
+
+export const fetchPostPrintJobsByOrder = async (orderUuid) =>
+  unwrap(await axios.get(`/api/vendors/production-jobs/by-order/${orderUuid}`));
+
+export const updateProductionJobStatus = async (jobUuid, status) =>
+  unwrap(await axios.put(`/api/vendors/production-jobs/${jobUuid}/status`, { status }));
+
+export const fetchPostPrintPayables = async () =>
+  unwrap(await axios.get('/api/vendors/post-print/payables'));
+
+export const fetchPostPrintOrderSummary = async () =>
+  unwrap(await axios.get('/api/vendors/post-print/order-summary'));

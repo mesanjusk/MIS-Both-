@@ -146,14 +146,15 @@ export default function AddRecievable() {
     try {
       const creditCustomer = allCustomerOptions.find((option) => option.Customer_uuid === CreditCustomer);
 
+      // Opening Receivable: DR Customer (they owe us), CR Opening Balance Equity
       const journal = [
         {
-          Account_id: '81f36451-41f2-402d-9dd3-cc11af039142',
+          Account_id: creditCustomer.Customer_uuid,
           Type: 'Debit',
           Amount: Number(Amount),
         },
         {
-          Account_id: creditCustomer.Customer_uuid,
+          Account_id: 'Opening Balance Equity',
           Type: 'Credit',
           Amount: Number(Amount),
         },

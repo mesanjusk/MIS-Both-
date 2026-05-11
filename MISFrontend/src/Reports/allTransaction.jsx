@@ -76,13 +76,14 @@ export default function AllTransaction() {
     return true;
   }), [normalized, filters]);
 
+  const isCashMode = (t) => /cash/i.test(customerMap[t.Payment_mode] || t.Payment_mode || '');
   const summary = useMemo(() => ({
-    cashIn: filtered.filter((t) => String(t.Payment_mode || '').toLowerCase().includes('cash')).reduce((s, t) => s + Number(t.inAmount || 0), 0),
-    cashOut: filtered.filter((t) => String(t.Payment_mode || '').toLowerCase().includes('cash')).reduce((s, t) => s + Number(t.outAmount || 0), 0),
+    cashIn: filtered.filter(isCashMode).reduce((s, t) => s + Number(t.inAmount || 0), 0),
+    cashOut: filtered.filter(isCashMode).reduce((s, t) => s + Number(t.outAmount || 0), 0),
     totalIn: filtered.reduce((s, t) => s + Number(t.inAmount || 0), 0),
     totalOut: filtered.reduce((s, t) => s + Number(t.outAmount || 0), 0),
     count: filtered.length,
-  }), [filtered]);
+  }), [filtered, customerMap]);
 
   const ledgerRows = useMemo(() => {
     if (!filters.account) return [];
@@ -125,7 +126,7 @@ export default function AllTransaction() {
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1 }}>
         <TextField size="small" type="date" label="From Date" value={filters.fromDate} onChange={(e) => setFilters((p) => ({ ...p, fromDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
         <TextField size="small" type="date" label="To Date" value={filters.toDate} onChange={(e) => setFilters((p) => ({ ...p, toDate: e.target.value }))} InputLabelProps={{ shrink: true }} />
-        <TextField select size="small" label="Payment Mode" value={filters.paymentMode} onChange={(e) => setFilters((p) => ({ ...p, paymentMode: e.target.value }))} sx={{ minWidth: 150 }}>{modes.map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}</TextField>
+        <TextField select size="small" label="Payment Mode" value={filters.paymentMode} onChange={(e) => setFilters((p) => ({ ...p, paymentMode: e.target.value }))} sx={{ minWidth: 150 }}>{modes.map((m) => <MenuItem key={m} value={m}>{customerMap[m] || m}</MenuItem>)}</TextField>
         <TextField select size="small" label="Type" value={filters.transactionType} onChange={(e) => setFilters((p) => ({ ...p, transactionType: e.target.value }))} sx={{ minWidth: 130 }}>{['All', 'Receipt', 'Payment'].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}</TextField>
         <TextField size="small" label="Search" value={filters.search} onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))} />
         <Button variant="outlined" onClick={clear}>Clear</Button>
@@ -137,7 +138,7 @@ export default function AllTransaction() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1 }}><Tab label="Transactions" /><Tab label="Account Ledger" /></Tabs>
       {tab === 0 ? (
         <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <TableContainer sx={{ maxHeight: '70vh' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Date', 'Txn #', 'Description', 'Order #', 'Customer', 'Mode', 'Debit (In)', 'Credit (Out)', 'Created By'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{pageRows.map((txn) => <TableRow key={txn.id} hover sx={{ bgcolor: txn.transactionKind === 'Receipt' ? 'rgba(46,125,50,0.05)' : 'rgba(211,47,47,0.05)' }}><TableCell>{prettyDate(txn.Transaction_date)}</TableCell><TableCell>{txn.Transaction_id}</TableCell><TableCell>{txn.Description}</TableCell><TableCell>{txn.Order_number || txn.Order_Number || '-'}</TableCell><TableCell>{txn.customerName || '-'}</TableCell><TableCell><Chip size="small" label={txn.Payment_mode || '-'} /></TableCell><TableCell>{money(txn.inAmount)}</TableCell><TableCell>{money(txn.outAmount)}</TableCell><TableCell>{txn.Created_by || '-'}</TableCell></TableRow>)}</TableBody></Table></TableContainer><TablePagination component="div" count={filtered.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={50} rowsPerPageOptions={[50]} /></Paper>
+          <TableContainer sx={{ maxHeight: '70vh' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Date', 'Txn #', 'Description', 'Order #', 'Customer', 'Mode', 'Debit (In)', 'Credit (Out)', 'Created By'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{pageRows.map((txn) => <TableRow key={txn.id} hover sx={{ bgcolor: txn.transactionKind === 'Receipt' ? 'rgba(46,125,50,0.05)' : 'rgba(211,47,47,0.05)' }}><TableCell>{prettyDate(txn.Transaction_date)}</TableCell><TableCell>{txn.Transaction_id}</TableCell><TableCell>{txn.Description}</TableCell><TableCell>{txn.Order_number || txn.Order_Number || '-'}</TableCell><TableCell>{txn.customerName || '-'}</TableCell><TableCell><Chip size="small" label={customerMap[txn.Payment_mode] || txn.Payment_mode || '-'} /></TableCell><TableCell>{money(txn.inAmount)}</TableCell><TableCell>{money(txn.outAmount)}</TableCell><TableCell>{txn.Created_by || '-'}</TableCell></TableRow>)}</TableBody></Table></TableContainer><TablePagination component="div" count={filtered.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={50} rowsPerPageOptions={[50]} /></Paper>
       ) : (
         <Paper variant="outlined" sx={{ p: 1, borderRadius: 3 }}><FormControl size="small" sx={{ minWidth: 240, mb: 1 }}><InputLabel>Account</InputLabel><Select label="Account" value={filters.account} onChange={(e) => setFilters((p) => ({ ...p, account: e.target.value }))}>{accounts.map((account) => <MenuItem key={account} value={account}>{account}</MenuItem>)}</Select></FormControl><TableContainer><Table size="small"><TableHead><TableRow><TableCell>Date</TableCell><TableCell>Description</TableCell><TableCell align="right">Debit</TableCell><TableCell align="right">Credit</TableCell><TableCell align="right">Running Balance</TableCell></TableRow></TableHead><TableBody>{ledgerRows.map((row, index) => <TableRow key={`${row.txn.id}-${index}`}><TableCell>{prettyDate(row.txn.Transaction_date)}</TableCell><TableCell>{row.txn.Description}</TableCell><TableCell align="right">{money(row.debit)}</TableCell><TableCell align="right">{money(row.credit)}</TableCell><TableCell align="right">{money(row.balance)}</TableCell></TableRow>)}</TableBody></Table></TableContainer></Paper>
       )}

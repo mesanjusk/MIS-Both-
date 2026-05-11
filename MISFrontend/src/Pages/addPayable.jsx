@@ -142,14 +142,15 @@ export default function AddTransaction() {
     }
 
     try {
+      // Opening Payable: DR Opening Balance Equity, CR Vendor/Customer (they are owed)
       const journal = [
         {
-          Account_id: customers,
+          Account_id: 'Opening Balance Equity',
           Type: 'Debit',
           Amount: Number(Amount),
         },
         {
-          Account_id: '81f36451-41f2-402d-9dd3-cc11af039142',
+          Account_id: customers,
           Type: 'Credit',
           Amount: Number(Amount),
         },

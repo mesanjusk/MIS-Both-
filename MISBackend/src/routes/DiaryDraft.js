@@ -7,6 +7,7 @@ const Transaction = require('../repositories/transaction');
 const Counter = require('../repositories/counter');
 const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
+const { resolve: resolveAccount } = require('../services/accountRegistry');
 
 router.use(requireAuth);
 
@@ -224,7 +225,7 @@ async function getCashBankAccounts() {
     { Customer_name: 1, Customer_uuid: 1 }
   ).lean();
   const cashDocs = docs.filter((d) => d.Customer_name && /cash/i.test(d.Customer_name));
-  const bankDocs = docs.filter((d) => d.Customer_name && /sanju/i.test(d.Customer_name));
+  const bankDocs = docs.filter((d) => d.Customer_name && !/cash/i.test(d.Customer_name));
   const cashUuids = cashDocs.map((d) => d.Customer_uuid).filter(Boolean);
   const bankUuids = bankDocs.map((d) => d.Customer_uuid).filter(Boolean);
   const cashNames = cashDocs.map((d) => d.Customer_name);
@@ -365,14 +366,18 @@ router.post('/:uuid/confirm', async (req, res) => {
       if (!entry.account_assigned)           continue;
 
       const ledgerAccount = entry.book === 'bank' ? bankUuid : cashUuid;
+
+      // Resolve assigned account: may be a name string (user typed) or already a UUID
+      const assignedAcct = await resolveAccount(entry.account_assigned);
+
       const journal = entry.direction === 'in'
         ? [
-            { Account_id: ledgerAccount,         Type: 'Debit',  Amount: entry.amount },
-            { Account_id: entry.account_assigned, Type: 'Credit', Amount: entry.amount },
+            { Account_id: ledgerAccount,       Account_name: '',                  Type: 'Debit',  Amount: entry.amount },
+            { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Credit', Amount: entry.amount },
           ]
         : [
-            { Account_id: entry.account_assigned, Type: 'Debit',  Amount: entry.amount },
-            { Account_id: ledgerAccount,          Type: 'Credit', Amount: entry.amount },
+            { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Debit',  Amount: entry.amount },
+            { Account_id: ledgerAccount,       Account_name: '',                  Type: 'Credit', Amount: entry.amount },
           ];
 
       const counter = await Counter.findByIdAndUpdate(

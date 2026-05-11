@@ -26,7 +26,7 @@ const fmtDate = (d) =>
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 // ── Section table (same columns as Day Book) ──────────────────────────────────
-function TxnTable({ rows, title, color }) {
+function TxnTable({ rows, title, color, customerMap = {} }) {
   if (!rows.length) return null;
   const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
   return (
@@ -60,7 +60,7 @@ function TxnTable({ rows, title, color }) {
                   <Chip label={row.account} size="small" color="primary" variant="outlined" />
                 </TableCell>
                 <TableCell>
-                  <Chip label={row.txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
+                  <Chip label={customerMap[row.txn.Payment_mode] || row.txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="body2" fontWeight={700}>{money(row.amount)}</Typography>
@@ -122,7 +122,7 @@ export default function AllTransaction() {
   // Cash/Bank accounts — match by UUID (new txns) and name (old diary-confirmed txns)
   const ledgerAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
   const cashDocs  = ledgerAccounts.filter((c) => /cash/i.test(c.Customer_name));
-  const bankDocs  = ledgerAccounts.filter((c) => /sanju/i.test(c.Customer_name));
+  const bankDocs  = ledgerAccounts.filter((c) => !/cash/i.test(c.Customer_name));
   const cashUuids = cashDocs.map((c) => c.Customer_uuid).filter(Boolean);
   const bankUuids = bankDocs.map((c) => c.Customer_uuid).filter(Boolean);
   const cashNameSet = new Set(cashDocs.map((c) => (c.Customer_name || '').toLowerCase()));
@@ -130,7 +130,7 @@ export default function AllTransaction() {
   const cashUuidSet = new Set(cashUuids);
   const bankUuidSet = new Set(bankUuids);
   const isCash = (id) => cashUuidSet.has(id) || cashNameSet.has((id || '').toLowerCase()) || (!cashUuidSet.size && /^cash$/i.test(id || ''));
-  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase()) || (!bankUuidSet.size && /sanju/i.test(id || ''));
+  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase());
 
   // Opening balance for an account = DR − CR of all txns BEFORE selected date
   const calcOpening = (isAccountFn) => {
@@ -242,10 +242,10 @@ export default function AllTransaction() {
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
+                    <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" />
+                    <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" customerMap={customerMap} />
                   </Box>
                 </Stack>
               )}
@@ -254,7 +254,7 @@ export default function AllTransaction() {
             {/* ── BANK SECTION ── */}
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'info.main' }}>
               <Typography variant="subtitle1" fontWeight={800} color="info.dark" sx={{ mb: 1.5 }}>
-                Bank — {bankDocs[0]?.Customer_name || 'UPI Sanju SK'}
+                Bank — {bankDocs.map((b) => b.Customer_name).join(' / ') || 'Bank'}
               </Typography>
               <SummaryCards
                 opening={bankOpening}
@@ -268,10 +268,10 @@ export default function AllTransaction() {
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={bankIn}  title="Bank Receipts (IN)"  color="success.dark" />
+                    <TxnTable rows={bankIn}  title="Bank Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={bankOut} title="Bank Payments (OUT)" color="error.dark" />
+                    <TxnTable rows={bankOut} title="Bank Payments (OUT)" color="error.dark" customerMap={customerMap} />
                   </Box>
                 </Stack>
               )}

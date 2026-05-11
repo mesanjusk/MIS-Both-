@@ -14,7 +14,6 @@ import { LoadingSpinner } from "../Components";
 
 const InvoiceModal = lazy(() => import("../Components/InvoiceModal"));
 
-const PURCHASE_ACCOUNT_ID = "6c91bf35-e9c4-4732-a428-0310f56bd0a7";
 const MIN_SAVE_MS = 600;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -260,9 +259,10 @@ export default function UpdateDelivery({
         // Optional accounting (kept as-is; remove if not needed on your backend)
         try {
           const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
+          // Sale delivery: DR Customer (debtor), CR Sales Account (revenue)
           const journal = [
-            { Account_id: PURCHASE_ACCOUNT_ID, Type: "Debit", Amount: totalAmount },
-            { Account_id: Customer_uuid, Type: "Credit", Amount: totalAmount },
+            { Account_id: Customer_uuid, Type: "Debit",  Amount: totalAmount },
+            { Account_id: "Sales",       Type: "Credit", Amount: totalAmount },
           ];
           const transaction = await axios.post(`/transaction/addTransaction`, {
             Description: "Delivered",
@@ -270,7 +270,7 @@ export default function UpdateDelivery({
             Transaction_date: new Date().toISOString(),
             Total_Credit: totalAmount,
             Total_Debit: totalAmount,
-            Payment_mode: "Purchase",
+            Payment_mode: Customer_uuid,
             Journal_entry: journal,
             Created_by: loggedInUser,
           });

@@ -108,16 +108,17 @@ export default function AddTransaction1({ onClose }) {
     if (!creditCustomer || !debitCustomer) return toast.error('Selected customer or payment mode is invalid.');
 
     const todayDate = new Date().toISOString().split('T')[0];
+    // Payment: money OUT → DR Customer/Vendor, CR Cash/Bank (payment mode)
     const journal = [
-      { Account_id: debitCustomer.Customer_uuid, Type: 'Debit', Amount: Number(Amount) },
-      { Account_id: creditCustomer.Customer_uuid, Type: 'Credit', Amount: Number(Amount) },
+      { Account_id: creditCustomer.Customer_uuid, Type: 'Debit',  Amount: Number(Amount) },
+      { Account_id: debitCustomer.Customer_uuid,  Type: 'Credit', Amount: Number(Amount) },
     ];
 
     const formData = new FormData();
     formData.append('Description', Description);
     formData.append('Total_Credit', Number(Amount));
     formData.append('Total_Debit', Number(Amount));
-    formData.append('Payment_mode', debitCustomer.Customer_name);
+    formData.append('Payment_mode', debitCustomer.Customer_uuid);
     formData.append('Created_by', loggedInUser);
     formData.append('Transaction_date', isAdminUser && isDateChecked ? (Transaction_date || todayDate) : todayDate);
     formData.append('Journal_entry', JSON.stringify(journal));
@@ -233,7 +234,7 @@ export default function AddTransaction1({ onClose }) {
 
             <Stack direction="row" spacing={1}>
               <TextField label="Amount (₹)" type="number" value={Amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ min: 0, step: '0.01' }} fullWidth size="small" sx={compactFieldSx} />
-              <TextField select label="Payment Mode" value={DebitCustomer} onChange={(e) => setDebitCustomer(e.target.value)} fullWidth size="small" sx={compactFieldSx} MenuProps={selectMenuProps}>
+              <TextField select label="Pay From" value={DebitCustomer} onChange={(e) => setDebitCustomer(e.target.value)} fullWidth size="small" sx={compactFieldSx} MenuProps={selectMenuProps}>
                 <MenuItem value="">Select payment mode</MenuItem>
                 {accountCustomerOptions.map((cust) => (
                   <MenuItem key={cust.Customer_uuid} value={cust.Customer_uuid}>{cust.Customer_name}</MenuItem>

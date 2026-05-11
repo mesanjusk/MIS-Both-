@@ -181,14 +181,15 @@ export default function UpiPayment({ onClose }) {
       }
 
       const todayDate = new Date().toISOString().split('T')[0];
+      // UPI Payment: money OUT → DR Customer/Vendor, CR Bank/UPI account
       const journal = [
         {
-          Account_id: paymentModeAccount.Customer_uuid,
+          Account_id: customer.Customer_uuid,
           Type: 'Debit',
           Amount: Number(paymentData.amount),
         },
         {
-          Account_id: customer.Customer_uuid,
+          Account_id: paymentModeAccount.Customer_uuid,
           Type: 'Credit',
           Amount: Number(paymentData.amount),
         },
@@ -201,7 +202,7 @@ export default function UpiPayment({ onClose }) {
       );
       formData.append('Total_Credit', Number(paymentData.amount));
       formData.append('Total_Debit', Number(paymentData.amount));
-      formData.append('Payment_mode', paymentModeAccount.Customer_name);
+      formData.append('Payment_mode', paymentModeAccount.Customer_uuid);
       formData.append('Created_by', loggedInUser);
       formData.append('Transaction_date', todayDate);
       formData.append('Journal_entry', JSON.stringify(journal));

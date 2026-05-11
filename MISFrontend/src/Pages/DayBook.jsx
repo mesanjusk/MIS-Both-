@@ -270,7 +270,7 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
   const cashNameSet = new Set(cashNames.map((n) => n.toLowerCase()));
   const bankNameSet = new Set(bankNames.map((n) => n.toLowerCase()));
   const isCash = (id) => cashUuidSet.has(id) || cashNameSet.has((id || '').toLowerCase()) || (!cashUuidSet.size && /^cash$/i.test(id || ''));
-  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase()) || (!bankUuidSet.size && /sanju/i.test(id || ''));
+  const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase());
 
   const classified = txns.map((txn) => {
     const j = txn.Journal_entry || [];
@@ -325,7 +325,7 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
                   <Chip label={account} size="small" color="primary" variant="outlined" />
                 </TableCell>
                 <TableCell>
-                  <Chip label={txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
+                  <Chip label={customerMap[txn.Payment_mode] || txn.Payment_mode || 'Cash'} size="small" variant="outlined" />
                 </TableCell>
                 <TableCell align="right">
                   <Typography variant="body2" fontWeight={700}>{money(txn.Total_Debit)}</Typography>

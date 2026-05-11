@@ -854,7 +854,7 @@ export default function AddOrder1({ closeModal }) {
                 : new Date().toISOString().split('T')[0],
             Total_Credit: amt,
             Total_Debit: amt,
-            Payment_mode: payModeCustomer?.Customer_name || 'Advance',
+            Payment_mode: payModeCustomer?.Customer_uuid || 'Advance',
             Journal_entry: journal,
           });
 

@@ -7,7 +7,7 @@ const Transaction = require('../repositories/transaction');
 const Counter = require('../repositories/counter');
 const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
-const { resolve: resolveAccount } = require('../services/accountRegistry');
+const { resolve: resolveAccount, getName: getAccountName, updateBalancesForJournal } = require('../services/accountRegistry');
 
 router.use(requireAuth);
 
@@ -365,19 +365,20 @@ router.post('/:uuid/confirm', async (req, res) => {
       if (entry.entry_status === 'rejected') continue;
       if (!entry.account_assigned)           continue;
 
-      const ledgerAccount = entry.book === 'bank' ? bankUuid : cashUuid;
+      const ledgerAccountUuid = entry.book === 'bank' ? bankUuid : cashUuid;
+      const ledgerAccountName = await getAccountName(ledgerAccountUuid);
 
       // Resolve assigned account: may be a name string (user typed) or already a UUID
       const assignedAcct = await resolveAccount(entry.account_assigned);
 
       const journal = entry.direction === 'in'
         ? [
-            { Account_id: ledgerAccount,       Account_name: '',                  Type: 'Debit',  Amount: entry.amount },
+            { Account_id: ledgerAccountUuid,   Account_name: ledgerAccountName,   Type: 'Debit',  Amount: entry.amount },
             { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Credit', Amount: entry.amount },
           ]
         : [
             { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Debit',  Amount: entry.amount },
-            { Account_id: ledgerAccount,       Account_name: '',                  Type: 'Credit', Amount: entry.amount },
+            { Account_id: ledgerAccountUuid,   Account_name: ledgerAccountName,   Type: 'Credit', Amount: entry.amount },
           ];
 
       const counter = await Counter.findByIdAndUpdate(
@@ -403,12 +404,15 @@ router.post('/:uuid/confirm', async (req, res) => {
       });
       await txn.save();
 
+      updateBalancesForJournal(journal).catch(() => {});
+
       entry.transaction_uuid = txn.Transaction_uuid;
       entry.entry_status     = 'confirmed';
       created++;
     }
 
     draft.status = 'confirmed';
+    draft.markModified('entries');
     await draft.save();
     return res.json({ success: true, message: `${created} transaction(s) created`, result: draft });
   } catch (err) {

@@ -363,12 +363,146 @@ router.post('/ledger', async (req, res) => {
   }
 });
 
+router.get('/production-jobs/by-order/:orderUuid', async (req, res) => {
+  try {
+    const orderUuid = String(req.params.orderUuid).trim();
+    const jobs = await ProductionJob.find({
+      $or: [
+        { order_uuid: orderUuid },
+        { 'linkedOrders.orderUuid': orderUuid },
+      ],
+    }).sort({ job_date: -1 }).lean();
+    res.json({ success: true, result: jobs });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put('/production-jobs/:jobUuid/status', async (req, res) => {
+  try {
+    const valid = ['draft', 'in_progress', 'completed', 'cancelled'];
+    const status = String(req.body.status || '').toLowerCase();
+    if (!valid.includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid status' });
+    }
+    const updated = await ProductionJob.findOneAndUpdate(
+      { job_uuid: req.params.jobUuid },
+      { $set: { status } },
+      { new: true }
+    );
+    if (!updated) return res.status(404).json({ success: false, message: 'Job not found' });
+    res.json({ success: true, result: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get('/post-print/payables', async (req, res) => {
+  try {
+    const jobs = await ProductionJob.find({ job_category: 'post_printing', status: { $ne: 'cancelled' } }).lean();
+    const jobUuids = jobs.map((j) => j.job_uuid).filter(Boolean);
+    const ledgerEntries = jobUuids.length
+      ? await VendorLedger.find({ job_uuid: { $in: jobUuids } }).lean()
+      : [];
+
+    const byVendor = {};
+    for (const job of jobs) {
+      if (!job.vendor_uuid) continue;
+      if (!byVendor[job.vendor_uuid]) {
+        byVendor[job.vendor_uuid] = {
+          vendorUuid: job.vendor_uuid,
+          vendorName: job.vendor_name,
+          totalJobs: 0,
+          totalBilled: 0,
+          totalPaid: 0,
+          balance: 0,
+        };
+      }
+      byVendor[job.vendor_uuid].totalJobs += 1;
+      byVendor[job.vendor_uuid].totalBilled += toNumber(job.jobValue, 0);
+    }
+
+    for (const entry of ledgerEntries) {
+      if (entry.dr_cr === 'dr' && byVendor[entry.vendor_uuid]) {
+        byVendor[entry.vendor_uuid].totalPaid += toNumber(entry.amount, 0);
+      }
+    }
+
+    const result = Object.values(byVendor)
+      .map((v) => ({ ...v, balance: Math.max(0, v.totalBilled - v.totalPaid) }))
+      .filter((v) => v.totalBilled > 0)
+      .sort((a, b) => b.balance - a.balance);
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get('/post-print/order-summary', async (req, res) => {
+  try {
+    const POST_PRINT_STAGES = ['post_printing', 'finishing'];
+    const Customers = require('../repositories/customer');
+
+    const [orders, allJobs] = await Promise.all([
+      Orders.find({ stage: { $in: POST_PRINT_STAGES } })
+        .select({ Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, stage: 1, saleSubtotal: 1, createdAt: 1 })
+        .sort({ createdAt: -1 }).lean(),
+      ProductionJob.find({ job_category: 'post_printing' }).lean(),
+    ]);
+
+    const customerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const customers = customerUuids.length
+      ? await Customers.find({ Customer_uuid: { $in: customerUuids } }, { Customer_uuid: 1, Customer_name: 1 }).lean()
+      : [];
+    const customerMap = Object.fromEntries(customers.map((c) => [c.Customer_uuid, c.Customer_name]));
+
+    const jobsByOrder = {};
+    for (const job of allJobs) {
+      const uuids = new Set();
+      if (job.order_uuid) uuids.add(job.order_uuid);
+      (job.linkedOrders || []).forEach((lo) => { if (lo.orderUuid) uuids.add(lo.orderUuid); });
+      uuids.forEach((uuid) => {
+        if (!jobsByOrder[uuid]) jobsByOrder[uuid] = [];
+        jobsByOrder[uuid].push(job);
+      });
+    }
+
+    const result = orders.map((order) => ({
+      ...order,
+      customerName: customerMap[order.Customer_uuid] || '',
+      jobs: jobsByOrder[order.Order_uuid] || [],
+    }));
+
+    res.json({ success: true, result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get('/production-jobs', async (req, res) => {
   try {
     const filter = {};
     if (req.query.vendor_uuid) filter.vendor_uuid = String(req.query.vendor_uuid);
     if (req.query.status) filter.status = String(req.query.status);
-    const jobs = await ProductionJob.find(filter).sort({ job_date: -1, createdAt: -1 }).limit(200).lean();
+    if (req.query.job_category) filter.job_category = String(req.query.job_category);
+    if (req.query.job_type) filter.job_type = String(req.query.job_type);
+    if (req.query.order_uuid) {
+      filter.$or = [
+        { order_uuid: String(req.query.order_uuid) },
+        { 'linkedOrders.orderUuid': String(req.query.order_uuid) },
+      ];
+    }
+    if (req.query.fromDate || req.query.toDate) {
+      filter.job_date = {};
+      if (req.query.fromDate) filter.job_date.$gte = new Date(req.query.fromDate);
+      if (req.query.toDate) {
+        const end = new Date(req.query.toDate);
+        end.setHours(23, 59, 59, 999);
+        filter.job_date.$lte = end;
+      }
+    }
+    const jobs = await ProductionJob.find(filter).sort({ job_date: -1, createdAt: -1 }).limit(300).lean();
     res.json({ success: true, result: jobs });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -393,14 +527,21 @@ router.post('/production-jobs', async (req, res) => {
         }))
       : [];
 
+    const primaryOrderUuid = linkedOrders[0]?.orderUuid || String(req.body.order_uuid || '');
+    const primaryOrderNumber = linkedOrders[0]?.orderNumber || toNumber(req.body.order_number, 0) || null;
+
     const created = await ProductionJob.create({
       job_uuid: uuid(),
       job_number: jobNumber,
+      job_category: req.body.job_category || 'general',
       job_type: req.body.job_type || 'manual',
       job_mode: req.body.job_mode || 'jobwork_only',
       vendor_uuid: vendor?.Vendor_uuid || req.body.vendor_uuid || '',
       vendor_name: vendor?.Vendor_name || req.body.vendor_name || '',
       job_date: req.body.job_date || new Date(),
+      expected_completion: req.body.expected_completion || null,
+      order_uuid: primaryOrderUuid,
+      order_number: primaryOrderNumber,
       status: req.body.status || 'draft',
       inputItems: Array.isArray(req.body.inputItems) ? req.body.inputItems : [],
       outputItems: Array.isArray(req.body.outputItems) ? req.body.outputItems : [],

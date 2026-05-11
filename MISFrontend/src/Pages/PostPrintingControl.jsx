@@ -44,7 +44,8 @@ import {
   payVendor,
 } from '../services/businessOpsService';
 import { fetchPayments } from '../services/paymentService';
-import { fetchVendorMasters } from '../services/vendorService';
+import { fetchVendorMasters, fetchPostPrintOrderSummary } from '../services/vendorService';
+import { ROUTES } from '../constants/routes';
 
 const POST_PRINT_STAGES = ['post_printing', 'finishing'];
 
@@ -105,10 +106,19 @@ function ActionButton({ title, icon, onClick, disabled }) {
   );
 }
 
+const JOB_TYPE_LABEL = {
+  lamination: 'Lam', uv_coating: 'UV', cutting: 'Cut', foiling: 'Foil',
+  binding: 'Bind', packing: 'Pack', finishing: 'Finish', embossing: 'Emboss',
+  quality_check: 'QC', manual: 'Manual', other: 'Other',
+};
+
+const JOB_STATUS_COLOR = { draft: 'default', in_progress: 'warning', completed: 'success', cancelled: 'error' };
+
 export default function PostPrintingControl() {
   const navigate = useNavigate();
   const [allOrders, setAllOrders] = useState([]);
   const [vendorPayable, setVendorPayable] = useState([]);
+  const [orderSummary, setOrderSummary] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('needsAssignment');
@@ -142,14 +152,17 @@ export default function PostPrintingControl() {
     return [];
   }, [activeTab, needsAssignment, inProgress, vendorPayable]);
 
+  const isTimelineTab = activeTab === 'orderTimeline';
+
   const load = async () => {
     setLoading(true);
     setMessage(null);
     try {
-      const [summaryRes, vendorRes, paymentRes] = await Promise.allSettled([
+      const [summaryRes, vendorRes, paymentRes, orderSummaryRes] = await Promise.allSettled([
         getBusinessControlSummary(),
         fetchVendorMasters(),
         fetchPayments(),
+        fetchPostPrintOrderSummary(),
       ]);
 
       if (summaryRes.status === 'fulfilled') {
@@ -159,6 +172,7 @@ export default function PostPrintingControl() {
         setVendorPayable(Array.isArray(summary.vendorPayable?.rows) ? summary.vendorPayable.rows : []);
       }
       if (vendorRes.status === 'fulfilled') setVendors(Array.isArray(vendorRes.value) ? vendorRes.value : []);
+      if (orderSummaryRes.status === 'fulfilled') setOrderSummary(Array.isArray(orderSummaryRes.value) ? orderSummaryRes.value : []);
       if (paymentRes.status === 'fulfilled') {
         const modes = paymentRes.value?.data?.result || paymentRes.value?.data || [];
         const names = modes.map((m) => m.Payment_name || m.Payment_mode || m.name || m).filter(Boolean);
@@ -212,6 +226,7 @@ export default function PostPrintingControl() {
     { key: 'needsAssignment', label: `Needs Assignment (${needsAssignment.length})` },
     { key: 'inProgress', label: `In Progress (${inProgress.length})` },
     { key: 'contractorPayable', label: `Contractor Payable (${vendorPayable.length})` },
+    { key: 'orderTimeline', label: `Order Timeline (${orderSummary.length})` },
   ];
 
   const isVendorTab = activeTab === 'contractorPayable';
@@ -245,68 +260,129 @@ export default function PostPrintingControl() {
           {tabItems.map((tab) => <Tab key={tab.key} value={tab.key} label={tab.label} />)}
         </Tabs>
 
-        <TableContainer component={Paper} elevation={0} sx={{ mt: 1.25, borderRadius: 3, border: '1px solid', borderColor: 'divider', maxHeight: { xs: '60vh', md: '65vh' } }}>
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 900 }}>{isVendorTab ? 'Contractor' : 'Order / Party'}</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>{isVendorTab ? 'Billed' : 'Customer'}</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900 }}>{isVendorTab ? 'Paid' : 'Amount'}</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900 }}>Balance</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>Stage</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>Due</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900 }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading ? (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6 }}><CircularProgress size={28} /></TableCell></TableRow>
-              ) : tabRows.length === 0 ? (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 5 }}><Typography color="text.secondary">No records.</Typography></TableCell></TableRow>
-              ) : tabRows.map((row, idx) => {
-                const id = isVendorTab ? (row.vendorUuid || row.vendorName) : orderId(row);
-                return (
-                  <TableRow hover key={row._id || row.Order_uuid || row.vendorUuid || idx}>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={900}>
-                        {isVendorTab ? row.vendorName : `#${row.Order_Number || '-'}`}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {isVendorTab ? '' : row.orderNote || ''}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={700}>
-                        {isVendorTab ? money(row.credit) : getCustomerLabel(row)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      {isVendorTab ? money(row.debit) : money(row.orderTotal ?? row.Amount ?? 0)}
-                    </TableCell>
-                    <TableCell align="right">
-                      <Chip size="small" label={money(isVendorTab ? row.balance : row.outstandingAmount)} color={(isVendorTab ? row.balance : row.outstandingAmount) > 0 ? 'warning' : 'success'} variant="outlined" />
-                    </TableCell>
-                    <TableCell>
-                      <Chip size="small" label={isVendorTab ? 'Payable' : row.stage || '-'} sx={{ bgcolor: alpha('#7c3aed', 0.1), color: '#5b21b6', fontWeight: 800 }} />
-                    </TableCell>
-                    <TableCell>{shortDate(isVendorTab ? null : row.dueDate)}</TableCell>
-                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                      {isVendorTab ? (
-                        <ActionButton title="Pay Contractor" icon={<PaymentsRoundedIcon fontSize="small" />} onClick={() => openVendorPayment(row)} />
-                      ) : (
-                        <>
-                          <ActionButton title="Assign Contractor" icon={<StorefrontRoundedIcon fontSize="small" />} onClick={() => openVendor(row)} disabled={!id} />
-                          <ActionButton title="Mark Ready" icon={<CheckCircleRoundedIcon fontSize="small" />} onClick={() => runAction(() => markOrderReady(id), 'Order marked ready')} disabled={!id} />
-                          <ActionButton title="View Order" icon={<VisibilityRoundedIcon fontSize="small" />} onClick={() => navigate(`/orderUpdate/${row._id || id}`)} disabled={!id} />
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        {isTimelineTab ? (
+          <Box sx={{ mt: 1.25, maxHeight: { xs: '62vh', md: '68vh' }, overflowY: 'auto' }}>
+            {loading ? (
+              <Stack alignItems="center" justifyContent="center" py={6}><CircularProgress size={28} /></Stack>
+            ) : orderSummary.length === 0 ? (
+              <Stack alignItems="center" justifyContent="center" py={6}>
+                <Typography color="text.secondary">No orders currently in post-printing or finishing stage.</Typography>
+              </Stack>
+            ) : orderSummary.map((order) => (
+              <Paper key={order.Order_uuid} variant="outlined" sx={{ p: 1.5, mb: 1.25, borderRadius: 3 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1} mb={1}>
+                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                    <Typography variant="subtitle2" fontWeight={900} color="#5b21b6">#{order.Order_Number || '-'}</Typography>
+                    {order.customerName && <Typography variant="body2" color="text.secondary">{order.customerName}</Typography>}
+                    <Chip size="small" label={order.stage} sx={{ bgcolor: alpha('#7c3aed', 0.1), color: '#5b21b6', fontWeight: 800 }} />
+                    {order.jobs?.length > 0 && (
+                      <Chip size="small" label={`${order.jobs.filter((j) => j.status === 'completed').length}/${order.jobs.length} done`}
+                        color={order.jobs.every((j) => j.status === 'completed') ? 'success' : 'warning'} />
+                    )}
+                  </Stack>
+                  <Stack direction="row" spacing={0.75}>
+                    <ActionButton
+                      title="Add Post-Print Job"
+                      icon={<StorefrontRoundedIcon fontSize="small" />}
+                      onClick={() => navigate(`${ROUTES.POST_PRINTING_JOBS}?order=${order.Order_uuid}`)}
+                    />
+                    <ActionButton
+                      title="Mark Ready"
+                      icon={<CheckCircleRoundedIcon fontSize="small" />}
+                      onClick={() => runAction(() => markOrderReady(order.Order_uuid), 'Order marked ready')}
+                    />
+                    <ActionButton
+                      title="View Order"
+                      icon={<VisibilityRoundedIcon fontSize="small" />}
+                      onClick={() => navigate(`/orderUpdate/${order._id || order.Order_uuid}`)}
+                    />
+                  </Stack>
+                </Stack>
+                {order.jobs?.length > 0 ? (
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                    {order.jobs.map((job) => (
+                      <Chip
+                        key={job.job_uuid}
+                        size="small"
+                        label={`${JOB_TYPE_LABEL[job.job_type] || job.job_type}${job.vendor_name ? ` · ${job.vendor_name}` : ''}`}
+                        color={JOB_STATUS_COLOR[job.status] || 'default'}
+                        variant={job.status === 'completed' ? 'filled' : 'outlined'}
+                        sx={{ fontWeight: 700, fontSize: 11 }}
+                      />
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="caption" color="text.secondary" fontStyle="italic">
+                    No post-print jobs assigned yet. Click the contractor icon to add one.
+                  </Typography>
+                )}
+              </Paper>
+            ))}
+          </Box>
+        ) : (
+          <TableContainer component={Paper} elevation={0} sx={{ mt: 1.25, borderRadius: 3, border: '1px solid', borderColor: 'divider', maxHeight: { xs: '60vh', md: '65vh' } }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 900 }}>{isVendorTab ? 'Contractor' : 'Order / Party'}</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>{isVendorTab ? 'Billed' : 'Customer'}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 900 }}>{isVendorTab ? 'Paid' : 'Amount'}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 900 }}>Balance</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Stage</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Due</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 900 }}>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {loading ? (
+                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6 }}><CircularProgress size={28} /></TableCell></TableRow>
+                ) : tabRows.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 5 }}><Typography color="text.secondary">No records.</Typography></TableCell></TableRow>
+                ) : tabRows.map((row, idx) => {
+                  const id = isVendorTab ? (row.vendorUuid || row.vendorName) : orderId(row);
+                  return (
+                    <TableRow hover key={row._id || row.Order_uuid || row.vendorUuid || idx}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={900}>
+                          {isVendorTab ? row.vendorName : `#${row.Order_Number || '-'}`}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {isVendorTab ? '' : row.orderNote || ''}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
+                          {isVendorTab ? money(row.credit) : getCustomerLabel(row)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        {isVendorTab ? money(row.debit) : money(row.orderTotal ?? row.Amount ?? 0)}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Chip size="small" label={money(isVendorTab ? row.balance : row.outstandingAmount)} color={(isVendorTab ? row.balance : row.outstandingAmount) > 0 ? 'warning' : 'success'} variant="outlined" />
+                      </TableCell>
+                      <TableCell>
+                        <Chip size="small" label={isVendorTab ? 'Payable' : row.stage || '-'} sx={{ bgcolor: alpha('#7c3aed', 0.1), color: '#5b21b6', fontWeight: 800 }} />
+                      </TableCell>
+                      <TableCell>{shortDate(isVendorTab ? null : row.dueDate)}</TableCell>
+                      <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                        {isVendorTab ? (
+                          <ActionButton title="Pay Contractor" icon={<PaymentsRoundedIcon fontSize="small" />} onClick={() => openVendorPayment(row)} />
+                        ) : (
+                          <>
+                            <ActionButton title="Assign Contractor" icon={<StorefrontRoundedIcon fontSize="small" />} onClick={() => openVendor(row)} disabled={!id} />
+                            <ActionButton title="Mark Ready" icon={<CheckCircleRoundedIcon fontSize="small" />} onClick={() => runAction(() => markOrderReady(id), 'Order marked ready')} disabled={!id} />
+                            <ActionButton title="View Order" icon={<VisibilityRoundedIcon fontSize="small" />} onClick={() => navigate(`/orderUpdate/${row._id || id}`)} disabled={!id} />
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
       {/* Assign Contractor Dialog */}

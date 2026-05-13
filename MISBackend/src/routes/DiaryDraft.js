@@ -139,7 +139,7 @@ router.post('/upload-image', upload.single('file'), async (req, res) => {
     logger.error({ err }, 'POST /diary/upload-image');
     const message = err.message?.includes('GEMINI_API_KEY')
       ? 'Gemini API key not configured on server'
-      : 'OCR failed — please try again or upload CSV manually';
+       : err.message || 'OCR failed — please try again or upload CSV manually';
     return res.status(500).json({ success: false, message });
   }
 });

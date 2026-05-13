@@ -206,60 +206,53 @@ const AllTransaction3 = () => {
 
   // ---------- Admin-only: Edit/Delete ----------
   const openEdit = (transaction) => {
-    const credit = (transaction.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'credit');
-    const debit  = (transaction.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'debit');
-
-    const initialData = {
-      Transaction_id:   transaction.Transaction_id,
-      Transaction_uuid: transaction.Transaction_uuid,
-      Transaction_date: transaction.Transaction_date,
-      Amount: Number(credit?.Amount || debit?.Amount || 0),
-      Description: transaction.Description || '',
-      Credit_id: credit?.Account_id || '',
-      Debit_id:  debit?.Account_id  || '',
-    };
-
-    setEditingTxn(initialData);
+    setEditingTxn(transaction);   // store full transaction; modal derives its fields below
     setShowEditModal(true);
   };
 
   const saveEditedTransaction = async (payload) => {
+    if (!editingTxn) return;
     try {
       const res = await axios.put(
         `/api/transaction/${payload.Transaction_uuid}`,
         {
-          updatedDescription: payload.Description || '',
-          updatedAmount: payload.Amount,
-          updatedDate: payload.Transaction_date,
-          creditAccountId: payload.Credit_id,
-          debitAccountId: payload.Debit_id,
+          Description:      payload.Description || editingTxn.Description || '',
+          Transaction_date: payload.Transaction_date,
+          Total_Debit:      Number(payload.Amount),
+          Total_Credit:     Number(payload.Amount),
+          Payment_mode:     editingTxn.Payment_mode || 'Journal',
+          Created_by:       editingTxn.Created_by   || '',
+          Order_uuid:       editingTxn.Order_uuid    || null,
+          Order_number:     editingTxn.Order_number  || null,
+          Customer_uuid:    editingTxn.Customer_uuid || null,
+          Journal_entry: [
+            { Account_id: payload.Debit_id,  Account_name: '', Type: 'Debit',  Amount: Number(payload.Amount) },
+            { Account_id: payload.Credit_id, Account_name: '', Type: 'Credit', Amount: Number(payload.Amount) },
+          ],
         }
       );
 
       if (res.data?.success) {
-        // Merge into local state
         setTransactions(prev =>
           prev.map(txn =>
-            txn.Transaction_id === payload.Transaction_id
+            txn.Transaction_uuid === payload.Transaction_uuid
               ? {
                   ...txn,
                   Transaction_date: payload.Transaction_date,
-                  Description: payload.Description,
-                  Journal_entry: (txn.Journal_entry || []).map(e => {
-                    const type = String(e.Type || '').toLowerCase();
-                    if (type === 'credit') {
-                      return { ...e, Account_id: payload.Credit_id, Amount: payload.Amount };
-                    }
-                    if (type === 'debit') {
-                      return { ...e, Account_id: payload.Debit_id, Amount: payload.Amount };
-                    }
-                    return e;
-                  }),
+                  Description:      payload.Description,
+                  Total_Debit:      Number(payload.Amount),
+                  Total_Credit:     Number(payload.Amount),
+                  Journal_entry: [
+                    { Account_id: payload.Debit_id,  Account_name: '', Type: 'Debit',  Amount: Number(payload.Amount) },
+                    { Account_id: payload.Credit_id, Account_name: '', Type: 'Credit', Amount: Number(payload.Amount) },
+                  ],
                 }
               : txn
           )
         );
         setShowEditModal(false);
+        setEditingTxn(null);
+        toast.success('Transaction updated');
       } else {
         toast.error('Update failed');
       }
@@ -374,7 +367,9 @@ const AllTransaction3 = () => {
                         if (entry.Type === 'Credit') runningBalance += entry.Amount || 0;
 
                         const secondEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
-                        const secondCustomerName = secondEntry ? (customerMap[secondEntry.Account_id] || "N/A") : "N/A";
+                        const secondCustomerName = secondEntry
+                          ? (customerMap[secondEntry.Account_id] || secondEntry.Account_name || secondEntry.Account_id || 'N/A')
+                          : 'N/A';
 
                         return (
                           <tr key={`${index}-${entryIndex}`} className="border-t hover:bg-gray-50">
@@ -430,9 +425,21 @@ const AllTransaction3 = () => {
       {/* Reusable edit modal (admin only) */}
       <TransactionEditModal
         open={userRole === 'Admin User' && showEditModal}
-        onClose={() => setShowEditModal(false)}
+        onClose={() => { setShowEditModal(false); setEditingTxn(null); }}
         onSave={saveEditedTransaction}
-        initialData={editingTxn}
+        initialData={editingTxn ? (() => {
+          const credit = (editingTxn.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'credit');
+          const debit  = (editingTxn.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'debit');
+          return {
+            Transaction_id:   editingTxn.Transaction_id,
+            Transaction_uuid: editingTxn.Transaction_uuid,
+            Transaction_date: editingTxn.Transaction_date,
+            Amount:      Number(credit?.Amount || debit?.Amount || 0),
+            Description: editingTxn.Description || '',
+            Credit_id:   credit?.Account_id || '',
+            Debit_id:    debit?.Account_id  || '',
+          };
+        })() : null}
         customers={customers}
       />
 

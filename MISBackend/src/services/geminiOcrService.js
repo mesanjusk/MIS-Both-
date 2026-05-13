@@ -27,8 +27,11 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  // gemini-2.0-flash is free tier (1500 req/day) and supports image + PDF inline
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  // v1 stable API — gemini-1.5-flash is confirmed available here (free, 1500 req/day)
+  const model = genAI.getGenerativeModel(
+    { model: 'gemini-1.5-flash' },
+    { apiVersion: 'v1' }
+  );
 
   const filePart = {
     inlineData: {

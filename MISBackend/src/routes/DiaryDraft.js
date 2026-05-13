@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const { v4: uuid } = require('uuid');
 const DiaryDraft = require('../repositories/diaryDraft');
@@ -8,6 +9,17 @@ const Counter = require('../repositories/counter');
 const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
 const { resolve: resolveAccount, getName: getAccountName, updateBalancesForJournal } = require('../services/accountRegistry');
+const { extractCsvFromFile } = require('../services/geminiOcrService');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error('Only JPG, PNG, WEBP, HEIC, or PDF files are allowed'));
+  },
+});
 
 router.use(requireAuth);
 
@@ -114,6 +126,23 @@ async function suggestAccountsForEntries(entries) {
 }
 
 // --------------- routes ---------------
+
+// POST /api/diary/upload-image  — OCR via Gemini, returns extracted csv_text
+router.post('/upload-image', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+    const csvText = await extractCsvFromFile(req.file.buffer, req.file.mimetype);
+    return res.json({ success: true, csv_text: csvText });
+  } catch (err) {
+    logger.error({ err }, 'POST /diary/upload-image');
+    const message = err.message?.includes('GEMINI_API_KEY')
+      ? 'Gemini API key not configured on server'
+      : 'OCR failed — please try again or upload CSV manually';
+    return res.status(500).json({ success: false, message });
+  }
+});
 
 // POST /api/diary/upload-csv
 router.post('/upload-csv', async (req, res) => {

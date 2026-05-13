@@ -206,17 +206,17 @@ const AllTransaction3 = () => {
 
   // ---------- Admin-only: Edit/Delete ----------
   const openEdit = (transaction) => {
-    // Build a normalized initialData for modal
     const credit = (transaction.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'credit');
     const debit  = (transaction.Journal_entry || []).find(e => String(e.Type || '').toLowerCase() === 'debit');
 
     const initialData = {
-      Transaction_id: transaction.Transaction_id,
+      Transaction_id:   transaction.Transaction_id,
+      Transaction_uuid: transaction.Transaction_uuid,
       Transaction_date: transaction.Transaction_date,
       Amount: Number(credit?.Amount || debit?.Amount || 0),
       Description: transaction.Description || '',
       Credit_id: credit?.Account_id || '',
-      Debit_id: debit?.Account_id || '',
+      Debit_id:  debit?.Account_id  || '',
     };
 
     setEditingTxn(initialData);
@@ -269,12 +269,12 @@ const AllTransaction3 = () => {
     }
   };
 
-  const handleDelete = async (txnId) => {
+  const handleDelete = async (transaction) => {
     if (!window.confirm('Are you sure you want to delete this transaction?')) return;
     try {
-      const res = await axios.delete(`/api/transaction/${txnId}`);
+      const res = await axios.delete(`/api/transaction/${transaction.Transaction_uuid}`);
       if (res.data?.success) {
-        setTransactions(prev => prev.filter(t => t.Transaction_id !== txnId));
+        setTransactions(prev => prev.filter(t => t.Transaction_uuid !== transaction.Transaction_uuid));
       } else {
         toast.error('Delete failed');
       }
@@ -399,7 +399,7 @@ const AllTransaction3 = () => {
                                 </button>
                                 <button
                                   className="text-red-600 hover:underline"
-                                  onClick={() => handleDelete(transaction.Transaction_id)}
+                                  onClick={() => handleDelete(transaction)}
                                 >
                                   Delete
                                 </button>

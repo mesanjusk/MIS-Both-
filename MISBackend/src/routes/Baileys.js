@@ -12,6 +12,10 @@ const {
   getLogs,
   getProvider,
   updateProvider,
+  getGroups,
+  getGroupInbox,
+  getGroupConversation,
+  markGroupRead,
 } = require('../controllers/baileysController');
 
 // Wire incoming message listener once when this module is loaded
@@ -29,6 +33,12 @@ router.post('/conversation/:conversationKey/read',  requireAuth, markConversatio
 
 // ── Send ──────────────────────────────────────────────────────────────────────
 router.post('/send-text', requireAuth, sendText);
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+router.get('/groups',                                   requireAuth, getGroups);
+router.get('/group-inbox',                              requireAuth, getGroupInbox);
+router.get('/group-conversation/:groupId',              requireAuth, getGroupConversation);
+router.post('/group-conversation/:groupId/read',        requireAuth, markGroupRead);
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
 router.get('/logs', requireAuth, getLogs);

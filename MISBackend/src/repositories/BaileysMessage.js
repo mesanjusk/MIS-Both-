@@ -15,6 +15,11 @@ const baileysMessageSchema = new mongoose.Schema(
     mediaUrl:         { type: String, default: '' },
     status:           { type: String, default: 'SENT' },
     isAutoReply:      { type: Boolean, default: false },
+    // Group messaging fields
+    chatType:         { type: String, enum: ['individual', 'group'], default: 'individual', index: true },
+    groupId:          { type: String, default: '' },   // full @g.us JID
+    groupName:        { type: String, default: '' },
+    senderPhone:      { type: String, default: '' },   // individual sender within a group
     meta:             { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true, collection: 'baileys_messages' }

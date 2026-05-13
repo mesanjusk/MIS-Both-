@@ -198,7 +198,13 @@ export const baileysMarkRead        = (key)     => apiClient.post(`/api/baileys/
 
 export const baileysSendText        = (payload) => apiClient.post('/api/baileys/send-text', payload);
 
-export const baileysGetLogs         = ()        => apiClient.get('/api/baileys/logs');
+export const baileysGetLogs             = ()           => apiClient.get('/api/baileys/logs');
+
+// ── Baileys Group messaging ───────────────────────────────────────────────────
+export const baileysGetGroups           = ()           => apiClient.get('/api/baileys/groups');
+export const baileysGetGroupInbox       = ()           => apiClient.get('/api/baileys/group-inbox');
+export const baileysGetGroupConversation = (groupId)  => apiClient.get(`/api/baileys/group-conversation/${encodeURIComponent(groupId)}`);
+export const baileysGroupMarkRead       = (groupId)   => apiClient.post(`/api/baileys/group-conversation/${encodeURIComponent(groupId)}/read`);
 
 export const getWhatsAppProvider    = ()        => apiClient.get('/api/baileys/provider');
 export const updateWhatsAppProvider = (p)       => apiClient.put('/api/baileys/provider', { provider: p });

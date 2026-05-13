@@ -38,16 +38,36 @@ function wireIncomingMessages() {
   if (_wired) return;
   _wired = true;
 
-  baileysService.onIncomingMessage(async ({ id, from, body, type, timestamp }) => {
+  baileysService.onIncomingMessage(async ({ id, from, groupId, isGroup, body, type, timestamp }) => {
     try {
-      // Skip messages from office staff numbers
+      const existing = id ? await BaileysMessage.findOne({ baileysMessageId: id }) : null;
+      if (existing) return;
+
+      if (isGroup) {
+        // Group message — save with chatType 'group'; conversationKey = groupId
+        const msg = await BaileysMessage.create({
+          to:               groupId,
+          from:             normalizePhone(from),
+          senderPhone:      normalizePhone(from),
+          conversationKey:  groupId,
+          groupId,
+          chatType:         'group',
+          baileysMessageId: id || '',
+          direction:        'INCOMING',
+          source:           'WEBHOOK',
+          messageType:      String(type || 'TEXT').toUpperCase(),
+          bodyText:         body || '',
+          status:           'RECEIVED',
+          meta:             { timestamp },
+        });
+        logger.info({ groupId, from, bodyLen: (body || '').length }, '[baileysCtrl] group message saved');
+        emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
+        return;
+      }
+
+      // Individual message — skip office staff numbers
       const userPhones = await getOfficeUserPhones();
       if (isOfficeUser(from, userPhones)) return;
-
-      const existing = id
-        ? await BaileysMessage.findOne({ baileysMessageId: id })
-        : null;
-      if (existing) return;
 
       const msg = await BaileysMessage.create({
         to:               '',
@@ -59,6 +79,7 @@ function wireIncomingMessages() {
         messageType:      String(type || 'TEXT').toUpperCase(),
         bodyText:         body || '',
         status:           'RECEIVED',
+        chatType:         'individual',
         meta:             { timestamp },
       });
 
@@ -91,7 +112,7 @@ const stopConnection = asyncHandler(async (_req, res) => {
 
 const getInbox = asyncHandler(async (_req, res) => {
   const [messages, userPhones] = await Promise.all([
-    BaileysMessage.find({ conversationKey: { $ne: '' } })
+    BaileysMessage.find({ conversationKey: { $ne: '' }, chatType: { $ne: 'group' } })
       .sort({ createdAt: -1 })
       .limit(400)
       .lean(),
@@ -146,19 +167,82 @@ const markConversationRead = asyncHandler(async (req, res) => {
   res.json({ message: 'Marked as read' });
 });
 
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+const getGroups = asyncHandler(async (_req, res) => {
+  const groups = await baileysService.getGroups();
+  res.json(groups);
+});
+
+const getGroupInbox = asyncHandler(async (_req, res) => {
+  const messages = await BaileysMessage.find({ chatType: 'group', conversationKey: { $ne: '' } })
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
+
+  const grouped = new Map();
+  for (const item of messages) {
+    const key = item.groupId || item.conversationKey;
+    if (!key) continue;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, {
+        conversationKey: key,
+        groupId:         key,
+        groupName:       item.groupName || '',
+        lastMessage:     item.bodyText || '',
+        lastMessageType: item.messageType || 'TEXT',
+        lastMessageAt:   item.createdAt,
+        lastDirection:   item.direction,
+        unreadCount:     item.direction === 'INCOMING' && item.status !== 'READ' ? 1 : 0,
+        messages:        1,
+        provider:        'baileys',
+      });
+    } else {
+      current.unreadCount += item.direction === 'INCOMING' && item.status !== 'READ' ? 1 : 0;
+      current.messages    += 1;
+      if (!current.groupName && item.groupName) current.groupName = item.groupName;
+    }
+  }
+
+  res.json(Array.from(grouped.values()).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)));
+});
+
+const getGroupConversation = asyncHandler(async (req, res) => {
+  const groupId = req.params.groupId;
+  if (!groupId) throw new AppError('groupId is required', 400);
+  const rows = await BaileysMessage.find({ chatType: 'group', conversationKey: groupId })
+    .sort({ createdAt: 1 })
+    .lean();
+  res.json(rows);
+});
+
+const markGroupRead = asyncHandler(async (req, res) => {
+  const groupId = req.params.groupId;
+  if (!groupId) throw new AppError('groupId is required', 400);
+  await BaileysMessage.updateMany(
+    { chatType: 'group', conversationKey: groupId, direction: 'INCOMING', status: { $in: ['RECEIVED', 'DELIVERED'] } },
+    { $set: { status: 'READ' } }
+  );
+  res.json({ message: 'Marked as read' });
+});
+
 // ── Send Text ──────────────────────────────────────────────────────────────────
 
 const sendText = asyncHandler(async (req, res) => {
-  const { to, text, contactName = '', replyToMessageId = '' } = req.body;
+  const { to, text, contactName = '', replyToMessageId = '', groupName = '' } = req.body;
   if (!to || !text) throw new AppError('to and text are required', 400);
+
+  const isGroupJid = String(to).includes('@g.us');
+  const convKey    = isGroupJid ? to : getConversationKey(to);
 
   try {
     const result = await baileysService.sendText({ to, body: text });
     const log = await BaileysMessage.create({
-      to:               normalizePhone(to),
+      to:               isGroupJid ? to : normalizePhone(to),
       from:             '',
       contactName,
-      conversationKey:  getConversationKey(to),
+      conversationKey:  convKey,
       baileysMessageId: result?.key?.id || '',
       replyToMessageId,
       direction:        'OUTGOING',
@@ -166,20 +250,26 @@ const sendText = asyncHandler(async (req, res) => {
       messageType:      'TEXT',
       bodyText:         text,
       status:           'SENT',
+      chatType:         isGroupJid ? 'group' : 'individual',
+      groupId:          isGroupJid ? to : '',
+      groupName:        isGroupJid ? groupName : '',
       meta:             result || {},
     });
     emitNewMessage({ provider: 'baileys', event: 'new_message', message: log });
     return res.status(201).json(log);
   } catch (error) {
     const log = await BaileysMessage.create({
-      to:              normalizePhone(to),
+      to:              isGroupJid ? to : normalizePhone(to),
       contactName,
-      conversationKey: getConversationKey(to),
+      conversationKey: convKey,
       direction:       'OUTGOING',
       source:          'MANUAL',
       messageType:     'TEXT',
       bodyText:        text,
       status:          'FAILED',
+      chatType:        isGroupJid ? 'group' : 'individual',
+      groupId:         isGroupJid ? to : '',
+      groupName:       isGroupJid ? groupName : '',
       meta:            { error: error.message },
     });
     return res.status(500).json(log);
@@ -225,4 +315,9 @@ module.exports = {
   getLogs,
   getProvider,
   updateProvider,
+  // group handlers
+  getGroups,
+  getGroupInbox,
+  getGroupConversation,
+  markGroupRead,
 };

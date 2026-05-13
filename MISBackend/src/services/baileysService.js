@@ -62,14 +62,20 @@ async function toQrDataUrl(raw) {
   }
 }
 
-function formatJid(phone) {
-  const clean = String(phone || '').replace(/\D/g, '');
-  return clean.includes('@') ? clean : `${clean}@s.whatsapp.net`;
+function formatJid(to) {
+  const s = String(to || '');
+  if (s.includes('@')) return s; // already a full JID — pass through (groups @g.us or individuals @s.whatsapp.net)
+  const clean = s.replace(/\D/g, '');
+  return `${clean}@s.whatsapp.net`;
 }
 
 function normalizeBaileysMessage(msg) {
-  const from = (msg.key?.remoteJid || '').split('@')[0];
-  const m    = msg.message || {};
+  const jid         = msg.key?.remoteJid || '';
+  const isGroup     = jid.endsWith('@g.us');
+  const participant = msg.key?.participant || msg.participant || '';
+  const senderJid   = isGroup ? participant : jid;
+  const senderPhone = senderJid.split('@')[0];
+  const m = msg.message || {};
   const body =
     m.conversation ||
     m.extendedTextMessage?.text ||
@@ -82,11 +88,13 @@ function normalizeBaileysMessage(msg) {
     '';
   const isMedia = !!(m.imageMessage || m.videoMessage || m.documentMessage || m.audioMessage);
   return {
-    id:        msg.key?.id || '',
-    from,
-    body:      body || (isMedia ? '[Media]' : ''),
-    type:      isMedia ? 'media' : 'text',
-    timestamp: msg.messageTimestamp,
+    id:          msg.key?.id || '',
+    from:        senderPhone,
+    groupId:     isGroup ? jid : '',
+    isGroup,
+    body:        body || (isMedia ? '[Media]' : ''),
+    type:        isMedia ? 'media' : 'text',
+    timestamp:   msg.messageTimestamp,
   };
 }
 
@@ -205,10 +213,7 @@ async function connect() {
         try {
           if (msg.key?.fromMe) continue;
           const jid = msg.key?.remoteJid || '';
-          // Skip group chats — group JIDs end with @g.us
-          if (jid.endsWith('@g.us')) continue;
-          const from = jid.split('@')[0];
-          if (!from) continue;
+          if (!jid) continue;
           emitIncoming(normalizeBaileysMessage(msg));
         } catch (err) {
           logger.error({ err: err.message }, '[baileys] normalizeBaileysMessage error');
@@ -250,6 +255,18 @@ async function sendImage({ to, imageUrl, caption = '' }) {
   return baileysSocket.sendMessage(formatJid(to), { image: { url: imageUrl }, caption });
 }
 
+async function getGroups() {
+  if (!baileysSocket || baileysState.status !== 'CONNECTED') {
+    throw new Error('Baileys not connected — scan QR first.');
+  }
+  const groups = await baileysSocket.groupFetchAllParticipating();
+  return Object.values(groups).map((g) => ({
+    id:   g.id,
+    name: g.subject || g.id,
+    size: g.participants?.length || 0,
+  }));
+}
+
 async function autoConnectIfCredentialsExist() {
   try {
     const { state } = await useMongoAuthState();
@@ -270,6 +287,7 @@ module.exports = {
   disconnect,
   sendText,
   sendImage,
+  getGroups,
   getStatus,
   onIncomingMessage,
   autoConnectIfCredentialsExist,

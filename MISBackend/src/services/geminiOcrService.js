@@ -27,7 +27,7 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
   const filePart = {
     inlineData: {
@@ -45,7 +45,6 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
   }
 
   const text = result.response.text().trim();
-  // Strip markdown code fences if Gemini wraps output anyway
   return text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
 }
 

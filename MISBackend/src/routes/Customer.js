@@ -33,14 +33,11 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
 
   if (!amount || amount <= 0) return;
 
-  const [customerAcct, contraAcct] = await Promise.all([
-    resolveAccount(customerName),
-    resolveAccount('Opening Balance'),
-  ]);
+  const contraAcct = await resolveAccount('Opening Balance');
   const txnDate = date ? new Date(date) : fyStartDate();
 
-  const customerLine = { Account_id: customerAcct.uuid, Account_name: customerAcct.name, Type: side === 'debit' ? 'Debit' : 'Credit', Amount: amount };
-  const contraLine   = { Account_id: contraAcct.uuid,   Account_name: contraAcct.name,   Type: side === 'debit' ? 'Credit' : 'Debit', Amount: amount };
+  const customerLine = { Account_id: customerUuid, Account_name: customerName, Type: side === 'debit' ? 'Debit' : 'Credit', Amount: amount };
+  const contraLine   = { Account_id: contraAcct.uuid, Account_name: contraAcct.name, Type: side === 'debit' ? 'Credit' : 'Debit', Amount: amount };
   const Journal_entry = side === 'debit' ? [customerLine, contraLine] : [contraLine, customerLine];
 
   const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();

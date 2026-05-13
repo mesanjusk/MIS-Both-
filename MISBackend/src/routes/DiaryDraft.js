@@ -46,13 +46,9 @@ const PAYMENT_MODE_MAP = { cash: 'Cash', cheque: 'Cheque', upi: 'UPI', neft: 'Ba
 
 // --------------- account suggestion engine ---------------
 
-// For a list of entries, look up past confirmed diary entries and auto-fill
-// account_assigned with the most frequently used account for that party +
-// direction + book combination.
 async function suggestAccountsForEntries(entries) {
   if (!entries.length) return entries;
 
-  // Fetch ledger accounts (Bank and Account group) for name-match suggestions
   const ledgerDocs = await Customer.find(
     { Customer_group: 'Bank and Account' },
     { Customer_name: 1 }
@@ -62,7 +58,6 @@ async function suggestAccountsForEntries(entries) {
     if (doc.Customer_name) ledgerMap[doc.Customer_name.toLowerCase()] = doc.Customer_name;
   }
 
-  // One aggregation query covering all parties in past confirmed diaries
   const results = await DiaryDraft.aggregate([
     { $match: { status: 'confirmed' } },
     { $unwind: '$entries' },
@@ -70,7 +65,6 @@ async function suggestAccountsForEntries(entries) {
       $match: {
         'entries.entry_status':     'confirmed',
         'entries.account_assigned': { $ne: '' },
-        // filter to only parties we care about (case-insensitive)
         'entries.party': {
           $in: entries.map((e) => new RegExp(`^${e.party.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
         },
@@ -91,7 +85,6 @@ async function suggestAccountsForEntries(entries) {
     { $sort: { count: -1, lastUsed: -1 } },
   ]);
 
-  // Build a map  key → best account
   const bestAccount = {};
   for (const r of results) {
     const key = `${r._id.party}|${r._id.direction}|${r._id.book}`;
@@ -111,7 +104,6 @@ async function suggestAccountsForEntries(entries) {
         suggestion_source: `used ${historyMatch.count}x in past`,
       };
     }
-    // Party name exactly matches a ledger account name
     const nameMatch = ledgerMap[e.party.toLowerCase()];
     if (nameMatch) {
       return {
@@ -139,7 +131,7 @@ router.post('/upload-image', upload.single('file'), async (req, res) => {
     logger.error({ err }, 'POST /diary/upload-image');
     const message = err.message?.includes('GEMINI_API_KEY')
       ? 'Gemini API key not configured on server'
-       : err.message || 'OCR failed — please try again or upload CSV manually';
+      : err.message || 'OCR failed — please try again or upload CSV manually';
     return res.status(500).json({ success: false, message });
   }
 });
@@ -198,7 +190,6 @@ router.post('/upload-csv', async (req, res) => {
       return res.status(400).json({ success: false, message: 'No valid entries found in CSV' });
     }
 
-    // Auto-suggest accounts from past confirmed diary history
     const enrichedEntries = await suggestAccountsForEntries(entries);
 
     const dayStart = new Date(dateStr + 'T00:00:00.000Z');
@@ -247,7 +238,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Fetch exact cash/bank account UUIDs + names from Customer master
 async function getCashBankAccounts() {
   const docs = await Customer.find(
     { Customer_group: 'Bank and Account' },
@@ -259,7 +249,6 @@ async function getCashBankAccounts() {
   const bankUuids = bankDocs.map((d) => d.Customer_uuid).filter(Boolean);
   const cashNames = cashDocs.map((d) => d.Customer_name);
   const bankNames = bankDocs.map((d) => d.Customer_name);
-  // Include both UUIDs and names so old (name-based) and new (UUID-based) transactions both match
   return {
     cashAccounts: cashUuids,
     cashNames,
@@ -269,7 +258,7 @@ async function getCashBankAccounts() {
   };
 }
 
-// GET /api/diary/ledger-dates — distinct dates with cash/bank transactions this FY
+// GET /api/diary/ledger-dates
 router.get('/ledger-dates', async (req, res) => {
   try {
     const now = new Date();
@@ -303,7 +292,7 @@ router.get('/ledger-dates', async (req, res) => {
   }
 });
 
-// GET /api/diary/ledger?date=YYYY-MM-DD — cash/bank transactions for a specific date
+// GET /api/diary/ledger?date=YYYY-MM-DD
 router.get('/ledger', async (req, res) => {
   try {
     const { date } = req.query;
@@ -321,7 +310,6 @@ router.get('/ledger', async (req, res) => {
       .sort({ Transaction_id: 1 })
       .lean();
 
-    // Return both UUIDs and names so frontend can match either format
     return res.json({ success: true, result: txns, meta: { cashAccounts, cashNames, bankAccounts, bankNames } });
   } catch (err) {
     logger.error({ err }, 'GET /diary/ledger');
@@ -329,7 +317,7 @@ router.get('/ledger', async (req, res) => {
   }
 });
 
-// GET /api/diary/:uuid  — single diary with all entries
+// GET /api/diary/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
     const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid }).lean();
@@ -341,7 +329,7 @@ router.get('/:uuid', async (req, res) => {
   }
 });
 
-// PUT /api/diary/:uuid/entry/:entryUuid  — assign account or update status for one entry
+// PUT /api/diary/:uuid/entry/:entryUuid
 router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   try {
     const { account_assigned, entry_status, notes } = req.body;
@@ -354,7 +342,6 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     const setFields = {};
     if (account_assigned !== undefined) {
       setFields['entries.$[e].account_assigned'] = account_assigned;
-      // manual override — no longer auto-suggested
       setFields['entries.$[e].auto_suggested']    = false;
       setFields['entries.$[e].suggestion_source'] = '';
     }
@@ -375,7 +362,7 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   }
 });
 
-// POST /api/diary/:uuid/confirm  — confirm all assigned entries → create transactions
+// POST /api/diary/:uuid/confirm
 router.post('/:uuid/confirm', async (req, res) => {
   try {
     const { confirmed_by } = req.body;
@@ -397,7 +384,6 @@ router.post('/:uuid/confirm', async (req, res) => {
       const ledgerAccountUuid = entry.book === 'bank' ? bankUuid : cashUuid;
       const ledgerAccountName = await getAccountName(ledgerAccountUuid);
 
-      // Resolve assigned account: may be a name string (user typed) or already a UUID
       const assignedAcct = await resolveAccount(entry.account_assigned);
 
       const journal = entry.direction === 'in'
@@ -450,7 +436,7 @@ router.post('/:uuid/confirm', async (req, res) => {
   }
 });
 
-// DELETE /api/diary/:uuid  — delete draft only (not confirmed)
+// DELETE /api/diary/:uuid
 router.delete('/:uuid', async (req, res) => {
   try {
     const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid });

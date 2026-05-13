@@ -27,7 +27,11 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  // v1 stable API — gemini-1.5-flash is confirmed available here (free, 1500 req/day)
+  const model = genAI.getGenerativeModel(
+    { model: 'gemini-1.5-flash' },
+    { apiVersion: 'v1' }
+  );
 
   const filePart = {
     inlineData: {
@@ -36,9 +40,15 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
     },
   };
 
-  const result = await model.generateContent([DIARY_PROMPT, filePart]);
-  const text = result.response.text().trim();
+  let result;
+  try {
+    result = await model.generateContent([DIARY_PROMPT, filePart]);
+  } catch (apiErr) {
+    const detail = apiErr?.message || String(apiErr);
+    throw new Error(`Gemini API error: ${detail}`);
+  }
 
+  const text = result.response.text().trim();
   // Strip markdown code fences if Gemini wraps output anyway
   return text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
 }

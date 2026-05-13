@@ -27,6 +27,12 @@ export default function AddCustomer({ onClose }) {
   const location = useLocation();
   const returnTo = location.state?.returnTo || location.state?.from || '/home';
 
+  const getFyStartDate = () => {
+    const now = new Date();
+    const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${year}-04-01`;
+  };
+
   const [form, setForm] = useState({
     Customer_name: '',
     Mobile_number: '',
@@ -36,6 +42,11 @@ export default function AddCustomer({ onClose }) {
     PartyRoles: ['customer'],
     LastInteraction: '',
   });
+
+  const [hasOpeningBalance, setHasOpeningBalance] = useState(false);
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [openingBalanceType, setOpeningBalanceType] = useState('debit');
+  const [openingBalanceDate, setOpeningBalanceDate] = useState(getFyStartDate());
 
   const [groupOptions, setGroupOptions] = useState([]);
   const [duplicateNameError, setDuplicateNameError] = useState('');
@@ -120,6 +131,12 @@ export default function AddCustomer({ onClose }) {
 
       if (!payload.Mobile_number || !payload.Mobile_number.trim()) delete payload.Mobile_number;
       if (!form.LastInteraction) delete payload.LastInteraction;
+
+      if (hasOpeningBalance && openingBalance && Number(openingBalance) > 0) {
+        payload.Opening_balance = Number(openingBalance);
+        payload.Opening_balance_type = openingBalanceType;
+        payload.Opening_balance_date = openingBalanceDate || null;
+      }
 
       const res = await axios.post('/api/customers/addCustomer', payload);
 
@@ -273,6 +290,56 @@ export default function AddCustomer({ onClose }) {
                 <MenuItem value="inactive">Inactive</MenuItem>
               </Select>
             </FormControl>
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={hasOpeningBalance}
+                  onChange={(e) => setHasOpeningBalance(e.target.checked)}
+                  size="small"
+                />
+              }
+              label="Has Opening Balance"
+            />
+
+            {hasOpeningBalance && (
+              <Stack spacing={1.2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    label="Opening Balance Amount"
+                    type="number"
+                    value={openingBalance}
+                    onChange={(e) => setOpeningBalance(e.target.value)}
+                    inputProps={{ min: 0, step: 0.01 }}
+                    size="small"
+                    sx={{ ...compactFieldSx, flex: 1 }}
+                    placeholder="0.00"
+                  />
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel id="ob-type-label">Dr / Cr</InputLabel>
+                    <Select
+                      labelId="ob-type-label"
+                      value={openingBalanceType}
+                      label="Dr / Cr"
+                      onChange={(e) => setOpeningBalanceType(e.target.value)}
+                    >
+                      <MenuItem value="debit">Debit (Dr)</MenuItem>
+                      <MenuItem value="credit">Credit (Cr)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Stack>
+                <TextField
+                  label="Opening Balance Date"
+                  type="date"
+                  value={openingBalanceDate}
+                  onChange={(e) => setOpeningBalanceDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  size="small"
+                  sx={compactFieldSx}
+                  helperText="Defaults to 1 April of current financial year if left blank"
+                />
+              </Stack>
+            )}
 
             <TextField
               label="Last Interaction"

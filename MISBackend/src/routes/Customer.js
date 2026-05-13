@@ -7,6 +7,59 @@ const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const { getCustomerTimeline } = require("../controllers/customerTimelineController");
 const logger = require('../utils/logger');
+const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
+
+const OPENING_BALANCE_SOURCE = 'opening:balance';
+
+// Helper: compute default FY start date (April 1)
+function fyStartDate() {
+  const now = new Date();
+  const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  return new Date(`${year}-04-01`);
+}
+
+// Helper: post (or replace) the opening balance transaction for a customer
+async function postCustomerOpeningBalance({ customerUuid, customerName, amount, side, date, createdBy }) {
+  // Delete any existing opening balance transaction for this customer
+  const existing = await Transaction.find({ Source: OPENING_BALANCE_SOURCE, Customer_uuid: customerUuid }).lean();
+  for (const txn of existing) {
+    const reversedLines = (txn.Journal_entry || []).map((l) => ({
+      ...l,
+      Type: l.Type === 'Debit' ? 'Credit' : 'Debit',
+    }));
+    await updateBalancesForJournal(reversedLines).catch(() => {});
+    await Transaction.deleteOne({ _id: txn._id });
+  }
+
+  if (!amount || amount <= 0) return;
+
+  const equityResult = await resolveAccount('Opening Balance Equity');
+  const txnDate = date ? new Date(date) : fyStartDate();
+
+  const customerLine = { Account_id: customerUuid, Account_name: customerName, Type: side === 'debit' ? 'Debit' : 'Credit', Amount: amount };
+  const equityLine  = { Account_id: equityResult.uuid, Account_name: equityResult.name, Type: side === 'debit' ? 'Credit' : 'Debit', Amount: amount };
+  const Journal_entry = side === 'debit' ? [customerLine, equityLine] : [equityLine, customerLine];
+
+  const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();
+  const nextId = Number(last?.Transaction_id || 0) + 1;
+
+  const txn = await Transaction.create({
+    Transaction_uuid: uuid(),
+    Transaction_id: nextId,
+    Transaction_date: txnDate,
+    Description: `Opening balance — ${customerName}`,
+    Total_Debit: amount,
+    Total_Credit: amount,
+    Payment_mode: 'Journal',
+    Created_by: createdBy || 'system',
+    Journal_entry,
+    Customer_uuid: customerUuid,
+    Source: OPENING_BALANCE_SOURCE,
+  });
+
+  await updateBalancesForJournal(Journal_entry).catch(() => {});
+  return txn;
+}
 
 /* ----------------------- helpers ----------------------- */
 const S = (v) => String(v ?? "").trim();
@@ -73,6 +126,9 @@ router.post("/addCustomer", async (req, res) => {
     Tags,
     PartyRoles,
     LastInteraction,
+    Opening_balance,
+    Opening_balance_type,
+    Opening_balance_date,
   } = req.body;
 
   try {
@@ -90,13 +146,16 @@ router.post("/addCustomer", async (req, res) => {
         .json({ success: false, message: "Customer name already exists" });
     }
 
-    // Handle blank or undefined Mobile_number
     const mobile =
       Mobile_number && S(Mobile_number) !== "" ? S(Mobile_number) : null;
 
+    const obAmount = Number(Opening_balance) || 0;
+    const obType   = Opening_balance_type === 'credit' ? 'credit' : 'debit';
+    const obDate   = Opening_balance_date ? new Date(Opening_balance_date) : null;
+
     const newCustomer = new Customers({
       Customer_name: name,
-      Mobile_number: mobile, // null if blank
+      Mobile_number: mobile,
       Email: S(Email || ''),
       Customer_group,
       Status,
@@ -104,9 +163,24 @@ router.post("/addCustomer", async (req, res) => {
       PartyRoles: normalizePartyRoles(PartyRoles),
       LastInteraction,
       Customer_uuid: uuid(),
+      Opening_balance: obAmount,
+      Opening_balance_type: obType,
+      Opening_balance_date: obDate,
     });
 
     await newCustomer.save();
+
+    if (obAmount > 0) {
+      await postCustomerOpeningBalance({
+        customerUuid: newCustomer.Customer_uuid,
+        customerName: name,
+        amount: obAmount,
+        side: obType,
+        date: obDate,
+        createdBy: req.user?.userName || 'system',
+      }).catch((err) => logger.error('Opening balance post error:', err));
+    }
+
     return res
       .status(201)
       .json({ success: true, message: "Customer added successfully" });
@@ -322,28 +396,50 @@ router.put("/update/:id", async (req, res) => {
     Tags,
     PartyRoles,
     LastInteraction,
+    Opening_balance,
+    Opening_balance_type,
+    Opening_balance_date,
   } = req.body;
 
   try {
-    const updated = await Customers.findByIdAndUpdate(
-      id,
-      {
-        Customer_name,
-        Mobile_number,
-        Email: S(Email || ''),
-        Customer_group,
-        Status,
-        Tags,
-        PartyRoles: normalizePartyRoles(PartyRoles),
-        LastInteraction,
-      },
-      { new: true }
-    );
+    const obAmount = Opening_balance !== undefined ? Number(Opening_balance) || 0 : undefined;
+    const obType   = Opening_balance_type === 'credit' ? 'credit' : 'debit';
+    const obDate   = Opening_balance_date ? new Date(Opening_balance_date) : null;
+
+    const updateFields = {
+      Customer_name,
+      Mobile_number,
+      Email: S(Email || ''),
+      Customer_group,
+      Status,
+      Tags,
+      PartyRoles: normalizePartyRoles(PartyRoles),
+      LastInteraction,
+    };
+
+    if (obAmount !== undefined) {
+      updateFields.Opening_balance = obAmount;
+      updateFields.Opening_balance_type = obType;
+      updateFields.Opening_balance_date = obDate;
+    }
+
+    const updated = await Customers.findByIdAndUpdate(id, updateFields, { new: true });
 
     if (!updated) {
       return res
         .status(404)
         .json({ success: false, message: "Customer not found" });
+    }
+
+    if (obAmount !== undefined) {
+      await postCustomerOpeningBalance({
+        customerUuid: updated.Customer_uuid,
+        customerName: S(updated.Customer_name),
+        amount: obAmount,
+        side: obType,
+        date: obDate,
+        createdBy: req.user?.userName || 'system',
+      }).catch((err) => logger.error('Opening balance update error:', err));
     }
 
     return res.json({ success: true, result: updated });

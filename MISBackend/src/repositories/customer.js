@@ -26,6 +26,9 @@ const CustomersSchema = new mongoose.Schema({
     set: normalizePartyRoles,
   },
   LastInteraction: { type: Date, default: Date.now },
+  Opening_balance: { type: Number, default: 0 },
+  Opening_balance_type: { type: String, enum: ["debit", "credit"], default: "debit" },
+  Opening_balance_date: { type: Date, default: null },
 });
 
 CustomersSchema.pre("validate", function (next) {

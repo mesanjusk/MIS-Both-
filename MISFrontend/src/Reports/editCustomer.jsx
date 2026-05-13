@@ -7,6 +7,12 @@ import {
 } from '../services/customerService.js';
 import { useParams } from "react-router-dom";
 
+const getFyStartDate = () => {
+    const now = new Date();
+    const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${year}-04-01`;
+};
+
 export default function EditCustomer({ customerId, closeModal }) {
     const { id } = useParams();
     const [groupOptions, setGroupOptions] = useState([]);
@@ -20,6 +26,10 @@ export default function EditCustomer({ customerId, closeModal }) {
         PartyRoles: ['customer'],
         LastInteraction: ''
     });
+    const [hasOpeningBalance, setHasOpeningBalance] = useState(false);
+    const [openingBalance, setOpeningBalance] = useState('');
+    const [openingBalanceType, setOpeningBalanceType] = useState('debit');
+    const [openingBalanceDate, setOpeningBalanceDate] = useState(getFyStartDate());
 
     useEffect(() => {
         fetchCustomerGroups()
@@ -49,6 +59,16 @@ export default function EditCustomer({ customerId, closeModal }) {
                                 : ['customer'],
                             LastInteraction: customer.LastInteraction || ''
                         });
+                        const ob = Number(customer.Opening_balance) || 0;
+                        if (ob > 0) {
+                            setHasOpeningBalance(true);
+                            setOpeningBalance(String(ob));
+                            setOpeningBalanceType(customer.Opening_balance_type || 'debit');
+                            const obDate = customer.Opening_balance_date
+                                ? new Date(customer.Opening_balance_date).toISOString().slice(0, 10)
+                                : getFyStartDate();
+                            setOpeningBalanceDate(obDate);
+                        }
                     }
                 })
                 .catch(err => console.error('Error fetching customer data:', err));
@@ -69,14 +89,20 @@ export default function EditCustomer({ customerId, closeModal }) {
         e.preventDefault();
 
         if (!values.Customer_name || !values.Customer_group) {
-
             return;
         }
 
-        updateCustomer(customerId, {
+        const payload = {
             ...values,
             Tags: [...new Set([...(values.Tags || []), ...(values.PartyRoles || [])])],
-        })
+            Opening_balance: hasOpeningBalance && openingBalance && Number(openingBalance) > 0
+                ? Number(openingBalance)
+                : 0,
+            Opening_balance_type: openingBalanceType,
+            Opening_balance_date: hasOpeningBalance && openingBalanceDate ? openingBalanceDate : null,
+        };
+
+        updateCustomer(customerId, payload)
             .then(res => {
                 if (res.data.success) {
                     toast.success('Customer updated successfully!');
@@ -192,6 +218,56 @@ export default function EditCustomer({ customerId, closeModal }) {
                             onChange={(e) => setValues({ ...values, LastInteraction: e.target.value })}
                         />
                     </div>
+                    <div>
+                        <label className="flex items-center gap-2 text-gray-700 text-sm cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={hasOpeningBalance}
+                                onChange={(e) => setHasOpeningBalance(e.target.checked)}
+                                className="accent-blue-500"
+                            />
+                            Has Opening Balance
+                        </label>
+                    </div>
+                    {hasOpeningBalance && (
+                        <>
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <label className="block text-gray-700 text-sm mb-1">Opening Balance Amount</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        value={openingBalance}
+                                        onChange={(e) => setOpeningBalance(e.target.value)}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-gray-700 text-sm mb-1">Dr / Cr</label>
+                                    <select
+                                        className="px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        value={openingBalanceType}
+                                        onChange={(e) => setOpeningBalanceType(e.target.value)}
+                                    >
+                                        <option value="debit">Debit (Dr)</option>
+                                        <option value="credit">Credit (Cr)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 text-sm mb-1">Opening Balance Date</label>
+                                <input
+                                    type="date"
+                                    className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    value={openingBalanceDate}
+                                    onChange={(e) => setOpeningBalanceDate(e.target.value)}
+                                />
+                                <small className="text-gray-500">Defaults to 1 April of current financial year</small>
+                            </div>
+                        </>
+                    )}
                     <div className="flex gap-4 mt-6">
                         <button
                             type="submit"

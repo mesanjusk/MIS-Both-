@@ -41,12 +41,12 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
   let obAccount = await Accounts.findOne({ Account_uuid: OPENING_BALANCE_ACCOUNT_UUID }).lean();
   if (!obAccount) {
     // Fallback: find by name (sorted oldest-first) if UUID not found
-    obAccount = await Accounts.findOne({ Account_name: { $regex: /^Opening Balance$/i } })
+    obAccount = await Accounts.findOne({ Account_name: { $regex: /^Opening Balance Equity$/i } })
       .sort({ _id: 1 })
       .lean();
   }
   if (!obAccount) {
-    const resolved = await resolveAccount('Opening Balance');
+    const resolved = await resolveAccount('Opening Balance Equity');
     obAccount = { Account_uuid: resolved.uuid, Account_name: resolved.name };
   }
   const contraAcct = { uuid: obAccount.Account_uuid, name: obAccount.Account_name };

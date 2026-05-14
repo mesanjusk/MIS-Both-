@@ -7,8 +7,7 @@ const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const { getCustomerTimeline } = require("../controllers/customerTimelineController");
 const logger = require('../utils/logger');
-const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
-const Accounts = require('../repositories/accounts');
+const { updateBalancesForJournal } = require('../services/accountRegistry');
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 // The canonical "Opening Balance" contra-account UUID in this installation.
@@ -37,19 +36,8 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
 
   if (!amount || amount <= 0) return;
 
-  // Look up contra-account by the known UUID — avoids any name-lookup ambiguity.
-  let obAccount = await Accounts.findOne({ Account_uuid: OPENING_BALANCE_ACCOUNT_UUID }).lean();
-  if (!obAccount) {
-    // Fallback: find by name (sorted oldest-first) if UUID not found
-    obAccount = await Accounts.findOne({ Account_name: { $regex: /^Opening Balance Equity$/i } })
-      .sort({ _id: 1 })
-      .lean();
-  }
-  if (!obAccount) {
-    const resolved = await resolveAccount('Opening Balance Equity');
-    obAccount = { Account_uuid: resolved.uuid, Account_name: resolved.name };
-  }
-  const contraAcct = { uuid: obAccount.Account_uuid, name: obAccount.Account_name };
+  // The contra-entry is a special Customer record (not in Accounts), so use the UUID and name directly.
+  const contraAcct = { uuid: OPENING_BALANCE_ACCOUNT_UUID, name: 'Opening Balance' };
   const txnDate = date ? new Date(date) : fyStartDate();
 
   const customerLine = { Account_id: customerUuid, Account_name: customerName, Type: side === 'debit' ? 'Debit' : 'Credit', Amount: amount };

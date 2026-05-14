@@ -7,6 +7,7 @@ const Transaction = require('../repositories/transaction');
 const {
   resolve: resolveAccount,
   updateBalancesForJournal,
+  invalidateCache,
 } = require('../services/accountRegistry');
 
 router.use(requireAuth);
@@ -142,6 +143,48 @@ router.delete('/opening-balance/:accountUuid', async (req, res) => {
     res.json({ deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/accounts/:uuid?migrateToUuid=<newUuid>
+// Deletes an account record. If migrateToUuid is provided, all Journal_entry
+// lines referencing the old UUID are updated to point to the new account instead.
+router.delete('/:uuid', async (req, res) => {
+  try {
+    const { uuid: oldUuid } = req.params;
+    const { migrateToUuid } = req.query;
+
+    const accountToDelete = await Accounts.findOne({ Account_uuid: oldUuid }).lean();
+    if (!accountToDelete) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    let migratedTxns = 0;
+    if (migrateToUuid) {
+      const targetAccount = await Accounts.findOne({ Account_uuid: migrateToUuid }).lean();
+      if (!targetAccount) {
+        return res.status(400).json({ error: 'migrateToUuid account not found' });
+      }
+
+      // Update all transactions that have journal lines referencing the old UUID
+      const txnsToUpdate = await Transaction.find({ 'Journal_entry.Account_id': oldUuid }).lean();
+      for (const txn of txnsToUpdate) {
+        const updatedLines = (txn.Journal_entry || []).map((line) =>
+          line.Account_id === oldUuid
+            ? { ...line, Account_id: targetAccount.Account_uuid, Account_name: targetAccount.Account_name }
+            : line
+        );
+        await Transaction.updateOne({ _id: txn._id }, { $set: { Journal_entry: updatedLines } });
+        migratedTxns++;
+      }
+    }
+
+    await Accounts.deleteOne({ Account_uuid: oldUuid });
+    invalidateCache();
+
+    return res.json({ success: true, deletedUuid: oldUuid, migratedTransactions: migratedTxns });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

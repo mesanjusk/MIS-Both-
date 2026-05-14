@@ -8,6 +8,7 @@ const Order = require("../repositories/order");
 const { getCustomerTimeline } = require("../controllers/customerTimelineController");
 const logger = require('../utils/logger');
 const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
+const Accounts = require('../repositories/accounts');
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 
@@ -33,7 +34,18 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
 
   if (!amount || amount <= 0) return;
 
-  const contraAcct = await resolveAccount('Opening Balance');
+  // Find the original (oldest) Opening Balance account — sort _id asc so the
+  // user-created record is returned first, not the auto-created duplicate.
+  let obAccount = await Accounts.findOne(
+    { Account_name: { $regex: /^Opening Balance$/i } },
+    null,
+    { sort: { _id: 1 } }
+  ).lean();
+  if (!obAccount) {
+    const resolved = await resolveAccount('Opening Balance');
+    obAccount = { Account_uuid: resolved.uuid, Account_name: resolved.name };
+  }
+  const contraAcct = { uuid: obAccount.Account_uuid, name: obAccount.Account_name };
   const txnDate = date ? new Date(date) : fyStartDate();
 
   const customerLine = { Account_id: customerUuid, Account_name: customerName, Type: side === 'debit' ? 'Debit' : 'Credit', Amount: amount };

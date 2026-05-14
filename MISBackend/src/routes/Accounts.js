@@ -14,7 +14,44 @@ router.use(requireAuth);
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 
-// GET /api/accounts — list all accounts
+// GET /api/accounts/fix-opening-balance-uuid
+// One-time cleanup: migrates all journal entries from the duplicate Opening Balance
+// account (45d3945d-...) to the correct one (4cbfbba5-...) and deletes the duplicate.
+router.get('/fix-opening-balance-uuid', async (_req, res) => {
+  const OLD_UUID = '45d3945d-949b-436d-b7f9-e11dac1a8eb7';
+  const NEW_UUID = '4cbfbba5-a50e-46fe-bd90-5877ea73e665';
+  try {
+    const targetAccount = await Accounts.findOne({ Account_uuid: NEW_UUID }).lean();
+    if (!targetAccount) {
+      return res.status(404).json({ error: 'Correct Opening Balance account not found' });
+    }
+
+    const txnsToUpdate = await Transaction.find({ 'Journal_entry.Account_id': OLD_UUID }).lean();
+    let migratedTxns = 0;
+    for (const txn of txnsToUpdate) {
+      const updatedLines = (txn.Journal_entry || []).map((line) =>
+        line.Account_id === OLD_UUID
+          ? { ...line, Account_id: targetAccount.Account_uuid, Account_name: targetAccount.Account_name }
+          : line
+      );
+      await Transaction.updateOne({ _id: txn._id }, { $set: { Journal_entry: updatedLines } });
+      migratedTxns++;
+    }
+
+    const deleteResult = await Accounts.deleteOne({ Account_uuid: OLD_UUID });
+    invalidateCache();
+
+    return res.json({
+      success: true,
+      message: `Done. Migrated ${migratedTxns} transactions. Deleted duplicate account: ${deleteResult.deletedCount === 1 ? 'yes' : 'not found (already removed)'}`,
+      migratedTransactions: migratedTxns,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+
 router.get('/', async (_req, res) => {
   try {
     const accounts = await Accounts.find({}).sort({ Account_code: 1 }).lean();

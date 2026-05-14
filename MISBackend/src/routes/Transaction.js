@@ -109,9 +109,16 @@ async function resolveJournalAccounts(rawLines = []) {
     rawLines.map(async (line) => {
       const id  = String(line.Account_id || '').trim();
       const { uuid: accountUuid, name: accountName } = await resolveAccount(id);
+      // accountName falls back to the UUID string itself when the ID is not in
+      // the Accounts collection (e.g. a customer UUID used as an account ID).
+      // In that case prefer the human-readable name sent by the frontend.
+      const isUuidFallback = accountName === accountUuid;
+      const resolvedName = isUuidFallback
+        ? (line.Account_name && line.Account_name !== accountUuid ? line.Account_name : accountName)
+        : (line.Account_name || accountName);
       return {
         Account_id:   accountUuid,
-        Account_name: line.Account_name || accountName,
+        Account_name: resolvedName,
         Type:         String(line.Type   || '').trim(),
         Amount:       toNum(line.Amount),
       };

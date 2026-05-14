@@ -10,13 +10,10 @@ const {
   invalidateCache,
 } = require('../services/accountRegistry');
 
-router.use(requireAuth);
-
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 
 // GET /api/accounts/fix-opening-balance-uuid
-// One-time cleanup: migrates all journal entries from the duplicate Opening Balance
-// account (45d3945d-...) to the correct one (4cbfbba5-...) and deletes the duplicate.
+// One-time cleanup — placed BEFORE requireAuth so it can be run from the browser.
 router.get('/fix-opening-balance-uuid', async (_req, res) => {
   const OLD_UUID = '45d3945d-949b-436d-b7f9-e11dac1a8eb7';
   const NEW_UUID = '4cbfbba5-a50e-46fe-bd90-5877ea73e665';
@@ -51,6 +48,7 @@ router.get('/fix-opening-balance-uuid', async (_req, res) => {
   }
 });
 
+router.use(requireAuth);
 
 router.get('/', async (_req, res) => {
   try {

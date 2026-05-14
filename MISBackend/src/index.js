@@ -158,6 +158,35 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   initScheduler();
   initTaskDigestScheduler();
 
+  // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
+  try {
+    const Accounts = require('./repositories/accounts');
+    const TransactionModel = require('./repositories/transaction');
+    const { invalidateCache } = require('./services/accountRegistry');
+    const OLD_OB_UUID = '45d3945d-949b-436d-b7f9-e11dac1a8eb7';
+    const NEW_OB_UUID = '4cbfbba5-a50e-46fe-bd90-5877ea73e665';
+    const dupAccount = await Accounts.findOne({ Account_uuid: OLD_OB_UUID }).lean();
+    if (dupAccount) {
+      const targetAccount = await Accounts.findOne({ Account_uuid: NEW_OB_UUID }).lean();
+      if (targetAccount) {
+        const txns = await TransactionModel.find({ 'Journal_entry.Account_id': OLD_OB_UUID }).lean();
+        for (const txn of txns) {
+          const updatedLines = txn.Journal_entry.map((l) =>
+            l.Account_id === OLD_OB_UUID
+              ? { ...l, Account_id: NEW_OB_UUID, Account_name: targetAccount.Account_name }
+              : l
+          );
+          await TransactionModel.updateOne({ _id: txn._id }, { $set: { Journal_entry: updatedLines } });
+        }
+        await Accounts.deleteOne({ Account_uuid: OLD_OB_UUID });
+        invalidateCache();
+        logger.info(`[migration] Removed duplicate Opening Balance account. Fixed ${txns.length} transaction(s).`);
+      }
+    }
+  } catch (migErr) {
+    logger.error({ err: migErr.message }, '[migration] Opening balance UUID fix failed');
+  }
+
   // ── Baileys auto-connect ──────────────────────────────────────────────────
   // If saved WhatsApp Web credentials exist in MongoDB, reconnect automatically
   // on every server boot — no manual QR scan needed after a restart.

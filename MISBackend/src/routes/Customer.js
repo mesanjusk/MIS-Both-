@@ -11,6 +11,9 @@ const { resolve: resolveAccount, updateBalancesForJournal } = require('../servic
 const Accounts = require('../repositories/accounts');
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
+// The canonical "Opening Balance" contra-account UUID in this installation.
+// Using the UUID directly avoids any findOne sort ambiguity when duplicates exist.
+const OPENING_BALANCE_ACCOUNT_UUID = '4cbfbba5-a50e-46fe-bd90-5877ea73e665';
 
 // Helper: compute default FY start date (April 1)
 function fyStartDate() {
@@ -34,13 +37,14 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
 
   if (!amount || amount <= 0) return;
 
-  // Find the original (oldest) Opening Balance account — sort _id asc so the
-  // user-created record is returned first, not the auto-created duplicate.
-  let obAccount = await Accounts.findOne(
-    { Account_name: { $regex: /^Opening Balance$/i } },
-    null,
-    { sort: { _id: 1 } }
-  ).lean();
+  // Look up contra-account by the known UUID — avoids any name-lookup ambiguity.
+  let obAccount = await Accounts.findOne({ Account_uuid: OPENING_BALANCE_ACCOUNT_UUID }).lean();
+  if (!obAccount) {
+    // Fallback: find by name (sorted oldest-first) if UUID not found
+    obAccount = await Accounts.findOne({ Account_name: { $regex: /^Opening Balance$/i } })
+      .sort({ _id: 1 })
+      .lean();
+  }
   if (!obAccount) {
     const resolved = await resolveAccount('Opening Balance');
     obAccount = { Account_uuid: resolved.uuid, Account_name: resolved.name };

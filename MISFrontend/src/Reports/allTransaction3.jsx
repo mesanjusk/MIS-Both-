@@ -14,6 +14,7 @@ import TransactionEditModal from '../Components/TransactionEditModal';
 const AllTransaction3 = () => {
   const [transactions, setTransactions] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
@@ -39,11 +40,9 @@ const AllTransaction3 = () => {
       return;
     }
 
-    // Read role once
     const role = localStorage.getItem('User_group') || '';
     setUserRole(role);
 
-    // Dynamically set April 1st (FY start)
     const today = new Date();
     const currentYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
     setStartDate(`${currentYear}-04-01`);
@@ -51,12 +50,14 @@ const AllTransaction3 = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [transRes, custRes] = await Promise.all([
+        const [transRes, custRes, acctRes] = await Promise.all([
           axios.get('/api/transaction'),
-          axios.get('/api/customers/GetCustomersList')
+          axios.get('/api/customers/GetCustomersList'),
+          axios.get('/api/accounts'),
         ]);
         if (transRes.data?.success) setTransactions(transRes.data.result || []);
         if (custRes.data?.success) setCustomers(custRes.data.result || []);
+        setAccounts(Array.isArray(acctRes.data?.accounts) ? acctRes.data.accounts : []);
       } catch (error) {
         console.error("Error fetching data:", error);
       } finally {
@@ -72,6 +73,24 @@ const AllTransaction3 = () => {
     for (const customer of customers) map[customer.Customer_uuid] = customer.Customer_name;
     return map;
   }, [customers]);
+
+  // UUID → name for chart-of-accounts entries
+  const accountMap = useMemo(() => {
+    const map = {};
+    for (const acct of accounts) map[acct.Account_uuid] = acct.Account_name;
+    return map;
+  }, [accounts]);
+
+  // Combined list for modal dropdowns: system accounts first, then customers
+  const accountOptions = useMemo(() => {
+    const opts = [];
+    for (const acct of accounts) opts.push({ uuid: acct.Account_uuid, name: acct.Account_name, group: 'Account' });
+    for (const cust of customers) opts.push({ uuid: cust.Customer_uuid, name: cust.Customer_name, group: 'Customer' });
+    return opts.sort((a, b) => a.name.localeCompare(b.name));
+  }, [accounts, customers]);
+
+  // Resolve any UUID to a display name (checks both customers and accounts)
+  const lookupName = (id) => customerMap[id] || accountMap[id] || id || '';
 
   const customerTransactions = useMemo(
     () =>
@@ -226,8 +245,8 @@ const AllTransaction3 = () => {
           Order_number:     editingTxn.Order_number  || null,
           Customer_uuid:    editingTxn.Customer_uuid || null,
           Journal_entry: [
-            { Account_id: payload.Debit_id,  Account_name: '', Type: 'Debit',  Amount: Number(payload.Amount) },
-            { Account_id: payload.Credit_id, Account_name: '', Type: 'Credit', Amount: Number(payload.Amount) },
+            { Account_id: payload.Debit_id,  Account_name: lookupName(payload.Debit_id),  Type: 'Debit',  Amount: Number(payload.Amount) },
+            { Account_id: payload.Credit_id, Account_name: lookupName(payload.Credit_id), Type: 'Credit', Amount: Number(payload.Amount) },
           ],
         }
       );
@@ -243,8 +262,8 @@ const AllTransaction3 = () => {
                   Total_Debit:      Number(payload.Amount),
                   Total_Credit:     Number(payload.Amount),
                   Journal_entry: [
-                    { Account_id: payload.Debit_id,  Account_name: '', Type: 'Debit',  Amount: Number(payload.Amount) },
-                    { Account_id: payload.Credit_id, Account_name: '', Type: 'Credit', Amount: Number(payload.Amount) },
+                    { Account_id: payload.Debit_id,  Account_name: lookupName(payload.Debit_id),  Type: 'Debit',  Amount: Number(payload.Amount) },
+                    { Account_id: payload.Credit_id, Account_name: lookupName(payload.Credit_id), Type: 'Credit', Amount: Number(payload.Amount) },
                   ],
                 }
               : txn
@@ -440,7 +459,7 @@ const AllTransaction3 = () => {
             Debit_id:    debit?.Account_id  || '',
           };
         })() : null}
-        customers={customers}
+        accountOptions={accountOptions}
       />
 
       {showOrderModal && <AddOrder1 closeModal={closeModal} />}

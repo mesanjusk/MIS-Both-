@@ -7,6 +7,7 @@ export default function TransactionEditModal({
   onSave,
   initialData,
   customers = [],
+  accountOptions = [],   // preferred: [{uuid, name, group}] covering both accounts & customers
 }) {
   const [form, setForm] = useState(() => ({
     Transaction_id: "",
@@ -37,15 +38,14 @@ export default function TransactionEditModal({
     }
   }, [open, initialData]);
 
-  const sortedCustomers = useMemo(() => {
-    return [...customers].sort((a, b) =>
-      String(a.Customer_name || "").localeCompare(
-        String(b.Customer_name || ""),
-        "en",
-        { sensitivity: "base" }
-      )
-    );
-  }, [customers]);
+  // Use accountOptions when provided (covers both chart-of-accounts and customers).
+  // Fall back to the legacy customers prop for backward compatibility.
+  const dropdownOptions = useMemo(() => {
+    if (accountOptions.length) return accountOptions;
+    return [...customers]
+      .sort((a, b) => String(a.Customer_name || "").localeCompare(String(b.Customer_name || ""), "en", { sensitivity: "base" }))
+      .map((c) => ({ uuid: c.Customer_uuid, name: c.Customer_name, group: 'Customer' }));
+  }, [accountOptions, customers]);
 
   if (!open) return null;
 
@@ -125,9 +125,9 @@ export default function TransactionEditModal({
               className="w-full mt-1 border p-2 rounded"
             >
               <option value="">Select Account</option>
-              {sortedCustomers.map((c) => (
-                <option key={c.Customer_uuid} value={c.Customer_uuid}>
-                  {c.Customer_name}
+              {dropdownOptions.map((opt) => (
+                <option key={opt.uuid} value={opt.uuid}>
+                  {opt.name}
                 </option>
               ))}
             </select>
@@ -141,9 +141,9 @@ export default function TransactionEditModal({
               className="w-full mt-1 border p-2 rounded"
             >
               <option value="">Select Account</option>
-              {sortedCustomers.map((c) => (
-                <option key={c.Customer_uuid} value={c.Customer_uuid}>
-                  {c.Customer_name}
+              {dropdownOptions.map((opt) => (
+                <option key={opt.uuid} value={opt.uuid}>
+                  {opt.name}
                 </option>
               ))}
             </select>

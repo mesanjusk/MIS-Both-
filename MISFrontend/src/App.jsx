@@ -101,7 +101,11 @@ function RouteLoader() {
 }
 
 function withSuspense(element) {
-  return <Suspense fallback={<RouteLoader />}>{element}</Suspense>;
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<RouteLoader />}>{element}</Suspense>
+    </ErrorBoundary>
+  );
 }
 
 export default function App() {

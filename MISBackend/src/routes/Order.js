@@ -35,12 +35,16 @@ const {
 const { requireAuth } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
+// All order routes require authentication — placed here so every route
+// defined anywhere in this file is protected regardless of insertion order.
+router.use(requireAuth);
+
 /* ----------------------- helpers ----------------------- */
 const isProd = process.env.NODE_ENV === "production";
 
 const norm = (s) => String(s || "").trim();
 const normLower = (s) => String(s || "").trim().toLowerCase();
-const DEFAULT_ORDER_ASSIGNEE_NAME = "Sai";
+const DEFAULT_ORDER_ASSIGNEE_NAME = process.env.DEFAULT_ORDER_ASSIGNEE || "Sai";
 const OFFICE_USER_GROUP = "office user";
 const isOfficeUser = (user = {}) => normLower(user.User_group) === OFFICE_USER_GROUP;
 const toDate = (v, fallback = new Date()) => (v ? new Date(v) : fallback);
@@ -609,9 +613,6 @@ async function enrichOrderItemsAndBuildWorkRows(lineItems = [], inheritedDueDate
 
   return { enrichedItems, workRows };
 }
-// All order routes require authentication
-router.use(requireAuth);
-
 /* ----------------------- CREATE NEW ORDER ----------------------- */
 
 router.post("/addOrder", async (req, res) => {

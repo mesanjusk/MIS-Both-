@@ -1,4 +1,13 @@
 require("dotenv").config();
+
+// Validate required environment variables before anything else starts
+const REQUIRED_ENV_VARS = ['MONGO_URI', 'ACCESS_TOKEN_SECRET'];
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+if (missingEnvVars.length > 0) {
+  console.error(`[startup] Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  process.exit(1);
+}
+
 const express = require("express");
 const cors = require("cors");
 const mongoSanitize = require('express-mongo-sanitize');

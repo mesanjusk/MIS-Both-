@@ -114,34 +114,24 @@ router.post("/addUser", requireAuth, validate({ body: z.object({
 // GET USER LIST — protected, strips Password from response
 router.get("/GetUserList", requireAuth, async (req, res) => {
   try {
-    const [data, orders, transactions] = await Promise.all([
-      Users.find({}).select('-Password'),
-      Order.find({}, 'Status'),
-      Transaction.find({}, 'Created_by')
+    const [data, usedAssignees, usedCreators] = await Promise.all([
+      Users.find({}).select('-Password').lean(),
+      Order.distinct('Status.Assigned'),
+      Transaction.distinct('Created_by'),
     ]);
 
-    const usedFromOrders = new Set();
-    for (const od of orders) {
-      for (const entry of od.Status) {
-        usedFromOrders.add(entry.Assigned);
-      }
-    }
-    const usedFromTransactions = new Set(transactions.map(t => t.Created_by));
-    const allUsed = new Set([...usedFromOrders, ...usedFromTransactions]);
+    const allUsed = new Set([...usedAssignees, ...usedCreators]);
 
-    const userWithUsage = data.map(user => ({
-      ...user._doc,
+    const userWithUsage = data.map((user) => ({
+      ...user,
       isUsed: allUsed.has(user.User_name),
-      Allowed_Task_Groups: user.Allowed_Task_Groups || []
+      Allowed_Task_Groups: user.Allowed_Task_Groups || [],
     }));
 
-    res.json({
-      success: true,
-      result: userWithUsage,
-    });
+    res.json({ success: true, result: userWithUsage });
   } catch (err) {
     logger.error("Error fetching users:", err);
-    res.status(500).json({ success: false, message: err });
+    res.status(500).json({ success: false, message: 'Failed to fetch users' });
   }
 });
 
@@ -195,12 +185,23 @@ router.put('/updateUserPermissions/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ success: false, message: 'permissions object required' });
   }
   try {
+    const existing = await Users.findById(id).select('User_name permissions').lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'User not found' });
+
+    logger.info({
+      action: 'updateUserPermissions',
+      changedBy: req.user?.userName,
+      targetUser: existing.User_name,
+      previous: existing.permissions,
+      updated: permissions,
+    }, 'User permissions changed');
+
     const user = await Users.findByIdAndUpdate(
       id,
       { $set: { permissions } },
       { new: true }
     ).select('-Password');
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
     res.json({ success: true, result: user });
   } catch (error) {
     logger.error('Error updating permissions:', error);

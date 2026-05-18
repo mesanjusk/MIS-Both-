@@ -1,5 +1,6 @@
 const User = require('../repositories/users');
 const Attendance = require('../repositories/attendance');
+const Usertasks = require('../repositories/usertask');
 const { AppSetting } = require('../repositories/appSetting');
 const { markAttendance } = require('./attendanceService');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
@@ -248,10 +249,58 @@ async function processWhatsAppAttendanceCommand({ payload, sendText }) {
   if (attendanceType === 'In' && sendText) {
     await rolloverPendingOrders();
     const taskResult = await getPendingOrdersForUser(employee);
-    await sendText({
-      to: payload.from,
-      body: buildTaskSummaryMessage({ employee, orders: taskResult.orders }),
+
+    const mobileDigits = String(employee.Mobile_number || '').replace(/\D/g, '');
+    const userFilter = mobileDigits
+      ? { $or: [{ User: employee.User_name }, { User: mobileDigits }] }
+      : { User: employee.User_name };
+    const pendingUsertasks = await Usertasks.find({
+      ...userFilter,
+      Status: { $nin: ['Completed', 'Done', 'completed', 'done'] },
+    }).lean();
+
+    const orderLines = (taskResult.orders || []).slice(0, 6).map((o, i) => {
+      const task = o.latestStatusTask;
+      return `${i + 1}. Order #${o.Order_Number} - ${task?.Task || o.stage || 'Task'}${o.overdue ? ' ⚠️' : ''}`;
     });
+    const offset = orderLines.length;
+    const usertaskLines = pendingUsertasks.slice(0, 4).map((t, i) => {
+      const deadline = t.Deadline ? ` | Due: ${new Date(t.Deadline).toLocaleDateString('en-IN')}` : '';
+      return `${offset + i + 1}. ${t.Usertask_name}${deadline}`;
+    });
+
+    const allLines = [...orderLines, ...usertaskLines];
+    const msg = allLines.length
+      ? `Hi ${employee.User_name || 'team'}, your pending tasks for today:\n${allLines.join('\n')}`
+      : `Hi ${employee.User_name || 'team'}, no pending tasks assigned. Have a great day!`;
+
+    await sendText({ to: payload.from, body: msg });
+  }
+
+  if (attendanceType === 'Out' && sendText) {
+    const todayStart = new Date(eventTime);
+    todayStart.setHours(0, 0, 0, 0);
+
+    const mobileDigits = String(employee.Mobile_number || '').replace(/\D/g, '');
+    const userFilter = mobileDigits
+      ? { $or: [{ User: employee.User_name }, { User: mobileDigits }] }
+      : { User: employee.User_name };
+    const stillPendingUsertasks = await Usertasks.find({
+      ...userFilter,
+      Status: { $nin: ['Completed', 'Done', 'completed', 'done'] },
+    }).lean();
+
+    const taskResult = await getPendingOrdersForUser(employee).catch(() => ({ orders: [] }));
+    const pendingCount = (taskResult.orders || []).length + stillPendingUsertasks.length;
+    const inEntry = attendance.User.find((e) => e.Type === 'In');
+    const inTime = inEntry ? inEntry.Time : '';
+    const outTime = eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const outMsg = pendingCount > 0
+      ? `Bye ${employee.User_name || 'team'}! Day ended at ${outTime} (started ${inTime}). You have ${pendingCount} task(s) still pending — they will roll over to tomorrow.`
+      : `Bye ${employee.User_name || 'team'}! Great work today. Day ended at ${outTime} (started ${inTime}). All tasks cleared! 🎉`;
+
+    await sendText({ to: payload.from, body: outMsg });
   }
 
   return { handled: true, success: true, attendanceType, employee };

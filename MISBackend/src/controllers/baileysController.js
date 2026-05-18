@@ -3,6 +3,7 @@ const AppError       = require('../utils/AppError');
 const BaileysMessage = require('../repositories/BaileysMessage');
 const Users          = require('../repositories/users');
 const baileysService = require('../services/baileysService');
+const { processWhatsAppAttendanceCommand } = require('../services/whatsappAttendanceService');
 const { emitNewMessage } = require('../../socket');
 const logger         = require('../utils/logger');
 
@@ -65,7 +66,31 @@ function wireIncomingMessages() {
         return;
       }
 
-      // Individual message — skip office staff numbers
+      // Individual message — check attendance commands first (office staff use Baileys for attendance)
+      if (body && type === 'text') {
+        const baileySendText = async ({ to: replyTo, body: replyBody }) => {
+          try {
+            await baileysService.sendText({ to: replyTo, body: replyBody });
+          } catch (sendErr) {
+            logger.error({ err: sendErr.message }, '[baileysCtrl] attendance reply send failed');
+          }
+        };
+
+        const attendanceResult = await processWhatsAppAttendanceCommand({
+          payload: { from, message: body, text: body },
+          sendText: baileySendText,
+        }).catch((err) => {
+          logger.error({ err: err.message }, '[baileysCtrl] attendance command error');
+          return { handled: false };
+        });
+
+        if (attendanceResult.handled) {
+          logger.info({ from, body }, '[baileysCtrl] attendance command handled via Baileys');
+          return;
+        }
+      }
+
+      // Skip office staff for regular customer inbox
       const userPhones = await getOfficeUserPhones();
       if (isOfficeUser(from, userPhones)) return;
 

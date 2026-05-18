@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { z } = require('zod');
 const Attendance = require("../repositories/attendance");
 const User = require("../repositories/users");
 const Usertasks = require("../repositories/usertask");
@@ -10,6 +11,13 @@ const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
+
+const addAttendanceSchema = z.object({
+  User_name: z.string().min(1, 'User_name is required'),
+  Type: z.enum(['In', 'Out', 'Lunch Out', 'Lunch In', 'Break', 'Start'], { required_error: 'Type is required' }),
+  Status: z.string().min(1, 'Status is required'),
+  Time: z.string().min(1, 'Time is required'),
+});
 
 const toLower = (value = "") => String(value || "").trim().toLowerCase();
 
@@ -99,11 +107,11 @@ router.post('/addAttendance', async (req, res, next) => {
   }
   next();
 }, async (req, res) => {
-  const { User_name, Type, Status, Time } = req.body;
-
-  if (!User_name || !Type || !Status || !Time) {
-    return res.status(400).json({ success: false, message: 'All fields are required' });
+  const parsed = addAttendanceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, message: parsed.error.errors[0]?.message || 'Invalid input' });
   }
+  const { User_name, Type, Status, Time } = parsed.data;
 
   const currentDate = new Date().toISOString().split('T')[0];
 
@@ -120,22 +128,48 @@ router.post('/addAttendance', async (req, res, next) => {
     });
 
     if (todayAttendance) {
+      // Prevent duplicate entry of the same Type (e.g. two "In" records)
+      const alreadyHasType = todayAttendance.User.some((e) => e.Type === Type);
+      if (alreadyHasType) {
+        const assignmentSnapshot = Type === 'In'
+          ? await buildCombinedAssignments(user)
+          : { orders: [], usertasks: [], combined: [] };
+        return res.status(409).json({
+          success: false,
+          message: `${Type} is already marked for today.`,
+          pendingAssignments: assignmentSnapshot.combined || [],
+        });
+      }
       todayAttendance.User.push({ Type, Time, CreatedAt: new Date().toISOString() });
+      if (Type === 'Out') todayAttendance.Status = 'Completed';
       await todayAttendance.save();
 
-      const assignmentSnapshot =
-        Type === 'In' ? await buildCombinedAssignments(user) : { orders: [], usertasks: [], combined: [] };
+      const assignmentSnapshot = await buildCombinedAssignments(user);
 
-      if (Type === 'In' && user?.Mobile_number) {
+      if (user?.Mobile_number) {
         try {
-          await sendWhatsAppText({
-            to: normalizeWhatsAppNumber(user.Mobile_number),
-            body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
-            source: 'ATTENDANCE',
-            contactName: user.User_name || '',
-          });
+          if (Type === 'In') {
+            await sendWhatsAppText({
+              to: normalizeWhatsAppNumber(user.Mobile_number),
+              body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
+              source: 'ATTENDANCE',
+              contactName: user.User_name || '',
+            });
+          } else if (Type === 'Out') {
+            const pendingCount = assignmentSnapshot.combined.length;
+            const inEntry = todayAttendance.User.find((e) => e.Type === 'In');
+            const outMsg = pendingCount > 0
+              ? `Bye ${user.User_name}! Day ended at ${Time} (started ${inEntry?.Time || ''}). ${pendingCount} task(s) still pending — rolling over to tomorrow.`
+              : `Bye ${user.User_name}! Great work today. Day ended at ${Time} (started ${inEntry?.Time || ''}). All tasks cleared!`;
+            await sendWhatsAppText({
+              to: normalizeWhatsAppNumber(user.Mobile_number),
+              body: outMsg,
+              source: 'ATTENDANCE',
+              contactName: user.User_name || '',
+            });
+          }
         } catch (err) {
-          logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
+          logger.error("Failed to send attendance WhatsApp:", err.message);
         }
       }
 
@@ -155,17 +189,16 @@ router.post('/addAttendance', async (req, res, next) => {
       createdAt: new Date(),
     });
 
-    const assignmentSnapshot =
-      Type === 'In' ? await buildCombinedAssignments(user) : { orders: [], usertasks: [], combined: [] };
+    const assignmentSnapshot = await buildCombinedAssignments(user);
 
     if (Type === 'In' && user?.Mobile_number) {
       try {
         await sendWhatsAppText({
-            to: normalizeWhatsAppNumber(user.Mobile_number),
-            body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
-            source: 'ATTENDANCE',
-            contactName: user.User_name || '',
-          });
+          to: normalizeWhatsAppNumber(user.Mobile_number),
+          body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
+          source: 'ATTENDANCE',
+          contactName: user.User_name || '',
+        });
       } catch (err) {
         logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
       }
@@ -198,26 +231,35 @@ router.get("/GetAttendanceList", async (req, res) => {
       since.setDate(since.getDate() - 90);
       filter.Date = { $gte: since };
     }
-    const data = await Attendance.find(filter).sort({ Date: -1 });
-    if (data.length > 0) {
-      const result = data.map((record) => {
-        const recordObj = record.toObject ? record.toObject() : record;
-        return {
-          ...recordObj,
-          User: Array.isArray(recordObj.User)
-            ? recordObj.User.map((entry) => ({
-                ...entry,
-                ist: formatIST(entry?.CreatedAt),
-              }))
-            : [],
-          createdAtIST: formatIST(recordObj.createdAt),
-          updatedAtIST: formatIST(recordObj.updatedAt),
-        };
-      });
-      res.json({ success: true, result });
-    } else {
-      res.status(404).json({ success: false, message: "Details not found" });
-    }
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+    const skip = (page - 1) * limit;
+
+    const [total, data] = await Promise.all([
+      Attendance.countDocuments(filter),
+      Attendance.find(filter).sort({ Date: -1 }).skip(skip).limit(limit),
+    ]);
+
+    const result = data.map((record) => {
+      const recordObj = record.toObject ? record.toObject() : record;
+      return {
+        ...recordObj,
+        User: Array.isArray(recordObj.User)
+          ? recordObj.User.map((entry) => ({
+              ...entry,
+              ist: formatIST(entry?.CreatedAt),
+            }))
+          : [],
+        createdAtIST: formatIST(recordObj.createdAt),
+        updatedAtIST: formatIST(recordObj.updatedAt),
+      };
+    });
+
+    res.json({
+      success: true,
+      result,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
   } catch (err) {
     logger.error("Error fetching attendance:", err);
     res.status(500).json({ success: false, message: err.message });

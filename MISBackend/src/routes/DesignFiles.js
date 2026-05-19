@@ -1328,6 +1328,20 @@ router.post('/create-print-job', async (req, res) => {
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
 
+    // Validate: orderUuid is required and must have a confirmed Final design file
+    if (!orderUuid) {
+      return res.status(422).json({ success: false, message: 'An order must be linked to create a print bill', code: 'ORDER_REQUIRED' });
+    }
+    const confirmedFinal = await DesignFileLink.findOne({ orderUuid, stageNumber: 8, linkStatus: 'confirmed' }).lean();
+    if (!confirmedFinal) {
+      const orderDoc = await Orders.findOne({ Order_uuid: orderUuid }, { Order_Number: 1 }).lean();
+      return res.status(422).json({
+        success: false,
+        message: `Order #${orderDoc?.Order_Number || orderUuid} has no confirmed Final design file. Confirm the Final design first before creating a print bill.`,
+        code: 'NO_CONFIRMED_FINAL',
+      });
+    }
+
     const [order, vendorFromMaster, vendorFromCustomer] = await Promise.all([
       orderUuid ? Orders.findOne({ Order_uuid: orderUuid }, { Order_uuid: 1, Order_Number: 1 }).lean() : null,
       VendorMaster.findOne({ Vendor_uuid: vendorUuid }, { Vendor_uuid: 1, Vendor_name: 1 }).lean(),
@@ -1397,6 +1411,33 @@ router.post('/create-print-job', async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, 'design-files/create-print-job error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/validate-print-jobs ──────────────────────────────
+router.post('/validate-print-jobs', async (req, res) => {
+  try {
+    const { files = [] } = req.body || {};
+    const results = await Promise.all(
+      files.map(async (f) => {
+        if (!f.orderUuid) return { fileId: f.fileId, valid: false, reason: 'No order linked' };
+        const confirmed = await DesignFileLink.findOne({
+          orderUuid: f.orderUuid,
+          stageNumber: 8,
+          linkStatus: 'confirmed',
+        }).lean();
+        return {
+          fileId: f.fileId,
+          orderNumber: f.orderNumber,
+          valid: !!confirmed,
+          reason: confirmed ? null : `Order #${f.orderNumber || f.orderUuid} has no confirmed Final design file`,
+        };
+      })
+    );
+    return res.json({ results });
+  } catch (err) {
+    logger.error({ err }, 'design-files/validate-print-jobs error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

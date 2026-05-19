@@ -31,6 +31,8 @@ import {
   TableRow,
   TextField,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
@@ -933,7 +935,7 @@ function AutoTempDialog({ open, files, onClose, onSuccess }) {
 }
 
 // ─── Print Job Dialog ─────────────────────────────────────────────────────────
-function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
+function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal = false }) {
   const [order, setOrder] = useState(null);
   const [options, setOptions] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -946,10 +948,12 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [hasPostPrint, setHasPostPrint] = useState(false);
+  const [validation, setValidation] = useState({});
+  const [validating, setValidating] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); setHasPostPrint(false); return; }
+    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); setHasPostPrint(false); setValidation({}); setValidating(false); return; }
     setRows(selectedFiles.map((f) => ({
       fileId: f.fileId,
       fileName: f.fileName,
@@ -979,6 +983,20 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       } catch { setOptions([]); } finally { setSearching(false); }
     }, 300);
   }, [inputValue]);
+
+  useEffect(() => {
+    if (!open || !validateFinal) return;
+    const toCheck = selectedFiles.filter((f) => f.orderUuid);
+    if (!toCheck.length) return;
+    setValidating(true);
+    axios.post('/api/design-files/validate-print-jobs', {
+      files: toCheck.map((f) => ({ fileId: f.fileId, orderUuid: f.orderUuid, orderNumber: f.orderNumber })),
+    }).then((res) => {
+      const map = {};
+      (res.data?.results || []).forEach((r) => { map[r.fileId] = r; });
+      setValidation(map);
+    }).catch(() => {}).finally(() => setValidating(false));
+  }, [open, validateFinal, selectedFiles]);
 
   const updateRow = (fileId, field, value) => {
     setRows((prev) => prev.map((r) => {
@@ -1029,6 +1047,22 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       </DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {validateFinal && Object.keys(validation).length > 0 && (
+          (() => {
+            const invalid = selectedFiles.filter((f) => validation[f.fileId] && !validation[f.fileId].valid);
+            if (!invalid.length) return null;
+            return (
+              <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
+                <strong>Missing confirmed Final design:</strong>
+                {invalid.map((f) => (
+                  <Typography key={f.fileId} variant="caption" sx={{ display: 'block', mt: 0.3 }}>
+                    • {validation[f.fileId]?.reason}
+                  </Typography>
+                ))}
+              </Alert>
+            );
+          })()
+        )}
         <Stack spacing={2}>
           <Stack direction="row" spacing={2}>
             <Autocomplete
@@ -1137,8 +1171,8 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
         <Stack direction="row" spacing={1}>
           <Button onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleSubmit}
-            disabled={!vendor || submitting}
-            startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
+            disabled={!vendor || submitting || validating || (validateFinal && Object.values(validation).some((v) => !v.valid))}
+            startIcon={submitting || validating ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
           >
             Create Print Bill
           </Button>

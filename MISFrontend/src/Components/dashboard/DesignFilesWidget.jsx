@@ -31,6 +31,8 @@ import {
   TableRow,
   TextField,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
@@ -933,7 +935,7 @@ function AutoTempDialog({ open, files, onClose, onSuccess }) {
 }
 
 // ─── Print Job Dialog ─────────────────────────────────────────────────────────
-function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
+function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal = false }) {
   const [order, setOrder] = useState(null);
   const [options, setOptions] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -946,10 +948,12 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [hasPostPrint, setHasPostPrint] = useState(false);
+  const [validation, setValidation] = useState({});
+  const [validating, setValidating] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); setHasPostPrint(false); return; }
+    if (!open) { setOrder(null); setOptions([]); setInputValue(''); setVendor(null); setRows([]); setError(''); setHasPostPrint(false); setValidation({}); setValidating(false); return; }
     setRows(selectedFiles.map((f) => ({
       fileId: f.fileId,
       fileName: f.fileName,
@@ -979,6 +983,20 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       } catch { setOptions([]); } finally { setSearching(false); }
     }, 300);
   }, [inputValue]);
+
+  useEffect(() => {
+    if (!open || !validateFinal) return;
+    const toCheck = selectedFiles.filter((f) => f.orderUuid);
+    if (!toCheck.length) return;
+    setValidating(true);
+    axios.post('/api/design-files/validate-print-jobs', {
+      files: toCheck.map((f) => ({ fileId: f.fileId, orderUuid: f.orderUuid, orderNumber: f.orderNumber })),
+    }).then((res) => {
+      const map = {};
+      (res.data?.results || []).forEach((r) => { map[r.fileId] = r; });
+      setValidation(map);
+    }).catch(() => {}).finally(() => setValidating(false));
+  }, [open, validateFinal, selectedFiles]);
 
   const updateRow = (fileId, field, value) => {
     setRows((prev) => prev.map((r) => {
@@ -1029,6 +1047,22 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
       </DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {validateFinal && Object.keys(validation).length > 0 && (
+          (() => {
+            const invalid = selectedFiles.filter((f) => validation[f.fileId] && !validation[f.fileId].valid);
+            if (!invalid.length) return null;
+            return (
+              <Alert severity="warning" sx={{ mb: 2, fontSize: 12 }}>
+                <strong>Missing confirmed Final design:</strong>
+                {invalid.map((f) => (
+                  <Typography key={f.fileId} variant="caption" sx={{ display: 'block', mt: 0.3 }}>
+                    • {validation[f.fileId]?.reason}
+                  </Typography>
+                ))}
+              </Alert>
+            );
+          })()
+        )}
         <Stack spacing={2}>
           <Stack direction="row" spacing={2}>
             <Autocomplete
@@ -1137,8 +1171,8 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess }) {
         <Stack direction="row" spacing={1}>
           <Button onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleSubmit}
-            disabled={!vendor || submitting}
-            startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
+            disabled={!vendor || submitting || validating || (validateFinal && Object.values(validation).some((v) => !v.valid))}
+            startIcon={submitting || validating ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
           >
             Create Print Bill
           </Button>
@@ -1216,18 +1250,66 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
-function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
+// "By Type" view — flat rows per type, grouped by date
+function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, stageNumber }) {
+  const [expanded, setExpanded] = useState(true);
+  const totalFiles = filesByDate.reduce((s, d) => s + d.files.length, 0);
+  if (!totalFiles) return null;
+  return (
+    <Box sx={{ mb: 1 }}>
+      <Stack
+        direction="row" alignItems="center" spacing={1}
+        onClick={() => setExpanded((v) => !v)}
+        sx={{ py: 0.7, px: 1.5, cursor: 'pointer', bgcolor: `${color}.50`, borderRadius: 1.5, '&:hover': { bgcolor: `${color}.100` }, border: '1px solid', borderColor: `${color}.200` }}
+      >
+        {expanded ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: `${color}.700` }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: `${color}.700` }} />}
+        <Icon sx={{ fontSize: 14, color: `${color}.700` }} />
+        <Typography variant="body2" fontWeight={700} color={`${color}.800`} sx={{ flex: 1, fontSize: 12 }}>{label}</Typography>
+        <Chip label={`${totalFiles} file${totalFiles !== 1 ? 's' : ''}`} size="small"
+          sx={{ fontSize: 10, height: 18, bgcolor: `${color}.100`, color: `${color}.800`, '& .MuiChip-label': { px: 0.75 } }} />
+      </Stack>
+      <Collapse in={expanded}>
+        <Stack spacing={0.5} sx={{ px: 1, pt: 0.6 }}>
+          {filesByDate.map((dg) => (
+            <Box key={dg.dateFolderId || dg.dateName} sx={{ mb: 0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, fontWeight: 600, px: 0.5, display: 'block', mb: 0.25 }}>
+                {dg.dateName}
+              </Typography>
+              <Stack spacing={0.3} sx={{ pl: 1 }}>
+                {dg.files.map((file) => (
+                  <FileListRow
+                    key={file.fileId}
+                    file={file}
+                    viewOnly={false}
+                    checked={selectedIds?.has(file.fileId)}
+                    onToggle={onToggle ? () => onToggle(file) : undefined}
+                    onConfirm={stageNumber === 8 ? onConfirm : undefined}
+                    onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                    onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                    onRelink={onRelink}
+                  />
+                ))}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      </Collapse>
+    </Box>
+  );
+}
+
+function ArchivePanel({ onConfirm, onEditPrintJob }) {
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [viewMode, setViewMode] = useState('byDate'); // 'byDate' | 'byType'
 
-  // Selection state — map of fileId → full file object
   const [selectedMap, setSelectedMap] = useState({});
-  // Archive-internal dialogs
   const [relinkFile, setRelinkFile] = useState(null);
   const [archiveLinkOpen, setArchiveLinkOpen] = useState(false);
   const [archivePrintJobOpen, setArchivePrintJobOpen] = useState(false);
+  const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
 
@@ -1252,6 +1334,15 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
     });
   }, []);
 
+  const openPrintJobDialog = useCallback((files) => {
+    setArchivePrintJobFiles(files);
+    setArchivePrintJobOpen(true);
+  }, []);
+
+  const handleSinglePrintJob = useCallback((file) => {
+    openPrintJobDialog([file]);
+  }, [openPrintJobDialog]);
+
   const selectedFiles = Object.values(selectedMap);
   const selectedIds = new Set(Object.keys(selectedMap));
 
@@ -1263,6 +1354,22 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
     const dateStr = new Date().toISOString().slice(0, 10);
     triggerDownload(buildCSV(rows), `archive-${dateStr}.csv`, 'text/csv');
   };
+
+  // Derive "by type" data from dates
+  const { printingByDate, finalByDate } = (() => {
+    const dates = archiveData?.dates || [];
+    const pbd = dates.map((d) => ({
+      dateName: d.dateName,
+      dateFolderId: d.dateFolderId,
+      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 9)),
+    })).filter((d) => d.files.length > 0);
+    const fbd = dates.map((d) => ({
+      dateName: d.dateName,
+      dateFolderId: d.dateFolderId,
+      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 8)),
+    })).filter((d) => d.files.length > 0);
+    return { printingByDate: pbd, finalByDate: fbd };
+  })();
 
   if (!loaded && !loading) {
     return (
@@ -1291,6 +1398,16 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
           <strong>{monthFolderName || '—'}</strong>
           {summary && ` · ${summary.total} files · ${summary.unmatched} unmatched`}
         </Typography>
+        {/* View mode toggle */}
+        <ToggleButtonGroup
+          value={viewMode} exclusive
+          onChange={(_, v) => { if (v) setViewMode(v); }}
+          size="small"
+          sx={{ height: 24, '& .MuiToggleButton-root': { px: 0.75, py: 0, fontSize: 10, textTransform: 'none' } }}
+        >
+          <ToggleButton value="byDate">By Date</ToggleButton>
+          <ToggleButton value="byType">By Type</ToggleButton>
+        </ToggleButtonGroup>
         {unmatchedFiles.length > 0 && (
           <Button size="small" variant="outlined" color="warning"
             startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
@@ -1321,26 +1438,52 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
         </Tooltip>
       </Stack>
 
-      {/* Date groups */}
+      {/* File list */}
       <Box sx={{ flex: 1, overflowY: 'auto' }}>
         {dates.length === 0 ? (
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
           </Box>
-        ) : (
+        ) : viewMode === 'byDate' ? (
           <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
             {dates.map((dateGroup) => (
               <ArchiveDateGroup
                 key={dateGroup.dateFolderId}
                 dateGroup={dateGroup}
                 onConfirm={onConfirm}
-                onCreatePrintJob={onCreatePrintJob}
+                onCreatePrintJob={handleSinglePrintJob}
                 onEditPrintJob={onEditPrintJob}
                 selectedIds={selectedIds}
                 onToggle={toggleSelect}
                 onRelink={(file) => setRelinkFile(file)}
               />
             ))}
+          </Stack>
+        ) : (
+          <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
+            <ArchiveTypeSection
+              label="Printing Files"
+              icon={LocalPrintshopRoundedIcon}
+              color="error"
+              stageNumber={9}
+              filesByDate={printingByDate}
+              onCreatePrintJob={handleSinglePrintJob}
+              onEditPrintJob={onEditPrintJob}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onRelink={(file) => setRelinkFile(file)}
+            />
+            <ArchiveTypeSection
+              label="Design / Final Files"
+              icon={DoneAllRoundedIcon}
+              color="success"
+              stageNumber={8}
+              filesByDate={finalByDate}
+              onConfirm={onConfirm}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onRelink={(file) => setRelinkFile(file)}
+            />
           </Stack>
         )}
       </Box>
@@ -1364,9 +1507,9 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
             {selectedFiles.some((f) => f.stageNumber === 9) && (
               <Button size="small" variant="outlined" color="error"
                 startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
-                onClick={() => setArchivePrintJobOpen(true)}
+                onClick={() => openPrintJobDialog(selectedFiles.filter((f) => f.stageNumber === 9))}
                 sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-              >Create Print Bill</Button>
+              >Bulk Create Print Bill ({selectedFiles.filter((f) => f.stageNumber === 9).length})</Button>
             )}
             <Tooltip title="Export selected to CSV">
               <IconButton size="small" onClick={() => exportArchiveCSV(true)} sx={{ p: 0.35, color: 'primary.main' }}>
@@ -1406,11 +1549,12 @@ function ArchivePanel({ onConfirm, onCreatePrintJob, onEditPrintJob }) {
       />
       <PrintJobDialog
         open={archivePrintJobOpen}
-        selectedFiles={selectedFiles.filter((f) => f.stageNumber === 9)}
-        onClose={() => setArchivePrintJobOpen(false)}
+        selectedFiles={archivePrintJobFiles}
+        validateFinal={true}
+        onClose={() => { setArchivePrintJobOpen(false); setArchivePrintJobFiles([]); }}
         onSuccess={(msg, severity = 'success') => {
           setArchiveToast({ message: msg, severity });
-          setArchivePrintJobOpen(false); setSelectedMap({}); loadArchive();
+          setArchivePrintJobOpen(false); setArchivePrintJobFiles([]); setSelectedMap({}); loadArchive();
         }}
       />
       <Snackbar
@@ -1722,7 +1866,7 @@ export default function DesignFilesWidget() {
         {/* Archive */}
         {activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
-            <ArchivePanel onConfirm={setConfirmFile} onCreatePrintJob={handleCreatePrintJob} onEditPrintJob={setEditPrintJobFile} />
+            <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} />
           </Box>
         ) : (
           /* File list / grid */

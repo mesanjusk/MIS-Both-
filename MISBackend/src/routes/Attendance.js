@@ -3,6 +3,7 @@ const router = express.Router();
 const { z } = require('zod');
 const Attendance = require("../repositories/attendance");
 const User = require("../repositories/users");
+const { postDailySalary } = require("../services/accountingPostingService");
 const Usertasks = require("../repositories/usertask");
 const { markAttendance } = require("../services/attendanceService");
 const { getPendingOrdersForUser } = require("../services/orderTaskService");
@@ -144,6 +145,13 @@ router.post('/addAttendance', async (req, res, next) => {
       if (Type === 'Out') todayAttendance.Status = 'Completed';
       await todayAttendance.save();
 
+      // Post daily salary credit on Out
+      if (Type === 'Out') {
+        postDailySalary(user, new Date()).catch((err) =>
+          logger.error({ msg: err.message, user: user.User_name }, 'Salary posting failed on Out')
+        );
+      }
+
       const assignmentSnapshot = await buildCombinedAssignments(user);
 
       if (user?.Mobile_number) {
@@ -188,6 +196,12 @@ router.post('/addAttendance', async (req, res, next) => {
       source: 'dashboard',
       createdAt: new Date(),
     });
+
+    if (Type === 'Out') {
+      postDailySalary(user, new Date()).catch((err) =>
+        logger.error({ msg: err.message, user: user.User_name }, 'Salary posting failed on Out')
+      );
+    }
 
     const assignmentSnapshot = await buildCombinedAssignments(user);
 

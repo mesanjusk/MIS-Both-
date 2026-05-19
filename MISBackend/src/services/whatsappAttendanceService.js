@@ -3,6 +3,8 @@ const Attendance = require('../repositories/attendance');
 const Usertasks = require('../repositories/usertask');
 const { AppSetting } = require('../repositories/appSetting');
 const { markAttendance } = require('./attendanceService');
+const { postDailySalary } = require('./accountingPostingService');
+const logger = require('../utils/logger');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
 
 const SETTING_KEY = 'whatsapp_attendance_config';
@@ -233,6 +235,13 @@ async function processWhatsAppAttendanceCommand({ payload, sendText }) {
     attendance.Status = attendanceType === 'Out' ? 'Completed' : 'Present';
     attendance.source = 'whatsapp';
     await attendance.save();
+  }
+
+  // Post daily salary credit on Out (non-blocking — never fail attendance for accounting errors)
+  if (attendanceType === 'Out') {
+    postDailySalary(employee, eventTime).catch((err) =>
+      logger.error({ msg: err.message, user: employee.User_name }, '[whatsapp] Salary posting failed on Out')
+    );
   }
 
   if (sendText) {

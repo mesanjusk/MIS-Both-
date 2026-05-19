@@ -42,6 +42,7 @@ const SYSTEM_ACCOUNTS = Object.freeze({
   PURCHASE:            'Purchase',
   STOCK:               'Stock',
   GENERAL_EXPENSE:     'General Expense',
+  SALARY_EXPENSE:      'Salary Expense',
 });
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,7 @@ const BUSINESS_SOURCES = Object.freeze({
   PURCHASE:          'business:purchase',
   CASH_EXPENSE:      'business:cash_expense',
   BANK_STATEMENT:    'business:bank_statement',
+  DAILY_SALARY:      'business:salary:daily',
 });
 
 // ---------------------------------------------------------------------------
@@ -381,6 +383,47 @@ async function postCashExpense(payload = {}) {
   });
 }
 
+/**
+ * Post daily salary credit for an employee on check-out.
+ *
+ * Journal:
+ *   Dr. Salary Expense        (P&L expense — reduces profit)
+ *   Cr. Employee Account      (employee's personal ledger — their earning)
+ *
+ * @param {object} employee   - User document with AccountID, Amount, User_name, User_uuid
+ * @param {Date}   [date]     - Attendance date (defaults to today)
+ * @returns {Promise<{transaction, existing, skipped}>}
+ */
+async function postDailySalary(employee, date = new Date()) {
+  const dailyAmount = Number(employee?.Amount || 0);
+  const accountId   = String(employee?.AccountID || '').trim();
+
+  if (!dailyAmount || dailyAmount <= 0) {
+    return { skipped: true, reason: 'no_amount' };
+  }
+  if (!accountId) {
+    return { skipped: true, reason: 'no_account_id' };
+  }
+
+  const dateStr  = new Date(date).toISOString().split('T')[0];
+  const empUuid  = String(employee.User_uuid || employee._id || '').trim();
+  const empName  = String(employee.User_name || employee.name || '').trim();
+
+  const { transaction, existing } = await postBalancedTransaction({
+    amount:          dailyAmount,
+    debitAccount:    SYSTEM_ACCOUNTS.SALARY_EXPENSE,
+    creditAccount:   accountId,               // Employee's personal Account_uuid
+    paymentMode:     'Journal',
+    description:     `Daily salary — ${empName} — ${dateStr}`,
+    createdBy:       'system:attendance',
+    transactionDate: new Date(date),
+    source:          `${BUSINESS_SOURCES.DAILY_SALARY}:${empUuid}:${dateStr}`,
+    allowDuplicate:  false,                   // One entry per employee per day
+  });
+
+  return { transaction, existing, skipped: false };
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -400,4 +443,5 @@ module.exports = {
   postVendorPayment,
   postPurchase,
   postCashExpense,
+  postDailySalary,
 };

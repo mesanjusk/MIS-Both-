@@ -31,6 +31,7 @@ const SYSTEM_ACCOUNT_META = Object.freeze({
   'purchase':              { type: 'Expense',   normal_balance_side: 'debit',  group: 'Direct Costs',       code_hint: 5002 },
   'stock':                 { type: 'Asset',     normal_balance_side: 'debit',  group: 'Inventory',          code_hint: 1300 },
   'general expense':       { type: 'Expense',   normal_balance_side: 'debit',  group: 'Operating Expenses', code_hint: 5100 },
+  'salary expense':        { type: 'Expense',   normal_balance_side: 'debit',  group: 'Employee Costs',     code_hint: 5200 },
   'opening balance equity':{ type: 'Equity',    normal_balance_side: 'credit', group: 'Equity',             code_hint: 3001 },
 });
 

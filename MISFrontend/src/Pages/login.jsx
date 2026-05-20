@@ -24,7 +24,10 @@ const BACKEND_BASE = getApiBase() || import.meta.env.VITE_API_SERVER || 'https:/
 
 export default function Login() {
   const navigate = useNavigate();
-  const [User_name, setUser_Name] = useState('');
+  // Pre-fill username from the last session so the user only needs to click Sign In
+  const [User_name, setUser_Name] = useState(
+    () => localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || ''
+  );
   const [Password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
@@ -131,10 +134,12 @@ export default function Login() {
 
               <TextField
                 label="User Name"
+                name="username"
                 autoComplete="username"
                 value={User_name}
                 onChange={(e) => setUser_Name(e.target.value)}
                 required
+                autoFocus={!User_name}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -146,11 +151,13 @@ export default function Login() {
 
               <TextField
                 label="Password"
+                name="password"
                 type="password"
                 autoComplete="current-password"
                 value={Password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoFocus={Boolean(User_name)}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">

@@ -53,14 +53,9 @@ export default function AddRecievable() {
 
   useEffect(() => {
     const userNameFromState = location.state?.id;
-    const logInUser = userNameFromState || localStorage.getItem('User_name');
-
-    if (logInUser) {
-      setLoggedInUser(logInUser);
-    } else {
-      navigate('/login');
-    }
-  }, [location.state, navigate]);
+    const logInUser = userNameFromState || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setLoggedInUser(logInUser);
+  }, [location.state]);
 
   useEffect(() => {
     const group = localStorage.getItem('User_group');

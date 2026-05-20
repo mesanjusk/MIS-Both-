@@ -7,12 +7,10 @@ import ErrorBoundary from './Components/ErrorBoundary';
 import { initVersionChecker } from './utils/versionChecker';
 import { ToastContainer } from './Components';
 import { ROUTE_ALIASES, ROUTES } from './constants/routes';
-import { useAuth } from './context/AuthContext';
 import { getStoredToken } from './utils/authStorage';
 
 function RequireAuth({ children }) {
-  const { userName } = useAuth();
-  if (!userName || !getStoredToken()) {
+  if (!getStoredToken()) {
     return <Navigate to={ROUTES.LOGIN} replace />;
   }
   return children;

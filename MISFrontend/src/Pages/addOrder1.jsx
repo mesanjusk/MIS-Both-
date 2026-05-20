@@ -237,18 +237,13 @@ export default function AddOrder1({ closeModal }) {
   const isEmbeddedFlow = typeof closeModal === 'function';
 
   useEffect(() => {
-    const userNameFromState = location.state?.id;
-    const logInUser = userNameFromState || localStorage.getItem('User_name');
     const userGroup = String(localStorage.getItem('User_group') || '').trim().toLowerCase();
-
     setIsAdminUser(
       userGroup === 'admin user' ||
       userGroup === 'admin' ||
       userGroup === 'super admin'
     );
-
-    if (!logInUser) navigate('/login');
-  }, [location.state, navigate]);
+  }, []);
 
   const fetchData = async () => {
     setOptionsLoading(true);

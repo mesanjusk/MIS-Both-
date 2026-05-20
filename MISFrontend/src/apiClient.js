@@ -1,4 +1,5 @@
 import axios from "axios";
+import toast from "react-hot-toast";
 import { getStoredToken, clearStoredToken } from "./utils/authStorage";
 
 let redirectingToLogin = false;
@@ -48,7 +49,8 @@ client.interceptors.response.use(
       if (!redirectingToLogin) {
         redirectingToLogin = true;
         clearStoredToken();
-        window.location.href = '/login';
+        toast.error('Session expired. Please sign in again.', { id: 'session-expired', duration: 3000 });
+        setTimeout(() => { window.location.href = '/login'; }, 1500);
       }
       return Promise.reject(error);
     }

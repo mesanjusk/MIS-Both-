@@ -27,20 +27,15 @@ export default function AdminHome() {
          }, []);
 
   useEffect(() => {
-    setTimeout(() => {
     const userNameFromState = location.state?.id;
-    const user = userNameFromState || localStorage.getItem('User_name');
+    const user = userNameFromState || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
     setLoggedInUser(user);
-    if (user) {
-      setUserName(user);
-      fetchData(user); 
-      fetchAttendanceData();
-    } else {
-      navigate("/login");
-    }
-  }, 2000);
-  setTimeout(() => setIsLoading(false), 2000);
-  }, [location.state, navigate]);
+    setUserName(user);
+    fetchData(user);
+    fetchAttendanceData();
+    const t = setTimeout(() => setIsLoading(false), 500);
+    return () => clearTimeout(t);
+  }, [location.state]);
 
   const fetchUserNames = async () => {
     try {

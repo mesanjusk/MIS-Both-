@@ -79,10 +79,9 @@ export default function UpiPayment({ onClose }) {
   const [pendingPayment, setPendingPayment] = useState(null);
 
   useEffect(() => {
-    const userNameFromState = location.state?.id || localStorage.getItem('User_name');
-    if (userNameFromState) setLoggedInUser(userNameFromState);
-    else navigate('/login');
-  }, [location.state, navigate]);
+    const userNameFromState = location.state?.id || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setLoggedInUser(userNameFromState);
+  }, [location.state]);
 
   useEffect(() => {
     setOptionsLoading(true);

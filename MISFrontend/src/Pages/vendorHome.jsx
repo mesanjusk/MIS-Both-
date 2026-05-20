@@ -1,24 +1,18 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { addAttendance } from '../services/attendanceService.js';
 
 export default function VendorHome() {
-  const navigate = useNavigate();
   const location = useLocation();
   const [userName, setUserName] = useState('');
   const [showOutButton, setShowOutButton] = useState(false); 
 
   useEffect(() => {
     const userNameFromState = location.state?.id;
-    const loggedInUser = userNameFromState || localStorage.getItem('User_name');
-
-    if (loggedInUser) {
-      setUserName(loggedInUser);
-    } else {
-      navigate("/login");
-    }
-  }, [location.state, navigate]);
+    const loggedInUser = userNameFromState || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setUserName(loggedInUser);
+  }, [location.state]);
 
   const saveAttendance = async (type) => {
     const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false });

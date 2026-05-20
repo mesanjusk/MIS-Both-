@@ -5,7 +5,7 @@
 // ✅ keeps your caching + invoice flow
 
 import { useEffect, useState, useCallback, lazy, Suspense, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import axios from "../apiClient.js";
 import Select from "react-select";
 import toast from "react-hot-toast";
@@ -80,7 +80,6 @@ export default function UpdateDelivery({
   onOrderPatched = () => {},
   onOrderReplaced = () => {},
 }) {
-  const navigate = useNavigate();
   const location = useLocation();
 
   const [orderId, setOrderId] = useState("");
@@ -101,10 +100,9 @@ export default function UpdateDelivery({
   /* ---------------------- auth ---------------------- */
   useEffect(() => {
     const userNameFromState = location.state?.id;
-    const logInUser = userNameFromState || localStorage.getItem("User_name");
-    if (logInUser) setLoggedInUser(logInUser);
-    else navigate("/login");
-  }, [location.state, navigate]);
+    const logInUser = userNameFromState || localStorage.getItem("User_name") || localStorage.getItem("mis_userName") || "";
+    setLoggedInUser(logInUser);
+  }, [location.state]);
 
   /* -------------------- seed form -------------------- */
   useEffect(() => {

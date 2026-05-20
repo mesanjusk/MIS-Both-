@@ -35,19 +35,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    setTimeout(() => {
-      const userNameFromState = location.state?.id;
-      const user = userNameFromState || localStorage.getItem('User_name');
-      setLoggedInUser(user);
-      if (user) {
-        fetchData(user);
-        fetchAttendance(user);
-      } else {
-        navigate('/');
-      }
-    }, 2000);
-    setTimeout(() => setIsLoading(false), 2000);
-  }, [location.state, navigate]);
+    const userNameFromState = location.state?.id;
+    const user = userNameFromState || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setLoggedInUser(user);
+    fetchData(user);
+    fetchAttendance(user);
+    const t = setTimeout(() => setIsLoading(false), 500);
+    return () => clearTimeout(t);
+  }, [location.state]);
 
   const fetchData = async () => {
     try {

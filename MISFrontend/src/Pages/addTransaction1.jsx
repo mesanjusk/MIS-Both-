@@ -56,11 +56,10 @@ export default function AddTransaction1({ onClose }) {
   const [invoiceItems, setInvoiceItems] = useState([]);
 
   useEffect(() => {
-    const userNameFromState = location.state?.id || localStorage.getItem('User_name');
-    if (userNameFromState) setLoggedInUser(userNameFromState);
-    else navigate('/login');
+    const userNameFromState = location.state?.id || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setLoggedInUser(userNameFromState);
     setIsAdminUser(localStorage.getItem('User_group') === 'Admin User');
-  }, [location.state, navigate]);
+  }, [location.state]);
 
   useEffect(() => {
     setOptionsLoading(true);

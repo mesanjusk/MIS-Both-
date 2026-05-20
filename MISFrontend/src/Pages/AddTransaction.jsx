@@ -51,11 +51,10 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
   const inputLabelProps = { shrink: true };
 
   useEffect(() => {
-    const userNameFromState = location.state?.id || localStorage.getItem('User_name');
-    if (userNameFromState) setLoggedInUser(userNameFromState);
-    else navigate('/login');
+    const userNameFromState = location.state?.id || localStorage.getItem('User_name') || localStorage.getItem('mis_userName') || '';
+    setLoggedInUser(userNameFromState);
     setIsAdminUser((localStorage.getItem('User_group') || '') === 'Admin User');
-  }, [location.state, navigate]);
+  }, [location.state]);
 
   useEffect(() => {
     setOptionsLoading(true);

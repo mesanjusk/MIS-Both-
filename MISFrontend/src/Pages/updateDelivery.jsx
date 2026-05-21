@@ -245,23 +245,14 @@ export default function UpdateDelivery({
           Remark: i.Remark || "",
         }));
 
-        const payload = { Customer_uuid, Items: itemLines };
+        const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
+        const resolvedName = customerMap[Customer_uuid] || Customer_name || Customer_uuid;
+        const orderUuid = order.Order_uuid || null;
 
-        // Only the working endpoint on your backend:
-        const response = await axios.put(`/order/updateDelivery/${idForApi}`, payload);
-
-        if (!response?.data?.success) {
-          console.error("updateDelivery response without success=true:", response?.data);
-          toast.error(response?.data?.message || "Order save failed");
-          return;
-        }
-
-        // Double-entry accounting: DR Customer (receivable), CR Sales Revenue
+        // ── Step 1: create/update transaction FIRST so we get UUID + ID back ──
+        let invoiceTxnUuid = null;
+        let invoiceTxnId = null;
         try {
-          const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
-          const resolvedName = customerMap[Customer_uuid] || Customer_name || Customer_uuid;
-          const orderUuid = order.Order_uuid || null;
-
           const journal = [
             { Account_id: Customer_uuid, Account_name: resolvedName, Type: "Debit",  Amount: totalAmount },
             { Account_id: "Sales",       Account_name: "Sales",       Type: "Credit", Amount: totalAmount },
@@ -280,7 +271,6 @@ export default function UpdateDelivery({
             Source:           "invoice",
           };
 
-          // Find existing invoice transaction for this order, then update or create
           let txnRes;
           if (orderUuid) {
             const existing = await axios.get(`/api/transaction`, { params: { orderUuid, limit: 5 } });
@@ -294,22 +284,39 @@ export default function UpdateDelivery({
             txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
           }
 
-          if (!txnRes?.data?.success) {
+          if (txnRes?.data?.success) {
+            invoiceTxnUuid = txnRes.data.result?.Transaction_uuid || null;
+            invoiceTxnId   = txnRes.data.result?.Transaction_id   ?? null;
+          } else {
             console.warn("Transaction save failed:", txnRes?.data);
             toast.error(txnRes?.data?.message || "Transaction save failed");
           }
         } catch (txErr) {
-          const status = txErr?.response?.status;
           const msg = extractServerMessage(txErr);
-          console.error("Transaction error:", status, msg);
+          console.error("Transaction error:", txErr?.response?.status, msg);
           toast.error(`Transaction error: ${msg}`);
+        }
+
+        // ── Step 2: update order with items + transaction back-reference ──
+        const orderPayload = {
+          Customer_uuid,
+          Items: itemLines,
+          ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
+        };
+        const response = await axios.put(`/order/updateDelivery/${idForApi}`, orderPayload);
+
+        if (!response?.data?.success) {
+          console.error("updateDelivery response without success=true:", response?.data);
+          toast.error(response?.data?.message || "Order save failed");
+          return;
         }
 
         const patchId = order.Order_uuid || order._id || orderId;
         onOrderPatched(patchId, {
           Items: itemLines,
           Customer_uuid,
-          Customer_name: customerMap[Customer_uuid] || Customer_name,
+          Customer_name: resolvedName,
+          ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
         });
 
         toast.success("Order saved");

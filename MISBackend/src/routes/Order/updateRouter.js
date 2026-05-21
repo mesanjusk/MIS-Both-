@@ -128,16 +128,20 @@ router.put("/updateOrder/:id", async (req, res) => {
 /* ----------------------- UPDATE DELIVERY (Items only) ----------------------- */
 router.put("/updateDelivery/:id", async (req, res) => {
   const { id } = req.params;
-  const { Customer_uuid, Items } = req.body;
+  const { Customer_uuid, Items, invoiceTxnUuid, invoiceTxnId } = req.body;
   try {
     const isObjectId = mongoose.isValidObjectId(id);
     const filter = isObjectId ? { _id: id } : { Order_uuid: id };
     const incoming = normalizeItems(Items || []);
-    if (!Customer_uuid && incoming.length === 0) {
+    if (!Customer_uuid && incoming.length === 0 && !invoiceTxnUuid) {
       return res.status(400).json({ success: false, message: "Nothing to update" });
     }
     const update = {};
-    if (Customer_uuid) update.$set = { Customer_uuid };
+    const setFields = {};
+    if (Customer_uuid) setFields.Customer_uuid = Customer_uuid;
+    if (invoiceTxnUuid) setFields.invoiceTxnUuid = String(invoiceTxnUuid);
+    if (invoiceTxnId != null) setFields.invoiceTxnId = Number(invoiceTxnId);
+    if (Object.keys(setFields).length) update.$set = setFields;
     if (incoming.length > 0) update.$push = { Items: { $each: incoming } };
     const result = await Orders.updateOne(filter, update, { runValidators: false });
     if (result.matchedCount === 0) {

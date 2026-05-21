@@ -356,7 +356,7 @@ export default function OrderUpdate({
         },
       };
 
-      const res = await axios.post("/order/addStatus", payload);
+      const res = await axios.post("/api/orders/addStatus", payload);
       const success = Boolean(res?.data?.success);
 
       if (!success) {

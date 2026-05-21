@@ -8,80 +8,61 @@ import * as XLSX from "xlsx";
 
 import UpdateDelivery from "../Pages/updateDelivery";
 import OrderUpdate from "../Pages/OrderUpdate";
-import { LoadingSpinner } from "../Components";
 
-/* ✅ MUI */
 import {
-  AppBar,
-  Toolbar,
-  Typography,
-  Box,
-  Container,
-  Paper,
-  Stack,
-  TextField,
-  InputAdornment,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Button,
-  Chip,
-  Divider,
   Alert,
-  LinearProgress,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  IconButton,
+  Box,
+  Button,
   Card,
-  CardActionArea,
   CardContent,
-  Grid,
-  Skeleton,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
   Tooltip,
+  Typography,
 } from "@mui/material";
 
 import SearchIcon from "@mui/icons-material/Search";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import CloseIcon from "@mui/icons-material/Close";
-import LocalShippingIcon from "@mui/icons-material/LocalShipping";
-import TodayIcon from "@mui/icons-material/Today";
-import PersonIcon from "@mui/icons-material/Person";
-import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
+
+const fmtDate = (d) => {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${String(date.getDate()).padStart(2, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${date.getFullYear()}`;
+};
 
 export default function AllDelivery() {
-  // 🔧 Central API base (env -> vite -> CRA -> localhost)
-  const API_BASE = useMemo(() => {
-    const raw =
-      import.meta.env.VITE_API_BASE || "http://localhost:5000";
-    // Strip /api suffix to prevent /api/api/... double prefix
-    return String(raw).replace(/\/api\/?$/, "").replace(/\/$/, "");
-  }, []);
-
   const [orders, setOrders] = useState([]);
-  const [searchOrder, setSearchOrder] = useState("");
-  const [filter, setFilter] = useState(""); // "", "delivered", "design", "print" etc.
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
+  const [searchOrder, setSearchOrder] = useState("");
+  const [filter, setFilter] = useState("");
 
-  // ✅ MUI Modals (FIXED close crash pattern)
-  const [editOpen, setEditOpen] = useState(false); // UpdateDelivery
-  const [orderUpdateOpen, setOrderUpdateOpen] = useState(false); // OrderUpdate
+  const [editOpen, setEditOpen] = useState(false);
+  const [orderUpdateOpen, setOrderUpdateOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  const formatDateDDMMYYYY = (dateString) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return "";
-    const dd = String(date.getDate()).padStart(2, "0");
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const yyyy = date.getFullYear();
-    return `${dd}-${mm}-${yyyy}`;
-  };
-
-  // delivered list = Delivered but **no billable amount**
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
     []
@@ -96,20 +77,17 @@ export default function AllDelivery() {
           fetchDeliveredOrders(),
           fetchCustomers(),
         ]);
-
         if (!isMounted) return;
 
-        const ordersRes = ordersResult.status === 'fulfilled' ? ordersResult.value : null;
-        const customersRes = customersResult.status === 'fulfilled' ? customersResult.value : null;
+        const ordersRes = ordersResult.status === "fulfilled" ? ordersResult.value : null;
+        const customersRes = customersResult.status === "fulfilled" ? customersResult.value : null;
 
-        const orderRows = ordersRes?.data?.success ? ordersRes.data.result ?? [] : [];
-        const custRows = customersRes?.data?.success ? customersRes.data.result ?? [] : [];
+        const orderRows = ordersRes?.data?.success ? (ordersRes.data.result ?? []) : [];
+        const custRows = customersRes?.data?.success ? (customersRes.data.result ?? []) : [];
 
         const customerMap = Array.isArray(custRows)
           ? custRows.reduce((acc, c) => {
-              if (c.Customer_uuid && c.Customer_name) {
-                acc[c.Customer_uuid] = c.Customer_name;
-              }
+              if (c.Customer_uuid && c.Customer_name) acc[c.Customer_uuid] = c.Customer_name;
               return acc;
             }, {})
           : {};
@@ -117,7 +95,7 @@ export default function AllDelivery() {
         setCustomers(customerMap);
         setOrders(Array.isArray(orderRows) ? orderRows : []);
 
-        if (ordersResult.status === 'rejected') {
+        if (ordersResult.status === "rejected") {
           console.error("Failed to load delivered orders:", ordersResult.reason?.message);
         }
       } catch (err) {
@@ -128,125 +106,110 @@ export default function AllDelivery() {
         if (isMounted) setLoading(false);
       }
     })();
+    return () => { isMounted = false; };
+  }, []);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [API_BASE]);
-
-  // Safely compute highest status
   const getHighestStatus = (statusArr) => {
     const list = Array.isArray(statusArr) ? statusArr : [];
-    if (list.length === 0) return {};
-    return list.reduce((prev, curr) => {
-      const prevNum = Number(prev?.Status_number || 0);
-      const currNum = Number(curr?.Status_number || 0);
-      return currNum > prevNum ? curr : prev;
-    }, list[0]);
+    if (!list.length) return {};
+    return list.reduce((prev, curr) =>
+      Number(curr?.Status_number || 0) > Number(prev?.Status_number || 0) ? curr : prev
+    , list[0]);
   };
 
-  // 🔁 Patch/replace helpers (no reload)
-  const upsertOrderPatch = useCallback(
-    (orderId, patch) => {
-      if (!orderId || !patch) return;
-
-      // If Items gain billable amounts, remove from this list
-      if (patch.Items && hasBillableAmount(patch.Items)) {
-        setOrders((prev) => prev.filter((o) => (o.Order_uuid || o._id) !== orderId));
-        if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === orderId) {
-          setEditOpen(false);
-          setOrderUpdateOpen(false);
-        }
-        return;
-      }
-
-      setOrders((prev) =>
-        prev.map((o) =>
-          (o.Order_uuid || o._id) === orderId ? { ...o, ...patch } : o
-        )
-      );
-
+  const upsertOrderPatch = useCallback((orderId, patch) => {
+    if (!orderId || !patch) return;
+    if (patch.Items && hasBillableAmount(patch.Items)) {
+      setOrders((prev) => prev.filter((o) => (o.Order_uuid || o._id) !== orderId));
       if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === orderId) {
-        setSelectedOrder((s) => (s ? { ...s, ...patch } : s));
+        setEditOpen(false);
+        setOrderUpdateOpen(false);
       }
-    },
-    [hasBillableAmount, selectedOrder]
-  );
+      return;
+    }
+    setOrders((prev) =>
+      prev.map((o) => (o.Order_uuid || o._id) === orderId ? { ...o, ...patch } : o)
+    );
+    if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === orderId) {
+      setSelectedOrder((s) => (s ? { ...s, ...patch } : s));
+    }
+  }, [hasBillableAmount, selectedOrder]);
 
-  const upsertOrderReplace = useCallback(
-    (nextOrder) => {
-      if (!nextOrder) return;
-      const key = nextOrder.Order_uuid || nextOrder._id;
-
-      if (hasBillableAmount(nextOrder.Items)) {
-        setOrders((prev) => prev.filter((o) => (o.Order_uuid || o._id) !== key));
-        if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === key) {
-          setEditOpen(false);
-          setOrderUpdateOpen(false);
-        }
-        return;
-      }
-
-      setOrders((prev) => {
-        const idx = prev.findIndex((o) => (o.Order_uuid || o._id) === key);
-        if (idx === -1) return [nextOrder, ...prev];
-        const copy = prev.slice();
-        copy[idx] = { ...prev[idx], ...nextOrder };
-        return copy;
-      });
-
+  const upsertOrderReplace = useCallback((nextOrder) => {
+    if (!nextOrder) return;
+    const key = nextOrder.Order_uuid || nextOrder._id;
+    if (hasBillableAmount(nextOrder.Items)) {
+      setOrders((prev) => prev.filter((o) => (o.Order_uuid || o._id) !== key));
       if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === key) {
-        setSelectedOrder((s) => (s ? { ...s, ...nextOrder } : s));
+        setEditOpen(false);
+        setOrderUpdateOpen(false);
       }
-    },
-    [hasBillableAmount, selectedOrder]
-  );
+      return;
+    }
+    setOrders((prev) => {
+      const idx = prev.findIndex((o) => (o.Order_uuid || o._id) === key);
+      if (idx === -1) return [nextOrder, ...prev];
+      const copy = prev.slice();
+      copy[idx] = { ...prev[idx], ...nextOrder };
+      return copy;
+    });
+    if (selectedOrder && (selectedOrder.Order_uuid || selectedOrder._id) === key) {
+      setSelectedOrder((s) => (s ? { ...s, ...nextOrder } : s));
+    }
+  }, [hasBillableAmount, selectedOrder]);
 
-  // 🔎 Derived list
+  const enriched = useMemo(() =>
+    orders.map((o) => ({
+      ...o,
+      highestStatusTask: getHighestStatus(o.Status),
+      Customer_name: customers[o.Customer_uuid] || "Unknown",
+    })),
+  [orders, customers]);
+
   const filteredOrders = useMemo(() => {
-    return orders
-      .map((order) => {
-        const highestStatusTask = getHighestStatus(order.Status);
-        return {
-          ...order,
-          highestStatusTask,
-          Customer_name: customers[order.Customer_uuid] || "Unknown",
-        };
-      })
-      .filter((order) => {
-        const name = (order.Customer_name || "").toLowerCase();
-        const matchesSearch = name.includes(searchOrder.toLowerCase());
+    const q = searchOrder.toLowerCase();
+    const f = filter.toLowerCase().trim();
+    return enriched.filter((o) => {
+      const matchName = (o.Customer_name || "").toLowerCase().includes(q);
+      const matchFilter = f ? (o.highestStatusTask?.Task || "").toLowerCase().trim() === f : true;
+      return matchName && matchFilter;
+    });
+  }, [enriched, searchOrder, filter]);
 
-        const task = (order.highestStatusTask?.Task || "").toLowerCase().trim();
-        const filterValue = (filter || "").toLowerCase().trim();
-        const matchesFilter = filterValue ? task === filterValue : true;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const weekStart = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - d.getDay());
+    return d.toISOString().slice(0, 10);
+  })();
 
-        return matchesSearch && matchesFilter;
-      });
-  }, [orders, customers, searchOrder, filter]);
+  const todayCount = useMemo(() =>
+    filteredOrders.filter((o) => {
+      const d = o.highestStatusTask?.Delivery_Date;
+      return d && new Date(d).toISOString().slice(0, 10) === todayISO;
+    }).length,
+  [filteredOrders, todayISO]);
 
-  const totals = useMemo(() => {
-    const count = filteredOrders.length;
-    return { count };
-  }, [filteredOrders]);
+  const weekCount = useMemo(() =>
+    filteredOrders.filter((o) => {
+      const d = o.highestStatusTask?.Delivery_Date;
+      return d && new Date(d).toISOString().slice(0, 10) >= weekStart;
+    }).length,
+  [filteredOrders, weekStart]);
 
-  // Export helpers
-  const getFirstRemark = (order) => {
-    if (!Array.isArray(order?.Items) || order.Items.length === 0) return "";
-    return String(order.Items[0]?.Remark || "");
-  };
+  const getFirstRemark = (o) =>
+    Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : "";
 
   const exportPDF = () => {
     const doc = new jsPDF();
     doc.text("Delivered Orders Report", 14, 15);
     doc.autoTable({
-      head: [["Order Number", "Customer", "Created", "Remark", "Delivery Date", "Assigned", "Task"]],
+      head: [["#", "Customer", "Remark", "Delivery Date", "Assigned", "Status"]],
       body: filteredOrders.map((o) => [
         o.Order_Number || "",
         o.Customer_name || "",
-        formatDateDDMMYYYY(o.createdAt),
         getFirstRemark(o),
-        formatDateDDMMYYYY(o.highestStatusTask?.Delivery_Date),
+        fmtDate(o.highestStatusTask?.Delivery_Date),
         o.highestStatusTask?.Assigned || "",
         o.highestStatusTask?.Task || "",
       ]),
@@ -256,25 +219,19 @@ export default function AllDelivery() {
   };
 
   const exportExcel = () => {
-    const worksheetData = filteredOrders.map((o) => ({
-      "Order Number": o.Order_Number || "",
+    const ws = XLSX.utils.json_to_sheet(filteredOrders.map((o) => ({
+      "Order #": o.Order_Number || "",
       Customer: o.Customer_name || "",
-      Created: formatDateDDMMYYYY(o.createdAt),
       Remark: getFirstRemark(o),
-      "Delivery Date": formatDateDDMMYYYY(o.highestStatusTask?.Delivery_Date),
+      "Delivery Date": fmtDate(o.highestStatusTask?.Delivery_Date),
       Assigned: o.highestStatusTask?.Assigned || "",
-      Task: o.highestStatusTask?.Task || "",
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(worksheetData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Delivered");
-    XLSX.writeFile(workbook, "delivered_orders.xlsx");
+      Status: o.highestStatusTask?.Task || "",
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Delivered");
+    XLSX.writeFile(wb, "delivered_orders.xlsx");
   };
 
-  // ----- Click handlers -----
-
-  // Card click -> UpdateDelivery (existing behavior)
   const handleEditClick = (order) => {
     const id = order._id || order.Order_id || null;
     if (!id) return toast.error("Invalid order ID.");
@@ -282,7 +239,6 @@ export default function AllDelivery() {
     setEditOpen(true);
   };
 
-  // Customer click -> OrderUpdate (existing behavior)
   const handleOrderUpdateClick = (order) => {
     const id = order._id || order.Order_id || null;
     if (!id) return toast.error("Invalid order ID.");
@@ -290,243 +246,229 @@ export default function AllDelivery() {
     setOrderUpdateOpen(true);
   };
 
-  // ✅ IMPORTANT: do NOT set selectedOrder null immediately (prevents crash during close animation)
   const closeEditModal = () => setEditOpen(false);
   const closeOrderUpdateModal = () => setOrderUpdateOpen(false);
 
   const statusChip = (task) => {
     const t = String(task || "").toLowerCase().trim();
-    const label = task || "—";
-    if (!t) return <Chip size="small" label={label} variant="outlined" />;
-    if (t === "delivered") return <Chip size="small" label={label} color="success" />;
-    if (t === "design") return <Chip size="small" label={label} color="info" />;
-    if (t === "print") return <Chip size="small" label={label} color="warning" />;
-    return <Chip size="small" label={label} variant="outlined" />;
+    if (!t) return <Chip size="small" label="—" variant="outlined" />;
+    if (t === "delivered") return <Chip size="small" label={task} color="success" />;
+    if (t === "design") return <Chip size="small" label={task} color="info" />;
+    if (t === "print") return <Chip size="small" label={task} color="warning" />;
+    return <Chip size="small" label={task} variant="outlined" />;
   };
 
   return (
     <>
-      <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-        <AppBar position="sticky" elevation={0}>
-          <Toolbar>
-            <LocalShippingIcon sx={{ mr: 1 }} />
-            <Typography variant="h6" sx={{ flex: 1 }}>
-              Delivered Orders
-            </Typography>
+      <Box sx={{ display: "flex", minHeight: "80vh", gap: 2, p: { xs: 1, md: 2 } }}>
 
-            <Chip
-              label={`${totals.count} orders`}
-              variant="outlined"
-              sx={{ color: "common.white", borderColor: "rgba(255,255,255,0.6)" }}
+        {/* ── Left sidebar ── */}
+        <Paper
+          variant="outlined"
+          sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "block" }, p: 2 }}
+        >
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+            Filters
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Stack spacing={2}>
+            <TextField
+              label="Search customer"
+              size="small"
+              fullWidth
+              value={searchOrder}
+              onChange={(e) => setSearchOrder(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
             />
-          </Toolbar>
-          {loading && <LinearProgress />}
-        </AppBar>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Status</InputLabel>
+              <Select value={filter} label="Status" onChange={(e) => setFilter(e.target.value)}>
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="delivered">Delivered</MenuItem>
+                <MenuItem value="design">Design</MenuItem>
+                <MenuItem value="print">Print</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </Paper>
 
-        <Container maxWidth={false} sx={{ maxWidth: 2200, py: 2 }}>
-          {/* Filters + Exports */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: 2, mb: 2 }}>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1.5}
-              alignItems={{ xs: "stretch", md: "center" }}
-            >
-              <TextField
-                value={searchOrder}
-                onChange={(e) => setSearchOrder(e.target.value)}
-                placeholder="Search by customer name"
-                fullWidth
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" />
-                    </InputAdornment>
-                  ),
-                }}
-              />
+        {/* ── Right panel ── */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
 
-              <FormControl sx={{ minWidth: { xs: "100%", md: 220 } }}>
-                <InputLabel id="filter-label">Filter by task</InputLabel>
-                <Select
-                  labelId="filter-label"
-                  value={filter}
-                  label="Filter by task"
-                  onChange={(e) => setFilter(e.target.value)}
+          {/* Header row */}
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
+            <Box>
+              <Typography variant="h5" fontWeight={900}>
+                Delivered Orders
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {filteredOrders.length} orders
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1}>
+              <Tooltip title="Export as PDF">
+                <Button
+                  variant="contained"
+                  color="error"
+                  size="small"
+                  startIcon={<PictureAsPdfIcon />}
+                  onClick={exportPDF}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
                 >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="delivered">Delivered</MenuItem>
-                  <MenuItem value="design">Design</MenuItem>
-                  <MenuItem value="print">Print</MenuItem>
-                </Select>
-              </FormControl>
-
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Tooltip title="Export as PDF">
-                  <Button
-                    variant="contained"
-                    color="error"
-                    startIcon={<PictureAsPdfIcon />}
-                    onClick={exportPDF}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                  >
-                    PDF
-                  </Button>
-                </Tooltip>
-
-                <Tooltip title="Export as Excel">
-                  <Button
-                    variant="contained"
-                    startIcon={<GridOnIcon />}
-                    onClick={exportExcel}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                  >
-                    Excel
-                  </Button>
-                </Tooltip>
-              </Stack>
+                  PDF
+                </Button>
+              </Tooltip>
+              <Tooltip title="Export as Excel">
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<GridOnIcon />}
+                  onClick={exportExcel}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                >
+                  Excel
+                </Button>
+              </Tooltip>
             </Stack>
-          </Paper>
+          </Stack>
 
-          {/* List */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: { xs: 1.5, sm: 2 } }}>
-            {loading ? (
-              <Grid container spacing={1.5}>
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <Grid key={i} item xs={12} sm={6} md={4} lg={3} xl={2}>
-                    <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                      <CardContent>
-                        <Skeleton width="55%" />
-                        <Skeleton width="80%" />
-                        <Skeleton width="65%" />
-                        <Skeleton width="45%" />
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-                <Box sx={{ width: "100%", display: "flex", justifyContent: "center", py: 2 }}>
-                  <LoadingSpinner size={40} />
-                </Box>
-              </Grid>
-            ) : filteredOrders.length === 0 ? (
-              <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
-                No delivered orders found.
-              </Alert>
-            ) : (
-              <Grid container spacing={1.5}>
-                {filteredOrders.map((o) => {
-                  const key = o._id || o.Order_uuid || o.Order_id || `o-${o.Order_Number}`;
-                  const deliveryDate = formatDateDDMMYYYY(o.highestStatusTask?.Delivery_Date);
+          {/* Summary cards */}
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 2 }}>
+            {[
+              { label: "Total Delivered", value: orders.length, color: "text.primary" },
+              { label: "Showing", value: filteredOrders.length, color: "primary.main" },
+              { label: "Delivered Today", value: todayCount, color: "success.dark" },
+              { label: "This Week", value: weekCount, color: "info.dark" },
+            ].map(({ label, value, color }) => (
+              <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+                <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Typography variant="h6" fontWeight={900} color={color}>{value}</Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
 
-                  return (
-                    <Grid key={key} item xs={12} sm={6} md={4} lg={3} xl={2}>
-                      <Card
-                        variant="outlined"
-                        sx={{
-                          borderRadius: 2,
-                          height: "100%",
-                          display: "flex",
-                          flexDirection: "column",
-                        }}
-                      >
-                        {/* Card click -> UpdateDelivery */}
-                        <CardActionArea onClick={() => handleEditClick(o)} sx={{ flex: 1 }}>
-                          <CardContent>
-                            <Stack spacing={0.9}>
-                              <Stack direction="row" justifyContent="space-between" spacing={1}>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                                  #{o.Order_Number}
-                                </Typography>
-                                {statusChip(o.highestStatusTask?.Task)}
-                              </Stack>
+          {/* Mobile search (xs only) */}
+          <Box sx={{ display: { xs: "block", md: "none" }, mb: 1.5 }}>
+            <TextField
+              label="Search customer"
+              size="small"
+              fullWidth
+              value={searchOrder}
+              onChange={(e) => setSearchOrder(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
 
-                              {/* Customer click -> OrderUpdate */}
-                              <Button
-                                variant="text"
-                                size="small"
-                                startIcon={<PersonIcon fontSize="small" />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOrderUpdateClick(o);
-                                }}
-                                sx={{
-                                  p: 0,
-                                  minHeight: "auto",
-                                  justifyContent: "flex-start",
-                                  textTransform: "none",
-                                  fontWeight: 900,
-                                }}
-                                title="Open OrderUpdate"
-                              >
-                                <Typography variant="body2" noWrap title={o.Customer_name}>
-                                  {o.Customer_name}
-                                </Typography>
-                              </Button>
-
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <TodayIcon fontSize="small" />
-                                <Typography variant="caption" color="text.secondary">
-                                  {deliveryDate || "—"}
-                                </Typography>
-                              </Stack>
-
-                              <Divider sx={{ my: 0.4 }} />
-
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <AssignmentTurnedInIcon fontSize="small" />
-                                <Typography variant="caption" color="text.secondary" noWrap>
-                                  Assigned: {o.highestStatusTask?.Assigned || "—"}
-                                </Typography>
-                              </Stack>
-                            </Stack>
-                          </CardContent>
-                        </CardActionArea>
-
-                        <Divider />
-
-                        <Box sx={{ p: 1.25 }}>
-                          <Button
-                            fullWidth
-                            variant="outlined"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditClick(o);
-                            }}
-                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 900 }}
-                          >
-                            Update Delivery
-                          </Button>
-                        </Box>
-                      </Card>
-                    </Grid>
-                  );
-                })}
-              </Grid>
-            )}
-          </Paper>
-        </Container>
+          {/* Table */}
+          {loading ? (
+            <Box sx={{ textAlign: "center", py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : filteredOrders.length === 0 ? (
+            <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+              No delivered orders found.
+            </Alert>
+          ) : (
+            <Paper variant="outlined" sx={{ borderRadius: 3 }}>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, width: 70 }}>#</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
+                      <TableCell sx={{ fontWeight: 700, width: 110 }}>Delivery Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Assigned</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 700, width: 90 }}>Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredOrders.map((o) => {
+                      const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
+                      return (
+                        <TableRow key={key} hover>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={700}>
+                              #{o.Order_Number}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="text"
+                              size="small"
+                              onClick={() => handleOrderUpdateClick(o)}
+                              sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
+                            >
+                              {o.Customer_name}
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" noWrap sx={{ maxWidth: 220 }}>
+                              {getFirstRemark(o) || "—"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {fmtDate(o.highestStatusTask?.Delivery_Date)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {o.highestStatusTask?.Assigned || "—"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{statusChip(o.highestStatusTask?.Task)}</TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              onClick={() => handleEditClick(o)}
+                              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+                            >
+                              Update
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+        </Box>
       </Box>
 
-      {/* ✅ UpdateDelivery Modal (MUI Dialog) */}
+      {/* UpdateDelivery modal */}
       <Dialog
         open={editOpen}
         onClose={closeEditModal}
         fullWidth
         maxWidth="lg"
         TransitionProps={{
-          onExited: () => {
-            // clear only after close animation finishes (prevents blank-screen crash)
-            if (!orderUpdateOpen) setSelectedOrder(null);
-          },
+          onExited: () => { if (!orderUpdateOpen) setSelectedOrder(null); },
         }}
       >
         <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           Update Delivery
           <Box sx={{ flex: 1 }} />
-          <IconButton onClick={closeEditModal}>
-            <CloseIcon />
-          </IconButton>
+          <IconButton onClick={closeEditModal}><CloseIcon /></IconButton>
         </DialogTitle>
-
         <DialogContent dividers>
           <UpdateDelivery
             mode="edit"
@@ -538,27 +480,21 @@ export default function AllDelivery() {
         </DialogContent>
       </Dialog>
 
-      {/* ✅ OrderUpdate Modal (MUI Dialog) */}
+      {/* OrderUpdate modal */}
       <Dialog
         open={orderUpdateOpen}
         onClose={closeOrderUpdateModal}
         fullWidth
         maxWidth="xl"
         TransitionProps={{
-          onExited: () => {
-            // clear only after close animation finishes (prevents crash)
-            if (!editOpen) setSelectedOrder(null);
-          },
+          onExited: () => { if (!editOpen) setSelectedOrder(null); },
         }}
       >
         <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           Order Details
           <Box sx={{ flex: 1 }} />
-          <IconButton onClick={closeOrderUpdateModal}>
-            <CloseIcon />
-          </IconButton>
+          <IconButton onClick={closeOrderUpdateModal}><CloseIcon /></IconButton>
         </DialogTitle>
-
         <DialogContent dividers>
           <OrderUpdate
             order={selectedOrder || {}}

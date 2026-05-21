@@ -44,13 +44,24 @@ import SearchIcon from "@mui/icons-material/Search";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import CloseIcon from "@mui/icons-material/Close";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import StorefrontIcon from "@mui/icons-material/Storefront";
 
 const fmtDate = (d) => {
   if (!d) return "—";
   const date = new Date(d);
   if (Number.isNaN(date.getTime())) return "—";
-  return `${String(date.getDate()).padStart(2, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${date.getFullYear()}`;
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
+
+const isoDate = (d) => {
+  if (!d) return "";
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+};
+
+const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN")}`;
 
 export default function AllDelivery() {
   const [orders, setOrders] = useState([]);
@@ -58,6 +69,7 @@ export default function AllDelivery() {
   const [loading, setLoading] = useState(true);
   const [searchOrder, setSearchOrder] = useState("");
   const [filter, setFilter] = useState("");
+  const [selectedDate, setSelectedDate] = useState(null); // null = all dates
 
   const [editOpen, setEditOpen] = useState(false);
   const [orderUpdateOpen, setOrderUpdateOpen] = useState(false);
@@ -94,10 +106,6 @@ export default function AllDelivery() {
 
         setCustomers(customerMap);
         setOrders(Array.isArray(orderRows) ? orderRows : []);
-
-        if (ordersResult.status === "rejected") {
-          console.error("Failed to load delivered orders:", ordersResult.reason?.message);
-        }
       } catch (err) {
         console.error("Error fetching data:", err?.message || err);
         setCustomers({});
@@ -158,14 +166,26 @@ export default function AllDelivery() {
     }
   }, [hasBillableAmount, selectedOrder]);
 
+  // Enrich orders with computed fields
   const enriched = useMemo(() =>
     orders.map((o) => ({
       ...o,
       highestStatusTask: getHighestStatus(o.Status),
       Customer_name: customers[o.Customer_uuid] || "Unknown",
+      orderDate: isoDate(o.createdAt),
+      totalAmount: Array.isArray(o.Items)
+        ? o.Items.reduce((s, it) => s + Number(it?.Amount || 0), 0)
+        : 0,
     })),
   [orders, customers]);
 
+  // All unique dates from orders, newest first
+  const availableDates = useMemo(() => {
+    const set = new Set(enriched.map((o) => o.orderDate).filter(Boolean));
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [enriched]);
+
+  // Search + status filter
   const filteredOrders = useMemo(() => {
     const q = searchOrder.toLowerCase();
     const f = filter.toLowerCase().trim();
@@ -176,26 +196,54 @@ export default function AllDelivery() {
     });
   }, [enriched, searchOrder, filter]);
 
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const weekStart = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - d.getDay());
-    return d.toISOString().slice(0, 10);
-  })();
+  // Date-filtered orders (for main content)
+  const dateOrders = useMemo(() => {
+    if (!selectedDate) return filteredOrders;
+    return filteredOrders.filter((o) => o.orderDate === selectedDate);
+  }, [filteredOrders, selectedDate]);
 
-  const todayCount = useMemo(() =>
-    filteredOrders.filter((o) => {
-      const d = o.highestStatusTask?.Delivery_Date;
-      return d && new Date(d).toISOString().slice(0, 10) === todayISO;
-    }).length,
-  [filteredOrders, todayISO]);
+  // Vendor purchases: extract Steps with costAmount from date-filtered orders
+  const vendorRows = useMemo(() => {
+    const rows = [];
+    dateOrders.forEach((o) => {
+      if (!Array.isArray(o.Steps)) return;
+      o.Steps.forEach((step) => {
+        const cost = Number(step.costAmount || 0);
+        if (cost > 0) {
+          rows.push({
+            orderNumber: o.Order_Number,
+            customer: o.Customer_name,
+            stepLabel: step.label || "—",
+            vendorName: step.vendorName || "—",
+            costAmount: cost,
+            isPosted: step.posting?.isPosted,
+          });
+        }
+      });
+    });
+    return rows;
+  }, [dateOrders]);
 
-  const weekCount = useMemo(() =>
-    filteredOrders.filter((o) => {
-      const d = o.highestStatusTask?.Delivery_Date;
-      return d && new Date(d).toISOString().slice(0, 10) >= weekStart;
-    }).length,
-  [filteredOrders, weekStart]);
+  // Summary stats
+  const stats = useMemo(() => {
+    const deliveryValue = dateOrders.reduce((s, o) => s + o.totalAmount, 0);
+    const vendorCost = vendorRows.reduce((s, r) => s + r.costAmount, 0);
+    return {
+      orderCount: dateOrders.length,
+      deliveryValue,
+      vendorCost,
+      net: deliveryValue - vendorCost,
+    };
+  }, [dateOrders, vendorRows]);
+
+  // Counts per date for sidebar
+  const dateCountMap = useMemo(() => {
+    const map = {};
+    filteredOrders.forEach((o) => {
+      if (o.orderDate) map[o.orderDate] = (map[o.orderDate] || 0) + 1;
+    });
+    return map;
+  }, [filteredOrders]);
 
   const getFirstRemark = (o) =>
     Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : "";
@@ -204,32 +252,49 @@ export default function AllDelivery() {
     const doc = new jsPDF();
     doc.text("Delivered Orders Report", 14, 15);
     doc.autoTable({
-      head: [["#", "Customer", "Remark", "Delivery Date", "Assigned", "Status"]],
-      body: filteredOrders.map((o) => [
+      head: [["#", "Customer", "Remark", "Amount", "Status"]],
+      body: dateOrders.map((o) => [
         o.Order_Number || "",
         o.Customer_name || "",
         getFirstRemark(o),
-        fmtDate(o.highestStatusTask?.Delivery_Date),
-        o.highestStatusTask?.Assigned || "",
+        money(o.totalAmount),
         o.highestStatusTask?.Task || "",
       ]),
       startY: 20,
     });
-    doc.save("delivered_orders.pdf");
+    if (vendorRows.length) {
+      doc.addPage();
+      doc.text("Vendor Purchases", 14, 15);
+      doc.autoTable({
+        head: [["Order #", "Vendor", "Step", "Cost"]],
+        body: vendorRows.map((r) => [r.orderNumber, r.vendorName, r.stepLabel, money(r.costAmount)]),
+        startY: 20,
+      });
+    }
+    doc.save("delivery_report.pdf");
   };
 
   const exportExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(filteredOrders.map((o) => ({
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(dateOrders.map((o) => ({
       "Order #": o.Order_Number || "",
       Customer: o.Customer_name || "",
       Remark: getFirstRemark(o),
-      "Delivery Date": fmtDate(o.highestStatusTask?.Delivery_Date),
-      Assigned: o.highestStatusTask?.Assigned || "",
+      Amount: o.totalAmount,
       Status: o.highestStatusTask?.Task || "",
+      Date: fmtDate(o.createdAt),
     })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Delivered");
-    XLSX.writeFile(wb, "delivered_orders.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws1, "Deliveries");
+    if (vendorRows.length) {
+      const ws2 = XLSX.utils.json_to_sheet(vendorRows.map((r) => ({
+        "Order #": r.orderNumber,
+        Vendor: r.vendorName,
+        Step: r.stepLabel,
+        Cost: r.costAmount,
+      })));
+      XLSX.utils.book_append_sheet(wb, ws2, "Vendor Purchases");
+    }
+    XLSX.writeFile(wb, "delivery_report.xlsx");
   };
 
   const handleEditClick = (order) => {
@@ -261,26 +326,96 @@ export default function AllDelivery() {
     return <Chip size="small" label={task} variant="outlined" />;
   };
 
+  const selectedLabel = selectedDate ? fmtDate(selectedDate) : "All Dates";
+
   return (
     <>
       <Box sx={{ display: "flex", minHeight: "80vh", gap: 2, p: { xs: 1, md: 2 } }}>
 
-        {/* ── Left sidebar ── */}
+        {/* ── Left sidebar: date list ── */}
         <Paper
           variant="outlined"
-          sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "block" }, p: 2 }}
+          sx={{ width: 200, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden" }}
         >
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
-            Filters
-          </Typography>
-          <Divider sx={{ mb: 2 }} />
-          <Stack spacing={2}>
+          <Box sx={{ p: 2, pb: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>Deliveries</Typography>
+          </Box>
+          <Divider />
+          <Box sx={{ overflowY: "auto", flex: 1 }}>
+            {/* All dates option */}
+            <Box
+              onClick={() => setSelectedDate(null)}
+              sx={{
+                px: 2, py: 1.25, cursor: "pointer",
+                bgcolor: selectedDate === null ? "primary.main" : "transparent",
+                color: selectedDate === null ? "primary.contrastText" : "text.primary",
+                "&:hover": { bgcolor: selectedDate === null ? "primary.dark" : "action.hover" },
+              }}
+            >
+              <Typography variant="body2" fontWeight={700}>All Dates</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                {filteredOrders.length} orders
+              </Typography>
+            </Box>
+            <Divider />
+            {loading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+                <CircularProgress size={20} />
+              </Box>
+            ) : availableDates.length === 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ p: 2, display: "block" }}>
+                No dates
+              </Typography>
+            ) : (
+              availableDates.map((date) => (
+                <Box key={date}>
+                  <Box
+                    onClick={() => setSelectedDate(date)}
+                    sx={{
+                      px: 2, py: 1.25, cursor: "pointer",
+                      bgcolor: selectedDate === date ? "primary.main" : "transparent",
+                      color: selectedDate === date ? "primary.contrastText" : "text.primary",
+                      "&:hover": { bgcolor: selectedDate === date ? "primary.dark" : "action.hover" },
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight={600}>{fmtDate(date)}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                      {dateCountMap[date] || 0} orders
+                    </Typography>
+                  </Box>
+                  <Divider />
+                </Box>
+              ))
+            )}
+          </Box>
+        </Paper>
+
+        {/* ── Right panel ── */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+
+          {/* Header toolbar */}
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            alignItems={{ xs: "stretch", sm: "center" }}
+            sx={{ mb: 1.5 }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="h5" fontWeight={900} noWrap>
+                Delivered Orders
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {selectedLabel} · {stats.orderCount} orders
+              </Typography>
+            </Box>
+
+            {/* Search */}
             <TextField
-              label="Search customer"
               size="small"
-              fullWidth
+              placeholder="Search customer"
               value={searchOrder}
               onChange={(e) => setSearchOrder(e.target.value)}
+              sx={{ width: { xs: "100%", sm: 180 } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -289,7 +424,9 @@ export default function AllDelivery() {
                 ),
               }}
             />
-            <FormControl size="small" fullWidth>
+
+            {/* Status filter */}
+            <FormControl size="small" sx={{ width: { xs: "100%", sm: 130 } }}>
               <InputLabel>Status</InputLabel>
               <Select value={filter} label="Status" onChange={(e) => setFilter(e.target.value)}>
                 <MenuItem value="">All</MenuItem>
@@ -298,28 +435,12 @@ export default function AllDelivery() {
                 <MenuItem value="print">Print</MenuItem>
               </Select>
             </FormControl>
-          </Stack>
-        </Paper>
 
-        {/* ── Right panel ── */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-
-          {/* Header row */}
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
-            <Box>
-              <Typography variant="h5" fontWeight={900}>
-                Delivered Orders
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {filteredOrders.length} orders
-              </Typography>
-            </Box>
+            {/* Export buttons */}
             <Stack direction="row" spacing={1}>
               <Tooltip title="Export as PDF">
                 <Button
-                  variant="contained"
-                  color="error"
-                  size="small"
+                  variant="contained" color="error" size="small"
                   startIcon={<PictureAsPdfIcon />}
                   onClick={exportPDF}
                   sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
@@ -329,8 +450,7 @@ export default function AllDelivery() {
               </Tooltip>
               <Tooltip title="Export as Excel">
                 <Button
-                  variant="contained"
-                  size="small"
+                  variant="contained" size="small"
                   startIcon={<GridOnIcon />}
                   onClick={exportExcel}
                   sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
@@ -344,120 +464,181 @@ export default function AllDelivery() {
           {/* Summary cards */}
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 2 }}>
             {[
-              { label: "Total Delivered", value: orders.length, color: "text.primary" },
-              { label: "Showing", value: filteredOrders.length, color: "primary.main" },
-              { label: "Delivered Today", value: todayCount, color: "success.dark" },
-              { label: "This Week", value: weekCount, color: "info.dark" },
-            ].map(({ label, value, color }) => (
+              { label: "Total Orders",    value: stats.orderCount,   color: "text.primary",  fmt: (v) => v },
+              { label: "Delivery Value",  value: stats.deliveryValue, color: "success.dark",  fmt: money },
+              { label: "Vendor Cost",     value: stats.vendorCost,   color: "error.dark",    fmt: money },
+              { label: "Net",             value: stats.net,          color: stats.net >= 0 ? "success.dark" : "error.dark", fmt: money },
+            ].map(({ label, value, color, fmt }) => (
               <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
                 <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
                   <Typography variant="caption" color="text.secondary">{label}</Typography>
-                  <Typography variant="h6" fontWeight={900} color={color}>{value}</Typography>
+                  <Typography variant="h6" fontWeight={900} color={color}>{fmt(value)}</Typography>
                 </CardContent>
               </Card>
             ))}
           </Stack>
 
-          {/* Mobile search (xs only) */}
-          <Box sx={{ display: { xs: "block", md: "none" }, mb: 1.5 }}>
-            <TextField
-              label="Search customer"
-              size="small"
-              fullWidth
-              value={searchOrder}
-              onChange={(e) => setSearchOrder(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Box>
-
-          {/* Table */}
           {loading ? (
             <Box sx={{ textAlign: "center", py: 6 }}>
               <CircularProgress />
             </Box>
-          ) : filteredOrders.length === 0 ? (
+          ) : dateOrders.length === 0 ? (
             <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
-              No delivered orders found.
+              No delivered orders found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.
             </Alert>
           ) : (
-            <Paper variant="outlined" sx={{ borderRadius: 3 }}>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 700, width: 70 }}>#</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
-                      <TableCell sx={{ fontWeight: 700, width: 110 }}>Delivery Date</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Assigned</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 700, width: 90 }}>Action</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredOrders.map((o) => {
-                      const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
-                      return (
-                        <TableRow key={key} hover>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={700}>
-                              #{o.Order_Number}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="text"
-                              size="small"
-                              onClick={() => handleOrderUpdateClick(o)}
-                              sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
-                            >
-                              {o.Customer_name}
-                            </Button>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" noWrap sx={{ maxWidth: 220 }}>
-                              {getFirstRemark(o) || "—"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {fmtDate(o.highestStatusTask?.Delivery_Date)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {o.highestStatusTask?.Assigned || "—"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{statusChip(o.highestStatusTask?.Task)}</TableCell>
-                          <TableCell>
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              onClick={() => handleEditClick(o)}
-                              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
-                            >
-                              Update
-                            </Button>
-                          </TableCell>
+            <>
+              {/* ── Section 1: Deliveries (IN) ── */}
+              <Paper variant="outlined" sx={{ borderRadius: 3, mb: 2 }}>
+                <Stack
+                  direction="row" justifyContent="space-between" alignItems="center"
+                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <LocalShippingIcon fontSize="small" color="success" />
+                    <Typography variant="subtitle2" fontWeight={700} color="success.dark"
+                      sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                      Deliveries to Customers (IN)
+                    </Typography>
+                  </Stack>
+                  <Typography variant="subtitle2" fontWeight={700} color="success.dark">
+                    {money(stats.deliveryValue)}
+                  </Typography>
+                </Stack>
+
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, width: 70 }}>#</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Amount</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 90 }}>Action</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {dateOrders.map((o) => {
+                        const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
+                        return (
+                          <TableRow key={key} hover>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={700}>#{o.Order_Number}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="text" size="small"
+                                onClick={() => handleOrderUpdateClick(o)}
+                                sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
+                              >
+                                {o.Customer_name}
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                {getFirstRemark(o) || "—"}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" fontWeight={700}>
+                                {o.totalAmount > 0 ? money(o.totalAmount) : "—"}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{statusChip(o.highestStatusTask?.Task)}</TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outlined" size="small"
+                                onClick={() => handleEditClick(o)}
+                                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+                              >
+                                Invoice
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+
+              {/* ── Section 2: Vendor Purchases (OUT) ── */}
+              <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: "error.light" }}>
+                <Stack
+                  direction="row" justifyContent="space-between" alignItems="center"
+                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <StorefrontIcon fontSize="small" color="error" />
+                    <Typography variant="subtitle2" fontWeight={700} color="error.dark"
+                      sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                      Purchases from Vendors (OUT)
+                    </Typography>
+                  </Stack>
+                  <Typography variant="subtitle2" fontWeight={700} color="error.dark">
+                    {money(stats.vendorCost)}
+                  </Typography>
+                </Stack>
+
+                {vendorRows.length === 0 ? (
+                  <Box sx={{ p: 2 }}>
+                    <Alert severity="info" sx={{ borderRadius: 2 }}>
+                      No vendor costs recorded for these orders.
+                    </Alert>
+                  </Box>
+                ) : (
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700, width: 70 }}>Order #</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Step / Job</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Cost</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Status</TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
+                      </TableHead>
+                      <TableBody>
+                        {vendorRows.map((r, i) => (
+                          <TableRow key={i} hover>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={700}>#{r.orderNumber}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2">{r.vendorName}</Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                {r.stepLabel}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Typography variant="body2" fontWeight={700} color="error.dark">
+                                {money(r.costAmount)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                size="small"
+                                label={r.isPosted ? "Posted" : "Pending"}
+                                color={r.isPosted ? "success" : "warning"}
+                                variant="outlined"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Paper>
+            </>
           )}
         </Box>
       </Box>
 
-      {/* UpdateDelivery — renders its own fixed overlay, must NOT be inside a Dialog */}
+      {/* UpdateDelivery — renders its own fixed overlay */}
       {editOpen && (
         <UpdateDelivery
           mode="edit"

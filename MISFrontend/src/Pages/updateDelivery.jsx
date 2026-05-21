@@ -344,7 +344,7 @@ export default function UpdateDelivery({
         <div className="bg-white p-6 rounded shadow-md w-full max-w-3xl relative">
           <div className="relative mb-4 pr-12">
   <h2 className="text-xl font-bold">
-    {mode === "edit" ? "Edit Order • Items/Invoice" : "New Delivery"}
+    {mode === "edit" ? `#${order.Order_Number || "—"} — Invoice` : "New Delivery"}
   </h2>
 
   {loadingLists && (
@@ -376,39 +376,50 @@ export default function UpdateDelivery({
             }}
           >
             <div>
-              <label className="block font-semibold">
-                Customer <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={Customer_uuid}
-                onChange={(e) => setCustomer_uuid(e.target.value)}
-                className="w-full border p-2 rounded disabled:opacity-60"
-                disabled={loadingLists}
-              >
-                <option value="">Select customer</option>
-                {customers.map((c) => (
-                  <option key={c.Customer_uuid} value={c.Customer_uuid}>
-                    {c.Customer_name}
-                  </option>
-                ))}
-              </select>
+              <label className="block font-semibold">Customer</label>
+              {mode === "edit" && Customer_name ? (
+                <div className="w-full border p-2 rounded bg-gray-50 font-semibold text-gray-700">
+                  {Customer_name}
+                </div>
+              ) : (
+                <select
+                  value={Customer_uuid}
+                  onChange={(e) => setCustomer_uuid(e.target.value)}
+                  className="w-full border p-2 rounded disabled:opacity-60"
+                  disabled={loadingLists}
+                >
+                  <option value="">Select customer</option>
+                  {customers.map((c) => (
+                    <option key={c.Customer_uuid} value={c.Customer_uuid}>
+                      {c.Customer_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {items.map((item, index) => (
               <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
-                <Select
-                  className="md:col-span-2"
-                  options={selectOptions}
-                  value={item.Item ? { label: item.Item, value: item.Item } : null}
-                  onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
-                  placeholder={loadingLists ? "Loading…" : "Select item"}
-                  isDisabled={loadingLists}
-                />
+                {/* Item name: readonly when pre-filled in edit mode */}
+                {mode === "edit" && item.Item ? (
+                  <div className="md:col-span-2 border p-2 rounded bg-gray-50 text-gray-700 font-medium truncate">
+                    {item.Item}
+                  </div>
+                ) : (
+                  <Select
+                    className="md:col-span-2"
+                    options={selectOptions}
+                    value={item.Item ? { label: item.Item, value: item.Item } : null}
+                    onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
+                    placeholder={loadingLists ? "Loading…" : "Select item"}
+                    isDisabled={loadingLists}
+                  />
+                )}
 
                 <input
                   type="number"
                   placeholder="Qty"
-                  value={item.Quantity}
+                  value={item.Quantity || ""}
                   onChange={(e) => handleItemChange(index, "Quantity", e.target.value)}
                   className="border p-2 rounded"
                 />
@@ -416,25 +427,29 @@ export default function UpdateDelivery({
                 <input
                   type="number"
                   placeholder="Rate"
-                  value={item.Rate}
+                  value={item.Rate || ""}
                   onChange={(e) => handleItemChange(index, "Rate", e.target.value)}
                   className="border p-2 rounded"
                 />
 
-                <input
-                  type="text"
-                  value={item.Amount}
-                  readOnly
-                  className="border p-2 bg-gray-100 rounded"
-                />
+                <div className="border p-2 bg-gray-100 rounded text-gray-700 font-semibold">
+                  ₹{Number(item.Amount || 0).toLocaleString("en-IN")}
+                </div>
 
-                <input
-                  type="text"
-                  placeholder="Remark (this line)"
-                  value={item.Remark || ""}
-                  onChange={(e) => handleItemChange(index, "Remark", e.target.value)}
-                  className="md:col-span-6 border p-2 rounded"
-                />
+                {/* Remark: readonly when pre-filled in edit mode */}
+                {mode === "edit" && item.Remark ? (
+                  <div className="md:col-span-6 border p-2 rounded bg-gray-50 text-gray-500 text-sm">
+                    {item.Remark}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Remark (this line)"
+                    value={item.Remark || ""}
+                    onChange={(e) => handleItemChange(index, "Remark", e.target.value)}
+                    className="md:col-span-6 border p-2 rounded"
+                  />
+                )}
               </div>
             ))}
 
@@ -458,6 +473,13 @@ export default function UpdateDelivery({
               </button>
             </div>
 
+            <div className="flex items-center justify-between border-t pt-3">
+              <span className="text-gray-500 text-sm">Total Amount</span>
+              <span className="text-xl font-bold text-blue-700">
+                ₹{items.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toLocaleString("en-IN")}
+              </span>
+            </div>
+
             <button
               type="submit"
               disabled={isSubmitting || loadingLists}
@@ -467,7 +489,7 @@ export default function UpdateDelivery({
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {isSubmitting ? "Saving…" : "Submit"}
+              {isSubmitting ? "Saving…" : "Save & Generate Invoice"}
             </button>
           </form>
         </div>

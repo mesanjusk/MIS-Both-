@@ -246,7 +246,10 @@ export default function AllDelivery() {
     setOrderUpdateOpen(true);
   };
 
-  const closeEditModal = () => setEditOpen(false);
+  const closeEditModal = () => {
+    setEditOpen(false);
+    if (!orderUpdateOpen) setSelectedOrder(null);
+  };
   const closeOrderUpdateModal = () => setOrderUpdateOpen(false);
 
   const statusChip = (task) => {
@@ -454,31 +457,16 @@ export default function AllDelivery() {
         </Box>
       </Box>
 
-      {/* UpdateDelivery modal */}
-      <Dialog
-        open={editOpen}
-        onClose={closeEditModal}
-        fullWidth
-        maxWidth="lg"
-        TransitionProps={{
-          onExited: () => { if (!orderUpdateOpen) setSelectedOrder(null); },
-        }}
-      >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          Update Delivery
-          <Box sx={{ flex: 1 }} />
-          <IconButton onClick={closeEditModal}><CloseIcon /></IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          <UpdateDelivery
-            mode="edit"
-            order={selectedOrder || {}}
-            onClose={closeEditModal}
-            onOrderPatched={(id, patch) => upsertOrderPatch(id, patch)}
-            onOrderReplaced={(full) => upsertOrderReplace(full)}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* UpdateDelivery — renders its own fixed overlay, must NOT be inside a Dialog */}
+      {editOpen && (
+        <UpdateDelivery
+          mode="edit"
+          order={selectedOrder || {}}
+          onClose={closeEditModal}
+          onOrderPatched={(id, patch) => upsertOrderPatch(id, patch)}
+          onOrderReplaced={(full) => upsertOrderReplace(full)}
+        />
+      )}
 
       {/* OrderUpdate modal */}
       <Dialog

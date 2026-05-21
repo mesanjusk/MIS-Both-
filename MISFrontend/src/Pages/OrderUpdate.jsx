@@ -138,7 +138,7 @@ export default function OrderUpdate({
     if (!values.Order_uuid) return setNotes([]);
     let mounted = true;
     axios
-      .get(`/note/${values.Order_uuid}`)
+      .get(`/api/note/${values.Order_uuid}`)
       .then((res) => {
         if (!mounted) return;
         setNotes(res.data?.success ? res.data.result : []);

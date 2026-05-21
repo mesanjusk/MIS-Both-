@@ -75,19 +75,21 @@ export default function FloatingButtons({ buttonsList = [] }) {
               },
             },
           }}
-          slotProps={{
-            tooltip: {
-              sx: {
-                bgcolor: 'rgba(15, 23, 42, 0.9)',
-                color: '#fff',
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                px: 1.25,
-                py: 0.4,
-                borderRadius: 1.5,
-                boxShadow: 6,
-                maxWidth: 'none',
-                whiteSpace: 'nowrap',
+          TooltipProps={{
+            componentsProps: {
+              tooltip: {
+                sx: {
+                  bgcolor: 'rgba(15, 23, 42, 0.9)',
+                  color: '#fff',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  px: 1.25,
+                  py: 0.4,
+                  borderRadius: 1.5,
+                  boxShadow: 6,
+                  maxWidth: 'none',
+                  whiteSpace: 'nowrap',
+                },
               },
             },
           }}

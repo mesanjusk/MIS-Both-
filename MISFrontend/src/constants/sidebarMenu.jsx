@@ -122,7 +122,7 @@ export const SIDEBAR_GROUPS = [
       { label: 'Session', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Login', path: ROUTES.WHATSAPP_LOGIN_PAGE, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Flow Builder', path: ROUTES.FLOW_BUILDER, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, adminOnly: true },
-      { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP_LEGACY_HOME, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {

@@ -26,6 +26,7 @@ import TopNavbar from '../Components/TopNavbar';
 import Footer from '../Components/Footer';
 import FloatingButtons from '../Components/FloatingButtons';
 import RightSidebar from '../Components/RightSidebar';
+import CustomizeDialog from '../Components/CustomizeDialog';
 import axios, { getApiBase } from '../apiClient';
 import { ROUTES } from '../constants/routes';
 
@@ -184,6 +185,9 @@ export default function Layout() {
           onCustomize={openCustomize}
           openUpi={openUpi}
         />
+
+        {/* ── Customize navigation dialog ── */}
+        <CustomizeDialog open={customizeOpen} onClose={closeCustomize} />
 
         {/* ── Google Drive reconnect dialog ── */}
         <Dialog open={driveDialogOpen} onClose={() => setDriveDialogOpen(false)} fullWidth maxWidth="xs">

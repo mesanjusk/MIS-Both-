@@ -24,6 +24,7 @@ import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRound
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { ROUTES } from '../constants/routes';
+import { useNavCustomize, isLeftItemVisible } from '../hooks/useNavCustomize';
 
 const DRAWER_WIDTH = 240;
 
@@ -52,6 +53,7 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
   const { clearAuth, userName, permissions } = useAuth();
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
   const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
+  const { prefs } = useNavCustomize();
   const [openGroups, setOpenGroups] = useState(() =>
     Object.fromEntries(SIDEBAR_GROUPS.map((group) => [group.label, true])),
   );
@@ -77,10 +79,12 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
         .filter((group) => allowedGroups.length === 0 || allowedGroups.includes(group.label))
         .map((group) => ({
           ...group,
-          items: group.items.filter((item) => canShowItem(item, roleKey)),
+          items: group.items.filter(
+            (item) => canShowItem(item, roleKey) && isLeftItemVisible(prefs, item.path),
+          ),
         }))
         .filter((group) => group.items.length),
-    [roleKey, allowedGroups],
+    [roleKey, allowedGroups, prefs],
   );
 
   const handleNavigate = (path) => {

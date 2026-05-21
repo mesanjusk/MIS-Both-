@@ -55,7 +55,7 @@ async function getCustomersAndItems() {
 
   const [custRes, itemRes] = await Promise.all([
     axios.get(`/api/customers/GetCustomersList?page=1&limit=1000`),
-    axios.get(`/item/GetItemList?page=1&limit=1000`),
+    axios.get(`/api/items/GetItemList?page=1&limit=1000`),
   ]);
 
   const customers = (custRes?.data?.result || [])

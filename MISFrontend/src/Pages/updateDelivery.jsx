@@ -256,27 +256,47 @@ export default function UpdateDelivery({
           return;
         }
 
-        // Optional accounting (kept as-is; remove if not needed on your backend)
+        // Double-entry accounting: DR Customer (receivable), CR Sales Revenue
         try {
           const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
-          // Sale delivery: DR Customer (debtor), CR Sales Account (revenue)
+          const resolvedName = customerMap[Customer_uuid] || Customer_name || Customer_uuid;
+          const orderUuid = order.Order_uuid || null;
+
           const journal = [
-            { Account_id: Customer_uuid, Type: "Debit",  Amount: totalAmount },
-            { Account_id: "Sales",       Type: "Credit", Amount: totalAmount },
+            { Account_id: Customer_uuid, Account_name: resolvedName, Type: "Debit",  Amount: totalAmount },
+            { Account_id: "Sales",       Account_name: "Sales",       Type: "Credit", Amount: totalAmount },
           ];
-          const transaction = await axios.post(`/transaction/addTransaction`, {
-            Description: "Delivered",
-            Order_number: order.Order_Number,
+          const txnPayload = {
+            Description:      resolvedName,
+            Order_uuid:       orderUuid,
+            Order_number:     order.Order_Number || null,
             Transaction_date: new Date().toISOString(),
-            Total_Credit: totalAmount,
-            Total_Debit: totalAmount,
-            Payment_mode: Customer_uuid,
-            Journal_entry: journal,
-            Created_by: loggedInUser,
-          });
-          if (!transaction?.data?.success) {
-            console.warn("Transaction failed:", transaction?.data);
-            toast.error(transaction?.data?.message || "Transaction failed");
+            Total_Credit:     totalAmount,
+            Total_Debit:      totalAmount,
+            Payment_mode:     Customer_uuid,
+            Journal_entry:    journal,
+            Created_by:       loggedInUser,
+            Customer_uuid:    Customer_uuid || null,
+            Source:           "invoice",
+          };
+
+          // Find existing invoice transaction for this order, then update or create
+          let txnRes;
+          if (orderUuid) {
+            const existing = await axios.get(`/api/transaction`, { params: { orderUuid, limit: 5 } });
+            const existingInvoice = (existing?.data?.result || []).find((t) => t.Source === "invoice");
+            if (existingInvoice) {
+              txnRes = await axios.put(`/api/transaction/${existingInvoice.Transaction_uuid}`, txnPayload);
+            } else {
+              txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
+            }
+          } else {
+            txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
+          }
+
+          if (!txnRes?.data?.success) {
+            console.warn("Transaction save failed:", txnRes?.data);
+            toast.error(txnRes?.data?.message || "Transaction save failed");
           }
         } catch (txErr) {
           const status = txErr?.response?.status;

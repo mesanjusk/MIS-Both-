@@ -245,7 +245,7 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    const { fromDate, toDate, paymentMode, createdBy, customerUuid, accountFilter, limit } = req.query;
+    const { fromDate, toDate, paymentMode, createdBy, customerUuid, orderUuid, accountFilter, limit } = req.query;
 
     const filter = {};
 
@@ -258,6 +258,7 @@ router.get('/', async (req, res) => {
     if (paymentMode)  filter.Payment_mode  = paymentMode;
     if (createdBy)    filter.Created_by    = createdBy;
     if (customerUuid) filter.Customer_uuid = customerUuid;
+    if (orderUuid)    filter.Order_uuid    = String(orderUuid).trim();
 
     if (accountFilter) {
       const acct = String(accountFilter).trim();

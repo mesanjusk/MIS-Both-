@@ -92,12 +92,15 @@ export default function AllDelivery() {
     (async () => {
       setLoading(true);
       try {
-        const [ordersRes, customersRes] = await Promise.all([
+        const [ordersResult, customersResult] = await Promise.allSettled([
           fetchDeliveredOrders(),
           fetchCustomers(),
         ]);
 
         if (!isMounted) return;
+
+        const ordersRes = ordersResult.status === 'fulfilled' ? ordersResult.value : null;
+        const customersRes = customersResult.status === 'fulfilled' ? customersResult.value : null;
 
         const orderRows = ordersRes?.data?.success ? ordersRes.data.result ?? [] : [];
         const custRows = customersRes?.data?.success ? customersRes.data.result ?? [] : [];
@@ -113,6 +116,10 @@ export default function AllDelivery() {
 
         setCustomers(customerMap);
         setOrders(Array.isArray(orderRows) ? orderRows : []);
+
+        if (ordersResult.status === 'rejected') {
+          console.error("Failed to load delivered orders:", ordersResult.reason?.message);
+        }
       } catch (err) {
         console.error("Error fetching data:", err?.message || err);
         setCustomers({});

@@ -63,13 +63,15 @@ const isoDate = (d) => {
 
 const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN")}`;
 
+const todayISO = new Date().toISOString().slice(0, 10);
+
 export default function AllDelivery() {
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchOrder, setSearchOrder] = useState("");
   const [filter, setFilter] = useState("");
-  const [selectedDate, setSelectedDate] = useState(null); // null = all dates
+  const [selectedDate, setSelectedDate] = useState(todayISO); // default to today
 
   const [editOpen, setEditOpen] = useState(false);
   const [orderUpdateOpen, setOrderUpdateOpen] = useState(false);

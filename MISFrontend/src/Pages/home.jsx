@@ -17,6 +17,7 @@ import PendingTasks from './PendingTasks';
 import AllAttandance from './AllAttandance';
 import TaskUpdate from './taskUpdate';
 import { PageContainer, SectionCard } from '../Components/ui';
+import { isOfficeGroup } from '../constants/roles';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -134,7 +135,7 @@ export default function Home() {
               </SectionCard>
             )}
 
-            {userGroup === 'Office User' && (
+            {isOfficeGroup(userGroup) && (
               <SectionCard title="My Task Panel" subtitle="Action list for current assignments" contentSx={{ p: 1 }}>
                 <UserTask />
               </SectionCard>

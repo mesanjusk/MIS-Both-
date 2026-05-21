@@ -90,6 +90,7 @@ const EmailCompose  = lazy(() => import('./Pages/EmailCompose'));
 const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
 const OpeningBalance = lazy(() => import('./Pages/OpeningBalance'));
 const AdminUserPermissions = lazy(() => import('./Pages/AdminUserPermissions'));
+const SopPage = lazy(() => import('./Pages/SopPage'));
 
 function RouteLoader() {
   return (
@@ -231,6 +232,7 @@ export default function App() {
             <Route path={ROUTES.CALL_LOGS} element={withSuspense(<CallLogs />)} />
             <Route path={ROUTES.FLOW_BUILDER} element={withSuspense(<FlowBuilderPage />)} />
             <Route path={ROUTES.ADMIN_USER_PERMISSIONS} element={withSuspense(<AdminUserPermissions />)} />
+            <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
 
             <Route path={ROUTE_ALIASES.HOME_ADMIN} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTE_ALIASES.HOME_OLD} element={<Navigate to={ROUTES.HOME} replace />} />

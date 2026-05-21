@@ -100,6 +100,9 @@ export const ROUTES = {
   CALL_LOGS: '/calllogs',
   FLOW_BUILDER: '/flow-builder',
 
+  // SOP
+  SOP: '/sop',
+
   // Admin
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
 };

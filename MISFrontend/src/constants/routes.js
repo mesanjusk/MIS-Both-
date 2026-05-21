@@ -48,7 +48,7 @@ export const ROUTES = {
   VENDOR_DETAILS: '/vendors/:id',
 
   WHATSAPP: '/whatsapp',
-  WHATSAPP_CLOUD: '/whatsapp',
+  WHATSAPP_CLOUD: '/whatsapp-cloud',
   WHATSAPP_SEND: '/whatsapp/send',
   WHATSAPP_BULK: '/whatsapp/bulk',
   WHATSAPP_LEGACY_HOME: '/WhatsAppHome',

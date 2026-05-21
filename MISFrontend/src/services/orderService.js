@@ -18,7 +18,7 @@ export const updateOrderSteps = (payload) => axios.post("/order/updateOrderSteps
 
 export const toggleOrderStep = (payload) => axios.post("/order/steps/toggle", payload);
 
-export const addOrderStatus = (payload) => axios.post("/order/addStatus", payload);
+export const addOrderStatus = (payload) => axios.post("/api/orders/addStatus", payload);
 
 export const updateOrderDelivery = (orderId, payload) =>
   axios.put(`/order/updateDelivery/${orderId}`, payload);

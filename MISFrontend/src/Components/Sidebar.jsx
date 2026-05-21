@@ -33,6 +33,9 @@ const normalizeRoleKey = (value = '') => {
   if (['designer'].includes(text)) return 'Designer';
   if (['dataentry', 'dataentryuser'].includes(text)) return 'DataEntry';
   if (['officestaff', 'officeuser', 'otheroffice'].includes(text)) return 'OfficeStaff';
+  if (['officeadmin'].includes(text)) return 'OfficeAdmin';
+  if (['officedesign'].includes(text)) return 'OfficeDesign';
+  if (['officemarketing'].includes(text)) return 'OfficeMarketing';
   if (['accounts', 'accountant', 'accountsuser'].includes(text)) return 'Accounts';
   return value || 'User';
 };

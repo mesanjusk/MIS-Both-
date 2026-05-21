@@ -75,6 +75,8 @@ const DiaryDraft = require("./routes/DiaryDraft");
 const BankStatement = require("./routes/BankStatement");
 const Gmail = require("./routes/Gmail");
 const AccountsRouter = require("./routes/Accounts");
+const SopRouter = require("./routes/sop");
+const { seedUserGroups } = require("./services/sopService");
 
 const app = express();
 const server = http.createServer(app);
@@ -137,6 +139,7 @@ app.use("/api/stock", Stock);
 app.use("/api/diary", DiaryDraft);
 app.use("/api/bank-statement", BankStatement);
 app.use("/api/accounts", AccountsRouter);
+app.use("/api/sop", SopRouter);
 app.use("/api/google-drive", googleDriveOAuthRoutes);
 app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
@@ -195,6 +198,11 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   } catch (migErr) {
     logger.error({ err: migErr.message }, '[migration] Opening balance UUID fix failed');
   }
+
+  // Seed new office user groups if they don't exist
+  seedUserGroups().catch((err) =>
+    logger.error({ err: err.message }, '[sop] User group seed failed')
+  );
 
   // ── Baileys auto-connect ──────────────────────────────────────────────────
   // If saved WhatsApp Web credentials exist in MongoDB, reconnect automatically

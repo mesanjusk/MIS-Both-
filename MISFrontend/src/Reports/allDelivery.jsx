@@ -487,9 +487,9 @@ export default function AllDelivery() {
               No delivered orders found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.
             </Alert>
           ) : (
-            <>
+            <Stack direction={{ xs: "column", lg: "row" }} spacing={2} alignItems="flex-start">
               {/* ── Section 1: Deliveries (IN) ── */}
-              <Paper variant="outlined" sx={{ borderRadius: 3, mb: 2 }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, flex: 1, minWidth: 0 }}>
                 <Stack
                   direction="row" justifyContent="space-between" alignItems="center"
                   sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
@@ -564,7 +564,7 @@ export default function AllDelivery() {
               </Paper>
 
               {/* ── Section 2: Vendor Purchases (OUT) ── */}
-              <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: "error.light" }}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: "error.light", flex: 1, minWidth: 0 }}>
                 <Stack
                   direction="row" justifyContent="space-between" alignItems="center"
                   sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
@@ -633,7 +633,7 @@ export default function AllDelivery() {
                   </TableContainer>
                 )}
               </Paper>
-            </>
+            </Stack>
           )}
         </Box>
       </Box>

@@ -141,8 +141,8 @@ router.put("/updateDelivery/:id", async (req, res) => {
     if (Customer_uuid) setFields.Customer_uuid = Customer_uuid;
     if (invoiceTxnUuid) setFields.invoiceTxnUuid = String(invoiceTxnUuid);
     if (invoiceTxnId != null) setFields.invoiceTxnId = Number(invoiceTxnId);
+    if (incoming.length > 0) setFields.Items = incoming;
     if (Object.keys(setFields).length) update.$set = setFields;
-    if (incoming.length > 0) update.$push = { Items: { $each: incoming } };
     const result = await Orders.updateOne(filter, update, { runValidators: false });
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Order not found" });

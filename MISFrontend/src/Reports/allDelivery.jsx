@@ -20,6 +20,7 @@ import {
   Chip,
   CircularProgress,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
@@ -53,6 +54,8 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import EditIcon from "@mui/icons-material/Edit";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import EventIcon from "@mui/icons-material/Event";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -94,6 +97,17 @@ export default function AllDelivery() {
 
   // Toggle to show only orders with empty/no-value Items
   const [showEmptyItems, setShowEmptyItems] = useState(false);
+
+  // Vendor bulk selection
+  const [selectedVendorKeys, setSelectedVendorKeys] = useState(new Set());
+  const [vendorBulkDate, setVendorBulkDate] = useState(todayISO);
+  const [vendorBulkUpdating, setVendorBulkUpdating] = useState(false);
+
+  // Vendor PO edit dialog
+  const [vendorEditOpen, setVendorEditOpen] = useState(false);
+  const [selectedVendorRow, setSelectedVendorRow] = useState(null);
+  const [vendorExtraCharges, setVendorExtraCharges] = useState([]);
+  const [vendorSaving, setVendorSaving] = useState(false);
 
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
@@ -233,15 +247,21 @@ export default function AllDelivery() {
     const rows = [];
     dateOrders.forEach((o) => {
       if (!Array.isArray(o.Steps)) return;
-      o.Steps.forEach((step) => {
+      o.Steps.forEach((step, stepIdx) => {
         const cost = Number(step.costAmount || 0);
         if (cost > 0) {
+          const orderId = o._id || o.Order_uuid;
           rows.push({
+            key: `${orderId}_${stepIdx}`,
+            orderId,
+            orderRef: o,
+            stepIdx,
             orderNumber: o.Order_Number,
             customer: o.Customer_name,
             stepLabel: step.label || "—",
             vendorName: step.vendorName || "—",
             costAmount: cost,
+            extraCharges: Array.isArray(step.extraCharges) ? step.extraCharges : [],
             isPosted: step.posting?.isPosted,
           });
         }
@@ -330,6 +350,104 @@ export default function AllDelivery() {
     if (successCount) toast.success(`Updated ${successCount} order(s)`);
     if (failCount) toast.error(`Failed for ${failCount} order(s)`);
   }, [bulkDate, selectedOrders, deliveryTableOrders]);
+
+  // Vendor bulk selection helpers
+  const allVendorKeys = useMemo(() => vendorRows.map((r) => r.key), [vendorRows]);
+  const allVendorSelected = allVendorKeys.length > 0 && allVendorKeys.every((k) => selectedVendorKeys.has(k));
+  const someVendorSelected = selectedVendorKeys.size > 0;
+
+  const handleVendorSelectAll = useCallback((e) => {
+    if (e.target.checked) setSelectedVendorKeys(new Set(allVendorKeys));
+    else setSelectedVendorKeys(new Set());
+  }, [allVendorKeys]);
+
+  const handleVendorSelect = useCallback((key) => {
+    setSelectedVendorKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const handleVendorBulkDateUpdate = useCallback(async () => {
+    if (!vendorBulkDate || selectedVendorKeys.size === 0) return;
+    setVendorBulkUpdating(true);
+    const orderIds = new Set(
+      vendorRows.filter((r) => selectedVendorKeys.has(r.key)).map((r) => r.orderId)
+    );
+    let successCount = 0;
+    let failCount = 0;
+    const updatedIds = new Set();
+    await Promise.all(
+      Array.from(orderIds).map(async (id) => {
+        try {
+          await axios.put(`/order/updateOrder/${id}`, { createdAt: vendorBulkDate });
+          updatedIds.add(id);
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      })
+    );
+    if (updatedIds.size > 0) {
+      setOrders((prev) =>
+        prev.map((o) => {
+          const id = o._id || o.Order_uuid;
+          if (!updatedIds.has(id)) return o;
+          return { ...o, createdAt: new Date(vendorBulkDate).toISOString() };
+        })
+      );
+    }
+    setVendorBulkUpdating(false);
+    setSelectedVendorKeys(new Set());
+    if (successCount) toast.success(`Updated ${successCount} order(s)`);
+    if (failCount) toast.error(`Failed for ${failCount} order(s)`);
+  }, [vendorBulkDate, selectedVendorKeys, vendorRows]);
+
+  // Vendor PO edit handlers
+  const handleVendorEditClick = (row) => {
+    setSelectedVendorRow(row);
+    setVendorExtraCharges(row.extraCharges.length ? [...row.extraCharges] : []);
+    setVendorEditOpen(true);
+  };
+
+  const handleVendorEditSave = useCallback(async () => {
+    if (!selectedVendorRow) return;
+    setVendorSaving(true);
+    const { orderId, orderRef, stepIdx } = selectedVendorRow;
+    const validCharges = vendorExtraCharges.filter((c) => c.label?.trim() && Number(c.amount) > 0);
+    const updatedSteps = (orderRef.Steps || []).map((step, i) =>
+      i !== stepIdx ? step : { ...step, extraCharges: validCharges }
+    );
+    try {
+      await axios.put(`/order/updateOrder/${orderId}`, { Steps: updatedSteps });
+      setOrders((prev) =>
+        prev.map((o) => {
+          const id = o._id || o.Order_uuid;
+          return id !== orderId ? o : { ...o, Steps: updatedSteps };
+        })
+      );
+      toast.success("PO updated successfully");
+      setVendorEditOpen(false);
+      setSelectedVendorRow(null);
+    } catch {
+      toast.error("Failed to save PO");
+    } finally {
+      setVendorSaving(false);
+    }
+  }, [selectedVendorRow, vendorExtraCharges]);
+
+  const addExtraCharge = () =>
+    setVendorExtraCharges((prev) => [...prev, { label: "", amount: "" }]);
+
+  const removeExtraCharge = (idx) =>
+    setVendorExtraCharges((prev) => prev.filter((_, i) => i !== idx));
+
+  const updateExtraCharge = (idx, field, value) =>
+    setVendorExtraCharges((prev) =>
+      prev.map((c, i) => (i === idx ? { ...c, [field]: value } : c))
+    );
 
   // Sidebar: jump to a typed date
   const handleSidebarDateGo = () => {
@@ -773,6 +891,40 @@ export default function AllDelivery() {
                   </Typography>
                 </Stack>
 
+                {/* Vendor bulk action bar */}
+                {someVendorSelected && (
+                  <Box sx={{ px: 2, py: 1, borderBottom: "1px solid", borderColor: "divider",
+                    bgcolor: "error.50", display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                    <Typography variant="body2" fontWeight={700} color="error.dark">
+                      {selectedVendorKeys.size} row{selectedVendorKeys.size > 1 ? "s" : ""} selected
+                    </Typography>
+                    <TextField
+                      type="date"
+                      size="small"
+                      label="Set Date"
+                      value={vendorBulkDate}
+                      onChange={(e) => setVendorBulkDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ width: 170 }}
+                    />
+                    <Button
+                      variant="contained" color="error" size="small"
+                      onClick={handleVendorBulkDateUpdate}
+                      disabled={vendorBulkUpdating || !vendorBulkDate}
+                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+                    >
+                      {vendorBulkUpdating ? "Updating…" : "Update Date"}
+                    </Button>
+                    <Button
+                      variant="outlined" color="error" size="small"
+                      onClick={() => setSelectedVendorKeys(new Set())}
+                      sx={{ borderRadius: 2, textTransform: "none" }}
+                    >
+                      Clear
+                    </Button>
+                  </Box>
+                )}
+
                 {vendorRows.length === 0 ? (
                   <Box sx={{ p: 2 }}>
                     <Alert severity="info" sx={{ borderRadius: 2 }}>
@@ -784,42 +936,73 @@ export default function AllDelivery() {
                     <Table size="small">
                       <TableHead>
                         <TableRow>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              size="small"
+                              checked={allVendorSelected}
+                              indeterminate={someVendorSelected && !allVendorSelected}
+                              onChange={handleVendorSelectAll}
+                            />
+                          </TableCell>
                           <TableCell sx={{ fontWeight: 700, width: 70 }}>Order #</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Step / Job</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Cost</TableCell>
                           <TableCell sx={{ fontWeight: 700, width: 90 }}>Status</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, width: 60 }}>Edit</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {vendorRows.map((r, i) => (
-                          <TableRow key={i} hover>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight={700}>#{r.orderNumber}</Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">{r.vendorName}</Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                {r.stepLabel}
-                              </Typography>
-                            </TableCell>
-                            <TableCell align="right">
-                              <Typography variant="body2" fontWeight={700} color="error.dark">
-                                {money(r.costAmount)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={r.isPosted ? "Posted" : "Pending"}
-                                color={r.isPosted ? "success" : "warning"}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {vendorRows.map((r) => {
+                          const extraTotal = r.extraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
+                          return (
+                            <TableRow key={r.key} hover selected={selectedVendorKeys.has(r.key)}>
+                              <TableCell padding="checkbox">
+                                <Checkbox
+                                  size="small"
+                                  checked={selectedVendorKeys.has(r.key)}
+                                  onChange={() => handleVendorSelect(r.key)}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" fontWeight={700}>#{r.orderNumber}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2">{r.vendorName}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>
+                                  {r.stepLabel}
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" fontWeight={700} color="error.dark">
+                                  {money(r.costAmount + extraTotal)}
+                                </Typography>
+                                {extraTotal > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    +{money(extraTotal)} extras
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={r.isPosted ? "Posted" : "Pending"}
+                                  color={r.isPosted ? "success" : "warning"}
+                                  variant="outlined"
+                                />
+                              </TableCell>
+                              <TableCell align="center">
+                                <Tooltip title="Edit PO">
+                                  <IconButton size="small" color="error" onClick={() => handleVendorEditClick(r)}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>
@@ -840,6 +1023,117 @@ export default function AllDelivery() {
           onOrderReplaced={(full) => upsertOrderReplace(full)}
         />
       )}
+
+      {/* Vendor PO Edit dialog */}
+      <Dialog
+        open={vendorEditOpen}
+        onClose={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          Edit PO — #{selectedVendorRow?.orderNumber}
+          <Box sx={{ flex: 1 }} />
+          <IconButton onClick={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedVendorRow && (() => {
+            const extraTotal = vendorExtraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
+            const grandTotal = selectedVendorRow.costAmount + extraTotal;
+            return (
+              <Stack spacing={2}>
+                {/* PO summary */}
+                <Stack direction="row" spacing={2} sx={{ p: 1.5, bgcolor: "grey.50", borderRadius: 2 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Vendor</Typography>
+                    <Typography variant="body2" fontWeight={700}>{selectedVendorRow.vendorName}</Typography>
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Step / Job</Typography>
+                    <Typography variant="body2" fontWeight={700}>{selectedVendorRow.stepLabel}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Base Cost</Typography>
+                    <Typography variant="body2" fontWeight={700} color="error.dark">
+                      {money(selectedVendorRow.costAmount)}
+                    </Typography>
+                  </Box>
+                </Stack>
+
+                {/* Extra charges */}
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Typography variant="subtitle2" fontWeight={700}>Additional Charges</Typography>
+                    <Button size="small" startIcon={<AddIcon />} onClick={addExtraCharge}
+                      sx={{ textTransform: "none" }}>
+                      Add
+                    </Button>
+                  </Stack>
+
+                  {vendorExtraCharges.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                      No additional charges. Click "Add" to add freight, packing, etc.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1}>
+                      {vendorExtraCharges.map((charge, idx) => (
+                        <Stack key={idx} direction="row" spacing={1} alignItems="center">
+                          <TextField
+                            size="small"
+                            label="Label (e.g. Freight)"
+                            value={charge.label}
+                            onChange={(e) => updateExtraCharge(idx, "label", e.target.value)}
+                            sx={{ flex: 2 }}
+                          />
+                          <TextField
+                            size="small"
+                            label="Amount"
+                            type="number"
+                            value={charge.amount}
+                            onChange={(e) => updateExtraCharge(idx, "amount", e.target.value)}
+                            sx={{ flex: 1 }}
+                            inputProps={{ min: 0 }}
+                          />
+                          <IconButton size="small" color="error" onClick={() => removeExtraCharge(idx)}>
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+                </Box>
+
+                <Divider />
+
+                {/* Grand total */}
+                <Stack direction="row" justifyContent="space-between" alignItems="center"
+                  sx={{ px: 1.5, py: 1, bgcolor: "error.50", borderRadius: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>Grand Total</Typography>
+                  <Typography variant="h6" fontWeight={900} color="error.dark">
+                    {money(grandTotal)}
+                  </Typography>
+                </Stack>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}
+            sx={{ textTransform: "none" }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained" color="error"
+            onClick={handleVendorEditSave}
+            disabled={vendorSaving}
+            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+          >
+            {vendorSaving ? "Saving…" : "Save PO"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* OrderUpdate modal */}
       <Dialog

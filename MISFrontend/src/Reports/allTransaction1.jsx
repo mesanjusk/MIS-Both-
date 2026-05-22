@@ -65,7 +65,7 @@ const AllTransaction1 = () => {
         group: grp,
         debit,
         credit,
-        balance: credit - debit,
+        balance: debit - credit,
       };
     });
     setOutstandingReport(report);

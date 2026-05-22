@@ -55,7 +55,7 @@ async function getCustomersAndItems() {
 
   const [custRes, itemRes] = await Promise.all([
     axios.get(`/api/customers/GetCustomersList?page=1&limit=1000`),
-    axios.get(`/item/GetItemList?page=1&limit=1000`),
+    axios.get(`/api/items/GetItemList?page=1&limit=1000`),
   ]);
 
   const customers = (custRes?.data?.result || [])
@@ -113,6 +113,16 @@ export default function UpdateDelivery({
       setOrderId(mongoId);
 
       setCustomer_uuid(order.Customer_uuid || "");
+
+      // Extract remark from orderNote if it follows "orderNum - customer - remark - mobile" pattern
+      const extractRemark = (note = "") => {
+        if (!note) return "";
+        const parts = note.split(" - ");
+        if (parts.length >= 3) return parts[2].trim();
+        return note.trim();
+      };
+      const fallbackRemark = extractRemark(order.orderNote || "");
+
       const seeded =
         Array.isArray(order.Items) && order.Items.length
           ? order.Items.map((it) => ({
@@ -121,9 +131,9 @@ export default function UpdateDelivery({
               Rate: n2(it.Rate),
               Amount: n2(it.Amount) || +(n2(it.Quantity) * n2(it.Rate)).toFixed(2),
               Priority: it.Priority || "Normal",
-              Remark: it.Remark || "",
+              Remark: it.Remark || fallbackRemark,
             }))
-          : [{ Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: "" }];
+          : [{ Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: fallbackRemark }];
       setItems(seeded);
       setCustomer_name(order.Customer_name || "");
     }
@@ -245,10 +255,65 @@ export default function UpdateDelivery({
           Remark: i.Remark || "",
         }));
 
-        const payload = { Customer_uuid, Items: itemLines };
+        const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
+        const resolvedName = customerMap[Customer_uuid] || Customer_name || Customer_uuid;
+        const orderUuid = order.Order_uuid || null;
 
-        // Only the working endpoint on your backend:
-        const response = await axios.put(`/order/updateDelivery/${idForApi}`, payload);
+        // ── Step 1: create/update transaction FIRST so we get UUID + ID back ──
+        let invoiceTxnUuid = null;
+        let invoiceTxnId = null;
+        try {
+          const journal = [
+            { Account_id: Customer_uuid, Account_name: resolvedName, Type: "Debit",  Amount: totalAmount },
+            { Account_id: "Sales",       Account_name: "Sales",       Type: "Credit", Amount: totalAmount },
+          ];
+          const txnPayload = {
+            Description:      resolvedName,
+            Order_uuid:       orderUuid,
+            Order_number:     order.Order_Number || null,
+            Transaction_date: new Date().toISOString(),
+            Total_Credit:     totalAmount,
+            Total_Debit:      totalAmount,
+            Payment_mode:     Customer_uuid,
+            Journal_entry:    journal,
+            Created_by:       loggedInUser,
+            Customer_uuid:    Customer_uuid || null,
+            Source:           "invoice",
+          };
+
+          let txnRes;
+          if (orderUuid) {
+            const existing = await axios.get(`/api/transaction`, { params: { orderUuid, limit: 5 } });
+            const existingInvoice = (existing?.data?.result || []).find((t) => t.Source === "invoice");
+            if (existingInvoice) {
+              txnRes = await axios.put(`/api/transaction/${existingInvoice.Transaction_uuid}`, txnPayload);
+            } else {
+              txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
+            }
+          } else {
+            txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
+          }
+
+          if (txnRes?.data?.success) {
+            invoiceTxnUuid = txnRes.data.result?.Transaction_uuid || null;
+            invoiceTxnId   = txnRes.data.result?.Transaction_id   ?? null;
+          } else {
+            console.warn("Transaction save failed:", txnRes?.data);
+            toast.error(txnRes?.data?.message || "Transaction save failed");
+          }
+        } catch (txErr) {
+          const msg = extractServerMessage(txErr);
+          console.error("Transaction error:", txErr?.response?.status, msg);
+          toast.error(`Transaction error: ${msg}`);
+        }
+
+        // ── Step 2: update order with items + transaction back-reference ──
+        const orderPayload = {
+          Customer_uuid,
+          Items: itemLines,
+          ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
+        };
+        const response = await axios.put(`/order/updateDelivery/${idForApi}`, orderPayload);
 
         if (!response?.data?.success) {
           console.error("updateDelivery response without success=true:", response?.data);
@@ -256,40 +321,12 @@ export default function UpdateDelivery({
           return;
         }
 
-        // Optional accounting (kept as-is; remove if not needed on your backend)
-        try {
-          const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
-          // Sale delivery: DR Customer (debtor), CR Sales Account (revenue)
-          const journal = [
-            { Account_id: Customer_uuid, Type: "Debit",  Amount: totalAmount },
-            { Account_id: "Sales",       Type: "Credit", Amount: totalAmount },
-          ];
-          const transaction = await axios.post(`/transaction/addTransaction`, {
-            Description: "Delivered",
-            Order_number: order.Order_Number,
-            Transaction_date: new Date().toISOString(),
-            Total_Credit: totalAmount,
-            Total_Debit: totalAmount,
-            Payment_mode: Customer_uuid,
-            Journal_entry: journal,
-            Created_by: loggedInUser,
-          });
-          if (!transaction?.data?.success) {
-            console.warn("Transaction failed:", transaction?.data);
-            toast.error(transaction?.data?.message || "Transaction failed");
-          }
-        } catch (txErr) {
-          const status = txErr?.response?.status;
-          const msg = extractServerMessage(txErr);
-          console.error("Transaction error:", status, msg);
-          toast.error(`Transaction error: ${msg}`);
-        }
-
         const patchId = order.Order_uuid || order._id || orderId;
         onOrderPatched(patchId, {
           Items: itemLines,
           Customer_uuid,
-          Customer_name: customerMap[Customer_uuid] || Customer_name,
+          Customer_name: resolvedName,
+          ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
         });
 
         toast.success("Order saved");
@@ -344,7 +381,7 @@ export default function UpdateDelivery({
         <div className="bg-white p-6 rounded shadow-md w-full max-w-3xl relative">
           <div className="relative mb-4 pr-12">
   <h2 className="text-xl font-bold">
-    {mode === "edit" ? "Edit Order • Items/Invoice" : "New Delivery"}
+    {mode === "edit" ? `#${order.Order_Number || "—"} — Invoice` : "New Delivery"}
   </h2>
 
   {loadingLists && (
@@ -376,39 +413,50 @@ export default function UpdateDelivery({
             }}
           >
             <div>
-              <label className="block font-semibold">
-                Customer <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={Customer_uuid}
-                onChange={(e) => setCustomer_uuid(e.target.value)}
-                className="w-full border p-2 rounded disabled:opacity-60"
-                disabled={loadingLists}
-              >
-                <option value="">Select customer</option>
-                {customers.map((c) => (
-                  <option key={c.Customer_uuid} value={c.Customer_uuid}>
-                    {c.Customer_name}
-                  </option>
-                ))}
-              </select>
+              <label className="block font-semibold">Customer</label>
+              {mode === "edit" && Customer_name ? (
+                <div className="w-full border p-2 rounded bg-gray-50 font-semibold text-gray-700">
+                  {Customer_name}
+                </div>
+              ) : (
+                <select
+                  value={Customer_uuid}
+                  onChange={(e) => setCustomer_uuid(e.target.value)}
+                  className="w-full border p-2 rounded disabled:opacity-60"
+                  disabled={loadingLists}
+                >
+                  <option value="">Select customer</option>
+                  {customers.map((c) => (
+                    <option key={c.Customer_uuid} value={c.Customer_uuid}>
+                      {c.Customer_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {items.map((item, index) => (
               <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
-                <Select
-                  className="md:col-span-2"
-                  options={selectOptions}
-                  value={item.Item ? { label: item.Item, value: item.Item } : null}
-                  onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
-                  placeholder={loadingLists ? "Loading…" : "Select item"}
-                  isDisabled={loadingLists}
-                />
+                {/* Item name: readonly when pre-filled in edit mode */}
+                {mode === "edit" && item.Item ? (
+                  <div className="md:col-span-2 border p-2 rounded bg-gray-50 text-gray-700 font-medium truncate">
+                    {item.Item}
+                  </div>
+                ) : (
+                  <Select
+                    className="md:col-span-2"
+                    options={selectOptions}
+                    value={item.Item ? { label: item.Item, value: item.Item } : null}
+                    onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
+                    placeholder={loadingLists ? "Loading…" : "Select item"}
+                    isDisabled={loadingLists}
+                  />
+                )}
 
                 <input
                   type="number"
                   placeholder="Qty"
-                  value={item.Quantity}
+                  value={item.Quantity || ""}
                   onChange={(e) => handleItemChange(index, "Quantity", e.target.value)}
                   className="border p-2 rounded"
                 />
@@ -416,17 +464,14 @@ export default function UpdateDelivery({
                 <input
                   type="number"
                   placeholder="Rate"
-                  value={item.Rate}
+                  value={item.Rate || ""}
                   onChange={(e) => handleItemChange(index, "Rate", e.target.value)}
                   className="border p-2 rounded"
                 />
 
-                <input
-                  type="text"
-                  value={item.Amount}
-                  readOnly
-                  className="border p-2 bg-gray-100 rounded"
-                />
+                <div className="border p-2 bg-gray-100 rounded text-gray-700 font-semibold">
+                  ₹{Number(item.Amount || 0).toLocaleString("en-IN")}
+                </div>
 
                 <input
                   type="text"
@@ -458,6 +503,13 @@ export default function UpdateDelivery({
               </button>
             </div>
 
+            <div className="flex items-center justify-between border-t pt-3">
+              <span className="text-gray-500 text-sm">Total Amount</span>
+              <span className="text-xl font-bold text-blue-700">
+                ₹{items.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toLocaleString("en-IN")}
+              </span>
+            </div>
+
             <button
               type="submit"
               disabled={isSubmitting || loadingLists}
@@ -467,7 +519,7 @@ export default function UpdateDelivery({
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {isSubmitting ? "Saving…" : "Submit"}
+              {isSubmitting ? "Saving…" : "Save & Generate Invoice"}
             </button>
           </form>
         </div>

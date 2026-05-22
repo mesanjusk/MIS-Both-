@@ -64,7 +64,7 @@ const AllTransaction2 = () => {
                 mobile: customer.Mobile_number || 'No phone number',
                 debit,
                 credit,
-                balance: credit - debit
+                balance: debit - credit
             };
         }).filter(r => (r.debit !== 0 || r.credit !== 0) && r.balance !== 0);
 

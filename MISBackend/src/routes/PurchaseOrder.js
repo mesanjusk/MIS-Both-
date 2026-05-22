@@ -1,11 +1,46 @@
 const { requireAuth } = require('../middleware/auth');
 const express = require('express');
 const router  = express.Router();
+const { v4: uuidv4 } = require('uuid');
 const Counter  = require('../repositories/counter');
 const PurchaseOrder = require('../repositories/purchaseOrder');
+const Transaction   = require('../repositories/transaction');
+const Accounts      = require('../repositories/accounts');
 const VendorMaster  = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
-const { postPurchase } = require('../services/accountingPostingService');
+const { postBalancedTransaction, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
+const { updateBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
+
+/**
+ * Resolve or auto-create a vendor-specific payable account (Liability / credit-normal).
+ * Falls back to the vendor name or 'Vendor Payable' when no name is available.
+ */
+async function resolveVendorAccount(vendorName) {
+  const name = String(vendorName || 'Vendor Payable').trim() || 'Vendor Payable';
+  const existing = await Accounts.findOne({ Account_name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }).lean();
+  if (existing?.Account_uuid) return existing.Account_uuid;
+
+  const last = await Accounts.findOne({}, { Account_code: 1 }).sort({ Account_code: -1 }).lean();
+  const code  = Number(last?.Account_code || 1000) + 1;
+  const newId = uuidv4();
+
+  await Accounts.create({
+    Account_uuid:        newId,
+    Account_name:        name,
+    Account_type:        'Liability',
+    Account_code:        code,
+    Normal_balance_side: 'credit',
+    Account_group:       'Trade Payables',
+    Is_system:           false,
+    Balance:             0,
+    Currency:            'INR',
+    Created_at:          new Date(),
+    Updated_at:          new Date(),
+  });
+
+  invalidateCache();
+  return newId;
+}
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -40,6 +75,14 @@ function normalizeItems(items = []) {
 
 function calcPoTotal(items = []) {
   return items.reduce((sum, item) => sum + toNumber(item.amount, 0), 0);
+}
+
+/** Parse "DD.MM.YYYY" from a notes string into a UTC midnight Date. */
+function parseDateFromNotes(notes = '') {
+  const m = String(notes).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!m) return null;
+  const d = new Date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 router.use(requireAuth);
@@ -78,24 +121,48 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// GET /api/purchase-order/list
+// GET /api/purchaseorder/list
 router.get('/list', async (req, res) => {
   try {
     const filter = {};
     if (req.query.status)   filter.status     = String(req.query.status).toLowerCase();
     if (req.query.vendorId) filter.Vendor_uuid = String(req.query.vendorId);
     if (req.query.fromDate || req.query.toDate) {
-      filter.createdAt = {};
-      if (req.query.fromDate) filter.createdAt.$gte = new Date(req.query.fromDate);
-      if (req.query.toDate)   {
-        const end = new Date(req.query.toDate);
-        end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
-      }
+      const from = req.query.fromDate ? new Date(req.query.fromDate) : null;
+      const to   = req.query.toDate   ? (() => { const d = new Date(req.query.toDate); d.setHours(23,59,59,999); return d; })() : null;
+      const rangeCond = {};
+      if (from) rangeCond.$gte = from;
+      if (to)   rangeCond.$lte = to;
+      // Prefer poDate when set, fall back to createdAt
+      filter.$or = [
+        { poDate: rangeCond },
+        { poDate: null, createdAt: rangeCond },
+      ];
     }
-    const rows = await PurchaseOrder.find(filter).sort({ createdAt: -1 }).lean();
+    const rows = await PurchaseOrder.find(filter).sort({ PO_Number: 1 }).lean();
     res.json({ success: true, result: rows });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/purchaseorder/backfill-dates — one-time migration to set poDate from notes
+router.post('/backfill-dates', async (req, res) => {
+  try {
+    const pos = await PurchaseOrder.find({ poDate: null }).lean();
+    let updated = 0;
+    for (const po of pos) {
+      const poDate = parseDateFromNotes(po.notes || '');
+      if (!poDate) continue;
+      await PurchaseOrder.collection.updateOne(
+        { _id: po._id },
+        { $set: { poDate, createdAt: poDate } }
+      );
+      updated++;
+    }
+    res.json({ success: true, updated, total: pos.length });
+  } catch (error) {
+    logger.error('Backfill dates failed', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -118,7 +185,82 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/purchase-order/:id/status
+// PUT /api/purchaseorder/:id  — update items, notes, status, poDate, extraCharges
+router.put('/:id', async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id));
+    if (!po) return res.status(404).json({ success: false, message: 'PO not found' });
+
+    if (Array.isArray(req.body.Items)) po.Items = normalizeItems(req.body.Items);
+    if (typeof req.body.notes !== 'undefined') po.notes = String(req.body.notes || '');
+    if (req.body.expectedDelivery) po.expectedDelivery = new Date(req.body.expectedDelivery);
+    if (req.body.poDate) po.poDate = new Date(req.body.poDate);
+    if (req.body.status && ['draft', 'sent', 'received', 'cancelled'].includes(req.body.status)) {
+      po.status = req.body.status;
+    }
+    if (Array.isArray(req.body.extraCharges)) {
+      po.extraCharges = req.body.extraCharges
+        .filter((c) => c.label && Number(c.amount) > 0)
+        .map((c) => ({ label: String(c.label).trim(), amount: Number(c.amount) }));
+    }
+
+    const saved = await po.save();
+
+    // Upsert purchase ledger transaction — create on first edit, update on subsequent edits
+    const extraTotal = (saved.extraCharges || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+    const newTotal   = Number(saved.totalAmount || 0) + extraTotal;
+    const txnSource  = `business:purchase:${po.PO_uuid}`;
+
+    if (newTotal > 0) {
+      try {
+        const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
+        const existingTxn = await Transaction.findOne({ Source: txnSource });
+
+        if (existingTxn) {
+          // Reverse old balance impact then apply updated amounts
+          const reversalLines = existingTxn.Journal_entry.map((line) => ({
+            ...((line._doc || line)),
+            Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
+          }));
+          await updateBalancesForJournal(reversalLines).catch(() => {});
+
+          const [debitLine, creditLine] = await Promise.all([
+            buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  newTotal),
+            buildLine(vendorAccountId,           'Credit', newTotal),
+          ]);
+          existingTxn.Journal_entry = [debitLine, creditLine];
+          existingTxn.Total_Debit   = newTotal;
+          existingTxn.Total_Credit  = newTotal;
+          existingTxn.Description   = `PO #${po.PO_Number} from ${po.Vendor_name} (updated)`;
+          if (req.body.poDate) existingTxn.Transaction_date = new Date(req.body.poDate);
+          await existingTxn.save();
+          await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
+        } else {
+          await postBalancedTransaction({
+            amount:          newTotal,
+            debitAccount:    SYSTEM_ACCOUNTS.PURCHASE,
+            creditAccount:   vendorAccountId,
+            paymentMode:     'Journal',
+            description:     `PO #${po.PO_Number} from ${po.Vendor_name}`,
+            orderUuid:       po.Order_uuid || '',
+            createdBy:       req.user?.userName || 'system',
+            source:          txnSource,
+            allowDuplicate:  false,
+          });
+        }
+      } catch (txnErr) {
+        logger.error(`Transaction upsert failed for PO ${po.PO_uuid}: ${txnErr.message}`);
+      }
+    }
+
+    res.json({ success: true, result: saved });
+  } catch (error) {
+    logger.error('PO update failed', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/purchaseorder/:id/status
 // When status changes to 'received', posts a centralized Purchase accounting entry
 // so the PO flow is fully represented in the unified transaction system.
 router.put('/:id/status', async (req, res) => {
@@ -141,17 +283,23 @@ router.put('/:id/status', async (req, res) => {
 
       if (poTotal > 0) {
         try {
-          await postPurchase({
-            amount:          poTotal,
-            purchaseAccount: 'Purchase',
-            orderUuid:       po.Order_uuid || '',
-            createdBy:       req.body.createdBy || req.user?.userName || 'system',
-            description:     `PO #${po.PO_Number} received from ${po.Vendor_name}`,
-            sourceSuffix:    po.PO_uuid,
-            allowDuplicate:  false,
-          });
+          const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
+          const txnSource = `business:purchase:${po.PO_uuid}`;
+          const existingTxn = await Transaction.findOne({ Source: txnSource });
+          if (!existingTxn) {
+            await postBalancedTransaction({
+              amount:        poTotal,
+              debitAccount:  SYSTEM_ACCOUNTS.PURCHASE,
+              creditAccount: vendorAccountId,
+              paymentMode:   'Journal',
+              description:   `PO #${po.PO_Number} received from ${po.Vendor_name}`,
+              orderUuid:     po.Order_uuid || '',
+              createdBy:     req.body.createdBy || req.user?.userName || 'system',
+              source:        txnSource,
+              allowDuplicate: false,
+            });
+          }
         } catch (postErr) {
-          // Log but don't block the status update — accounting can be retried
           logger.error(`postPurchase failed for PO ${po.PO_uuid}: ${postErr.message}`);
         }
       }

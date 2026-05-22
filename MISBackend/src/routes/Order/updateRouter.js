@@ -21,6 +21,7 @@ router.put("/updateOrder/:id", async (req, res) => {
     const {
       Delivery_Date, Items, Steps, vendorAssignments, orderMode, orderNote,
       assignedTo, assignToUserId, assignToUserUuid, stage, productionStepsEnabled,
+      createdAt: rawCreatedAt,
       ...otherFields
     } = req.body;
 
@@ -102,6 +103,18 @@ router.put("/updateOrder/:id", async (req, res) => {
     }
 
     const saved = await order.save();
+
+    // Update createdAt directly — Mongoose timestamps option must be bypassed
+    if (rawCreatedAt) {
+      const newCreatedAt = toDate(rawCreatedAt, null);
+      if (newCreatedAt) {
+        await Orders.collection.updateOne(
+          { _id: saved._id },
+          { $set: { createdAt: newCreatedAt } }
+        );
+      }
+    }
+
     let vendorJobs = [];
     if (Array.isArray(saved.vendorAssignments) && saved.vendorAssignments.length) {
       vendorJobs = await syncVendorJobsForOrder(
@@ -128,17 +141,21 @@ router.put("/updateOrder/:id", async (req, res) => {
 /* ----------------------- UPDATE DELIVERY (Items only) ----------------------- */
 router.put("/updateDelivery/:id", async (req, res) => {
   const { id } = req.params;
-  const { Customer_uuid, Items } = req.body;
+  const { Customer_uuid, Items, invoiceTxnUuid, invoiceTxnId } = req.body;
   try {
     const isObjectId = mongoose.isValidObjectId(id);
     const filter = isObjectId ? { _id: id } : { Order_uuid: id };
     const incoming = normalizeItems(Items || []);
-    if (!Customer_uuid && incoming.length === 0) {
+    if (!Customer_uuid && incoming.length === 0 && !invoiceTxnUuid) {
       return res.status(400).json({ success: false, message: "Nothing to update" });
     }
     const update = {};
-    if (Customer_uuid) update.$set = { Customer_uuid };
-    if (incoming.length > 0) update.$push = { Items: { $each: incoming } };
+    const setFields = {};
+    if (Customer_uuid) setFields.Customer_uuid = Customer_uuid;
+    if (invoiceTxnUuid) setFields.invoiceTxnUuid = String(invoiceTxnUuid);
+    if (invoiceTxnId != null) setFields.invoiceTxnId = Number(invoiceTxnId);
+    if (incoming.length > 0) setFields.Items = incoming;
+    if (Object.keys(setFields).length) update.$set = setFields;
     const result = await Orders.updateOne(filter, update, { runValidators: false });
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Order not found" });

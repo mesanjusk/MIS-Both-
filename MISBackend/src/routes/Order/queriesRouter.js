@@ -61,7 +61,12 @@ router.get("/GetOrderList", async (req, res) => {
 
 router.get("/GetDeliveredList", async (_req, res) => {
   try {
-    const rows = await Orders.aggregate([...latestStatusProjectionStages, { $match: { latestTaskLower: "delivered", hasBillable: false } }]);
+    const rows = await Orders.find({
+      $or: [
+        { stage: { $in: ["delivered", "paid"] } },
+        { Status: { $elemMatch: { Task: { $regex: "delivered", $options: "i" } } } },
+      ],
+    }).sort({ createdAt: -1 }).lean();
     res.json({ success: true, result: rows });
   } catch (err) {
     logger.error("GetDeliveredList error:", err);

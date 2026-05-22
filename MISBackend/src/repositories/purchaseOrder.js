@@ -22,6 +22,8 @@ const purchaseOrderSchema = new mongoose.Schema(
     Items: { type: [purchaseOrderItemSchema], default: [] },
     totalAmount: { type: Number, default: 0 },
     status: { type: String, enum: ['draft', 'sent', 'received', 'cancelled'], default: 'draft', index: true },
+    poDate: { type: Date, default: null, index: true },
+    extraCharges: { type: [{ label: { type: String }, amount: { type: Number, default: 0 } }], default: [] },
     expectedDelivery: { type: Date, default: null },
     receivedDate: { type: Date, default: null },
     notes: { type: String, default: '' },

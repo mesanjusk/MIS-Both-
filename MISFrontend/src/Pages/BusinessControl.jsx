@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -38,6 +39,7 @@ import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded';
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import {
   assignVendorToOrder,
   getBusinessControlSummary,
@@ -70,6 +72,9 @@ const tabItems = [
   { key: 'vendorPayable', label: 'Vendor Payable' },
   { key: 'overdueTasks', label: 'Overdue Tasks' },
 ];
+
+// Tabs where row checkboxes make sense
+const SELECTABLE_TABS = new Set(['openOrders', 'readyNotDelivered', 'deliveredUnpaid']);
 
 function unwrapRows(bucket) {
   if (Array.isArray(bucket)) return bucket;
@@ -112,6 +117,10 @@ function getCustomerLabel(row = {}) {
 
 function getMobile(row = {}) {
   return row.customerMobile || row.Mobile_number || row.customer?.Mobile_number || '';
+}
+
+function rowKey(row, index) {
+  return row._id || row.Order_uuid || row.vendorUuid || row.Task_uuid || index;
 }
 
 function KpiCard({ title, value, amount, icon, tone = '#128c7e' }) {
@@ -164,7 +173,37 @@ export default function BusinessControl() {
   const [stageForm, setStageForm] = useState({ nextStage: 'printing', assignedTo: '', note: '' });
   const [vendorPayForm, setVendorPayForm] = useState({ amount: '', paymentMode: 'UPI', reference: '', narration: '' });
 
+  // Bulk selection
+  const [checkedIds, setCheckedIds] = useState(new Set());
+
   const rows = useMemo(() => unwrapRows(summary?.[activeTab]), [summary, activeTab]);
+
+  const selectableRows = useMemo(
+    () => (SELECTABLE_TABS.has(activeTab) ? rows.filter((r) => orderId(r)) : []),
+    [rows, activeTab],
+  );
+
+  const allChecked = selectableRows.length > 0 && selectableRows.every((r) => checkedIds.has(orderId(r)));
+  const someChecked = !allChecked && selectableRows.some((r) => checkedIds.has(orderId(r)));
+
+  const toggleAll = () => {
+    if (allChecked) {
+      setCheckedIds(new Set());
+    } else {
+      setCheckedIds(new Set(selectableRows.map((r) => orderId(r))));
+    }
+  };
+
+  const toggleRow = (id) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setCheckedIds(new Set());
 
   const load = async () => {
     setLoading(true);
@@ -197,6 +236,11 @@ export default function BusinessControl() {
     load();
   }, []);
 
+  // Clear selection whenever tab changes
+  useEffect(() => {
+    setCheckedIds(new Set());
+  }, [activeTab]);
+
   const runAction = async (fn, successText) => {
     setSaving(true);
     setMessage(null);
@@ -208,6 +252,30 @@ export default function BusinessControl() {
       await load();
     } catch (error) {
       setMessage({ severity: 'error', text: error?.response?.data?.message || error.message || 'Action failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Bulk action: runs fn(id) for each selected row in parallel, reports results
+  const runBulkAction = async (fn, label) => {
+    if (checkedIds.size === 0) return;
+    setSaving(true);
+    setMessage(null);
+    setDialog(null);
+    const ids = [...checkedIds];
+    try {
+      const results = await Promise.allSettled(ids.map((id) => fn(id)));
+      const failed = results.filter((r) => r.status === 'rejected');
+      clearSelection();
+      if (failed.length === 0) {
+        setMessage({ severity: 'success', text: `${label}: ${ids.length} order${ids.length > 1 ? 's' : ''} updated` });
+      } else {
+        setMessage({ severity: 'warning', text: `${label}: ${ids.length - failed.length} succeeded, ${failed.length} failed` });
+      }
+      await load();
+    } catch (error) {
+      setMessage({ severity: 'error', text: error?.response?.data?.message || error.message || 'Bulk action failed' });
     } finally {
       setSaving(false);
     }
@@ -231,6 +299,12 @@ export default function BusinessControl() {
     setDialog('stage');
   };
 
+  const openBulkStage = () => {
+    setSelected(null);
+    setStageForm({ nextStage: 'printing', assignedTo: '', note: '' });
+    setDialog('bulkStage');
+  };
+
   const openVendorPayment = (row) => {
     setSelected(row);
     setVendorPayForm({ amount: row.balance || '', paymentMode: paymentModes[0] || 'UPI', reference: '', narration: '' });
@@ -245,6 +319,9 @@ export default function BusinessControl() {
     { title: 'Vendor Payable', value: bucketCount(summary.vendorPayable), amount: summary.vendorPayable?.amount, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#7c3aed' },
     { title: 'Today Receipts', value: bucketCount(summary.todayReceipts), amount: summary.todayReceipts?.amount, icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#16a34a' },
   ];
+
+  const bulkCount = checkedIds.size;
+  const showBulkBar = bulkCount > 0 && SELECTABLE_TABS.has(activeTab);
 
   return (
     <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: '#f3f6f4', minHeight: '100%' }}>
@@ -275,10 +352,74 @@ export default function BusinessControl() {
           {tabItems.map((tab) => <Tab key={tab.key} value={tab.key} label={`${tab.label} (${bucketCount(summary[tab.key])})`} />)}
         </Tabs>
 
-        <TableContainer component={Paper} elevation={0} sx={{ mt: 1.25, borderRadius: 3, border: '1px solid', borderColor: 'divider', maxHeight: { xs: '64vh', md: '68vh' } }}>
+        {/* Bulk action bar */}
+        {showBulkBar && (
+          <Paper variant="outlined" sx={{ mt: 1, px: 2, py: 1, borderRadius: 2, bgcolor: alpha('#128c7e', 0.06), borderColor: alpha('#128c7e', 0.3) }}>
+            <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" gap={1}>
+              <Typography variant="body2" fontWeight={800} color="#075e54">
+                {bulkCount} selected
+              </Typography>
+              <Divider orientation="vertical" flexItem />
+              {(activeTab === 'openOrders') && (
+                <>
+                  <Button
+                    size="small" variant="contained" startIcon={<CheckCircleRoundedIcon fontSize="small" />}
+                    disabled={saving}
+                    sx={{ bgcolor: '#128c7e', '&:hover': { bgcolor: '#075e54' } }}
+                    onClick={() => runBulkAction((id) => markOrderReady(id), 'Mark Ready')}
+                  >
+                    Mark Ready
+                  </Button>
+                  <Button
+                    size="small" variant="outlined" startIcon={<TimelineRoundedIcon fontSize="small" />}
+                    disabled={saving}
+                    onClick={openBulkStage}
+                  >
+                    Move Stage
+                  </Button>
+                </>
+              )}
+              {activeTab === 'readyNotDelivered' && (
+                <Button
+                  size="small" variant="contained" startIcon={<LocalShippingRoundedIcon fontSize="small" />}
+                  disabled={saving}
+                  sx={{ bgcolor: '#0f766e', '&:hover': { bgcolor: '#075e54' } }}
+                  onClick={() => runBulkAction((id) => markOrderDelivered(id), 'Mark Delivered')}
+                >
+                  Mark Delivered
+                </Button>
+              )}
+              {activeTab === 'deliveredUnpaid' && (
+                <Typography variant="body2" color="text.secondary" fontStyle="italic">
+                  Select individual rows to receive payment
+                </Typography>
+              )}
+              <Box sx={{ ml: 'auto' }}>
+                <Tooltip title="Clear selection">
+                  <IconButton size="small" onClick={clearSelection}>
+                    <CloseRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Stack>
+          </Paper>
+        )}
+
+        <TableContainer component={Paper} elevation={0} sx={{ mt: 1.25, borderRadius: 3, border: '1px solid', borderColor: 'divider', maxHeight: { xs: '60vh', md: '63vh' } }}>
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
+                {SELECTABLE_TABS.has(activeTab) && (
+                  <TableCell padding="checkbox" sx={{ bgcolor: 'background.paper' }}>
+                    <Checkbox
+                      size="small"
+                      checked={allChecked}
+                      indeterminate={someChecked}
+                      onChange={toggleAll}
+                      disabled={selectableRows.length === 0}
+                    />
+                  </TableCell>
+                )}
                 <TableCell sx={{ fontWeight: 900 }}>Order / Party</TableCell>
                 <TableCell sx={{ fontWeight: 900 }}>Customer / Mobile</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 900 }}>Amount</TableCell>
@@ -292,15 +433,30 @@ export default function BusinessControl() {
             </TableHead>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6 }}><CircularProgress size={28} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={SELECTABLE_TABS.has(activeTab) ? 10 : 9} align="center" sx={{ py: 6 }}><CircularProgress size={28} /></TableCell></TableRow>
               ) : rows.length === 0 ? (
-                <TableRow><TableCell colSpan={9} align="center" sx={{ py: 5 }}><Typography color="text.secondary">No records in this bucket.</Typography></TableCell></TableRow>
+                <TableRow><TableCell colSpan={SELECTABLE_TABS.has(activeTab) ? 10 : 9} align="center" sx={{ py: 5 }}><Typography color="text.secondary">No records in this bucket.</Typography></TableCell></TableRow>
               ) : rows.map((row, index) => {
                 const isVendorRow = activeTab === 'vendorPayable';
                 const isTaskRow = activeTab === 'overdueTasks';
                 const id = orderId(row);
+                const isSelectable = SELECTABLE_TABS.has(activeTab) && Boolean(id);
+                const isChecked = checkedIds.has(id);
                 return (
-                  <TableRow hover key={row._id || row.Order_uuid || row.vendorUuid || row.Task_uuid || index}>
+                  <TableRow
+                    hover
+                    key={rowKey(row, index)}
+                    selected={isChecked}
+                    onClick={isSelectable ? () => toggleRow(id) : undefined}
+                    sx={isSelectable ? { cursor: 'pointer' } : undefined}
+                  >
+                    {SELECTABLE_TABS.has(activeTab) && (
+                      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                        {isSelectable && (
+                          <Checkbox size="small" checked={isChecked} onChange={() => toggleRow(id)} />
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Stack spacing={0.35}>
                         <Typography variant="body2" fontWeight={900}>{isVendorRow ? row.vendorName : isTaskRow ? row.Task_name : `#${row.Order_Number || id || '-'}`}</Typography>
@@ -317,7 +473,7 @@ export default function BusinessControl() {
                     <TableCell><Chip size="small" label={isTaskRow ? row.status : row.stage || row.latestTask || '-'} sx={{ bgcolor: '#e7f4ef', color: '#075e54', fontWeight: 800 }} /></TableCell>
                     <TableCell>{isTaskRow ? row.Task_group : row.responsiblePerson || row.assignedUserName || '-'}</TableCell>
                     <TableCell>{shortDate(isTaskRow ? row.deadline : row.dueDate || row.Delivery_Date)}</TableCell>
-                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       {isVendorRow ? (
                         <ActionButton title="Pay Vendor" icon={<PaymentsRoundedIcon fontSize="small" />} onClick={() => openVendorPayment(row)} />
                       ) : isTaskRow ? null : (
@@ -339,6 +495,7 @@ export default function BusinessControl() {
         </TableContainer>
       </Paper>
 
+      {/* Single-order dialogs */}
       <Dialog open={dialog === 'payment'} onClose={() => setDialog(null)} fullWidth maxWidth="xs">
         <DialogTitle>Receive Payment</DialogTitle>
         <DialogContent>
@@ -393,6 +550,7 @@ export default function BusinessControl() {
         </DialogActions>
       </Dialog>
 
+      {/* Single-order stage dialog */}
       <Dialog open={dialog === 'stage'} onClose={() => setDialog(null)} fullWidth maxWidth="xs">
         <DialogTitle>Move Stage</DialogTitle>
         <DialogContent>
@@ -410,6 +568,33 @@ export default function BusinessControl() {
         <DialogActions>
           <Button onClick={() => setDialog(null)}>Cancel</Button>
           <Button disabled={saving} variant="contained" onClick={() => runAction(() => moveOrderStage(orderId(selected), stageForm), 'Order stage moved')}>Move</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk stage move dialog */}
+      <Dialog open={dialog === 'bulkStage'} onClose={() => setDialog(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Move Stage — {bulkCount} Orders</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 1 }}>
+            <TextField label="Next Stage" select value={stageForm.nextStage} onChange={(e) => setStageForm((p) => ({ ...p, nextStage: e.target.value }))} fullWidth>
+              {STAGES.map((stage) => <MenuItem key={stage} value={stage}>{stage}</MenuItem>)}
+            </TextField>
+            <TextField label="Assigned To" select value={stageForm.assignedTo} onChange={(e) => setStageForm((p) => ({ ...p, assignedTo: e.target.value }))} fullWidth>
+              <MenuItem value="">None</MenuItem>
+              {users.map((user) => <MenuItem key={user._id || user.User_uuid || user.User_name} value={user.User_name || user._id}>{user.User_name || user.name}</MenuItem>)}
+            </TextField>
+            <TextField label="Note" value={stageForm.note} onChange={(e) => setStageForm((p) => ({ ...p, note: e.target.value }))} fullWidth multiline minRows={2} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialog(null)}>Cancel</Button>
+          <Button
+            disabled={saving}
+            variant="contained"
+            onClick={() => runBulkAction((id) => moveOrderStage(id, stageForm), 'Move Stage')}
+          >
+            Move {bulkCount} Orders
+          </Button>
         </DialogActions>
       </Dialog>
 

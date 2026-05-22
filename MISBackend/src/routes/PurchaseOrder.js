@@ -118,7 +118,28 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/purchase-order/:id/status
+// PUT /api/purchaseorder/:id  — update items, notes, status
+router.put('/:id', async (req, res) => {
+  try {
+    const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id));
+    if (!po) return res.status(404).json({ success: false, message: 'PO not found' });
+
+    if (Array.isArray(req.body.Items)) po.Items = normalizeItems(req.body.Items);
+    if (typeof req.body.notes !== 'undefined') po.notes = String(req.body.notes || '');
+    if (req.body.expectedDelivery) po.expectedDelivery = new Date(req.body.expectedDelivery);
+    if (req.body.status && ['draft', 'sent', 'received', 'cancelled'].includes(req.body.status)) {
+      po.status = req.body.status;
+    }
+
+    const saved = await po.save();
+    res.json({ success: true, result: saved });
+  } catch (error) {
+    logger.error('PO update failed', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PUT /api/purchaseorder/:id/status
 // When status changes to 'received', posts a centralized Purchase accounting entry
 // so the PO flow is fully represented in the unified transaction system.
 router.put('/:id/status', async (req, res) => {

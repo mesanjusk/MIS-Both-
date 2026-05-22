@@ -99,6 +99,8 @@ export default function AllDelivery() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
   const [showAutoOnly, setShowAutoOnly] = useState(false);
+  const [editPO, setEditPO] = useState(null);
+  const [editPOOpen, setEditPOOpen] = useState(false);
 
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
@@ -142,18 +144,13 @@ export default function AllDelivery() {
     return () => { isMounted = false; };
   }, []);
 
-  // Fetch Purchase Orders — re-runs whenever the selected date changes
+  // Fetch all Purchase Orders once on mount
   useEffect(() => {
     let isMounted = true;
     (async () => {
       setLoadingPOs(true);
       try {
-        const params = {};
-        if (selectedDate) {
-          params.fromDate = selectedDate;
-          params.toDate = selectedDate;
-        }
-        const res = await axios.get("/api/purchaseorder/list", { params });
+        const res = await axios.get("/api/purchaseorder/list");
         if (isMounted) setPurchaseOrders(res.data?.result ?? []);
       } catch (err) {
         console.error("PO fetch error:", err?.message || err);
@@ -163,7 +160,7 @@ export default function AllDelivery() {
       }
     })();
     return () => { isMounted = false; };
-  }, [selectedDate]);
+  }, []);
 
   // POs filtered by toggle: ON = only auto-created (all items have rate === 1)
   const filteredPOs = useMemo(() => {
@@ -489,6 +486,29 @@ export default function AllDelivery() {
   };
   const closeOrderUpdateModal = () => setOrderUpdateOpen(false);
 
+  const handleEditPOClick = (po) => { setEditPO({ ...po }); setEditPOOpen(true); };
+
+  const handleSavePO = useCallback(async () => {
+    if (!editPO) return;
+    try {
+      const id = editPO.PO_uuid || editPO._id;
+      const res = await axios.put(`/api/purchaseorder/${id}`, {
+        Items: editPO.Items,
+        notes: editPO.notes,
+        status: editPO.status,
+      });
+      if (res.data?.success) {
+        setPurchaseOrders((prev) =>
+          prev.map((p) => (p.PO_uuid === editPO.PO_uuid || p._id === editPO._id) ? res.data.result : p)
+        );
+        setEditPOOpen(false);
+        toast.success(`PO #${editPO.PO_Number} updated`);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "PO update failed");
+    }
+  }, [editPO]);
+
   const selectedLabel = selectedDate ? fmtDate(selectedDate) : "All Dates";
 
   return (
@@ -498,7 +518,7 @@ export default function AllDelivery() {
         {/* ── Left sidebar: date list ── */}
         <Paper
           variant="outlined"
-          sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden" }}
+          sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden", height: "calc(100vh - 80px)", position: "sticky", top: 16 }}
         >
           <Box sx={{ p: 1.5, pb: 1 }}>
             <Typography variant="subtitle2" fontWeight={700}>Deliveries</Typography>
@@ -879,7 +899,7 @@ export default function AllDelivery() {
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Status</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Edit</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -913,14 +933,12 @@ export default function AllDelivery() {
                                   {po.totalAmount > 0 ? money(po.totalAmount) : "—"}
                                 </Typography>
                               </TableCell>
-                              <TableCell>
-                                <Chip
-                                  size="small"
-                                  label={po.status || "draft"}
-                                  color={statusColor}
-                                  variant="outlined"
-                                  sx={{ textTransform: "capitalize" }}
-                                />
+                              <TableCell align="center">
+                                <Tooltip title="Edit PO">
+                                  <IconButton size="small" color="primary" onClick={() => handleEditPOClick(po)}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                               </TableCell>
                             </TableRow>
                           );
@@ -968,6 +986,122 @@ export default function AllDelivery() {
             onOrderPatched={(id, patch) => upsertOrderPatch(id, patch)}
             onOrderReplaced={(full) => upsertOrderReplace(full)}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* PO Edit Dialog */}
+      <Dialog open={editPOOpen} onClose={() => setEditPOOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          PO #{editPO?.PO_Number} — {editPO?.Vendor_name || ""}
+          <Box sx={{ flex: 1 }} />
+          <IconButton onClick={() => setEditPOOpen(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {/* Items table */}
+            {Array.isArray(editPO?.Items) && editPO.Items.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>Item Name</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Rate</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Amount</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {editPO.Items.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth variant="standard"
+                              value={item.itemName || item.Item || ""}
+                              onChange={(e) => {
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, itemName: e.target.value } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <TextField
+                              size="small" type="number" variant="standard"
+                              inputProps={{ min: 0, style: { textAlign: "center" } }}
+                              value={item.qty ?? item.Quantity ?? 0}
+                              onChange={(e) => {
+                                const qty = Number(e.target.value);
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, qty, amount: qty * Number(it.rate ?? it.Rate ?? 0) } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                              sx={{ width: 64 }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <TextField
+                              size="small" type="number" variant="standard"
+                              inputProps={{ min: 0, style: { textAlign: "center" } }}
+                              value={item.rate ?? item.Rate ?? 0}
+                              onChange={(e) => {
+                                const rate = Number(e.target.value);
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, rate, amount: rate * Number(it.qty ?? it.Quantity ?? 0) } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                              sx={{ width: 64 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight={700} color="error.dark">
+                              {money((item.amount ?? item.Amount ?? 0))}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {/* Status */}
+            <FormControl size="small" sx={{ maxWidth: 200 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={editPO?.status || "draft"}
+                label="Status"
+                onChange={(e) => setEditPO((p) => ({ ...p, status: e.target.value }))}
+              >
+                <MenuItem value="draft">Draft</MenuItem>
+                <MenuItem value="sent">Sent</MenuItem>
+                <MenuItem value="received">Received</MenuItem>
+                <MenuItem value="cancelled">Cancelled</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Notes */}
+            <TextField
+              label="Notes"
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+              value={editPO?.notes || ""}
+              onChange={(e) => setEditPO((p) => ({ ...p, notes: e.target.value }))}
+            />
+
+            {/* Save */}
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+              <Button variant="outlined" onClick={() => setEditPOOpen(false)}>Cancel</Button>
+              <Button variant="contained" onClick={handleSavePO}>Save</Button>
+            </Box>
+          </Stack>
         </DialogContent>
       </Dialog>
     </>

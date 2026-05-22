@@ -50,6 +50,7 @@ import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import AssignmentTurnedInRoundedIcon from '@mui/icons-material/AssignmentTurnedInRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
@@ -1312,6 +1313,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
   const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
+  const [autoPORunning, setAutoPORunning] = useState(false);
 
   const loadArchive = useCallback(async () => {
     setLoading(true); setError('');
@@ -1324,6 +1326,24 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
   }, []);
+
+  const runAutoPO = useCallback(async () => {
+    setAutoPORunning(true);
+    try {
+      const res = await axios.post('/api/design-files/auto-po');
+      const count = res.data?.created ?? 0;
+      if (count > 0) {
+        setArchiveToast({ message: `Auto PO: ${count} purchase order${count > 1 ? 's' : ''} created`, severity: 'success' });
+        await loadArchive();
+      } else {
+        setArchiveToast({ message: 'No new vendor folders found to process', severity: 'info' });
+      }
+    } catch (err) {
+      setArchiveToast({ message: err?.response?.data?.message || 'Auto PO failed', severity: 'error' });
+    } finally {
+      setAutoPORunning(false);
+    }
+  }, [loadArchive]);
 
   const toggleSelect = useCallback((file) => {
     setSelectedMap((prev) => {
@@ -1431,6 +1451,21 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
             </Tooltip>
           </>
         )}
+        <Tooltip title="Run Auto Purchase Order — creates POs from new vendor folders in Print section">
+          <span>
+            <IconButton
+              size="small"
+              onClick={runAutoPO}
+              disabled={autoPORunning || loading}
+              color="primary"
+              sx={{ p: 0.4 }}
+            >
+              {autoPORunning
+                ? <CircularProgress size={12} />
+                : <ShoppingCartRoundedIcon sx={{ fontSize: 14 }} />}
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Refresh archive">
           <IconButton size="small" onClick={loadArchive} disabled={loading} sx={{ p: 0.4 }}>
             <RefreshRoundedIcon sx={{ fontSize: 14 }} />

@@ -1583,8 +1583,8 @@ async function autoPurchaseOrdersFromDrive() {
         continue;
       }
 
-      // Rename Drive folder: "101-anand"
-      const newFolderName = `${poNumber}-${vendorFolder.name}`;
+      // Rename Drive folder: "101 Anand" (PO number space vendor name)
+      const newFolderName = `${poNumber} ${vendorFolder.name}`;
       try {
         await drive.files.update({
           fileId: vendorFolder.id,

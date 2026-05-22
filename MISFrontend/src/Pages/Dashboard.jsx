@@ -192,6 +192,7 @@ function SectionPanel({ title, icon: Icon, action, children, accent = 'primary',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
+        bgcolor: 'background.paper',
       })}
     >
       <Stack
@@ -200,24 +201,24 @@ function SectionPanel({ title, icon: Icon, action, children, accent = 'primary',
         justifyContent="space-between"
         sx={(t) => ({
           px: 1.75,
-          py: 0.9,
+          py: 0.75,
           borderBottom: `1px solid ${t.palette.divider}`,
-          bgcolor: alpha(t.palette[accent]?.main || t.palette.primary.main, 0.04),
-          minHeight: 44,
+          bgcolor: alpha(t.palette[accent]?.main || t.palette.primary.main, 0.03),
+          minHeight: 42,
           flexShrink: 0,
         })}
       >
-        <Stack direction="row" alignItems="center" spacing={0.85}>
+        <Stack direction="row" alignItems="center" spacing={1}>
           {Icon ? (
             <Box sx={(t) => ({
-              width: 26, height: 26, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 28, borderRadius: 1.75, display: 'flex', alignItems: 'center', justifyContent: 'center',
               bgcolor: alpha(t.palette[accent]?.main || t.palette.primary.main, 0.1),
               color: t.palette[accent]?.main || t.palette.primary.main,
             })}>
               <Icon sx={{ fontSize: 15 }} />
             </Box>
           ) : null}
-          <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: '0.8rem' }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: '0.8rem', color: 'text.primary' }}>
             {title}
           </Typography>
         </Stack>
@@ -402,6 +403,9 @@ export default function Dashboard() {
   const anyLoading = (data?.isOrdersLoading || data?.isTasksLoading) || summaryLoading || followupsLoading;
   const visibleCards = summaryCards.filter((c) => designConfig.cards[c.id]);
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
   /* Resize rows */
   const row1 = useResizableRow('row1', 2);
   const row2 = useResizableRow('row2', 2);
@@ -421,29 +425,74 @@ export default function Dashboard() {
       {anyLoading ? <LinearProgress sx={{ borderRadius: 1, mb: 1 }} /> : null}
       {data?.loadError ? <ErrorState message={data.loadError} /> : null}
 
-      {/* ── Compact header ──────────────────────────────────────────── */}
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.25, px: 0.25 }}>
-        <Stack direction="row" alignItems="center" spacing={1.25}>
-          <Box sx={{ width: 32, height: 32, borderRadius: 1.75, bgcolor: (t) => alpha(t.palette.primary.main, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
-            <DashboardRoundedIcon sx={{ fontSize: 17 }} />
+      {/* ── Greeting header ─────────────────────────────────────────── */}
+      <Box
+        sx={(t) => ({
+          mb: 1.75,
+          px: { xs: 1.5, md: 2 },
+          py: { xs: 1.25, md: 1.5 },
+          borderRadius: 3,
+          background: `linear-gradient(135deg, ${alpha(t.palette.primary.main, 0.06)} 0%, ${alpha(t.palette.primary.light, 0.08)} 60%, transparent 100%)`,
+          border: `1px solid ${alpha(t.palette.primary.main, 0.14)}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 1,
+        })}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.5}>
+          <Box
+            sx={(t) => ({
+              width: 40,
+              height: 40,
+              borderRadius: 2,
+              bgcolor: alpha(t.palette.primary.main, 0.12),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: t.palette.primary.main,
+              flexShrink: 0,
+            })}
+          >
+            <DashboardRoundedIcon sx={{ fontSize: 20 }} />
           </Box>
           <Box>
-            <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.15 }}>Business Dashboard</Typography>
+            <Typography variant="subtitle1" fontWeight={800} sx={{ lineHeight: 1.2, fontSize: { xs: '0.92rem', md: '1rem' } }}>
+              {greeting}, {roleInfo?.userName || 'User'}
+            </Typography>
             <Typography variant="caption" color="text.secondary">
-              {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+              {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
             </Typography>
           </Box>
         </Stack>
-        <Button size="small" variant="outlined" startIcon={<TuneRoundedIcon sx={{ fontSize: '14px !important' }} />}
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<TuneRoundedIcon sx={{ fontSize: '14px !important' }} />}
           onClick={openDesign}
-          sx={{ fontSize: '0.72rem', py: 0.35, px: 1.1, minHeight: 28, borderRadius: 1.5, textTransform: 'none' }}>
+          sx={(t) => ({
+            fontSize: '0.73rem',
+            py: 0.5,
+            px: 1.25,
+            minHeight: 32,
+            borderRadius: 2,
+            textTransform: 'none',
+            borderColor: alpha(t.palette.primary.main, 0.3),
+            color: t.palette.primary.main,
+            '&:hover': {
+              borderColor: t.palette.primary.main,
+              bgcolor: alpha(t.palette.primary.main, 0.06),
+            },
+          })}
+        >
           Customize
         </Button>
-      </Stack>
+      </Box>
 
       {/* ── KPI Cards ───────────────────────────────────────────────── */}
       {visibleCards.length > 0 ? (
-        <Grid container spacing={0.85} sx={{ mb: 1.25 }}>
+        <Grid container spacing={1} sx={{ mb: 1.5 }}>
           {visibleCards.map((card) => (
             <Grid key={card.id} item xs={6} sm={4} md={3} lg={2}>
               <SummaryCard {...card} />
@@ -455,34 +504,44 @@ export default function Dashboard() {
       {/* ── Design Files — collapsible accordion strip ───────────────── */}
       <Box
         sx={(t) => ({
-          mb: 1.25,
+          mb: 1.5,
           border: `1px solid ${t.palette.divider}`,
-          borderRadius: 2,
+          borderRadius: 2.5,
           overflow: 'hidden',
           bgcolor: 'background.paper',
+          boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
         })}
       >
         <ButtonBase
           onClick={() => setDesignFilesExpanded((p) => !p)}
-          sx={{
+          sx={(t) => ({
             width: '100%',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             px: 1.75,
-            py: 0.85,
-            '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.04) },
-          }}
+            py: 1,
+            '&:hover': { bgcolor: alpha(t.palette.primary.main, 0.03) },
+          })}
         >
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <FolderOpenRoundedIcon sx={{ fontSize: 17, color: 'primary.main' }} />
+          <Stack direction="row" alignItems="center" spacing={1.25}>
+            <Box sx={(t) => ({
+              width: 28, height: 28, borderRadius: 1.75,
+              bgcolor: alpha(t.palette.primary.main, 0.1),
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: t.palette.primary.main,
+            })}>
+              <FolderOpenRoundedIcon sx={{ fontSize: 15 }} />
+            </Box>
             <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: '0.8rem' }}>
               Design Files — Today
             </Typography>
           </Stack>
           <Stack direction="row" alignItems="center" spacing={0.75}>
-            <Chip size="small" label="Click to expand" variant="outlined"
-              sx={{ fontSize: '0.62rem', height: 18, borderRadius: 1, display: designFilesExpanded ? 'none' : 'flex' }} />
+            {!designFilesExpanded && (
+              <Chip size="small" label="Expand" variant="outlined"
+                sx={(t) => ({ fontSize: '0.6rem', height: 18, borderRadius: 1.5, borderColor: t.palette.divider, color: 'text.secondary' })} />
+            )}
             {designFilesExpanded
               ? <ExpandLessRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
               : <ExpandMoreRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
@@ -499,19 +558,30 @@ export default function Dashboard() {
 
         {/* Row 1: Attendance | Assigned Tasks */}
         {showRow1 ? (
-          <Box ref={row1.ref} sx={{ display: 'flex', height: PANEL_ROW_HEIGHT, alignItems: 'stretch' }}>
+          <Box
+            ref={row1.ref}
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              height: { md: PANEL_ROW_HEIGHT },
+              alignItems: 'stretch',
+              gap: { xs: 1, md: 0 },
+            }}
+          >
             {designConfig.sections.attendance ? (
-              <Box sx={{ flex: designConfig.sections.assignedTasks ? row1.weights[0] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: designConfig.sections.assignedTasks ? row1.weights[0] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title={roleInfo?.isAdmin ? 'Attendance Overview' : 'My Attendance'} icon={PeopleRoundedIcon} accent="primary">
                   {roleInfo?.isAdmin ? <AllAttandance /> : <UserTask />}
                 </SectionPanel>
               </Box>
             ) : null}
             {designConfig.sections.attendance && designConfig.sections.assignedTasks ? (
-              <ResizeHandle onMouseDown={row1.startDrag(0)} />
+              <Box sx={{ display: { xs: 'none', md: 'flex' } }}>
+                <ResizeHandle onMouseDown={row1.startDrag(0)} />
+              </Box>
             ) : null}
             {designConfig.sections.assignedTasks ? (
-              <Box sx={{ flex: designConfig.sections.attendance ? row1.weights[1] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: designConfig.sections.attendance ? row1.weights[1] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title={roleInfo?.isAdmin ? 'All Assigned Tasks' : 'My Tasks'} icon={AssignmentRoundedIcon} accent="primary" noPad>
                   {summaryLoading ? <Box sx={{ p: 2 }}><LoadingState label="Loading tasks" /></Box> : (
                     <PanelTable
@@ -539,9 +609,18 @@ export default function Dashboard() {
 
         {/* Row 2: Pending Orders | Payment Followups */}
         {showRow2 ? (
-          <Box ref={row2.ref} sx={{ display: 'flex', height: PANEL_ROW_HEIGHT, alignItems: 'stretch' }}>
+          <Box
+            ref={row2.ref}
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              height: { md: PANEL_ROW_HEIGHT },
+              alignItems: 'stretch',
+              gap: { xs: 1, md: 0 },
+            }}
+          >
             {designConfig.sections.pendingOrders ? (
-              <Box sx={{ flex: designConfig.sections.followups ? row2.weights[0] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: designConfig.sections.followups ? row2.weights[0] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title="Pending Orders" icon={PendingActionsRoundedIcon} accent="warning">
                   {data?.isOrdersLoading ? <LoadingState label="Loading orders" /> : (
                     <OrderList items={data?.myPendingOrders} emptyLabel={roleInfo?.isAdmin ? 'No pending orders.' : 'No orders assigned.'} />
@@ -550,10 +629,12 @@ export default function Dashboard() {
               </Box>
             ) : null}
             {designConfig.sections.pendingOrders && designConfig.sections.followups ? (
-              <ResizeHandle onMouseDown={row2.startDrag(0)} />
+              <Box sx={{ display: { xs: 'none', md: 'flex' } }}>
+                <ResizeHandle onMouseDown={row2.startDrag(0)} />
+              </Box>
             ) : null}
             {designConfig.sections.followups ? (
-              <Box sx={{ flex: designConfig.sections.pendingOrders ? row2.weights[1] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: designConfig.sections.pendingOrders ? row2.weights[1] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title="Payment Followups" icon={ReceiptLongRoundedIcon} accent="error" noPad
                   action={<Button size="small" variant="outlined" href="/accounts/followups" sx={{ fontSize: '0.65rem', py: 0.25, px: 0.75, minHeight: 22 }}>View All</Button>}
                 >
@@ -582,9 +663,18 @@ export default function Dashboard() {
 
         {/* Row 3: User-Wise Tasks | Low Stock */}
         {showRow3 ? (
-          <Box ref={row3.ref} sx={{ display: 'flex', height: PANEL_ROW_HEIGHT, alignItems: 'stretch' }}>
+          <Box
+            ref={row3.ref}
+            sx={{
+              display: 'flex',
+              flexDirection: { xs: 'column', md: 'row' },
+              height: { md: PANEL_ROW_HEIGHT },
+              alignItems: 'stretch',
+              gap: { xs: 1, md: 0 },
+            }}
+          >
             {roleInfo?.isAdmin && designConfig.sections.userWiseTasks ? (
-              <Box sx={{ flex: designConfig.sections.lowStockTable ? row3.weights[0] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: designConfig.sections.lowStockTable ? row3.weights[0] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title="User-Wise Tasks" icon={PeopleRoundedIcon} accent="success" noPad>
                   {summaryLoading ? <Box sx={{ p: 2 }}><LoadingState label="Loading" /></Box> : (
                     <PanelTable
@@ -611,10 +701,12 @@ export default function Dashboard() {
               </Box>
             ) : null}
             {roleInfo?.isAdmin && designConfig.sections.userWiseTasks && designConfig.sections.lowStockTable ? (
-              <ResizeHandle onMouseDown={row3.startDrag(0)} />
+              <Box sx={{ display: { xs: 'none', md: 'flex' } }}>
+                <ResizeHandle onMouseDown={row3.startDrag(0)} />
+              </Box>
             ) : null}
             {designConfig.sections.lowStockTable ? (
-              <Box sx={{ flex: (roleInfo?.isAdmin && designConfig.sections.userWiseTasks) ? row3.weights[1] : 1, minWidth: 0 }}>
+              <Box sx={{ flex: { md: (roleInfo?.isAdmin && designConfig.sections.userWiseTasks) ? row3.weights[1] : 1 }, minWidth: 0, height: { xs: PANEL_ROW_HEIGHT, md: '100%' } }}>
                 <SectionPanel title="Low Stock Inventory" icon={Inventory2RoundedIcon} accent={lowStock.length ? 'error' : 'success'} noPad>
                   <PanelTable
                     columns={[{ key: 'i', label: 'Item' }, { key: 'q', label: 'Qty', align: 'right' }, { key: 'r', label: 'Reorder', align: 'right' }, { key: 's', label: 'Status' }]}
@@ -654,16 +746,23 @@ export default function Dashboard() {
         {/* Drawer header */}
         <Box sx={(t) => ({
           px: 2.5, py: 2,
-          background: `linear-gradient(135deg, ${t.palette.primary.dark}, ${t.palette.primary.main})`,
-          color: '#fff',
+          background: `linear-gradient(135deg, ${alpha(t.palette.primary.main, 0.08)} 0%, ${alpha(t.palette.primary.light, 0.06)} 100%)`,
+          borderBottom: `1px solid ${t.palette.divider}`,
           flexShrink: 0,
         })}>
-          <Stack direction="row" alignItems="center" spacing={1.25}>
-            <TuneRoundedIcon sx={{ fontSize: 20 }} />
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            <Box sx={(t) => ({
+              width: 38, height: 38, borderRadius: 2,
+              bgcolor: alpha(t.palette.primary.main, 0.12),
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: t.palette.primary.main,
+            })}>
+              <TuneRoundedIcon sx={{ fontSize: 20 }} />
+            </Box>
             <Box>
-              <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff' }}>Customize Dashboard</Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.72)' }}>
-                Show / hide cards · drag handles to resize panels
+              <Typography variant="subtitle1" fontWeight={800}>Customize Dashboard</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Toggle cards &amp; sections · resize panels on desktop
               </Typography>
             </Box>
           </Stack>

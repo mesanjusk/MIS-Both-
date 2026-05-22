@@ -157,7 +157,7 @@ export default function RightSidebar({ onCustomize, openUpi }) {
 
   return (
     <Box
-      sx={{
+      sx={(t) => ({
         position: 'fixed',
         top: 0,
         right: 0,
@@ -166,10 +166,11 @@ export default function RightSidebar({ onCustomize, openUpi }) {
         display: { xs: 'none', lg: 'flex' },
         flexDirection: 'column',
         bgcolor: 'background.paper',
-        borderLeft: (t) => `1px solid ${t.palette.divider}`,
+        borderLeft: `1px solid ${t.palette.divider}`,
+        boxShadow: '-2px 0 12px rgba(0,0,0,0.04)',
         zIndex: 1100,
         overflow: 'hidden',
-      }}
+      })}
     >
       <Box sx={{ height: NAVBAR_HEIGHT, flexShrink: 0 }} />
 

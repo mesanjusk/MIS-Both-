@@ -5,11 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#1E88E5",
-        secondary: "#1565C0",
-        accent: "#E53935",
-        background: "#F4F6F8",
-        text: "#212121",
+        primary: "#16a34a",
+        secondary: "#0d9488",
+        accent: "#4ade80",
+        background: "#f9fffe",
+        text: "#1a2332",
+        surface: "#f0fdf4",
+        border: "#d1fae5",
       },
       fontFamily: {
         sans: ["Inter", "Roboto", "sans-serif"],

@@ -24,6 +24,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -31,6 +32,7 @@ import {
   Paper,
   Select,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -90,6 +92,11 @@ export default function AllDelivery() {
   // Sidebar date picker
   const [sidebarDateInput, setSidebarDateInput] = useState("");
 
+  // Purchase Orders state
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [loadingPOs, setLoadingPOs] = useState(false);
+  const [showAutoOnly, setShowAutoOnly] = useState(false);
+
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
     []
@@ -131,6 +138,38 @@ export default function AllDelivery() {
     })();
     return () => { isMounted = false; };
   }, []);
+
+  // Fetch Purchase Orders — re-runs whenever the selected date changes
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingPOs(true);
+      try {
+        const params = {};
+        if (selectedDate) {
+          params.fromDate = selectedDate;
+          params.toDate = selectedDate;
+        }
+        const res = await axios.get("/api/purchase-order/list", { params });
+        if (isMounted) setPurchaseOrders(res.data?.result ?? []);
+      } catch (err) {
+        console.error("PO fetch error:", err?.message || err);
+        if (isMounted) setPurchaseOrders([]);
+      } finally {
+        if (isMounted) setLoadingPOs(false);
+      }
+    })();
+    return () => { isMounted = false; };
+  }, [selectedDate]);
+
+  // POs filtered by toggle: ON = only auto-created (all items have rate === 1)
+  const filteredPOs = useMemo(() => {
+    if (!showAutoOnly) return purchaseOrders;
+    return purchaseOrders.filter(
+      (po) => Array.isArray(po.Items) && po.Items.length > 0 &&
+              po.Items.every((it) => Number(it.rate ?? it.Rate ?? 0) === 1)
+    );
+  }, [purchaseOrders, showAutoOnly]);
 
   const getHighestStatus = (statusArr) => {
     const list = Array.isArray(statusArr) ? statusArr : [];
@@ -389,6 +428,33 @@ export default function AllDelivery() {
         "Posting Status": r.isPosted ? "Posted" : "Pending",
       })));
       XLSX.utils.book_append_sheet(wb, ws2, "Vendor Purchases");
+    }
+    if (filteredPOs.length) {
+      const ws3 = XLSX.utils.json_to_sheet(
+        filteredPOs.flatMap((po) =>
+          Array.isArray(po.Items) && po.Items.length
+            ? po.Items.map((it) => ({
+                "PO #": po.PO_Number,
+                Vendor: po.Vendor_name || "",
+                Item: it.itemName || it.Item || "",
+                Qty: it.qty ?? it.Quantity ?? 0,
+                Rate: it.rate ?? it.Rate ?? 0,
+                Amount: it.amount ?? it.Amount ?? 0,
+                Status: po.status || "draft",
+                Date: fmtDate(po.createdAt),
+                Notes: po.notes || "",
+              }))
+            : [{
+                "PO #": po.PO_Number,
+                Vendor: po.Vendor_name || "",
+                Item: "", Qty: 0, Rate: 0, Amount: 0,
+                Status: po.status || "draft",
+                Date: fmtDate(po.createdAt),
+                Notes: po.notes || "",
+              }]
+        )
+      );
+      XLSX.utils.book_append_sheet(wb, ws3, "Purchase Orders");
     }
     const datePart = selectedDate || "all";
     XLSX.writeFile(wb, `delivery_report_${datePart}.xlsx`);
@@ -726,11 +792,12 @@ export default function AllDelivery() {
                 </TableContainer>
               </Paper>
 
-              {/* ── Section 2: Vendor Purchases (OUT) ── */}
+              {/* ── Section 2: Purchases from Vendors (OUT) — Purchase Orders ── */}
               <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: "error.light", flex: 1, minWidth: 0 }}>
+                {/* Header */}
                 <Stack
-                  direction="row" justifyContent="space-between" alignItems="center"
-                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
+                  direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"
+                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider", gap: 1 }}
                 >
                   <Stack direction="row" spacing={1} alignItems="center">
                     <StorefrontIcon fontSize="small" color="error" />
@@ -739,15 +806,41 @@ export default function AllDelivery() {
                       Purchases from Vendors (OUT)
                     </Typography>
                   </Stack>
-                  <Typography variant="subtitle2" fontWeight={700} color="error.dark">
-                    {money(stats.vendorCost)}
-                  </Typography>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    {/* Toggle: show only auto-created POs (rate = 1) */}
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={showAutoOnly}
+                          onChange={(e) => setShowAutoOnly(e.target.checked)}
+                          color="error"
+                        />
+                      }
+                      label={
+                        <Typography variant="caption" color="text.secondary">
+                          Auto PO only
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                    <Typography variant="subtitle2" fontWeight={700} color="error.dark">
+                      {money(filteredPOs.reduce((s, po) => s + Number(po.totalAmount || 0), 0))}
+                    </Typography>
+                  </Stack>
                 </Stack>
 
-                {vendorRows.length === 0 ? (
+                {/* PO table */}
+                {loadingPOs ? (
+                  <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+                    <CircularProgress size={22} />
+                  </Box>
+                ) : filteredPOs.length === 0 ? (
                   <Box sx={{ p: 2 }}>
                     <Alert severity="info" sx={{ borderRadius: 2 }}>
-                      No vendor costs recorded for these orders.
+                      {showAutoOnly
+                        ? "No auto-created POs found for this date."
+                        : "No purchase orders found for this date."}
                     </Alert>
                   </Box>
                 ) : (
@@ -755,42 +848,56 @@ export default function AllDelivery() {
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell sx={{ fontWeight: 700, width: 70 }}>Order #</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 60 }}>PO #</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Step / Job</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Cost</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
                           <TableCell sx={{ fontWeight: 700, width: 90 }}>Status</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {vendorRows.map((r, i) => (
-                          <TableRow key={i} hover>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight={700}>#{r.orderNumber}</Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2">{r.vendorName}</Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                {r.stepLabel}
-                              </Typography>
-                            </TableCell>
-                            <TableCell align="right">
-                              <Typography variant="body2" fontWeight={700} color="error.dark">
-                                {money(r.costAmount)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={r.isPosted ? "Posted" : "Pending"}
-                                color={r.isPosted ? "success" : "warning"}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {filteredPOs.map((po) => {
+                          const statusColor = {
+                            draft: "default", sent: "info",
+                            received: "success", cancelled: "error",
+                          }[po.status] || "default";
+                          const itemSummary = Array.isArray(po.Items) && po.Items.length
+                            ? po.Items.map((it) =>
+                                `${it.itemName || it.Item || "—"}${Number(it.qty || it.Quantity || 0) !== 1 ? ` ×${it.qty || it.Quantity}` : ""}`
+                              ).join(", ")
+                            : "—";
+                          return (
+                            <TableRow key={po.PO_uuid || po._id} hover>
+                              <TableCell>
+                                <Typography variant="body2" fontWeight={700}>#{po.PO_Number}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="body2" fontWeight={600}>{po.Vendor_name || "—"}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Tooltip title={itemSummary}>
+                                  <Typography variant="body2" noWrap sx={{ maxWidth: 220 }}>
+                                    {itemSummary}
+                                  </Typography>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="body2" fontWeight={700} color="error.dark">
+                                  {po.totalAmount > 0 ? money(po.totalAmount) : "—"}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  size="small"
+                                  label={po.status || "draft"}
+                                  color={statusColor}
+                                  variant="outlined"
+                                  sx={{ textTransform: "capitalize" }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>

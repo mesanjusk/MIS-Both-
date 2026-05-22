@@ -2,6 +2,7 @@ const ScheduledMessage = require('../repositories/ScheduledMessage');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const Users = require('../repositories/users');
 const Orders = require('../repositories/order');
+const Customers = require('../repositories/customer');
 const Usertasks = require('../repositories/usertask');
 const { sendMessage } = require('./metaApiService');
 const logger = require('../utils/logger');
@@ -199,10 +200,60 @@ async function sendOwnerDailySummary() {
   }
 }
 
+async function sendPaymentReminders() {
+  try {
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const overdueOrders = await Orders.find({
+      stage: 'delivered',
+      billStatus: { $ne: 'paid' },
+    }).limit(20).lean();
+
+    const eligibleOrders = overdueOrders.filter((order) => {
+      const deliveredEntry = (order.stageHistory || []).findLast
+        ? (order.stageHistory || []).findLast((h) => h.stage === 'delivered')
+        : [...(order.stageHistory || [])].reverse().find((h) => h.stage === 'delivered');
+      const deliveredAt = deliveredEntry ? new Date(deliveredEntry.timestamp) : null;
+      return deliveredAt && deliveredAt < twoDaysAgo;
+    });
+
+    const customerUuids = [...new Set(eligibleOrders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const customers = await Customers.find({ Customer_uuid: { $in: customerUuids } }).lean();
+    const customerMap = Object.fromEntries(customers.map((c) => [c.Customer_uuid, c]));
+
+    const report = [];
+    for (const order of eligibleOrders) {
+      const customer = customerMap[order.Customer_uuid];
+      const mobile = normalizeNumber(customer?.Mobile_number || '');
+      if (!mobile) {
+        report.push({ order: order.Order_Number, skipped: true, reason: 'No mobile' });
+        continue;
+      }
+      const amount = Number(order.Total_Amount || order.totalAmount || 0);
+      const paid = Number(order.paidAmount || order.Paid_Amount || 0);
+      const due = amount - paid;
+      const name = customer?.Customer_name || 'Customer';
+      const body = `Dear ${name}, your order #${order.Order_Number} of Rs.${due.toLocaleString('en-IN')} is pending payment. Please clear at your earliest. - SK Digital`;
+      try {
+        await sendEnvText(mobile, body);
+        report.push({ order: order.Order_Number, sent: true });
+      } catch (err) {
+        logger.error(`Payment reminder failed for order #${order.Order_Number}:`, err.message);
+        report.push({ order: order.Order_Number, sent: false, error: err.message });
+      }
+    }
+    logger.info(`Payment reminders sent: ${report.filter((r) => r.sent).length}/${eligibleOrders.length}`);
+    return report;
+  } catch (err) {
+    logger.error('sendPaymentReminders error:', err.message);
+    return [];
+  }
+}
+
 let schedulerStarted = false;
 let lastMorningRun = '';
 let lastEveningRun = '';
 let lastOwnerSummaryRun = '';
+let lastPaymentReminderRun = '';
 
 function initTaskDigestScheduler() {
   if (schedulerStarted) return;
@@ -221,6 +272,10 @@ function initTaskDigestScheduler() {
       if (hour === 9 && minute === 0 && lastOwnerSummaryRun !== key) {
         lastOwnerSummaryRun = key;
         await sendOwnerDailySummary();
+      }
+      if (hour === 10 && minute === 0 && lastPaymentReminderRun !== key) {
+        lastPaymentReminderRun = key;
+        await sendPaymentReminders();
       }
       if (hour === 19 && minute === 0 && lastEveningRun !== key) {
         lastEveningRun = key;
@@ -260,6 +315,7 @@ module.exports = {
   getPendingMessages,
   cancelScheduledMessage,
   sendDigestToAllUsers,
+  sendPaymentReminders,
   initTaskDigestScheduler,
   sendOwnerDailySummary,
   initAutoPOScheduler,

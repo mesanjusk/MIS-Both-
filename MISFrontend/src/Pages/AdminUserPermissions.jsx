@@ -10,7 +10,6 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
-import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 
 const DEFAULT_PERMISSIONS = {
   sidebarGroups: [],
@@ -32,7 +31,7 @@ const PERMISSION_LABELS = [
   { key: 'canExportData',    label: 'Export Data',     desc: 'Can export reports as CSV/PDF' },
 ];
 
-const ALL_SIDEBAR_GROUPS = SIDEBAR_GROUPS.map((g) => g.label);
+const ALL_SIDEBAR_GROUPS = ['Dashboard', 'Orders', 'Customers', 'Accounts', 'Reports', 'Settings'];
 
 function getInitials(name = '') {
   return name.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';

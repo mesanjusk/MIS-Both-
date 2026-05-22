@@ -22,7 +22,6 @@ const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
 const Dashboard = lazy(() => import('./Pages/Dashboard'));
 const AllAttandance = lazy(() => import('./Pages/AllAttandance'));
-const AttendanceReport = lazy(() => import('./Pages/AttendanceReport'));
 const PendingTasks = lazy(() => import('./Pages/PendingTasks'));
 const UserTask = lazy(() => import('./Pages/userTask'));
 const AddUsertask = lazy(() => import('./Pages/addUsertask'));
@@ -37,7 +36,6 @@ const AddOrder1 = lazy(() => import('./Pages/addOrder1'));
 const OrderKanban = lazy(() => import('./Pages/OrderKanban'));
 const BusinessControl = lazy(() => import('./Pages/BusinessControl'));
 const PostPrintingControl = lazy(() => import('./Pages/PostPrintingControl'));
-const WorkflowTemplates = lazy(() => import('./Pages/WorkflowTemplates'));
 const OrderUpdate = lazy(() => import('./Pages/OrderUpdate'));
 const UpdateDelivery = lazy(() => import('./Pages/updateDelivery'));
 const AddTransaction = lazy(() => import('./Pages/AddTransaction'));
@@ -52,7 +50,6 @@ const AllOrder = lazy(() => import('./Reports/allOrder'));
 const AllDelivery = lazy(() => import('./Reports/allDelivery'));
 const AllTransaction = lazy(() => import('./Reports/allTransaction'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
-const PurchaseOrder = lazy(() => import('./Pages/purchaseOrder'));
 const PostPrintingJob = lazy(() => import('./Pages/PostPrintingJob'));
 const CustomerReport = lazy(() => import('./Reports/customerReport'));
 const PaymentReport = lazy(() => import('./Reports/paymentReport'));
@@ -63,11 +60,9 @@ const AddPayable = lazy(() => import('./Pages/addPayable'));
 const AddRecievable = lazy(() => import('./Pages/addRecievable'));
 const AddPayment = lazy(() => import('./Pages/addPayment'));
 const CallLogs = lazy(() => import('./Pages/callLogs'));
-const FlowBuilderPage = lazy(() => import('./Pages/FlowBuilderPage'));
 const UpiCollectPublic = lazy(() => import('./Pages/UpiCollectPublic'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
 const SendMessageAll = lazy(() => import('./Pages/SendMessageAll'));
-const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
 const WhatsAppAdminPanel = lazy(() => import('./Pages/WhatsAppAdminPanel'));
 const WhatsAppBroadcastPage = lazy(() => import('./Pages/WhatsAppBroadcastPage'));
 const WhatsAppHome = lazy(() => import('./Pages/WhatsAppHome'));
@@ -90,7 +85,6 @@ const EmailCompose  = lazy(() => import('./Pages/EmailCompose'));
 const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
 const OpeningBalance = lazy(() => import('./Pages/OpeningBalance'));
 const AdminUserPermissions = lazy(() => import('./Pages/AdminUserPermissions'));
-const SopPage = lazy(() => import('./Pages/SopPage'));
 
 function RouteLoader() {
   return (
@@ -132,8 +126,6 @@ export default function App() {
             <Route path={ROUTES.DASHBOARD} element={<Navigate to={ROUTES.HOME} replace />} />
 
             <Route path={ROUTES.ATTENDANCE} element={withSuspense(<AllAttandance />)} />
-            <Route path={ROUTES.ATTENDANCE_REPORT} element={withSuspense(<AttendanceReport />)} />
-            <Route path={ROUTES.ATTENDANCE_REPORT_OLD} element={withSuspense(<AttendanceReport />)} />
             <Route path={ROUTES.PENDING_TASKS} element={withSuspense(<PendingTasks />)} />
             <Route path={ROUTES.MY_TASKS} element={withSuspense(<UserTask />)} />
             <Route path={ROUTES.TASKS_NEW} element={withSuspense(<AddUsertask />)} />
@@ -153,8 +145,6 @@ export default function App() {
             <Route path={ROUTES.ORDERS_BOARD} element={withSuspense(<OrderKanban />)} />
             <Route path={ROUTES.BUSINESS_CONTROL} element={withSuspense(<BusinessControl />)} />
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={withSuspense(<PostPrintingControl />)} />
-            <Route path={ROUTES.WORKFLOW_TEMPLATES} element={withSuspense(<WorkflowTemplates />)} />
-            <Route path={ROUTES.PURCHASE_ORDERS} element={withSuspense(<PurchaseOrder />)} />
             <Route path={ROUTES.POST_PRINTING_JOBS} element={withSuspense(<PostPrintingJob />)} />
             <Route path="/orderUpdate/:id" element={withSuspense(<OrderUpdate />)} />
             <Route path="/updateDelivery/:id" element={withSuspense(<UpdateDelivery />)} />
@@ -176,7 +166,6 @@ export default function App() {
             <Route path={ROUTES.ADD_PAYABLE} element={withSuspense(<AddPayable />)} />
             <Route path={ROUTES.ADD_RECEIVABLE} element={withSuspense(<AddRecievable />)} />
             <Route path={ROUTES.ADD_PAYMENT} element={withSuspense(<AddPayment />)} />
-            <Route path={ROUTES.UPI_PAYMENT} element={withSuspense(<UpiPayment />)} />
 
             <Route path={ROUTES.VENDORS} element={withSuspense(<Vendor />)} />
             <Route path="/vendors/:id" element={withSuspense(<VendorDetails />)} />
@@ -230,9 +219,7 @@ export default function App() {
             <Route path={ROUTES.EMAIL_HISTORY}  element={withSuspense(<EmailHistory />)} />
 
             <Route path={ROUTES.CALL_LOGS} element={withSuspense(<CallLogs />)} />
-            <Route path={ROUTES.FLOW_BUILDER} element={withSuspense(<FlowBuilderPage />)} />
             <Route path={ROUTES.ADMIN_USER_PERMISSIONS} element={withSuspense(<AdminUserPermissions />)} />
-            <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
 
             <Route path={ROUTE_ALIASES.HOME_ADMIN} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTE_ALIASES.HOME_OLD} element={<Navigate to={ROUTES.HOME} replace />} />

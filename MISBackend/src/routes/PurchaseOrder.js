@@ -1,13 +1,46 @@
 const { requireAuth } = require('../middleware/auth');
 const express = require('express');
 const router  = express.Router();
+const { v4: uuidv4 } = require('uuid');
 const Counter  = require('../repositories/counter');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const Transaction   = require('../repositories/transaction');
+const Accounts      = require('../repositories/accounts');
 const VendorMaster  = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
-const { postPurchase, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
-const { updateBalancesForJournal } = require('../services/accountRegistry');
+const { postBalancedTransaction, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
+const { updateBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
+
+/**
+ * Resolve or auto-create a vendor-specific payable account (Liability / credit-normal).
+ * Falls back to the vendor name or 'Vendor Payable' when no name is available.
+ */
+async function resolveVendorAccount(vendorName) {
+  const name = String(vendorName || 'Vendor Payable').trim() || 'Vendor Payable';
+  const existing = await Accounts.findOne({ Account_name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }).lean();
+  if (existing?.Account_uuid) return existing.Account_uuid;
+
+  const last = await Accounts.findOne({}, { Account_code: 1 }).sort({ Account_code: -1 }).lean();
+  const code  = Number(last?.Account_code || 1000) + 1;
+  const newId = uuidv4();
+
+  await Accounts.create({
+    Account_uuid:        newId,
+    Account_name:        name,
+    Account_type:        'Liability',
+    Account_code:        code,
+    Normal_balance_side: 'credit',
+    Account_group:       'Trade Payables',
+    Is_system:           false,
+    Balance:             0,
+    Currency:            'INR',
+    Created_at:          new Date(),
+    Updated_at:          new Date(),
+  });
+
+  invalidateCache();
+  return newId;
+}
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -180,18 +213,20 @@ router.put('/:id', async (req, res) => {
 
     if (newTotal > 0) {
       try {
+        const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
         const existingTxn = await Transaction.findOne({ Source: txnSource });
+
         if (existingTxn) {
           // Reverse old balance impact then apply updated amounts
           const reversalLines = existingTxn.Journal_entry.map((line) => ({
-            ...line._doc || line,
+            ...((line._doc || line)),
             Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
           }));
           await updateBalancesForJournal(reversalLines).catch(() => {});
 
           const [debitLine, creditLine] = await Promise.all([
-            buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit', newTotal),
-            buildLine(SYSTEM_ACCOUNTS.VENDOR_PAYABLE, 'Credit', newTotal),
+            buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  newTotal),
+            buildLine(vendorAccountId,           'Credit', newTotal),
           ]);
           existingTxn.Journal_entry = [debitLine, creditLine];
           existingTxn.Total_Debit   = newTotal;
@@ -201,13 +236,15 @@ router.put('/:id', async (req, res) => {
           await existingTxn.save();
           await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
         } else {
-          await postPurchase({
+          await postBalancedTransaction({
             amount:          newTotal,
-            purchaseAccount: 'Purchase',
+            debitAccount:    SYSTEM_ACCOUNTS.PURCHASE,
+            creditAccount:   vendorAccountId,
+            paymentMode:     'Journal',
+            description:     `PO #${po.PO_Number} from ${po.Vendor_name}`,
             orderUuid:       po.Order_uuid || '',
             createdBy:       req.user?.userName || 'system',
-            description:     `PO #${po.PO_Number} from ${po.Vendor_name}`,
-            sourceSuffix:    po.PO_uuid,
+            source:          txnSource,
             allowDuplicate:  false,
           });
         }
@@ -246,17 +283,23 @@ router.put('/:id/status', async (req, res) => {
 
       if (poTotal > 0) {
         try {
-          await postPurchase({
-            amount:          poTotal,
-            purchaseAccount: 'Purchase',
-            orderUuid:       po.Order_uuid || '',
-            createdBy:       req.body.createdBy || req.user?.userName || 'system',
-            description:     `PO #${po.PO_Number} received from ${po.Vendor_name}`,
-            sourceSuffix:    po.PO_uuid,
-            allowDuplicate:  false,
-          });
+          const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
+          const txnSource = `business:purchase:${po.PO_uuid}`;
+          const existingTxn = await Transaction.findOne({ Source: txnSource });
+          if (!existingTxn) {
+            await postBalancedTransaction({
+              amount:        poTotal,
+              debitAccount:  SYSTEM_ACCOUNTS.PURCHASE,
+              creditAccount: vendorAccountId,
+              paymentMode:   'Journal',
+              description:   `PO #${po.PO_Number} received from ${po.Vendor_name}`,
+              orderUuid:     po.Order_uuid || '',
+              createdBy:     req.body.createdBy || req.user?.userName || 'system',
+              source:        txnSource,
+              allowDuplicate: false,
+            });
+          }
         } catch (postErr) {
-          // Log but don't block the status update — accounting can be retried
           logger.error(`postPurchase failed for PO ${po.PO_uuid}: ${postErr.message}`);
         }
       }

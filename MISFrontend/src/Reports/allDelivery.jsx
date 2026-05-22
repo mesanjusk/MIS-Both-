@@ -92,6 +92,9 @@ export default function AllDelivery() {
   // Sidebar date picker
   const [sidebarDateInput, setSidebarDateInput] = useState("");
 
+  // Toggle to show only orders with empty/no-value Items
+  const [showEmptyItems, setShowEmptyItems] = useState(false);
+
   // Purchase Orders state
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
@@ -256,6 +259,12 @@ export default function AllDelivery() {
     return filteredOrders.filter((o) => o.orderDate === selectedDate);
   }, [filteredOrders, selectedDate]);
 
+  // Orders shown in the Deliveries to Customers table (respects showEmptyItems toggle)
+  const deliveryTableOrders = useMemo(() => {
+    if (!showEmptyItems) return dateOrders;
+    return dateOrders.filter((o) => !hasBillableAmount(o.Items));
+  }, [dateOrders, showEmptyItems, hasBillableAmount]);
+
   // Vendor purchases: extract Steps with costAmount from date-filtered orders
   const vendorRows = useMemo(() => {
     const rows = [];
@@ -302,8 +311,8 @@ export default function AllDelivery() {
   const getFirstRemark = (o) =>
     Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : (o?.orderNote || "");
 
-  // Bulk selection handlers
-  const allCurrentIds = useMemo(() => dateOrders.map((o) => o._id || o.Order_uuid), [dateOrders]);
+  // Bulk selection handlers — operate on the currently visible (filtered) rows
+  const allCurrentIds = useMemo(() => deliveryTableOrders.map((o) => o._id || o.Order_uuid), [deliveryTableOrders]);
   const allSelected = allCurrentIds.length > 0 && allCurrentIds.every((id) => selectedOrders.has(id));
   const someSelected = selectedOrders.size > 0;
 
@@ -329,7 +338,7 @@ export default function AllDelivery() {
     setBulkUpdating(true);
     let successCount = 0;
     let failCount = 0;
-    const selectedList = dateOrders.filter((o) => selectedOrders.has(o._id || o.Order_uuid));
+    const selectedList = deliveryTableOrders.filter((o) => selectedOrders.has(o._id || o.Order_uuid));
     const updatedIds = new Set();
     await Promise.all(
       selectedList.map(async (o) => {
@@ -357,7 +366,7 @@ export default function AllDelivery() {
     setSelectedOrders(new Set());
     if (successCount) toast.success(`Updated ${successCount} order(s)`);
     if (failCount) toast.error(`Failed for ${failCount} order(s)`);
-  }, [bulkDate, selectedOrders, dateOrders]);
+  }, [bulkDate, selectedOrders, deliveryTableOrders]);
 
   // Sidebar: jump to a typed date
   const handleSidebarDateGo = () => {
@@ -711,6 +720,24 @@ export default function AllDelivery() {
                       sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
                       Deliveries to Customers (IN)
                     </Typography>
+                    <Tooltip title={showEmptyItems ? "Showing orders with no items — click to show all" : "Show only orders with no items"}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={showEmptyItems}
+                            onChange={(e) => setShowEmptyItems(e.target.checked)}
+                            color="warning"
+                          />
+                        }
+                        label={
+                          <Typography variant="caption" color={showEmptyItems ? "warning.dark" : "text.secondary"} fontWeight={600}>
+                            Empty Items
+                          </Typography>
+                        }
+                        sx={{ ml: 0.5, mr: 0 }}
+                      />
+                    </Tooltip>
                   </Stack>
                   <Typography variant="subtitle2" fontWeight={700} color="success.dark">
                     {money(stats.deliveryValue)}
@@ -738,7 +765,7 @@ export default function AllDelivery() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {dateOrders.map((o) => {
+                      {deliveryTableOrders.map((o) => {
                         const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
                         const rowId = o._id || o.Order_uuid;
                         const hasItems = hasBillableAmount(o.Items);

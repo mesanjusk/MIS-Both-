@@ -3,9 +3,11 @@ const express = require('express');
 const router  = express.Router();
 const Counter  = require('../repositories/counter');
 const PurchaseOrder = require('../repositories/purchaseOrder');
+const Transaction   = require('../repositories/transaction');
 const VendorMaster  = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
-const { postPurchase } = require('../services/accountingPostingService');
+const { postPurchase, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
+const { updateBalancesForJournal } = require('../services/accountRegistry');
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -150,7 +152,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/purchaseorder/:id  — update items, notes, status
+// PUT /api/purchaseorder/:id  — update items, notes, status, poDate, extraCharges
 router.put('/:id', async (req, res) => {
   try {
     const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id));
@@ -170,6 +172,50 @@ router.put('/:id', async (req, res) => {
     }
 
     const saved = await po.save();
+
+    // Upsert purchase ledger transaction — create on first edit, update on subsequent edits
+    const extraTotal = (saved.extraCharges || []).reduce((s, c) => s + Number(c.amount || 0), 0);
+    const newTotal   = Number(saved.totalAmount || 0) + extraTotal;
+    const txnSource  = `business:purchase:${po.PO_uuid}`;
+
+    if (newTotal > 0) {
+      try {
+        const existingTxn = await Transaction.findOne({ Source: txnSource });
+        if (existingTxn) {
+          // Reverse old balance impact then apply updated amounts
+          const reversalLines = existingTxn.Journal_entry.map((line) => ({
+            ...line._doc || line,
+            Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
+          }));
+          await updateBalancesForJournal(reversalLines).catch(() => {});
+
+          const [debitLine, creditLine] = await Promise.all([
+            buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit', newTotal),
+            buildLine(SYSTEM_ACCOUNTS.VENDOR_PAYABLE, 'Credit', newTotal),
+          ]);
+          existingTxn.Journal_entry = [debitLine, creditLine];
+          existingTxn.Total_Debit   = newTotal;
+          existingTxn.Total_Credit  = newTotal;
+          existingTxn.Description   = `PO #${po.PO_Number} from ${po.Vendor_name} (updated)`;
+          if (req.body.poDate) existingTxn.Transaction_date = new Date(req.body.poDate);
+          await existingTxn.save();
+          await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
+        } else {
+          await postPurchase({
+            amount:          newTotal,
+            purchaseAccount: 'Purchase',
+            orderUuid:       po.Order_uuid || '',
+            createdBy:       req.user?.userName || 'system',
+            description:     `PO #${po.PO_Number} from ${po.Vendor_name}`,
+            sourceSuffix:    po.PO_uuid,
+            allowDuplicate:  false,
+          });
+        }
+      } catch (txnErr) {
+        logger.error(`Transaction upsert failed for PO ${po.PO_uuid}: ${txnErr.message}`);
+      }
+    }
+
     res.json({ success: true, result: saved });
   } catch (error) {
     logger.error('PO update failed', error);

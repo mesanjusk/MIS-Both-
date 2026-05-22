@@ -440,6 +440,13 @@ export default function AllDelivery() {
     }
   }, [editPO, editPOExtraCharges]);
 
+  // Add a blank item row to the PO being edited
+  const addPOItem = () =>
+    setEditPO((p) => ({
+      ...p,
+      Items: [...(p.Items || []), { itemName: "", qty: 1, unit: "Nos", rate: 0, amount: 0 }],
+    }));
+
   // Extra charge helpers for PO edit
   const addPOExtraCharge = () =>
     setEditPOExtraCharges((prev) => [...prev, { label: "", amount: "" }]);
@@ -1098,9 +1105,15 @@ export default function AllDelivery() {
         <DialogContent dividers>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {/* Items table */}
-            {Array.isArray(editPO?.Items) && editPO.Items.length > 0 && (
-              <Box>
-                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
+            <Box>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Items</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addPOItem}
+                  sx={{ textTransform: "none" }}>
+                  Add Item
+                </Button>
+              </Stack>
+              {Array.isArray(editPO?.Items) && editPO.Items.length > 0 ? (
                 <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
                   <Table size="small">
                     <TableHead>
@@ -1118,6 +1131,7 @@ export default function AllDelivery() {
                           <TableCell>
                             <TextField
                               size="small" fullWidth variant="standard"
+                              placeholder="Item name"
                               value={item.itemName || item.Item || ""}
                               onChange={(e) => {
                                 const items = editPO.Items.map((it, i) =>
@@ -1177,8 +1191,12 @@ export default function AllDelivery() {
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </Box>
-            )}
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
+                  No items. Click "Add Item" to add one.
+                </Typography>
+              )}
+            </Box>
 
             {/* Additional Charges */}
             <Box>

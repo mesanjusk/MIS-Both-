@@ -113,6 +113,16 @@ export default function UpdateDelivery({
       setOrderId(mongoId);
 
       setCustomer_uuid(order.Customer_uuid || "");
+
+      // Extract remark from orderNote if it follows "orderNum - customer - remark - mobile" pattern
+      const extractRemark = (note = "") => {
+        if (!note) return "";
+        const parts = note.split(" - ");
+        if (parts.length >= 3) return parts[2].trim();
+        return note.trim();
+      };
+      const fallbackRemark = extractRemark(order.orderNote || "");
+
       const seeded =
         Array.isArray(order.Items) && order.Items.length
           ? order.Items.map((it) => ({
@@ -121,9 +131,9 @@ export default function UpdateDelivery({
               Rate: n2(it.Rate),
               Amount: n2(it.Amount) || +(n2(it.Quantity) * n2(it.Rate)).toFixed(2),
               Priority: it.Priority || "Normal",
-              Remark: it.Remark || "",
+              Remark: it.Remark || fallbackRemark,
             }))
-          : [{ Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: "" }];
+          : [{ Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: fallbackRemark }];
       setItems(seeded);
       setCustomer_name(order.Customer_name || "");
     }
@@ -463,20 +473,13 @@ export default function UpdateDelivery({
                   ₹{Number(item.Amount || 0).toLocaleString("en-IN")}
                 </div>
 
-                {/* Remark: readonly when pre-filled in edit mode */}
-                {mode === "edit" && item.Remark ? (
-                  <div className="md:col-span-6 border p-2 rounded bg-gray-50 text-gray-500 text-sm">
-                    {item.Remark}
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="Remark (this line)"
-                    value={item.Remark || ""}
-                    onChange={(e) => handleItemChange(index, "Remark", e.target.value)}
-                    className="md:col-span-6 border p-2 rounded"
-                  />
-                )}
+                <input
+                  type="text"
+                  placeholder="Remark (this line)"
+                  value={item.Remark || ""}
+                  onChange={(e) => handleItemChange(index, "Remark", e.target.value)}
+                  className="md:col-span-6 border p-2 rounded"
+                />
               </div>
             ))}
 

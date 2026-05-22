@@ -38,17 +38,20 @@ export default function FloatingButtons({ buttonsList = [] }) {
       direction="up"
       FabProps={{
         color: 'primary',
-        sx: {
+        sx: (t) => ({
           width: 48,
           height: 48,
-          boxShadow: (theme) => theme.shadows[8],
-          '&:hover': { boxShadow: (theme) => theme.shadows[12] },
-        },
+          background: `linear-gradient(135deg, ${t.palette.primary.main}, ${t.palette.primary.dark})`,
+          boxShadow: `0 6px 20px ${t.palette.primary.main}50`,
+          '&:hover': {
+            background: `linear-gradient(135deg, ${t.palette.primary.dark}, ${t.palette.primary.dark})`,
+            boxShadow: `0 8px 24px ${t.palette.primary.main}60`,
+          },
+        }),
       }}
       sx={{
         position: 'fixed',
-        bottom: { xs: 78, md: 24 },
-        /* right sidebar is 80px on lg+; keep 16px gutter = 96px */
+        bottom: { xs: 82, md: 24 },
         right: { xs: 16, lg: 96 },
         zIndex: 1245,
       }}
@@ -61,25 +64,26 @@ export default function FloatingButtons({ buttonsList = [] }) {
           tooltipOpen
           onClick={button.onClick}
           FabProps={{
-            sx: {
+            sx: (t) => ({
               width: 38,
               height: 38,
               bgcolor: 'background.paper',
               color: ACTION_COLORS[button.label] || 'text.primary',
-              boxShadow: 4,
-              border: '1px solid',
-              borderColor: 'divider',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
+              border: `1px solid ${t.palette.divider}`,
+              transition: 'all 0.18s ease',
               '&:hover': {
-                bgcolor: (t) => t.palette.background.default,
-                boxShadow: 7,
+                bgcolor: t.palette.background.default,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
+                transform: 'scale(1.05)',
               },
-            },
+            }),
           }}
           TooltipProps={{
             componentsProps: {
               tooltip: {
                 sx: {
-                  bgcolor: 'rgba(15, 23, 42, 0.9)',
+                  bgcolor: 'rgba(15, 23, 42, 0.88)',
                   color: '#fff',
                   fontSize: '0.72rem',
                   fontWeight: 700,

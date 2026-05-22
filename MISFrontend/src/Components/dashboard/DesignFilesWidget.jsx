@@ -1233,7 +1233,12 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
         sx={{ py: 0.6, px: 1.5, cursor: 'pointer', bgcolor: 'action.hover', borderRadius: 1.5, '&:hover': { bgcolor: 'action.selected' } }}
       >
         {expanded ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: 'text.secondary' }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: 'text.secondary' }} />}
-        <Typography variant="body2" fontWeight={600} sx={{ flex: 1, fontSize: 12 }}>{dateGroup.dateName}</Typography>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={600} sx={{ fontSize: 12 }}>{dateGroup.dateName}</Typography>
+          {dateGroup.monthName && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1 }}>{dateGroup.monthName}</Typography>
+          )}
+        </Box>
         <Chip label={`${dateGroup.fileCount} file${dateGroup.fileCount !== 1 ? 's' : ''}`} size="small"
           sx={{ fontSize: 10, height: 18, bgcolor: 'background.paper', '& .MuiChip-label': { px: 0.75 } }} />
       </Stack>
@@ -1408,14 +1413,18 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
     );
   }
 
-  const { monthFolderName, dates = [], summary } = archiveData || {};
+  const { months = [], dates = [], summary } = archiveData || {};
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Archive header */}
       <Stack direction="row" alignItems="center" sx={{ px: 1.5, pb: 0.75, flexShrink: 0 }} spacing={1} flexWrap="wrap">
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-          <strong>{monthFolderName || '—'}</strong>
+          <strong>
+            {months.length === 0 ? '—'
+              : months.length === 1 ? months[0]
+              : `${months.length} months`}
+          </strong>
           {summary && ` · ${summary.total} files · ${summary.unmatched} unmatched`}
         </Typography>
         {/* View mode toggle */}

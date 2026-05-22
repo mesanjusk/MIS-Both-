@@ -1146,114 +1146,105 @@ router.get('/scan-archive', async (_req, res) => {
 
     const drive = await getAuthorizedDriveClient();
 
-    // 1. Find the current-month subfolder inside the archive root
+    // 1. Get ALL month subfolders, sorted chronologically
     const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
-
-    let monthFolder = null;
-    if (monthSubfolders.length) {
-      const now = new Date();
-      const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const monthName = monthNames[now.getMonth()];
-      const year = String(now.getFullYear());
-
-      monthFolder = monthSubfolders.find((f) => {
-        const n = f.name.toLowerCase().replace(/[/_]/g, '-');
-        return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
-      });
-
-      if (!monthFolder) {
-        monthFolder = [...monthSubfolders].sort(
-          (a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime)
-        )[0];
-      }
+    if (!monthSubfolders.length) {
+      return res.json({ success: true, months: [], dates: [], summary: { total: 0, unmatched: 0 } });
     }
 
-    if (!monthFolder) {
-      return res.json({
-        success: true, monthFolderName: null,
-        dates: [], summary: { total: 0, unmatched: 0 },
-      });
-    }
+    monthSubfolders.sort((a, b) => {
+      const [ya, ma] = monthFolderSortKey(a.name);
+      const [yb, mb] = monthFolderSortKey(b.name);
+      return ya !== yb ? ya - yb : ma - mb;
+    });
 
-    // 2. List date subfolders inside the month folder
-    const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
-
-    // Sort date folders by name descending (newest date first)
-    dateFolders.sort((a, b) => b.name.localeCompare(a.name));
-
-    // 3. For each date folder, scan Final/Printing subfolders
     const allFilesFlat = [];
-    const dateGroups = await Promise.all(
-      dateFolders.map(async (dateFolder) => {
-        const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
+    const allDateGroups = [];
 
-        const sections = await Promise.all(
-          sectionFolders.map(async (sectionFolder) => {
-            const sectionStageNum = archiveSectionStage(sectionFolder.name);
-            const files = await listChildren(drive, sectionFolder.id);
-            const mapped = files.map((file) => ({
-              fileId: file.id,
-              fileName: file.name,
-              modifiedTime: file.modifiedTime,
-              size: file.size || null,
-              dateFolderName: dateFolder.name,
-              sectionFolderName: sectionFolder.name,
-              stageNumber: sectionStageNum,
-              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
-              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
-              extractedOrderNumber: extractOrderNumber(file.name),
-            }));
-            allFilesFlat.push(...mapped);
-            return {
-              sectionName: sectionFolder.name,
-              stageNumber: sectionStageNum,
-              stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
-              stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
-              files: mapped,
-            };
-          })
-        );
+    // 2. For each month folder, scan all date subfolders
+    for (const monthFolder of monthSubfolders) {
+      const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
+      dateFolders.sort((a, b) => b.name.localeCompare(a.name));
 
-        // Also handle flat files directly in the date folder (no section subfolder)
-        const flatFiles = (await listChildren(drive, dateFolder.id)).filter(
-          (f) => f.mimeType !== 'application/vnd.google-apps.folder'
-        );
-        const flatMapped = flatFiles.map((file) => ({
-          fileId: file.id,
-          fileName: file.name,
-          modifiedTime: file.modifiedTime,
-          size: file.size || null,
-          dateFolderName: dateFolder.name,
-          sectionFolderName: null,
-          stageNumber: null,
-          stageLabel: null,
-          stageColor: null,
-          extractedOrderNumber: extractOrderNumber(file.name),
-        }));
-        if (flatMapped.length) {
-          allFilesFlat.push(...flatMapped);
-          sections.push({
-            sectionName: 'Other',
+      const monthDateGroups = await Promise.all(
+        dateFolders.map(async (dateFolder) => {
+          const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
+
+          const sections = await Promise.all(
+            sectionFolders.map(async (sectionFolder) => {
+              const sectionStageNum = archiveSectionStage(sectionFolder.name);
+              const files = await listChildren(drive, sectionFolder.id);
+              const mapped = files.map((file) => ({
+                fileId: file.id,
+                fileName: file.name,
+                modifiedTime: file.modifiedTime,
+                size: file.size || null,
+                dateFolderName: dateFolder.name,
+                monthFolderName: monthFolder.name,
+                sectionFolderName: sectionFolder.name,
+                stageNumber: sectionStageNum,
+                stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+                stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+                extractedOrderNumber: extractOrderNumber(file.name),
+              }));
+              allFilesFlat.push(...mapped);
+              return {
+                sectionName: sectionFolder.name,
+                stageNumber: sectionStageNum,
+                stageLabel: sectionStageNum ? stageLabel(sectionStageNum) : sectionFolder.name,
+                stageColor: sectionStageNum ? stageColor(sectionStageNum) : null,
+                files: mapped,
+              };
+            })
+          );
+
+          // Flat files directly in the date folder (no section subfolder)
+          const flatFiles = (await listChildren(drive, dateFolder.id)).filter(
+            (f) => f.mimeType !== 'application/vnd.google-apps.folder'
+          );
+          const flatMapped = flatFiles.map((file) => ({
+            fileId: file.id,
+            fileName: file.name,
+            modifiedTime: file.modifiedTime,
+            size: file.size || null,
+            dateFolderName: dateFolder.name,
+            monthFolderName: monthFolder.name,
+            sectionFolderName: null,
             stageNumber: null,
             stageLabel: null,
             stageColor: null,
-            files: flatMapped,
-          });
-        }
+            extractedOrderNumber: extractOrderNumber(file.name),
+          }));
+          if (flatMapped.length) {
+            allFilesFlat.push(...flatMapped);
+            sections.push({ sectionName: 'Other', stageNumber: null, stageLabel: null, stageColor: null, files: flatMapped });
+          }
 
-        return {
-          dateName: dateFolder.name,
-          dateFolderId: dateFolder.id,
-          sections: sections.filter((s) => s.files.length > 0),
-          fileCount: sections.reduce((s, sec) => s + sec.files.length, 0) + flatMapped.length,
-        };
-      })
-    );
+          const fileCount = sections.reduce((s, sec) => s + sec.files.length, 0);
+          return {
+            dateName: dateFolder.name,
+            monthName: monthFolder.name,
+            dateFolderId: dateFolder.id,
+            sections: sections.filter((s) => s.files.length > 0),
+            fileCount,
+          };
+        })
+      );
 
-    const activeDates = dateGroups.filter((d) => d.fileCount > 0);
+      allDateGroups.push(...monthDateGroups.filter((d) => d.fileCount > 0));
+    }
 
-    // 4. Batch-match by order number across all files
+    // Sort all date groups newest-first across all months
+    allDateGroups.sort((a, b) => {
+      const da = parseFolderDate(a.dateName);
+      const db = parseFolderDate(b.dateName);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return db - da;
+    });
+
+    // 3. Batch-match by order number across all files
     const orderNumbers = [...new Set(allFilesFlat.map((f) => f.extractedOrderNumber).filter(Boolean))];
     const orders = orderNumbers.length
       ? await Orders.find(
@@ -1277,8 +1268,8 @@ router.get('/scan-archive', async (_req, res) => {
       };
     }
 
-    // 5. Apply enrichment to the nested structure
-    const enrichedDates = activeDates.map((dateGroup) => ({
+    // 4. Apply enrichment to the nested structure
+    const enrichedDates = allDateGroups.map((dateGroup) => ({
       ...dateGroup,
       sections: dateGroup.sections.map((section) => ({
         ...section,
@@ -1286,7 +1277,7 @@ router.get('/scan-archive', async (_req, res) => {
       })),
     }));
 
-    // Also apply DesignFileLink matches for archive files
+    // 5. Apply DesignFileLink matches for archive files
     const allEnrichedFlat = enrichedDates.flatMap((d) => d.sections.flatMap((s) => s.files));
     const linkedEnrichedFlat = await applyLinks(allEnrichedFlat);
     const linkedById = {};
@@ -1308,7 +1299,7 @@ router.get('/scan-archive', async (_req, res) => {
 
     return res.json({
       success: true,
-      monthFolderName: monthFolder.name,
+      months: monthSubfolders.map((m) => m.name),
       dates: finalDates,
       summary,
     });
@@ -1445,6 +1436,23 @@ router.post('/validate-print-jobs', async (req, res) => {
 
 // ─── Auto Purchase Order from Print Vendor Folders ───────────────────────────
 
+/**
+ * Parse "DD.MM.YYYY" from an archive date folder name into a UTC midnight Date.
+ * Returns null if the format is not recognised.
+ */
+function parseFolderDate(name = '') {
+  const m = String(name).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!m) return null;
+  const d = new Date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Sort key for month folder names like "04 April 2026" → [2026, 4]. */
+function monthFolderSortKey(name = '') {
+  const m = String(name).match(/^(\d+)\D+(\d{4})/);
+  return m ? [parseInt(m[2], 10), parseInt(m[1], 10)] : [0, 0];
+}
+
 /** Extract item name and qty from a print file name.
  *  "banner=5.pdf" → { itemName: "banner", qty: 5 }
  *  "visiting card=50.cdr" → { itemName: "visiting card", qty: 50 }
@@ -1510,101 +1518,116 @@ async function autoPurchaseOrdersFromDrive() {
 
   const drive = await getAuthorizedDriveClient();
 
-  // Locate current month folder (same logic as scan-archive)
+  // Scan ALL month subfolders in the archive root, sorted chronologically
   const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
   if (!monthSubfolders.length) return [];
 
-  const now = new Date();
-  const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  const monthName = monthNames[now.getMonth()];
-  const year = String(now.getFullYear());
-
-  let monthFolder = monthSubfolders.find((f) => {
-    const n = f.name.toLowerCase().replace(/[/_]/g, '-');
-    return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
+  monthSubfolders.sort((a, b) => {
+    const [ya, ma] = monthFolderSortKey(a.name);
+    const [yb, mb] = monthFolderSortKey(b.name);
+    return ya !== yb ? ya - yb : ma - mb;
   });
-  if (!monthFolder) {
-    monthFolder = [...monthSubfolders].sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime))[0];
-  }
-  if (!monthFolder) return [];
-
-  const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
 
   const results = [];
 
-  for (const dateFolder of dateFolders) {
-    const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
+  for (const monthFolder of monthSubfolders) {
+    const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
 
-    // Find the Print section folder
-    const printSection = sectionFolders.find((f) => f.name.toLowerCase().includes('print'));
-    if (!printSection) continue;
+    // Sort date folders chronologically by their DD.MM.YYYY name
+    dateFolders.sort((a, b) => {
+      const da = parseFolderDate(a.name);
+      const db = parseFolderDate(b.name);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da - db;
+    });
 
-    // List vendor subfolders inside Print
-    const vendorFolders = await listChildren(drive, printSection.id, 'application/vnd.google-apps.folder');
+    for (const dateFolder of dateFolders) {
+      const poDate = parseFolderDate(dateFolder.name);
 
-    for (const vendorFolder of vendorFolders) {
-      // Skip folders that already start with a digit — they already have a PO number prefix
-      if (/^\d/.test(vendorFolder.name)) continue;
+      const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
 
-      const files = await listChildren(drive, vendorFolder.id);
-      if (!files.length) continue;
+      // Find the Print section folder
+      const printSection = sectionFolders.find((f) => f.name.toLowerCase().includes('print'));
+      if (!printSection) continue;
 
-      const items = files.map((f) => {
-        const { itemName, qty } = parsePrintFileName(f.name);
-        return { itemName, qty, unit: 'Nos', rate: 1, amount: qty * 1 };
-      });
+      // List vendor subfolders inside Print
+      const vendorFolders = await listChildren(drive, printSection.id, 'application/vnd.google-apps.folder');
 
-      let vendor;
-      try {
-        vendor = await findOrCreateVendorByFolderName(vendorFolder.name);
-      } catch (vendorErr) {
-        logger.error({ err: vendorErr.message, folder: vendorFolder.name }, '[auto-po] Vendor find/create failed');
-        results.push({ date: dateFolder.name, folder: vendorFolder.name, error: vendorErr.message });
-        continue;
-      }
+      for (const vendorFolder of vendorFolders) {
+        // Skip folders that already start with a digit — they already have a PO number prefix
+        if (/^\d/.test(vendorFolder.name)) continue;
 
-      let po;
-      let poNumber;
-      try {
-        poNumber = await nextAutoPONumber();
-        po = await PurchaseOrder.create({
-          PO_Number: poNumber,
-          Vendor_uuid: vendor.Vendor_uuid,
-          Vendor_name: vendor.Vendor_name,
-          Items: items,
-          status: 'draft',
-          notes: `Auto-created from Drive: ${dateFolder.name}/Print/${vendorFolder.name}`,
-          createdBy: 'system',
+        const files = await listChildren(drive, vendorFolder.id);
+        if (!files.length) continue;
+
+        const items = files.map((f) => {
+          const { itemName, qty } = parsePrintFileName(f.name);
+          return { itemName, qty, unit: 'Nos', rate: 1, amount: qty * 1 };
         });
-      } catch (poErr) {
-        logger.error({ err: poErr.message, folder: vendorFolder.name }, '[auto-po] PO creation failed');
-        results.push({ date: dateFolder.name, folder: vendorFolder.name, error: poErr.message });
-        continue;
-      }
 
-      // Rename Drive folder: "101 Anand" (PO number space vendor name)
-      const newFolderName = `${poNumber} ${vendorFolder.name}`;
-      try {
-        await drive.files.update({
-          fileId: vendorFolder.id,
-          supportsAllDrives: true,
-          requestBody: { name: newFolderName },
+        let vendor;
+        try {
+          vendor = await findOrCreateVendorByFolderName(vendorFolder.name);
+        } catch (vendorErr) {
+          logger.error({ err: vendorErr.message, folder: vendorFolder.name }, '[auto-po] Vendor find/create failed');
+          results.push({ date: dateFolder.name, folder: vendorFolder.name, error: vendorErr.message });
+          continue;
+        }
+
+        let po;
+        let poNumber;
+        try {
+          poNumber = await nextAutoPONumber();
+          po = await PurchaseOrder.create({
+            PO_Number: poNumber,
+            Vendor_uuid: vendor.Vendor_uuid,
+            Vendor_name: vendor.Vendor_name,
+            Items: items,
+            poDate: poDate || new Date(),
+            status: 'draft',
+            notes: `Auto-created from Drive: ${monthFolder.name}/${dateFolder.name}/Print/${vendorFolder.name}`,
+            createdBy: 'system',
+          });
+          // Override Mongoose-managed createdAt to match the actual folder date
+          if (poDate) {
+            await PurchaseOrder.collection.updateOne(
+              { _id: po._id },
+              { $set: { createdAt: poDate } }
+            );
+          }
+        } catch (poErr) {
+          logger.error({ err: poErr.message, folder: vendorFolder.name }, '[auto-po] PO creation failed');
+          results.push({ date: dateFolder.name, folder: vendorFolder.name, error: poErr.message });
+          continue;
+        }
+
+        // Rename Drive folder: "101 Anand" (PO number space vendor name)
+        const newFolderName = `${poNumber} ${vendorFolder.name}`;
+        try {
+          await drive.files.update({
+            fileId: vendorFolder.id,
+            supportsAllDrives: true,
+            requestBody: { name: newFolderName },
+          });
+        } catch (renameErr) {
+          logger.warn({ err: renameErr.message, folder: vendorFolder.name }, '[auto-po] Drive folder rename failed');
+        }
+
+        logger.info({ poNumber, vendor: vendor.Vendor_name, itemCount: items.length, poDate }, '[auto-po] PO created');
+        results.push({
+          date: dateFolder.name,
+          month: monthFolder.name,
+          originalFolderName: vendorFolder.name,
+          newFolderName,
+          vendorName: vendor.Vendor_name,
+          poNumber,
+          poDate: poDate ? poDate.toISOString().slice(0, 10) : null,
+          itemCount: items.length,
+          poUuid: po.PO_uuid,
         });
-      } catch (renameErr) {
-        logger.warn({ err: renameErr.message, folder: vendorFolder.name }, '[auto-po] Drive folder rename failed');
       }
-
-      logger.info({ poNumber, vendor: vendor.Vendor_name, itemCount: items.length }, '[auto-po] PO created');
-      results.push({
-        date: dateFolder.name,
-        originalFolderName: vendorFolder.name,
-        newFolderName,
-        vendorName: vendor.Vendor_name,
-        poNumber,
-        itemCount: items.length,
-        poUuid: po.PO_uuid,
-      });
     }
   }
 

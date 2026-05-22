@@ -55,6 +55,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import EventIcon from "@mui/icons-material/Event";
 import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 const fmtDate = (d) => {
@@ -87,7 +88,7 @@ export default function AllDelivery() {
   const [orderUpdateOpen, setOrderUpdateOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  // Bulk selection state
+  // Delivery bulk selection state
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [bulkDate, setBulkDate] = useState(todayISO);
   const [bulkUpdating, setBulkUpdating] = useState(false);
@@ -98,16 +99,20 @@ export default function AllDelivery() {
   // Toggle to show only orders with empty/no-value Items
   const [showEmptyItems, setShowEmptyItems] = useState(false);
 
-  // Vendor bulk selection
-  const [selectedVendorKeys, setSelectedVendorKeys] = useState(new Set());
-  const [vendorBulkDate, setVendorBulkDate] = useState(todayISO);
-  const [vendorBulkUpdating, setVendorBulkUpdating] = useState(false);
+  // Purchase Orders state
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [loadingPOs, setLoadingPOs] = useState(false);
+  const [showAutoOnly, setShowAutoOnly] = useState(false);
+  const [editPO, setEditPO] = useState(null);
+  const [editPOOpen, setEditPOOpen] = useState(false);
 
-  // Vendor PO edit dialog
-  const [vendorEditOpen, setVendorEditOpen] = useState(false);
-  const [selectedVendorRow, setSelectedVendorRow] = useState(null);
-  const [vendorExtraCharges, setVendorExtraCharges] = useState([]);
-  const [vendorSaving, setVendorSaving] = useState(false);
+  // PO bulk selection state
+  const [selectedPOKeys, setSelectedPOKeys] = useState(new Set());
+  const [poBulkDate, setPoBulkDate] = useState(todayISO);
+  const [poBulkUpdating, setPoBulkUpdating] = useState(false);
+
+  // PO extra charges (for edit dialog)
+  const [editPOExtraCharges, setEditPOExtraCharges] = useState([]);
 
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
@@ -150,6 +155,39 @@ export default function AllDelivery() {
     })();
     return () => { isMounted = false; };
   }, []);
+
+  // Fetch all Purchase Orders once on mount
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setLoadingPOs(true);
+      try {
+        const res = await axios.get("/api/purchaseorder/list");
+        if (isMounted) setPurchaseOrders(res.data?.result ?? []);
+      } catch (err) {
+        console.error("PO fetch error:", err?.message || err);
+        if (isMounted) setPurchaseOrders([]);
+      } finally {
+        if (isMounted) setLoadingPOs(false);
+      }
+    })();
+    return () => { isMounted = false; };
+  }, []);
+
+  // POs filtered by toggle and by the sidebar's selected date (uses poDate, falls back to createdAt)
+  const filteredPOs = useMemo(() => {
+    let pos = purchaseOrders;
+    if (showAutoOnly) {
+      pos = pos.filter(
+        (po) => Array.isArray(po.Items) && po.Items.length > 0 &&
+                po.Items.every((it) => Number(it.rate ?? it.Rate ?? 0) === 1)
+      );
+    }
+    if (selectedDate) {
+      pos = pos.filter((po) => isoDate(po.poDate || po.createdAt) === selectedDate);
+    }
+    return pos;
+  }, [purchaseOrders, showAutoOnly, selectedDate]);
 
   const getHighestStatus = (statusArr) => {
     const list = Array.isArray(statusArr) ? statusArr : [];
@@ -242,45 +280,17 @@ export default function AllDelivery() {
     return dateOrders.filter((o) => !hasBillableAmount(o.Items));
   }, [dateOrders, showEmptyItems, hasBillableAmount]);
 
-  // Vendor purchases: extract Steps with costAmount from date-filtered orders
-  const vendorRows = useMemo(() => {
-    const rows = [];
-    dateOrders.forEach((o) => {
-      if (!Array.isArray(o.Steps)) return;
-      o.Steps.forEach((step, stepIdx) => {
-        const cost = Number(step.costAmount || 0);
-        if (cost > 0) {
-          const orderId = o._id || o.Order_uuid;
-          rows.push({
-            key: `${orderId}_${stepIdx}`,
-            orderId,
-            orderRef: o,
-            stepIdx,
-            orderNumber: o.Order_Number,
-            customer: o.Customer_name,
-            stepLabel: step.label || "—",
-            vendorName: step.vendorName || "—",
-            costAmount: cost,
-            extraCharges: Array.isArray(step.extraCharges) ? step.extraCharges : [],
-            isPosted: step.posting?.isPosted,
-          });
-        }
-      });
-    });
-    return rows;
-  }, [dateOrders]);
-
   // Summary stats
   const stats = useMemo(() => {
     const deliveryValue = dateOrders.reduce((s, o) => s + o.totalAmount, 0);
-    const vendorCost = vendorRows.reduce((s, r) => s + r.costAmount, 0);
+    const vendorCost = filteredPOs.reduce((s, po) => s + Number(po.totalAmount || 0), 0);
     return {
       orderCount: dateOrders.length,
       deliveryValue,
       vendorCost,
       net: deliveryValue - vendorCost,
     };
-  }, [dateOrders, vendorRows]);
+  }, [dateOrders, filteredPOs]);
 
   // Counts per date for sidebar
   const dateCountMap = useMemo(() => {
@@ -294,7 +304,7 @@ export default function AllDelivery() {
   const getFirstRemark = (o) =>
     Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : (o?.orderNote || "");
 
-  // Bulk selection handlers — operate on the currently visible (filtered) rows
+  // Delivery bulk selection handlers
   const allCurrentIds = useMemo(() => deliveryTableOrders.map((o) => o._id || o.Order_uuid), [deliveryTableOrders]);
   const allSelected = allCurrentIds.length > 0 && allCurrentIds.every((id) => selectedOrders.has(id));
   const someSelected = selectedOrders.size > 0;
@@ -335,7 +345,6 @@ export default function AllDelivery() {
         }
       })
     );
-    // Patch local state so the date grouping updates immediately
     if (updatedIds.size > 0) {
       setOrders((prev) =>
         prev.map((o) => {
@@ -351,18 +360,18 @@ export default function AllDelivery() {
     if (failCount) toast.error(`Failed for ${failCount} order(s)`);
   }, [bulkDate, selectedOrders, deliveryTableOrders]);
 
-  // Vendor bulk selection helpers
-  const allVendorKeys = useMemo(() => vendorRows.map((r) => r.key), [vendorRows]);
-  const allVendorSelected = allVendorKeys.length > 0 && allVendorKeys.every((k) => selectedVendorKeys.has(k));
-  const someVendorSelected = selectedVendorKeys.size > 0;
+  // PO bulk selection helpers
+  const allPOKeys = useMemo(() => filteredPOs.map((po) => po.PO_uuid || po._id), [filteredPOs]);
+  const allPOSelected = allPOKeys.length > 0 && allPOKeys.every((k) => selectedPOKeys.has(k));
+  const somePOSelected = selectedPOKeys.size > 0;
 
-  const handleVendorSelectAll = useCallback((e) => {
-    if (e.target.checked) setSelectedVendorKeys(new Set(allVendorKeys));
-    else setSelectedVendorKeys(new Set());
-  }, [allVendorKeys]);
+  const handlePOSelectAll = useCallback((e) => {
+    if (e.target.checked) setSelectedPOKeys(new Set(allPOKeys));
+    else setSelectedPOKeys(new Set());
+  }, [allPOKeys]);
 
-  const handleVendorSelect = useCallback((key) => {
-    setSelectedVendorKeys((prev) => {
+  const handlePOSelect = useCallback((key) => {
+    setSelectedPOKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -370,82 +379,76 @@ export default function AllDelivery() {
     });
   }, []);
 
-  const handleVendorBulkDateUpdate = useCallback(async () => {
-    if (!vendorBulkDate || selectedVendorKeys.size === 0) return;
-    setVendorBulkUpdating(true);
-    const orderIds = new Set(
-      vendorRows.filter((r) => selectedVendorKeys.has(r.key)).map((r) => r.orderId)
-    );
+  const handlePOBulkDateUpdate = useCallback(async () => {
+    if (!poBulkDate || selectedPOKeys.size === 0) return;
+    setPoBulkUpdating(true);
     let successCount = 0;
     let failCount = 0;
-    const updatedIds = new Set();
+    const updatedKeys = new Set();
     await Promise.all(
-      Array.from(orderIds).map(async (id) => {
+      Array.from(selectedPOKeys).map(async (id) => {
         try {
-          await axios.put(`/order/updateOrder/${id}`, { createdAt: vendorBulkDate });
-          updatedIds.add(id);
+          await axios.put(`/api/purchaseorder/${id}`, { poDate: poBulkDate });
+          updatedKeys.add(id);
           successCount++;
         } catch {
           failCount++;
         }
       })
     );
-    if (updatedIds.size > 0) {
-      setOrders((prev) =>
-        prev.map((o) => {
-          const id = o._id || o.Order_uuid;
-          if (!updatedIds.has(id)) return o;
-          return { ...o, createdAt: new Date(vendorBulkDate).toISOString() };
+    if (updatedKeys.size > 0) {
+      setPurchaseOrders((prev) =>
+        prev.map((po) => {
+          const id = po.PO_uuid || po._id;
+          return updatedKeys.has(id) ? { ...po, poDate: new Date(poBulkDate).toISOString() } : po;
         })
       );
     }
-    setVendorBulkUpdating(false);
-    setSelectedVendorKeys(new Set());
-    if (successCount) toast.success(`Updated ${successCount} order(s)`);
-    if (failCount) toast.error(`Failed for ${failCount} order(s)`);
-  }, [vendorBulkDate, selectedVendorKeys, vendorRows]);
+    setPoBulkUpdating(false);
+    setSelectedPOKeys(new Set());
+    if (successCount) toast.success(`Updated ${successCount} PO(s)`);
+    if (failCount) toast.error(`Failed for ${failCount} PO(s)`);
+  }, [poBulkDate, selectedPOKeys]);
 
-  // Vendor PO edit handlers
-  const handleVendorEditClick = (row) => {
-    setSelectedVendorRow(row);
-    setVendorExtraCharges(row.extraCharges.length ? [...row.extraCharges] : []);
-    setVendorEditOpen(true);
+  // PO edit handlers
+  const handleEditPOClick = (po) => {
+    setEditPO({ ...po });
+    setEditPOExtraCharges(Array.isArray(po.extraCharges) ? [...po.extraCharges] : []);
+    setEditPOOpen(true);
   };
 
-  const handleVendorEditSave = useCallback(async () => {
-    if (!selectedVendorRow) return;
-    setVendorSaving(true);
-    const { orderId, orderRef, stepIdx } = selectedVendorRow;
-    const validCharges = vendorExtraCharges.filter((c) => c.label?.trim() && Number(c.amount) > 0);
-    const updatedSteps = (orderRef.Steps || []).map((step, i) =>
-      i !== stepIdx ? step : { ...step, extraCharges: validCharges }
-    );
+  const handleSavePO = useCallback(async () => {
+    if (!editPO) return;
     try {
-      await axios.put(`/order/updateOrder/${orderId}`, { Steps: updatedSteps });
-      setOrders((prev) =>
-        prev.map((o) => {
-          const id = o._id || o.Order_uuid;
-          return id !== orderId ? o : { ...o, Steps: updatedSteps };
-        })
-      );
-      toast.success("PO updated successfully");
-      setVendorEditOpen(false);
-      setSelectedVendorRow(null);
-    } catch {
-      toast.error("Failed to save PO");
-    } finally {
-      setVendorSaving(false);
+      const id = editPO.PO_uuid || editPO._id;
+      const validCharges = editPOExtraCharges.filter((c) => c.label?.trim() && Number(c.amount) > 0);
+      const res = await axios.put(`/api/purchaseorder/${id}`, {
+        Items: editPO.Items,
+        notes: editPO.notes,
+        status: editPO.status,
+        extraCharges: validCharges,
+      });
+      if (res.data?.success) {
+        setPurchaseOrders((prev) =>
+          prev.map((p) => (p.PO_uuid === editPO.PO_uuid || p._id === editPO._id) ? res.data.result : p)
+        );
+        setEditPOOpen(false);
+        toast.success(`PO #${editPO.PO_Number} updated`);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "PO update failed");
     }
-  }, [selectedVendorRow, vendorExtraCharges]);
+  }, [editPO, editPOExtraCharges]);
 
-  const addExtraCharge = () =>
-    setVendorExtraCharges((prev) => [...prev, { label: "", amount: "" }]);
+  // Extra charge helpers for PO edit
+  const addPOExtraCharge = () =>
+    setEditPOExtraCharges((prev) => [...prev, { label: "", amount: "" }]);
 
-  const removeExtraCharge = (idx) =>
-    setVendorExtraCharges((prev) => prev.filter((_, i) => i !== idx));
+  const removePOExtraCharge = (idx) =>
+    setEditPOExtraCharges((prev) => prev.filter((_, i) => i !== idx));
 
-  const updateExtraCharge = (idx, field, value) =>
-    setVendorExtraCharges((prev) =>
+  const updatePOExtraCharge = (idx, field, value) =>
+    setEditPOExtraCharges((prev) =>
       prev.map((c, i) => (i === idx ? { ...c, [field]: value } : c))
     );
 
@@ -473,18 +476,18 @@ export default function AllDelivery() {
       styles: { fontSize: 9 },
       headStyles: { fillColor: [34, 139, 34] },
     });
-    if (vendorRows.length) {
+    if (filteredPOs.length) {
       doc.addPage();
       doc.setFontSize(14);
-      doc.text("Vendor Purchases", 14, 15);
+      doc.text("Purchase Orders", 14, 15);
       doc.autoTable({
-        head: [["Order #", "Customer", "Vendor", "Step / Job", "Cost"]],
-        body: vendorRows.map((r) => [
-          r.orderNumber,
-          r.customer || "",
-          r.vendorName,
-          r.stepLabel,
-          money(r.costAmount),
+        head: [["PO #", "Vendor", "Items", "Total", "Date"]],
+        body: filteredPOs.map((po) => [
+          po.PO_Number,
+          po.Vendor_name || "",
+          Array.isArray(po.Items) ? po.Items.map((it) => it.itemName || it.Item || "").join(", ") : "",
+          money(po.totalAmount),
+          fmtDate(po.poDate || po.createdAt),
         ]),
         startY: 20,
         styles: { fontSize: 9 },
@@ -508,16 +511,32 @@ export default function AllDelivery() {
       Status: o.highestStatusTask?.Task || "",
     })));
     XLSX.utils.book_append_sheet(wb, ws1, "Deliveries");
-    if (vendorRows.length) {
-      const ws2 = XLSX.utils.json_to_sheet(vendorRows.map((r) => ({
-        "Order #": r.orderNumber,
-        Customer: r.customer || "",
-        Vendor: r.vendorName,
-        "Step / Job": r.stepLabel,
-        Cost: r.costAmount,
-        "Posting Status": r.isPosted ? "Posted" : "Pending",
-      })));
-      XLSX.utils.book_append_sheet(wb, ws2, "Vendor Purchases");
+    if (filteredPOs.length) {
+      const ws2 = XLSX.utils.json_to_sheet(
+        filteredPOs.flatMap((po) =>
+          Array.isArray(po.Items) && po.Items.length
+            ? po.Items.map((it) => ({
+                "PO #": po.PO_Number,
+                Vendor: po.Vendor_name || "",
+                Item: it.itemName || it.Item || "",
+                Qty: it.qty ?? it.Quantity ?? 0,
+                Rate: it.rate ?? it.Rate ?? 0,
+                Amount: it.amount ?? it.Amount ?? 0,
+                Status: po.status || "draft",
+                Date: fmtDate(po.poDate || po.createdAt),
+                Notes: po.notes || "",
+              }))
+            : [{
+                "PO #": po.PO_Number,
+                Vendor: po.Vendor_name || "",
+                Item: "", Qty: 0, Rate: 0, Amount: 0,
+                Status: po.status || "draft",
+                Date: fmtDate(po.poDate || po.createdAt),
+                Notes: po.notes || "",
+              }]
+        )
+      );
+      XLSX.utils.book_append_sheet(wb, ws2, "Purchase Orders");
     }
     const datePart = selectedDate || "all";
     XLSX.writeFile(wb, `delivery_report_${datePart}.xlsx`);
@@ -552,11 +571,10 @@ export default function AllDelivery() {
         {/* ── Left sidebar: date list ── */}
         <Paper
           variant="outlined"
-          sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden" }}
+          sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden", height: "calc(100vh - 80px)", position: "sticky", top: 16 }}
         >
           <Box sx={{ p: 1.5, pb: 1 }}>
             <Typography variant="subtitle2" fontWeight={700}>Deliveries</Typography>
-            {/* Date picker to jump to a specific date */}
             <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
               <TextField
                 type="date"
@@ -641,7 +659,6 @@ export default function AllDelivery() {
               </Typography>
             </Box>
 
-            {/* Search */}
             <TextField
               size="small"
               placeholder="Search customer"
@@ -657,7 +674,6 @@ export default function AllDelivery() {
               }}
             />
 
-            {/* Status filter */}
             <FormControl size="small" sx={{ width: { xs: "100%", sm: 130 } }}>
               <InputLabel>Status</InputLabel>
               <Select value={filter} label="Status" onChange={(e) => setFilter(e.target.value)}>
@@ -668,7 +684,6 @@ export default function AllDelivery() {
               </Select>
             </FormControl>
 
-            {/* Export buttons */}
             <Stack direction="row" spacing={1}>
               <Tooltip title="Export as PDF">
                 <Button
@@ -693,7 +708,7 @@ export default function AllDelivery() {
             </Stack>
           </Stack>
 
-          {/* Bulk action bar — shown when orders are selected */}
+          {/* Delivery bulk action bar */}
           {someSelected && (
             <Paper
               variant="outlined"
@@ -802,7 +817,6 @@ export default function AllDelivery() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        {/* Bulk select checkbox */}
                         <TableCell padding="checkbox">
                           <Checkbox
                             size="small"
@@ -873,11 +887,12 @@ export default function AllDelivery() {
                 </TableContainer>
               </Paper>
 
-              {/* ── Section 2: Vendor Purchases (OUT) ── */}
+              {/* ── Section 2: Purchases from Vendors (OUT) — Purchase Orders ── */}
               <Paper variant="outlined" sx={{ borderRadius: 3, borderColor: "error.light", flex: 1, minWidth: 0 }}>
+                {/* Header */}
                 <Stack
-                  direction="row" justifyContent="space-between" alignItems="center"
-                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
+                  direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"
+                  sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider", gap: 1 }}
                 >
                   <Stack direction="row" spacing={1} alignItems="center">
                     <StorefrontIcon fontSize="small" color="error" />
@@ -886,38 +901,56 @@ export default function AllDelivery() {
                       Purchases from Vendors (OUT)
                     </Typography>
                   </Stack>
-                  <Typography variant="subtitle2" fontWeight={700} color="error.dark">
-                    {money(stats.vendorCost)}
-                  </Typography>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={showAutoOnly}
+                          onChange={(e) => setShowAutoOnly(e.target.checked)}
+                          color="error"
+                        />
+                      }
+                      label={
+                        <Typography variant="caption" color="text.secondary">
+                          Auto PO only
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                    <Typography variant="subtitle2" fontWeight={700} color="error.dark">
+                      {money(filteredPOs.reduce((s, po) => s + Number(po.totalAmount || 0), 0))}
+                    </Typography>
+                  </Stack>
                 </Stack>
 
-                {/* Vendor bulk action bar */}
-                {someVendorSelected && (
+                {/* PO bulk action bar */}
+                {somePOSelected && (
                   <Box sx={{ px: 2, py: 1, borderBottom: "1px solid", borderColor: "divider",
                     bgcolor: "error.50", display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
                     <Typography variant="body2" fontWeight={700} color="error.dark">
-                      {selectedVendorKeys.size} row{selectedVendorKeys.size > 1 ? "s" : ""} selected
+                      {selectedPOKeys.size} PO{selectedPOKeys.size > 1 ? "s" : ""} selected
                     </Typography>
                     <TextField
                       type="date"
                       size="small"
                       label="Set Date"
-                      value={vendorBulkDate}
-                      onChange={(e) => setVendorBulkDate(e.target.value)}
+                      value={poBulkDate}
+                      onChange={(e) => setPoBulkDate(e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       sx={{ width: 170 }}
                     />
                     <Button
                       variant="contained" color="error" size="small"
-                      onClick={handleVendorBulkDateUpdate}
-                      disabled={vendorBulkUpdating || !vendorBulkDate}
+                      onClick={handlePOBulkDateUpdate}
+                      disabled={poBulkUpdating || !poBulkDate}
                       sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
                     >
-                      {vendorBulkUpdating ? "Updating…" : "Update Date"}
+                      {poBulkUpdating ? "Updating…" : "Update Date"}
                     </Button>
                     <Button
                       variant="outlined" color="error" size="small"
-                      onClick={() => setSelectedVendorKeys(new Set())}
+                      onClick={() => setSelectedPOKeys(new Set())}
                       sx={{ borderRadius: 2, textTransform: "none" }}
                     >
                       Clear
@@ -925,10 +958,17 @@ export default function AllDelivery() {
                   </Box>
                 )}
 
-                {vendorRows.length === 0 ? (
+                {/* PO table */}
+                {loadingPOs ? (
+                  <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+                    <CircularProgress size={22} />
+                  </Box>
+                ) : filteredPOs.length === 0 ? (
                   <Box sx={{ p: 2 }}>
                     <Alert severity="info" sx={{ borderRadius: 2 }}>
-                      No vendor costs recorded for these orders.
+                      {showAutoOnly
+                        ? `No auto-created POs found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`
+                        : `No purchase orders found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`}
                     </Alert>
                   </Box>
                 ) : (
@@ -939,63 +979,62 @@ export default function AllDelivery() {
                           <TableCell padding="checkbox">
                             <Checkbox
                               size="small"
-                              checked={allVendorSelected}
-                              indeterminate={someVendorSelected && !allVendorSelected}
-                              onChange={handleVendorSelectAll}
+                              checked={allPOSelected}
+                              indeterminate={somePOSelected && !allPOSelected}
+                              onChange={handlePOSelectAll}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 70 }}>Order #</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 60 }}>PO #</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Step / Job</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Cost</TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Status</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 60 }}>Edit</TableCell>
+                          <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Edit</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {vendorRows.map((r) => {
-                          const extraTotal = r.extraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
+                        {filteredPOs.map((po) => {
+                          const poKey = po.PO_uuid || po._id;
+                          const itemSummary = Array.isArray(po.Items) && po.Items.length
+                            ? po.Items.map((it) =>
+                                `${it.itemName || it.Item || "—"}${Number(it.qty || it.Quantity || 0) !== 1 ? ` ×${it.qty || it.Quantity}` : ""}`
+                              ).join(", ")
+                            : "—";
                           return (
-                            <TableRow key={r.key} hover selected={selectedVendorKeys.has(r.key)}>
+                            <TableRow key={poKey} hover selected={selectedPOKeys.has(poKey)}>
                               <TableCell padding="checkbox">
                                 <Checkbox
                                   size="small"
-                                  checked={selectedVendorKeys.has(r.key)}
-                                  onChange={() => handleVendorSelect(r.key)}
+                                  checked={selectedPOKeys.has(poKey)}
+                                  onChange={() => handlePOSelect(poKey)}
                                 />
                               </TableCell>
                               <TableCell>
-                                <Typography variant="body2" fontWeight={700}>#{r.orderNumber}</Typography>
+                                <Typography variant="body2" fontWeight={700}>#{po.PO_Number}</Typography>
                               </TableCell>
                               <TableCell>
-                                <Typography variant="body2">{r.vendorName}</Typography>
+                                <Typography variant="body2" fontWeight={600}>{po.Vendor_name || "—"}</Typography>
                               </TableCell>
                               <TableCell>
-                                <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>
-                                  {r.stepLabel}
+                                <Tooltip title={itemSummary}>
+                                  <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                    {itemSummary}
+                                  </Typography>
+                                </Tooltip>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" color="text.secondary">
+                                  {fmtDate(po.poDate || po.createdAt)}
                                 </Typography>
                               </TableCell>
                               <TableCell align="right">
                                 <Typography variant="body2" fontWeight={700} color="error.dark">
-                                  {money(r.costAmount + extraTotal)}
+                                  {po.totalAmount > 0 ? money(po.totalAmount) : "—"}
                                 </Typography>
-                                {extraTotal > 0 && (
-                                  <Typography variant="caption" color="text.secondary" display="block">
-                                    +{money(extraTotal)} extras
-                                  </Typography>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Chip
-                                  size="small"
-                                  label={r.isPosted ? "Posted" : "Pending"}
-                                  color={r.isPosted ? "success" : "warning"}
-                                  variant="outlined"
-                                />
                               </TableCell>
                               <TableCell align="center">
                                 <Tooltip title="Edit PO">
-                                  <IconButton size="small" color="error" onClick={() => handleVendorEditClick(r)}>
+                                  <IconButton size="small" color="primary" onClick={() => handleEditPOClick(po)}>
                                     <EditIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
@@ -1024,117 +1063,6 @@ export default function AllDelivery() {
         />
       )}
 
-      {/* Vendor PO Edit dialog */}
-      <Dialog
-        open={vendorEditOpen}
-        onClose={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          Edit PO — #{selectedVendorRow?.orderNumber}
-          <Box sx={{ flex: 1 }} />
-          <IconButton onClick={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}>
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {selectedVendorRow && (() => {
-            const extraTotal = vendorExtraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
-            const grandTotal = selectedVendorRow.costAmount + extraTotal;
-            return (
-              <Stack spacing={2}>
-                {/* PO summary */}
-                <Stack direction="row" spacing={2} sx={{ p: 1.5, bgcolor: "grey.50", borderRadius: 2 }}>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="caption" color="text.secondary">Vendor</Typography>
-                    <Typography variant="body2" fontWeight={700}>{selectedVendorRow.vendorName}</Typography>
-                  </Box>
-                  <Box sx={{ flex: 1 }}>
-                    <Typography variant="caption" color="text.secondary">Step / Job</Typography>
-                    <Typography variant="body2" fontWeight={700}>{selectedVendorRow.stepLabel}</Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Base Cost</Typography>
-                    <Typography variant="body2" fontWeight={700} color="error.dark">
-                      {money(selectedVendorRow.costAmount)}
-                    </Typography>
-                  </Box>
-                </Stack>
-
-                {/* Extra charges */}
-                <Box>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Typography variant="subtitle2" fontWeight={700}>Additional Charges</Typography>
-                    <Button size="small" startIcon={<AddIcon />} onClick={addExtraCharge}
-                      sx={{ textTransform: "none" }}>
-                      Add
-                    </Button>
-                  </Stack>
-
-                  {vendorExtraCharges.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                      No additional charges. Click "Add" to add freight, packing, etc.
-                    </Typography>
-                  ) : (
-                    <Stack spacing={1}>
-                      {vendorExtraCharges.map((charge, idx) => (
-                        <Stack key={idx} direction="row" spacing={1} alignItems="center">
-                          <TextField
-                            size="small"
-                            label="Label (e.g. Freight)"
-                            value={charge.label}
-                            onChange={(e) => updateExtraCharge(idx, "label", e.target.value)}
-                            sx={{ flex: 2 }}
-                          />
-                          <TextField
-                            size="small"
-                            label="Amount"
-                            type="number"
-                            value={charge.amount}
-                            onChange={(e) => updateExtraCharge(idx, "amount", e.target.value)}
-                            sx={{ flex: 1 }}
-                            inputProps={{ min: 0 }}
-                          />
-                          <IconButton size="small" color="error" onClick={() => removeExtraCharge(idx)}>
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </Stack>
-                      ))}
-                    </Stack>
-                  )}
-                </Box>
-
-                <Divider />
-
-                {/* Grand total */}
-                <Stack direction="row" justifyContent="space-between" alignItems="center"
-                  sx={{ px: 1.5, py: 1, bgcolor: "error.50", borderRadius: 2 }}>
-                  <Typography variant="subtitle2" fontWeight={700}>Grand Total</Typography>
-                  <Typography variant="h6" fontWeight={900} color="error.dark">
-                    {money(grandTotal)}
-                  </Typography>
-                </Stack>
-              </Stack>
-            );
-          })()}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => { setVendorEditOpen(false); setSelectedVendorRow(null); }}
-            sx={{ textTransform: "none" }}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained" color="error"
-            onClick={handleVendorEditSave}
-            disabled={vendorSaving}
-            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
-          >
-            {vendorSaving ? "Saving…" : "Save PO"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       {/* OrderUpdate modal */}
       <Dialog
         open={orderUpdateOpen}
@@ -1158,6 +1086,196 @@ export default function AllDelivery() {
             onOrderReplaced={(full) => upsertOrderReplace(full)}
           />
         </DialogContent>
+      </Dialog>
+
+      {/* PO Edit Dialog */}
+      <Dialog open={editPOOpen} onClose={() => setEditPOOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          PO #{editPO?.PO_Number} — {editPO?.Vendor_name || ""}
+          <Box sx={{ flex: 1 }} />
+          <IconButton onClick={() => setEditPOOpen(false)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {/* Items table */}
+            {Array.isArray(editPO?.Items) && editPO.Items.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Items</Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>Item Name</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Rate</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Amount</TableCell>
+                        <TableCell sx={{ width: 44 }} />
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {editPO.Items.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <TextField
+                              size="small" fullWidth variant="standard"
+                              value={item.itemName || item.Item || ""}
+                              onChange={(e) => {
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, itemName: e.target.value } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <TextField
+                              size="small" type="number" variant="standard"
+                              inputProps={{ min: 0, style: { textAlign: "center" } }}
+                              value={item.qty ?? item.Quantity ?? 0}
+                              onChange={(e) => {
+                                const qty = Number(e.target.value);
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, qty, amount: qty * Number(it.rate ?? it.Rate ?? 0) } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                              sx={{ width: 64 }}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <TextField
+                              size="small" type="number" variant="standard"
+                              inputProps={{ min: 0, style: { textAlign: "center" } }}
+                              value={item.rate ?? item.Rate ?? 0}
+                              onChange={(e) => {
+                                const rate = Number(e.target.value);
+                                const items = editPO.Items.map((it, i) =>
+                                  i === idx ? { ...it, rate, amount: rate * Number(it.qty ?? it.Quantity ?? 0) } : it
+                                );
+                                setEditPO((p) => ({ ...p, Items: items }));
+                              }}
+                              sx={{ width: 64 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight={700} color="error.dark">
+                              {money((item.amount ?? item.Amount ?? 0))}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="Remove item">
+                              <IconButton
+                                size="small" color="error"
+                                onClick={() => setEditPO((p) => ({ ...p, Items: p.Items.filter((_, i) => i !== idx) }))}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {/* Additional Charges */}
+            <Box>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700}>Additional Charges</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addPOExtraCharge}
+                  sx={{ textTransform: "none" }}>
+                  Add
+                </Button>
+              </Stack>
+              {editPOExtraCharges.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 0.5 }}>
+                  No additional charges. Click "Add" to add freight, packing, etc.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {editPOExtraCharges.map((charge, idx) => (
+                    <Stack key={idx} direction="row" spacing={1} alignItems="center">
+                      <TextField
+                        size="small"
+                        label="Label (e.g. Freight)"
+                        value={charge.label}
+                        onChange={(e) => updatePOExtraCharge(idx, "label", e.target.value)}
+                        sx={{ flex: 2 }}
+                      />
+                      <TextField
+                        size="small"
+                        label="Amount"
+                        type="number"
+                        value={charge.amount}
+                        onChange={(e) => updatePOExtraCharge(idx, "amount", e.target.value)}
+                        sx={{ flex: 1 }}
+                        inputProps={{ min: 0 }}
+                      />
+                      <IconButton size="small" color="error" onClick={() => removePOExtraCharge(idx)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+
+            {/* Grand Total */}
+            {(() => {
+              const itemsTotal = Array.isArray(editPO?.Items)
+                ? editPO.Items.reduce((s, it) => s + Number(it.amount ?? it.Amount ?? 0), 0)
+                : Number(editPO?.totalAmount || 0);
+              const extrasTotal = editPOExtraCharges.reduce((s, c) => s + Number(c.amount || 0), 0);
+              return (
+                <Stack direction="row" justifyContent="space-between" alignItems="center"
+                  sx={{ px: 1.5, py: 1, bgcolor: "error.50", borderRadius: 2 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>Grand Total</Typography>
+                  <Typography variant="h6" fontWeight={900} color="error.dark">
+                    {money(itemsTotal + extrasTotal)}
+                  </Typography>
+                </Stack>
+              );
+            })()}
+
+            {/* Status */}
+            <FormControl size="small" sx={{ maxWidth: 200 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={editPO?.status || "draft"}
+                label="Status"
+                onChange={(e) => setEditPO((p) => ({ ...p, status: e.target.value }))}
+              >
+                <MenuItem value="draft">Draft</MenuItem>
+                <MenuItem value="sent">Sent</MenuItem>
+                <MenuItem value="received">Received</MenuItem>
+                <MenuItem value="cancelled">Cancelled</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Notes */}
+            <TextField
+              label="Notes"
+              size="small"
+              fullWidth
+              multiline
+              rows={2}
+              value={editPO?.notes || ""}
+              onChange={(e) => setEditPO((p) => ({ ...p, notes: e.target.value }))}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button variant="outlined" onClick={() => setEditPOOpen(false)}
+            sx={{ textTransform: "none" }}>
+            Cancel
+          </Button>
+          <Button variant="contained" color="error" onClick={handleSavePO}
+            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}>
+            Save PO
+          </Button>
+        </DialogActions>
       </Dialog>
     </>
   );

@@ -159,8 +159,14 @@ router.put('/:id', async (req, res) => {
     if (Array.isArray(req.body.Items)) po.Items = normalizeItems(req.body.Items);
     if (typeof req.body.notes !== 'undefined') po.notes = String(req.body.notes || '');
     if (req.body.expectedDelivery) po.expectedDelivery = new Date(req.body.expectedDelivery);
+    if (req.body.poDate) po.poDate = new Date(req.body.poDate);
     if (req.body.status && ['draft', 'sent', 'received', 'cancelled'].includes(req.body.status)) {
       po.status = req.body.status;
+    }
+    if (Array.isArray(req.body.extraCharges)) {
+      po.extraCharges = req.body.extraCharges
+        .filter((c) => c.label && Number(c.amount) > 0)
+        .map((c) => ({ label: String(c.label).trim(), amount: Number(c.amount) }));
     }
 
     const saved = await po.save();

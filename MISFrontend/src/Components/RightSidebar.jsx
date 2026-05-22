@@ -25,6 +25,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { ROUTES } from '../constants/routes';
+import { useNavCustomize, isRightActionVisible, isRightLinkVisible } from '../hooks/useNavCustomize';
 
 const NAVBAR_HEIGHT = 64;
 const RIGHT_SIDEBAR_WIDTH = 80;
@@ -102,6 +103,7 @@ export default function RightSidebar({ onCustomize, openUpi }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
+  const { prefs } = useNavCustomize();
 
   const isSelected = (path) =>
     Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
@@ -150,9 +152,12 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_DELIVERY },
   ];
 
+  const visibleActions = quickActions.filter((a) => isRightActionVisible(prefs, a.label));
+  const visibleLinks = quickLinks.filter((l) => isRightLinkVisible(prefs, l.label));
+
   return (
     <Box
-      sx={{
+      sx={(t) => ({
         position: 'fixed',
         top: 0,
         right: 0,
@@ -161,17 +166,18 @@ export default function RightSidebar({ onCustomize, openUpi }) {
         display: { xs: 'none', lg: 'flex' },
         flexDirection: 'column',
         bgcolor: 'background.paper',
-        borderLeft: (t) => `1px solid ${t.palette.divider}`,
+        borderLeft: `1px solid ${t.palette.divider}`,
+        boxShadow: '-2px 0 12px rgba(0,0,0,0.04)',
         zIndex: 1100,
         overflow: 'hidden',
-      }}
+      })}
     >
       <Box sx={{ height: NAVBAR_HEIGHT, flexShrink: 0 }} />
 
       <Box sx={{ px: 0.75, pt: 1, pb: 0.5, flexShrink: 0 }}>
         <SectionLabel>Actions</SectionLabel>
         <Stack spacing={0.25}>
-          {quickActions.map((a) => (
+          {visibleActions.map((a) => (
             <RailItem key={a.label} icon={a.icon} label={a.label} onClick={a.onClick} accent={a.accent} />
           ))}
         </Stack>
@@ -182,7 +188,7 @@ export default function RightSidebar({ onCustomize, openUpi }) {
       <Box sx={{ px: 0.75, py: 0.5, flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         <SectionLabel>Links</SectionLabel>
         <Stack spacing={0.25}>
-          {quickLinks.map((l) => (
+          {visibleLinks.map((l) => (
             <RailItem
               key={l.label}
               icon={l.icon}

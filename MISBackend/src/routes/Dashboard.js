@@ -54,20 +54,42 @@ router.get('/bank-book-summary', async (_req, res) => {
     const now = new Date();
     const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
-    const txns = await Transaction.find({ Transaction_date: { $gte: fyStart } }).lean();
-    let total = 0;
-    for (const txn of txns) {
-      for (const entry of (txn.Journal_entry || [])) {
-        const acct = String(entry.Account_id || entry.Account || '').trim();
-        if (acct.toLowerCase() === 'bank') {
-          if (String(entry.Type).toLowerCase() === 'debit') total += Number(entry.Amount || 0);
-          else total -= Number(entry.Amount || 0);
+
+    const result = await Transaction.aggregate([
+      { $match: { Transaction_date: { $gte: fyStart } } },
+      { $unwind: '$Journal_entry' },
+      {
+        $addFields: {
+          acctKey: {
+            $toLower: {
+              $trim: {
+                input: { $toString: { $ifNull: ['$Journal_entry.Account_id', { $ifNull: ['$Journal_entry.Account', ''] }] } }
+              }
+            }
+          }
+        }
+      },
+      { $match: { acctKey: 'bank' } },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: { $toString: '$Journal_entry.Type' } }, 'debit'] },
+                { $ifNull: ['$Journal_entry.Amount', 0] },
+                { $multiply: [-1, { $ifNull: ['$Journal_entry.Amount', 0] }] }
+              ]
+            }
+          }
         }
       }
-    }
-    res.json({ closingBalance: total, lastTransactionTime: new Date() });
+    ]);
+
+    res.json({ closingBalance: result[0]?.total || 0, lastTransactionTime: new Date() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('bank-book-summary error:', err);
+    res.status(500).json({ success: false, message: 'Failed to load bank book summary' });
   }
 });
 
@@ -76,28 +98,63 @@ router.get('/trial-balance', async (_req, res) => {
     const now = new Date();
     const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const fyStart = new Date(`${fyYear}-04-01T00:00:00.000Z`);
-    const txns = await Transaction.find({ Transaction_date: { $gte: fyStart } }).lean();
-    const map = {};
-    for (const txn of txns) {
-      for (const entry of (txn.Journal_entry || [])) {
-        const acct = String(entry.Account_id || entry.Account || '').trim();
-        if (!acct) continue;
-        if (!map[acct]) map[acct] = { accountName: acct, totalDebit: 0, totalCredit: 0 };
-        const amt = Number(entry.Amount || 0);
-        if (String(entry.Type).toLowerCase() === 'debit') map[acct].totalDebit += amt;
-        else map[acct].totalCredit += amt;
-      }
-    }
-    const accounts = Object.values(map).sort((a, b) => a.accountName.localeCompare(b.accountName));
+
+    const accounts = await Transaction.aggregate([
+      { $match: { Transaction_date: { $gte: fyStart } } },
+      { $unwind: '$Journal_entry' },
+      {
+        $addFields: {
+          acctKey: {
+            $trim: {
+              input: { $toString: { $ifNull: ['$Journal_entry.Account_id', { $ifNull: ['$Journal_entry.Account', ''] }] } }
+            }
+          }
+        }
+      },
+      { $match: { acctKey: { $ne: '' } } },
+      {
+        $group: {
+          _id: '$acctKey',
+          accountName: { $first: '$acctKey' },
+          totalDebit: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: { $toString: '$Journal_entry.Type' } }, 'debit'] },
+                { $ifNull: ['$Journal_entry.Amount', 0] },
+                0
+              ]
+            }
+          },
+          totalCredit: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $toLower: { $toString: '$Journal_entry.Type' } }, 'credit'] },
+                { $ifNull: ['$Journal_entry.Amount', 0] },
+                0
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { accountName: 1 } },
+      { $project: { _id: 0, accountName: 1, totalDebit: 1, totalCredit: 1 } }
+    ]);
+
     res.json({ accounts });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error('trial-balance error:', err);
+    res.status(500).json({ success: false, message: 'Failed to load trial balance' });
   }
 });
+
+const VALID_PERIODS = ['today', 'week', 'month'];
 
 router.get('/:period', async (req, res) => {
   try {
     const period = String(req.params.period || 'today').toLowerCase();
+    if (!VALID_PERIODS.includes(period)) {
+      return res.status(400).json({ success: false, message: `Invalid period. Use one of: ${VALID_PERIODS.join(', ')}` });
+    }
     const { from, to } = getRange(period);
 
     const [ordersCount, deliveredCount, txAgg] = await Promise.all([

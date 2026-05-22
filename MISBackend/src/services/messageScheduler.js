@@ -232,6 +232,28 @@ function initTaskDigestScheduler() {
   }, 60 * 1000);
 }
 
+let lastAutoPORun = '';
+
+function initAutoPOScheduler() {
+  setInterval(async () => {
+    const now = new Date();
+    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const key = ist.toISOString().slice(0, 10);
+    const hour = ist.getHours();
+    const minute = ist.getMinutes();
+    if (hour === 12 && minute === 0 && lastAutoPORun !== key) {
+      lastAutoPORun = key;
+      try {
+        const { autoPurchaseOrdersFromDrive } = require('../routes/DesignFiles');
+        const results = await autoPurchaseOrdersFromDrive();
+        logger.info({ count: results.length }, '[auto-po] Daily 12 PM run complete');
+      } catch (err) {
+        logger.error({ err: err.message }, '[auto-po] Daily 12 PM run failed');
+      }
+    }
+  }, 60 * 1000);
+}
+
 module.exports = {
   initScheduler,
   scheduleMessage,
@@ -240,4 +262,5 @@ module.exports = {
   sendDigestToAllUsers,
   initTaskDigestScheduler,
   sendOwnerDailySummary,
+  initAutoPOScheduler,
 };

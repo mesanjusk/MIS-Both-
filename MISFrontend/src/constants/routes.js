@@ -48,7 +48,7 @@ export const ROUTES = {
   VENDOR_DETAILS: '/vendors/:id',
 
   WHATSAPP: '/whatsapp',
-  WHATSAPP_CLOUD: '/whatsapp',
+  WHATSAPP_CLOUD: '/whatsapp-cloud',
   WHATSAPP_SEND: '/whatsapp/send',
   WHATSAPP_BULK: '/whatsapp/bulk',
   WHATSAPP_LEGACY_HOME: '/WhatsAppHome',
@@ -99,6 +99,9 @@ export const ROUTES = {
   PRIORITY_REPORT: '/priorityReport',
   CALL_LOGS: '/calllogs',
   FLOW_BUILDER: '/flow-builder',
+
+  // SOP
+  SOP: '/sop',
 
   // Admin
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',

@@ -17,7 +17,7 @@ const AllTransaction3 = () => {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
-  const [sortConfig, setSortConfig] = useState({ key: '', direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'Transaction_date', direction: 'asc' });
   const [filterType, setFilterType] = useState("All");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -106,8 +106,8 @@ const AllTransaction3 = () => {
       if (!startDate || txDate < new Date(startDate)) {
         (transaction.Journal_entry || []).forEach(entry => {
           if (entry.Account_id === customerUuid) {
-            if (entry.Type === 'Credit') acc += entry.Amount || 0;
-            if (entry.Type === 'Debit') acc -= entry.Amount || 0;
+            if (entry.Type === 'Debit') acc += entry.Amount || 0;
+            if (entry.Type === 'Credit') acc -= entry.Amount || 0;
           }
         });
       }
@@ -172,7 +172,7 @@ const AllTransaction3 = () => {
       },
       { debit: 0, credit: 0 }
     );
-    totals.total = openingBalance + totals.credit - totals.debit;
+    totals.total = openingBalance + totals.debit - totals.credit;
     return totals;
   };
 
@@ -382,8 +382,8 @@ const AllTransaction3 = () => {
                     (transaction.Journal_entry || [])
                       .filter(entry => entry.Account_id === customerUuid)
                       .map((entry, entryIndex) => {
-                        if (entry.Type === 'Debit') runningBalance -= entry.Amount || 0;
-                        if (entry.Type === 'Credit') runningBalance += entry.Amount || 0;
+                        if (entry.Type === 'Debit') runningBalance += entry.Amount || 0;
+                        if (entry.Type === 'Credit') runningBalance -= entry.Amount || 0;
 
                         const secondEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
                         const secondCustomerName = secondEntry

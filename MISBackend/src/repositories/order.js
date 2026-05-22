@@ -187,6 +187,8 @@ const OrdersSchema = new mongoose.Schema(
     billPaidNote: { type: String, default: null },
     billPaidTxnUuid: { type: String, default: null },
     billPaidTxnId: { type: Number, default: null },
+    invoiceTxnUuid: { type: String, default: null },
+    invoiceTxnId: { type: Number, default: null },
     deliveryNotifiedAt: { type: Date, default: null },
     stage: {
       type: String,

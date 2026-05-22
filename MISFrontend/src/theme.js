@@ -3,14 +3,14 @@ import { alpha, createTheme } from '@mui/material/styles';
 export const THEME_PRESETS = {
   mint: {
     label: 'Pastel Green',
-    primary: '#2E9E6B',
-    primaryDark: '#1E7A52',
-    primaryLight: '#5DC491',
-    secondary: '#5A9E82',
-    background: '#FFFFFF',
-    paper: '#FFFFFF',
-    surface: '#F5FCF8',
-    border: '#C8E8D6',
+    primary: '#16a34a',
+    primaryDark: '#15803d',
+    primaryLight: '#4ade80',
+    secondary: '#0d9488',
+    background: '#f9fffe',
+    paper: '#ffffff',
+    surface: '#f0fdf4',
+    border: '#d1fae5',
   },
   rose: {
     label: 'Rose Petal',
@@ -142,7 +142,7 @@ export function createAppTheme(themeKey = 'mint') {
         styleOverrides: {
           root: {
             border: `1px solid ${preset.border}`,
-            boxShadow: '0 1px 6px rgba(15,23,42,0.05)',
+            boxShadow: '0 1px 8px rgba(15,23,42,0.05), 0 1px 2px rgba(15,23,42,0.04)',
             backgroundImage: 'none',
           },
         },
@@ -217,17 +217,20 @@ export function createAppTheme(themeKey = 'mint') {
         styleOverrides: {
           root: {
             borderTop: `1px solid ${preset.border}`,
-            backgroundColor: alpha('#ffffff', 0.98),
-            backdropFilter: 'blur(12px)',
-            height: 60,
+            backgroundColor: 'transparent',
+            height: 64,
           },
         },
       },
       MuiBottomNavigationAction: {
         styleOverrides: {
           root: {
-            minWidth: 56,
+            minWidth: 48,
             '&.Mui-selected': { color: preset.primary },
+            '& .MuiBottomNavigationAction-label': {
+              fontSize: '0.65rem',
+              fontWeight: 600,
+            },
           },
         },
       },

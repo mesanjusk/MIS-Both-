@@ -5,7 +5,7 @@
 const { AppSetting } = require('../repositories/appSetting');
 
 const PROVIDER_KEY     = 'whatsapp_provider';
-const DEFAULT_PROVIDER = 'official';
+const DEFAULT_PROVIDER = 'baileys';
 
 async function getWhatsAppProvider() {
   try {

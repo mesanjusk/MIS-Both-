@@ -1,4 +1,13 @@
 require("dotenv").config();
+
+// Validate required environment variables before anything else starts
+const REQUIRED_ENV_VARS = ['MONGO_URI', 'ACCESS_TOKEN_SECRET'];
+const missingEnvVars = REQUIRED_ENV_VARS.filter((key) => !process.env[key]);
+if (missingEnvVars.length > 0) {
+  console.error(`[startup] Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  process.exit(1);
+}
+
 const express = require("express");
 const cors = require("cors");
 const mongoSanitize = require('express-mongo-sanitize');
@@ -58,7 +67,7 @@ const WorkflowTemplate = require("./routes/workflowTemplate");
 const PurchaseOrder = require("./routes/PurchaseOrder");
 const Scheduler = require("./routes/Scheduler");
 const Stock = require("./routes/Stock");
-const { initScheduler, initTaskDigestScheduler } = require("./services/messageScheduler");
+const { initScheduler, initTaskDigestScheduler, initAutoPOScheduler } = require("./services/messageScheduler");
 const { getAnalytics } = require("./controllers/whatsappController");
 const { initSocket } = require("./socket");
 const BaileysRouter = require("./routes/Baileys");
@@ -66,6 +75,8 @@ const DiaryDraft = require("./routes/DiaryDraft");
 const BankStatement = require("./routes/BankStatement");
 const Gmail = require("./routes/Gmail");
 const AccountsRouter = require("./routes/Accounts");
+const SopRouter = require("./routes/sop");
+const { seedUserGroups } = require("./services/sopService");
 
 const app = express();
 const server = http.createServer(app);
@@ -128,6 +139,7 @@ app.use("/api/stock", Stock);
 app.use("/api/diary", DiaryDraft);
 app.use("/api/bank-statement", BankStatement);
 app.use("/api/accounts", AccountsRouter);
+app.use("/api/sop", SopRouter);
 app.use("/api/google-drive", googleDriveOAuthRoutes);
 app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
@@ -157,6 +169,7 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   await connectDB();
   initScheduler();
   initTaskDigestScheduler();
+  initAutoPOScheduler();
 
   // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
   try {
@@ -186,6 +199,11 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   } catch (migErr) {
     logger.error({ err: migErr.message }, '[migration] Opening balance UUID fix failed');
   }
+
+  // Seed new office user groups if they don't exist
+  seedUserGroups().catch((err) =>
+    logger.error({ err: err.message }, '[sop] User group seed failed')
+  );
 
   // ── Baileys auto-connect ──────────────────────────────────────────────────
   // If saved WhatsApp Web credentials exist in MongoDB, reconnect automatically

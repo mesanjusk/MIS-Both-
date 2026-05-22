@@ -16,6 +16,7 @@ import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import ChecklistRoundedIcon from '@mui/icons-material/ChecklistRounded';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
@@ -23,7 +24,7 @@ import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSetting
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
-const OFFICE_ROLES = ['Admin', 'Owner', 'Designer', 'DataEntry', 'OfficeStaff'];
+const OFFICE_ROLES = ['Admin', 'Owner', 'Designer', 'DataEntry', 'OfficeStaff', 'OfficeAdmin', 'OfficeDesign', 'OfficeMarketing'];
 const ACCOUNT_ROLES = ['Admin', 'Owner', 'Accounts'];
 
 export const SIDEBAR_GROUPS = [
@@ -52,7 +53,6 @@ export const SIDEBAR_GROUPS = [
       { label: 'Post-Print Jobs', path: ROUTES.POST_PRINTING_JOBS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Operations Center', path: ROUTES.BUSINESS_CONTROL, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Deliveries', path: ROUTES.REPORTS_DELIVERY, icon: <LocalShippingRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'] },
-      { label: 'Delivery Report', path: ROUTES.REPORTS_DELIVERY, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Bills Report', path: ROUTES.REPORTS_BILLS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
     ],
   },
@@ -122,13 +122,19 @@ export const SIDEBAR_GROUPS = [
       { label: 'Session', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Login', path: ROUTES.WHATSAPP_LOGIN_PAGE, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Flow Builder', path: ROUTES.FLOW_BUILDER, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, adminOnly: true },
-      { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {
     label: 'Call Logs',
     items: [
       { label: 'Call Logs', path: ROUTES.CALL_LOGS, icon: <PhoneRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+    ],
+  },
+  {
+    label: 'SOP',
+    items: [
+      { label: 'SOP Tasks', path: ROUTES.SOP, icon: <ChecklistRoundedIcon fontSize="small" />, roles: ['all'] },
     ],
   },
   {

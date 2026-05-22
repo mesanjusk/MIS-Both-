@@ -27,7 +27,7 @@ const API_ENDPOINTS = {
   ORDERS: "/api/orders/GetOrderList",
   CUSTOMERS: "/api/customers/GetCustomersList",
   TASK_GROUPS: "/api/taskgroup/GetTaskgroupList",
-  UPDATE_STATUS: "/order/updateStatus",
+  UPDATE_STATUS: "/api/orders/updateStatus",
 };
 
 const CLOSED_TASKS = new Set([

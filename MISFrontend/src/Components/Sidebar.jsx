@@ -24,6 +24,7 @@ import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRound
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { ROUTES } from '../constants/routes';
+import { useNavCustomize, isLeftItemVisible } from '../hooks/useNavCustomize';
 
 const DRAWER_WIDTH = 240;
 
@@ -33,6 +34,9 @@ const normalizeRoleKey = (value = '') => {
   if (['designer'].includes(text)) return 'Designer';
   if (['dataentry', 'dataentryuser'].includes(text)) return 'DataEntry';
   if (['officestaff', 'officeuser', 'otheroffice'].includes(text)) return 'OfficeStaff';
+  if (['officeadmin'].includes(text)) return 'OfficeAdmin';
+  if (['officedesign'].includes(text)) return 'OfficeDesign';
+  if (['officemarketing'].includes(text)) return 'OfficeMarketing';
   if (['accounts', 'accountant', 'accountsuser'].includes(text)) return 'Accounts';
   return value || 'User';
 };
@@ -49,24 +53,10 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
   const { clearAuth, userName, permissions } = useAuth();
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
   const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
+  const { prefs } = useNavCustomize();
   const [openGroups, setOpenGroups] = useState(() =>
     Object.fromEntries(SIDEBAR_GROUPS.map((group) => [group.label, true])),
   );
-
-  const sidebarColors = useMemo(() => {
-    const text = theme.palette.primary.contrastText || '#ffffff';
-    return {
-      bg: theme.palette.primary.dark || theme.palette.primary.main,
-      accent: theme.palette.primary.light || theme.palette.primary.main,
-      text,
-      textSoft: alpha(text, 0.86),
-      textMuted: alpha(text, 0.68),
-      border: alpha(text, 0.12),
-      surface: alpha(text, 0.08),
-      selected: alpha(text, 0.16),
-      hover: alpha(text, 0.1),
-    };
-  }, [theme]);
 
   const groups = useMemo(
     () =>
@@ -74,10 +64,12 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
         .filter((group) => allowedGroups.length === 0 || allowedGroups.includes(group.label))
         .map((group) => ({
           ...group,
-          items: group.items.filter((item) => canShowItem(item, roleKey)),
+          items: group.items.filter(
+            (item) => canShowItem(item, roleKey) && isLeftItemVisible(prefs, item.path),
+          ),
         }))
         .filter((group) => group.items.length),
-    [roleKey, allowedGroups],
+    [roleKey, allowedGroups, prefs],
   );
 
   const handleNavigate = (path) => {
@@ -103,28 +95,37 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
   const isSelected = (path) => Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
 
   const drawerContent = (
-    <Stack sx={{ height: '100%', bgcolor: sidebarColors.bg, color: sidebarColors.text }}>
-      {/* Header */}
-      <Box sx={{ p: 1.5 }}>
-        <Stack direction="row" alignItems="center" spacing={1.1}>
+    <Stack sx={{ height: '100%', bgcolor: 'background.paper' }}>
+      {/* ── Header ── */}
+      <Box
+        sx={{
+          px: 2,
+          pt: 2,
+          pb: 1.75,
+          background: `linear-gradient(160deg, ${alpha(theme.palette.primary.main, 0.06)} 0%, transparent 80%)`,
+          borderBottom: `1px solid ${theme.palette.divider}`,
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.25} sx={{ mb: 1.5 }}>
           <Avatar
             sx={{
-              bgcolor: alpha(sidebarColors.text, 0.94),
-              color: sidebarColors.bg,
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
+              bgcolor: alpha(theme.palette.primary.main, 0.12),
+              color: theme.palette.primary.main,
               fontWeight: 900,
-              fontSize: '0.9rem',
+              fontSize: '1rem',
+              border: `2px solid ${alpha(theme.palette.primary.main, 0.2)}`,
             }}
           >
             {(userName || 'U').slice(0, 1).toUpperCase()}
           </Avatar>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2" fontWeight={800} color={sidebarColors.text} noWrap>
+            <Typography variant="subtitle2" fontWeight={800} color="text.primary" noWrap>
               SK Digital MIS
             </Typography>
-            <Typography variant="caption" color={sidebarColors.textSoft} noWrap>
-              {roleKey} • {new Date().toLocaleDateString('en-IN')}
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {roleKey} &bull; {userName || '—'}
             </Typography>
           </Box>
         </Stack>
@@ -136,38 +137,52 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
           startIcon={<AddShoppingCartRoundedIcon fontSize="small" />}
           onClick={() => handleNavigate(ROUTES.ORDERS_NEW)}
           sx={{
-            mt: 1.25,
-            bgcolor: sidebarColors.accent,
-            color: sidebarColors.bg,
+            background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+            color: '#fff',
             fontWeight: 700,
-            '&:hover': { bgcolor: alpha(sidebarColors.accent, 0.86) },
+            borderRadius: 2,
+            minHeight: 34,
+            fontSize: '0.8rem',
+            boxShadow: `0 4px 14px ${alpha(theme.palette.primary.main, 0.28)}`,
+            '&:hover': {
+              background: `linear-gradient(135deg, ${theme.palette.primary.dark} 0%, ${theme.palette.primary.dark} 100%)`,
+              boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.4)}`,
+            },
           }}
         >
-          New Order
+          + New Order
         </Button>
       </Box>
 
-      <Divider sx={{ borderColor: sidebarColors.border }} />
-
-      {/* Nav groups */}
-      <List sx={{ py: 0.75, px: 0.75, overflowY: 'auto', flexGrow: 1 }}>
+      {/* ── Navigation ── */}
+      <List sx={{ py: 1, px: 0.75, overflowY: 'auto', flexGrow: 1 }}>
         {groups.map((group) => (
-          <Box key={group.label} sx={{ mb: 0.85 }}>
+          <Box key={group.label} sx={{ mb: 0.5 }}>
             <ListItemButton
               onClick={() => toggleGroup(group.label)}
-              sx={{ minHeight: 30, borderRadius: 2, '&:hover': { bgcolor: sidebarColors.hover } }}
+              sx={{
+                minHeight: 26,
+                borderRadius: 1.5,
+                px: 1,
+                '&:hover': { bgcolor: 'transparent' },
+              }}
             >
               <ListItemText
                 primary={group.label}
                 primaryTypographyProps={{
                   variant: 'caption',
                   fontWeight: 800,
-                  sx: { letterSpacing: 0.45, textTransform: 'uppercase', color: sidebarColors.textMuted },
+                  sx: {
+                    letterSpacing: 0.7,
+                    textTransform: 'uppercase',
+                    color: 'text.disabled',
+                    fontSize: '0.62rem',
+                  },
                 }}
               />
               {openGroups[group.label]
-                ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />
-                : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />}
+                ? <ExpandLessRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />
+                : <ExpandMoreRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
             </ListItemButton>
 
             <Collapse in={openGroups[group.label]} timeout="auto" unmountOnExit={false}>
@@ -180,36 +195,51 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
                     onClick={() => handleNavigate(item.path)}
                     sx={{
                       minHeight: 38,
-                      ml: 0.5,
-                      mb: 0.4,
-                      borderRadius: 2,
-                      color: selected ? sidebarColors.text : sidebarColors.textSoft,
+                      borderRadius: 1.75,
+                      mb: 0.2,
+                      pl: 1.25,
+                      borderLeft: `3px solid ${selected ? theme.palette.primary.main : 'transparent'}`,
+                      transition: 'all 0.15s',
                       '&.Mui-selected': {
-                        bgcolor: sidebarColors.selected,
-                        color: sidebarColors.text,
-                        boxShadow: `inset 0 0 0 1px ${alpha(sidebarColors.text, 0.1)}`,
+                        bgcolor: alpha(theme.palette.primary.main, 0.08),
+                        '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.12) },
                       },
-                      '&.Mui-selected:hover': { bgcolor: alpha(sidebarColors.text, 0.22) },
-                      '&:hover': { bgcolor: sidebarColors.hover },
+                      '&:hover': {
+                        bgcolor: alpha(theme.palette.primary.main, 0.04),
+                      },
                     }}
                   >
-                    <ListItemIcon sx={{ minWidth: 30, color: selected ? sidebarColors.accent : alpha(sidebarColors.text, 0.78) }}>
+                    <ListItemIcon
+                      sx={{
+                        minWidth: 30,
+                        color: selected ? theme.palette.primary.main : 'text.secondary',
+                        '& svg': { fontSize: '1.1rem' },
+                      }}
+                    >
                       {item.icon}
                     </ListItemIcon>
                     <ListItemText
                       primary={item.label}
-                      primaryTypographyProps={{ variant: 'body2', fontWeight: 700, noWrap: true, sx: { fontSize: '0.78rem' } }}
+                      primaryTypographyProps={{
+                        variant: 'body2',
+                        fontWeight: selected ? 700 : 500,
+                        noWrap: true,
+                        sx: {
+                          fontSize: '0.8rem',
+                          color: selected ? theme.palette.primary.main : 'text.primary',
+                        },
+                      }}
                     />
                     {item.badge ? (
                       <Chip
                         label={item.badge}
                         size="small"
                         sx={{
-                          height: 18,
-                          fontSize: '0.62rem',
+                          height: 17,
+                          fontSize: '0.6rem',
                           fontWeight: 800,
-                          bgcolor: alpha(sidebarColors.text, 0.14),
-                          color: sidebarColors.text,
+                          bgcolor: alpha(theme.palette.primary.main, 0.1),
+                          color: theme.palette.primary.main,
                         }}
                       />
                     ) : null}
@@ -221,17 +251,27 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
         ))}
       </List>
 
-      {/* Logout */}
-      <Box sx={{ p: 1 }}>
+      {/* ── Footer ── */}
+      <Box sx={{ p: 1.25, borderTop: `1px solid ${theme.palette.divider}` }}>
         <Button
           fullWidth
-          color="inherit"
           variant="outlined"
           startIcon={<LogoutRoundedIcon fontSize="small" />}
           onClick={handleLogout}
-          sx={{ borderColor: sidebarColors.border, color: sidebarColors.text, fontSize: '0.8rem' }}
+          sx={{
+            borderColor: theme.palette.divider,
+            color: 'text.secondary',
+            fontSize: '0.78rem',
+            borderRadius: 2,
+            minHeight: 34,
+            '&:hover': {
+              borderColor: theme.palette.error.light,
+              color: theme.palette.error.main,
+              bgcolor: alpha(theme.palette.error.main, 0.04),
+            },
+          }}
         >
-          Logout
+          Sign Out
         </Button>
       </Box>
     </Stack>
@@ -250,7 +290,8 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
           '& .MuiDrawer-paper': {
             width: DRAWER_WIDTH,
             overflowX: 'hidden',
-            borderRight: 'none',
+            borderRight: `1px solid ${theme.palette.divider}`,
+            boxShadow: '2px 0 12px rgba(0,0,0,0.04)',
           },
         }}
       >
@@ -263,7 +304,14 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
         open={mobileOpen}
         onClose={onCloseMobile}
         ModalProps={{ keepMounted: true }}
-        sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH, borderRight: 'none' } }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            borderRight: 'none',
+            boxShadow: '4px 0 24px rgba(0,0,0,0.12)',
+          },
+        }}
       >
         {drawerContent}
       </Drawer>

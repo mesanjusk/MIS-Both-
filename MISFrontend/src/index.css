@@ -3,19 +3,19 @@
 @tailwind utilities;
 
 :root {
-  --crm-primary: #2563eb;
-  --crm-primary-dark: #1e3a8a;
-  --crm-secondary: #0f766e;
-  --crm-accent: #14b8a6;
-  --crm-bg: #eef3f8;
-  --crm-bg-soft: #f8fafc;
+  --crm-primary: #16a34a;
+  --crm-primary-dark: #15803d;
+  --crm-secondary: #0d9488;
+  --crm-accent: #4ade80;
+  --crm-bg: #f9fffe;
+  --crm-bg-soft: #f0fdf4;
   --crm-surface: #ffffff;
-  --crm-surface-soft: #f8fafc;
-  --crm-border: #dbe5ef;
-  --crm-text: #0f172a;
-  --crm-muted: #64748b;
-  --crm-sidebar: #0b1220;
-  --crm-sidebar-2: #10243f;
+  --crm-surface-soft: #f9fffe;
+  --crm-border: #d1fae5;
+  --crm-text: #1a2332;
+  --crm-muted: #52687a;
+  --crm-sidebar: #ffffff;
+  --crm-sidebar-2: #f0fdf4;
   --wa-bg: #efeae2;
   --wa-panel: #ffffff;
   --wa-header: #f0f2f5;
@@ -37,6 +37,7 @@ body,
   height: 100%;
   background: var(--crm-bg);
   color: var(--crm-text);
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {

@@ -138,7 +138,7 @@ export default function OrderUpdate({
     if (!values.Order_uuid) return setNotes([]);
     let mounted = true;
     axios
-      .get(`/note/${values.Order_uuid}`)
+      .get(`/api/note/${values.Order_uuid}`)
       .then((res) => {
         if (!mounted) return;
         setNotes(res.data?.success ? res.data.result : []);
@@ -356,7 +356,7 @@ export default function OrderUpdate({
         },
       };
 
-      const res = await axios.post("/order/addStatus", payload);
+      const res = await axios.post("/api/orders/addStatus", payload);
       const success = Boolean(res?.data?.success);
 
       if (!success) {

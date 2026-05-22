@@ -6,7 +6,7 @@ const variantConfig = {
   primary: (theme) => ({ color: theme.palette.primary.main }),
   success: (theme) => ({ color: theme.palette.success.main }),
   warning: (theme) => ({ color: theme.palette.warning.dark }),
-  danger: (theme) => ({ color: theme.palette.error.main }),
+  danger:  (theme) => ({ color: theme.palette.error.main }),
 };
 
 export default function SummaryCard({ title, value, icon: Icon, variant = 'primary', trend, sx }) {
@@ -18,33 +18,42 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
         return {
           height: '100%',
           position: 'relative',
-          overflow: 'hidden',
+          overflow: 'visible',
           bgcolor: 'background.paper',
           border: `1px solid ${theme.palette.divider}`,
-          borderLeft: `4px solid ${cfg.color}`,
-          borderRadius: 2,
-          transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+          borderRadius: 3,
+          transition: 'transform 0.2s ease, box-shadow 0.2s ease',
           '&:hover': {
-            transform: 'translateY(-3px)',
-            boxShadow: `0 8px 24px ${alpha(cfg.color, 0.18)}`,
+            transform: 'translateY(-2px)',
+            boxShadow: `0 8px 28px ${alpha(cfg.color, 0.14)}`,
+          },
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 12,
+            right: 12,
+            height: 3,
+            borderRadius: '0 0 3px 3px',
+            background: cfg.color,
           },
           ...sx,
         };
       }}
     >
-      <Box sx={{ p: { xs: 1.5, md: 1.75 } }}>
+      <Box sx={{ p: { xs: 1.5, md: 1.75 }, pt: { xs: 1.75, md: 2 } }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
               component="span"
               sx={{
                 display: 'block',
-                fontSize: '0.65rem',
+                fontSize: '0.62rem',
                 textTransform: 'uppercase',
                 letterSpacing: 0.9,
-                fontWeight: 800,
+                fontWeight: 700,
                 color: 'text.secondary',
-                mb: 0.6,
+                mb: 0.5,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -54,7 +63,7 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
             </Typography>
             <Typography
               variant="h5"
-              sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.2 }}
+              sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.2, fontSize: { xs: '1rem', md: '1.1rem' } }}
               noWrap
             >
               {value}
@@ -70,9 +79,9 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
               sx={(theme) => {
                 const cfg = (variantConfig[variant] || variantConfig.primary)(theme);
                 return {
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2.5,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -82,7 +91,7 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
                 };
               }}
             >
-              <Icon sx={{ fontSize: 20 }} />
+              <Icon sx={{ fontSize: 19 }} />
             </Box>
           ) : null}
         </Stack>

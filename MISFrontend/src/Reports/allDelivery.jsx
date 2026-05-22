@@ -2,6 +2,7 @@ import toast from 'react-hot-toast';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { fetchDeliveredOrders } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
+import axios from "../apiClient.js";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -15,6 +16,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -46,6 +48,9 @@ import GridOnIcon from "@mui/icons-material/GridOn";
 import CloseIcon from "@mui/icons-material/Close";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import StorefrontIcon from "@mui/icons-material/Storefront";
+import EditIcon from "@mui/icons-material/Edit";
+import ReceiptIcon from "@mui/icons-material/Receipt";
+import EventIcon from "@mui/icons-material/Event";
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -71,11 +76,19 @@ export default function AllDelivery() {
   const [loading, setLoading] = useState(true);
   const [searchOrder, setSearchOrder] = useState("");
   const [filter, setFilter] = useState("");
-  const [selectedDate, setSelectedDate] = useState(todayISO); // default to today
+  const [selectedDate, setSelectedDate] = useState(todayISO);
 
   const [editOpen, setEditOpen] = useState(false);
   const [orderUpdateOpen, setOrderUpdateOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // Bulk selection state
+  const [selectedOrders, setSelectedOrders] = useState(new Set());
+  const [bulkDate, setBulkDate] = useState(todayISO);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
+  // Sidebar date picker
+  const [sidebarDateInput, setSidebarDateInput] = useState("");
 
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
@@ -248,32 +261,97 @@ export default function AllDelivery() {
   }, [filteredOrders]);
 
   const getFirstRemark = (o) =>
-    Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : "";
+    Array.isArray(o?.Items) && o.Items.length ? String(o.Items[0]?.Remark || "") : (o?.orderNote || "");
+
+  // Bulk selection handlers
+  const allCurrentIds = useMemo(() => dateOrders.map((o) => o._id || o.Order_uuid), [dateOrders]);
+  const allSelected = allCurrentIds.length > 0 && allCurrentIds.every((id) => selectedOrders.has(id));
+  const someSelected = selectedOrders.size > 0;
+
+  const handleSelectAll = useCallback((e) => {
+    if (e.target.checked) {
+      setSelectedOrders(new Set(allCurrentIds));
+    } else {
+      setSelectedOrders(new Set());
+    }
+  }, [allCurrentIds]);
+
+  const handleSelectOrder = useCallback((id) => {
+    setSelectedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleBulkDateUpdate = useCallback(async () => {
+    if (!bulkDate || selectedOrders.size === 0) return;
+    setBulkUpdating(true);
+    let successCount = 0;
+    let failCount = 0;
+    const selectedList = dateOrders.filter((o) => selectedOrders.has(o._id || o.Order_uuid));
+    await Promise.all(
+      selectedList.map(async (o) => {
+        const id = o._id || o.Order_uuid;
+        try {
+          await axios.put(`/order/updateOrder/${id}`, { Delivery_Date: bulkDate });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      })
+    );
+    setBulkUpdating(false);
+    setSelectedOrders(new Set());
+    if (successCount) toast.success(`Updated ${successCount} order(s)`);
+    if (failCount) toast.error(`Failed for ${failCount} order(s)`);
+  }, [bulkDate, selectedOrders, dateOrders]);
+
+  // Sidebar: jump to a typed date
+  const handleSidebarDateGo = () => {
+    if (sidebarDateInput) setSelectedDate(sidebarDateInput);
+  };
 
   const exportPDF = () => {
     const doc = new jsPDF();
-    doc.text("Delivered Orders Report", 14, 15);
+    doc.setFontSize(14);
+    doc.text("Delivery Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Date: ${selectedDate ? fmtDate(selectedDate) : "All Dates"}`, 14, 22);
     doc.autoTable({
-      head: [["#", "Customer", "Remark", "Amount", "Status"]],
+      head: [["#", "Customer", "Remark", "Amount", "Date"]],
       body: dateOrders.map((o) => [
         o.Order_Number || "",
         o.Customer_name || "",
-        getFirstRemark(o),
+        getFirstRemark(o) || "",
         money(o.totalAmount),
-        o.highestStatusTask?.Task || "",
+        fmtDate(o.createdAt),
       ]),
-      startY: 20,
+      startY: 27,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [34, 139, 34] },
     });
     if (vendorRows.length) {
       doc.addPage();
+      doc.setFontSize(14);
       doc.text("Vendor Purchases", 14, 15);
       doc.autoTable({
-        head: [["Order #", "Vendor", "Step", "Cost"]],
-        body: vendorRows.map((r) => [r.orderNumber, r.vendorName, r.stepLabel, money(r.costAmount)]),
+        head: [["Order #", "Customer", "Vendor", "Step / Job", "Cost"]],
+        body: vendorRows.map((r) => [
+          r.orderNumber,
+          r.customer || "",
+          r.vendorName,
+          r.stepLabel,
+          money(r.costAmount),
+        ]),
         startY: 20,
+        styles: { fontSize: 9 },
+        headStyles: { fillColor: [200, 50, 50] },
       });
     }
-    doc.save("delivery_report.pdf");
+    const datePart = selectedDate || "all";
+    doc.save(`delivery_report_${datePart}.pdf`);
   };
 
   const exportExcel = () => {
@@ -281,22 +359,27 @@ export default function AllDelivery() {
     const ws1 = XLSX.utils.json_to_sheet(dateOrders.map((o) => ({
       "Order #": o.Order_Number || "",
       Customer: o.Customer_name || "",
-      Remark: getFirstRemark(o),
+      Remark: getFirstRemark(o) || "",
       Amount: o.totalAmount,
-      Status: o.highestStatusTask?.Task || "",
+      "Item Count": Array.isArray(o.Items) ? o.Items.length : 0,
       Date: fmtDate(o.createdAt),
+      "Delivery Date": o.highestStatusTask?.Delivery_Date ? fmtDate(o.highestStatusTask.Delivery_Date) : "",
+      Status: o.highestStatusTask?.Task || "",
     })));
     XLSX.utils.book_append_sheet(wb, ws1, "Deliveries");
     if (vendorRows.length) {
       const ws2 = XLSX.utils.json_to_sheet(vendorRows.map((r) => ({
         "Order #": r.orderNumber,
+        Customer: r.customer || "",
         Vendor: r.vendorName,
-        Step: r.stepLabel,
+        "Step / Job": r.stepLabel,
         Cost: r.costAmount,
+        "Posting Status": r.isPosted ? "Posted" : "Pending",
       })));
       XLSX.utils.book_append_sheet(wb, ws2, "Vendor Purchases");
     }
-    XLSX.writeFile(wb, "delivery_report.xlsx");
+    const datePart = selectedDate || "all";
+    XLSX.writeFile(wb, `delivery_report_${datePart}.xlsx`);
   };
 
   const handleEditClick = (order) => {
@@ -319,15 +402,6 @@ export default function AllDelivery() {
   };
   const closeOrderUpdateModal = () => setOrderUpdateOpen(false);
 
-  const statusChip = (task) => {
-    const t = String(task || "").toLowerCase().trim();
-    if (!t) return <Chip size="small" label="—" variant="outlined" />;
-    if (t === "delivered") return <Chip size="small" label={task} color="success" />;
-    if (t === "design") return <Chip size="small" label={task} color="info" />;
-    if (t === "print") return <Chip size="small" label={task} color="warning" />;
-    return <Chip size="small" label={task} variant="outlined" />;
-  };
-
   const selectedLabel = selectedDate ? fmtDate(selectedDate) : "All Dates";
 
   return (
@@ -337,14 +411,29 @@ export default function AllDelivery() {
         {/* ── Left sidebar: date list ── */}
         <Paper
           variant="outlined"
-          sx={{ width: 200, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden" }}
+          sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: "none", md: "flex" }, flexDirection: "column", overflow: "hidden" }}
         >
-          <Box sx={{ p: 2, pb: 1 }}>
+          <Box sx={{ p: 1.5, pb: 1 }}>
             <Typography variant="subtitle2" fontWeight={700}>Deliveries</Typography>
+            {/* Date picker to jump to a specific date */}
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
+              <TextField
+                type="date"
+                size="small"
+                value={sidebarDateInput}
+                onChange={(e) => setSidebarDateInput(e.target.value)}
+                sx={{ flex: 1, "& input": { fontSize: 12, py: 0.6 } }}
+                InputLabelProps={{ shrink: true }}
+              />
+              <Tooltip title="Go to date">
+                <IconButton size="small" onClick={handleSidebarDateGo} color="primary">
+                  <EventIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Box>
           <Divider />
           <Box sx={{ overflowY: "auto", flex: 1 }}>
-            {/* All dates option */}
             <Box
               onClick={() => setSelectedDate(null)}
               sx={{
@@ -463,6 +552,48 @@ export default function AllDelivery() {
             </Stack>
           </Stack>
 
+          {/* Bulk action bar — shown when orders are selected */}
+          {someSelected && (
+            <Paper
+              variant="outlined"
+              sx={{
+                mb: 1.5, px: 2, py: 1, borderRadius: 2, borderColor: "primary.main",
+                bgcolor: "primary.50",
+                display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap",
+              }}
+            >
+              <Typography variant="body2" fontWeight={700} color="primary.main">
+                {selectedOrders.size} order{selectedOrders.size > 1 ? "s" : ""} selected
+              </Typography>
+              <TextField
+                type="date"
+                size="small"
+                label="Set Delivery Date"
+                value={bulkDate}
+                onChange={(e) => setBulkDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: 180 }}
+              />
+              <Button
+                variant="contained"
+                size="small"
+                onClick={handleBulkDateUpdate}
+                disabled={bulkUpdating || !bulkDate}
+                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+              >
+                {bulkUpdating ? "Updating…" : "Update Date"}
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => setSelectedOrders(new Set())}
+                sx={{ borderRadius: 2, textTransform: "none" }}
+              >
+                Clear
+              </Button>
+            </Paper>
+          )}
+
           {/* Summary cards */}
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 2 }}>
             {[
@@ -512,19 +643,36 @@ export default function AllDelivery() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700, width: 70 }}>#</TableCell>
+                        {/* Bulk select checkbox */}
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={allSelected}
+                            indeterminate={someSelected && !allSelected}
+                            onChange={handleSelectAll}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 60 }}>#</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Amount</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 90 }}>Action</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Action</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {dateOrders.map((o) => {
                         const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
+                        const rowId = o._id || o.Order_uuid;
+                        const hasItems = hasBillableAmount(o.Items);
                         return (
-                          <TableRow key={key} hover>
+                          <TableRow key={key} hover selected={selectedOrders.has(rowId)}>
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                size="small"
+                                checked={selectedOrders.has(rowId)}
+                                onChange={() => handleSelectOrder(rowId)}
+                              />
+                            </TableCell>
                             <TableCell>
                               <Typography variant="body2" fontWeight={700}>#{o.Order_Number}</Typography>
                             </TableCell>
@@ -547,15 +695,16 @@ export default function AllDelivery() {
                                 {o.totalAmount > 0 ? money(o.totalAmount) : "—"}
                               </Typography>
                             </TableCell>
-                            <TableCell>{statusChip(o.highestStatusTask?.Task)}</TableCell>
-                            <TableCell>
-                              <Button
-                                variant="outlined" size="small"
-                                onClick={() => handleEditClick(o)}
-                                sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
-                              >
-                                Invoice
-                              </Button>
+                            <TableCell align="center">
+                              <Tooltip title={hasItems ? "Edit Invoice" : "Create Invoice"}>
+                                <IconButton
+                                  size="small"
+                                  color={hasItems ? "primary" : "success"}
+                                  onClick={() => handleEditClick(o)}
+                                >
+                                  {hasItems ? <EditIcon fontSize="small" /> : <ReceiptIcon fontSize="small" />}
+                                </IconButton>
+                              </Tooltip>
                             </TableCell>
                           </TableRow>
                         );

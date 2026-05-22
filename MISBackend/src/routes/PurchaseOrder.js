@@ -42,6 +42,14 @@ function calcPoTotal(items = []) {
   return items.reduce((sum, item) => sum + toNumber(item.amount, 0), 0);
 }
 
+/** Parse "DD.MM.YYYY" from a notes string into a UTC midnight Date. */
+function parseDateFromNotes(notes = '') {
+  const m = String(notes).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!m) return null;
+  const d = new Date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 router.use(requireAuth);
 
 // POST /api/purchase-order/create
@@ -78,24 +86,48 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// GET /api/purchase-order/list
+// GET /api/purchaseorder/list
 router.get('/list', async (req, res) => {
   try {
     const filter = {};
     if (req.query.status)   filter.status     = String(req.query.status).toLowerCase();
     if (req.query.vendorId) filter.Vendor_uuid = String(req.query.vendorId);
     if (req.query.fromDate || req.query.toDate) {
-      filter.createdAt = {};
-      if (req.query.fromDate) filter.createdAt.$gte = new Date(req.query.fromDate);
-      if (req.query.toDate)   {
-        const end = new Date(req.query.toDate);
-        end.setHours(23, 59, 59, 999);
-        filter.createdAt.$lte = end;
-      }
+      const from = req.query.fromDate ? new Date(req.query.fromDate) : null;
+      const to   = req.query.toDate   ? (() => { const d = new Date(req.query.toDate); d.setHours(23,59,59,999); return d; })() : null;
+      const rangeCond = {};
+      if (from) rangeCond.$gte = from;
+      if (to)   rangeCond.$lte = to;
+      // Prefer poDate when set, fall back to createdAt
+      filter.$or = [
+        { poDate: rangeCond },
+        { poDate: null, createdAt: rangeCond },
+      ];
     }
-    const rows = await PurchaseOrder.find(filter).sort({ createdAt: -1 }).lean();
+    const rows = await PurchaseOrder.find(filter).sort({ PO_Number: 1 }).lean();
     res.json({ success: true, result: rows });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /api/purchaseorder/backfill-dates — one-time migration to set poDate from notes
+router.post('/backfill-dates', async (req, res) => {
+  try {
+    const pos = await PurchaseOrder.find({ poDate: null }).lean();
+    let updated = 0;
+    for (const po of pos) {
+      const poDate = parseDateFromNotes(po.notes || '');
+      if (!poDate) continue;
+      await PurchaseOrder.collection.updateOne(
+        { _id: po._id },
+        { $set: { poDate, createdAt: poDate } }
+      );
+      updated++;
+    }
+    res.json({ success: true, updated, total: pos.length });
+  } catch (error) {
+    logger.error('Backfill dates failed', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

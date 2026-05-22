@@ -53,6 +53,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import EditIcon from "@mui/icons-material/Edit";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import EventIcon from "@mui/icons-material/Event";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -162,14 +163,20 @@ export default function AllDelivery() {
     return () => { isMounted = false; };
   }, []);
 
-  // POs filtered by toggle: ON = only auto-created (all items have rate === 1)
+  // POs filtered by toggle and by the sidebar's selected date (uses poDate, falls back to createdAt)
   const filteredPOs = useMemo(() => {
-    if (!showAutoOnly) return purchaseOrders;
-    return purchaseOrders.filter(
-      (po) => Array.isArray(po.Items) && po.Items.length > 0 &&
-              po.Items.every((it) => Number(it.rate ?? it.Rate ?? 0) === 1)
-    );
-  }, [purchaseOrders, showAutoOnly]);
+    let pos = purchaseOrders;
+    if (showAutoOnly) {
+      pos = pos.filter(
+        (po) => Array.isArray(po.Items) && po.Items.length > 0 &&
+                po.Items.every((it) => Number(it.rate ?? it.Rate ?? 0) === 1)
+      );
+    }
+    if (selectedDate) {
+      pos = pos.filter((po) => isoDate(po.poDate || po.createdAt) === selectedDate);
+    }
+    return pos;
+  }, [purchaseOrders, showAutoOnly, selectedDate]);
 
   const getHighestStatus = (statusArr) => {
     const list = Array.isArray(statusArr) ? statusArr : [];
@@ -886,8 +893,8 @@ export default function AllDelivery() {
                   <Box sx={{ p: 2 }}>
                     <Alert severity="info" sx={{ borderRadius: 2 }}>
                       {showAutoOnly
-                        ? "No auto-created POs found for this date."
-                        : "No purchase orders found for this date."}
+                        ? `No auto-created POs found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`
+                        : `No purchase orders found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`}
                     </Alert>
                   </Box>
                 ) : (
@@ -898,6 +905,7 @@ export default function AllDelivery() {
                           <TableCell sx={{ fontWeight: 700, width: 60 }}>PO #</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
                           <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Edit</TableCell>
                         </TableRow>
@@ -927,6 +935,11 @@ export default function AllDelivery() {
                                     {itemSummary}
                                   </Typography>
                                 </Tooltip>
+                              </TableCell>
+                              <TableCell>
+                                <Typography variant="caption" color="text.secondary">
+                                  {fmtDate(po.poDate || po.createdAt)}
+                                </Typography>
                               </TableCell>
                               <TableCell align="right">
                                 <Typography variant="body2" fontWeight={700} color="error.dark">
@@ -1010,6 +1023,7 @@ export default function AllDelivery() {
                         <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
                         <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Rate</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Amount</TableCell>
+                        <TableCell sx={{ width: 44 }} />
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1061,6 +1075,16 @@ export default function AllDelivery() {
                             <Typography variant="body2" fontWeight={700} color="error.dark">
                               {money((item.amount ?? item.Amount ?? 0))}
                             </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="Remove item">
+                              <IconButton
+                                size="small" color="error"
+                                onClick={() => setEditPO((p) => ({ ...p, Items: p.Items.filter((_, i) => i !== idx) }))}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       ))}

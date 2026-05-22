@@ -1,238 +1,115 @@
 import PropTypes from 'prop-types';
-import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  Collapse,
-  Divider,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Stack,
-  Typography,
+  Avatar, Box, Button, Divider, Drawer, List, ListItemButton,
+  ListItemIcon, ListItemText, Stack, Typography,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
-import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
-import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
+import InventoryRoundedIcon from '@mui/icons-material/InventoryRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
+import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
 import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useAuth } from '../context/AuthContext';
-import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { ROUTES } from '../constants/routes';
 
 const DRAWER_WIDTH = 240;
 
-const normalizeRoleKey = (value = '') => {
-  const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (['admin', 'adminuser', 'superadmin', 'owner'].includes(text)) return 'Admin';
-  if (['designer'].includes(text)) return 'Designer';
-  if (['dataentry', 'dataentryuser'].includes(text)) return 'DataEntry';
-  if (['officestaff', 'officeuser', 'otheroffice'].includes(text)) return 'OfficeStaff';
-  if (['officeadmin'].includes(text)) return 'OfficeAdmin';
-  if (['officedesign'].includes(text)) return 'OfficeDesign';
-  if (['officemarketing'].includes(text)) return 'OfficeMarketing';
-  if (['accounts', 'accountant', 'accountsuser'].includes(text)) return 'Accounts';
-  return value || 'User';
-};
-
-const canShowItem = (item, roleKey) => {
-  const roles = item.roles || ['Admin'];
-  return roles.includes('all') || roles.includes(roleKey) || (roleKey === 'Admin' && !item.hideForAdmin);
-};
+const NAV_ITEMS = [
+  { label: 'Dashboard', path: ROUTES.HOME,        icon: <DashboardRoundedIcon fontSize="small" /> },
+  { label: 'Orders',    path: '/allOrder',         icon: <InventoryRoundedIcon fontSize="small" /> },
+  { label: 'Customers', path: ROUTES.ADD_CUSTOMER, icon: <PeopleRoundedIcon fontSize="small" /> },
+  { label: 'Accounts',  path: ROUTES.DAY_BOOK,     icon: <AccountBalanceWalletRoundedIcon fontSize="small" /> },
+  { label: 'Reports',   path: '/reports/orders',   icon: <BarChartRoundedIcon fontSize="small" /> },
+  { label: 'Settings',  path: ROUTES.ADD_USER,     icon: <SettingsRoundedIcon fontSize="small" />, adminOnly: true },
+];
 
 export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
-  const { clearAuth, userName, permissions } = useAuth();
-  const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
-  const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
-  const [openGroups, setOpenGroups] = useState(() =>
-    Object.fromEntries(SIDEBAR_GROUPS.map((group) => [group.label, true])),
-  );
+  const { clearAuth, userName } = useAuth();
+  const isAdmin = (localStorage.getItem('User_group') || '').toLowerCase().includes('admin');
+  const roleLabel = localStorage.getItem('User_group') || 'User';
 
-  const sidebarColors = useMemo(() => {
-    const text = theme.palette.primary.contrastText || '#ffffff';
-    return {
-      bg: theme.palette.primary.dark || theme.palette.primary.main,
-      accent: theme.palette.primary.light || theme.palette.primary.main,
-      text,
-      textSoft: alpha(text, 0.86),
-      textMuted: alpha(text, 0.68),
-      border: alpha(text, 0.12),
-      surface: alpha(text, 0.08),
-      selected: alpha(text, 0.16),
-      hover: alpha(text, 0.1),
-    };
-  }, [theme]);
+  const c = {
+    bg:       theme.palette.primary.dark || theme.palette.primary.main,
+    text:     theme.palette.primary.contrastText || '#fff',
+    muted:    alpha(theme.palette.primary.contrastText || '#fff', 0.68),
+    border:   alpha(theme.palette.primary.contrastText || '#fff', 0.12),
+    hover:    alpha(theme.palette.primary.contrastText || '#fff', 0.1),
+    selected: alpha(theme.palette.primary.contrastText || '#fff', 0.16),
+    accent:   theme.palette.primary.light || theme.palette.primary.main,
+  };
 
-  const groups = useMemo(
-    () =>
-      SIDEBAR_GROUPS
-        .filter((group) => allowedGroups.length === 0 || allowedGroups.includes(group.label))
-        .map((group) => ({
-          ...group,
-          items: group.items.filter((item) => canShowItem(item, roleKey)),
-        }))
-        .filter((group) => group.items.length),
-    [roleKey, allowedGroups],
-  );
-
-  const handleNavigate = (path) => {
+  const goTo = (path) => {
     if (path === ROUTES.ORDERS_NEW && typeof onNewOrderClick === 'function') {
       onNewOrderClick();
-      onCloseMobile();
-      return;
+    } else {
+      navigate(path);
     }
-    navigate(path);
-    onCloseMobile();
+    onCloseMobile?.();
   };
 
-  const toggleGroup = (label) => {
-    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
-  };
+  const isSelected = (path) => pathname === path || pathname.startsWith(path + '/');
+  const items = NAV_ITEMS.filter((i) => !i.adminOnly || isAdmin);
 
-  const handleLogout = () => {
-    clearAuth();
-    onCloseMobile();
-    navigate('/');
-  };
-
-  const isSelected = (path) => Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
-
-  const drawerContent = (
-    <Stack sx={{ height: '100%', bgcolor: sidebarColors.bg, color: sidebarColors.text }}>
-      {/* Header */}
+  const content = (
+    <Stack sx={{ height: '100%', bgcolor: c.bg, color: c.text }}>
       <Box sx={{ p: 1.5 }}>
         <Stack direction="row" alignItems="center" spacing={1.1}>
-          <Avatar
-            sx={{
-              bgcolor: alpha(sidebarColors.text, 0.94),
-              color: sidebarColors.bg,
-              width: 36,
-              height: 36,
-              fontWeight: 900,
-              fontSize: '0.9rem',
-            }}
-          >
-            {(userName || 'U').slice(0, 1).toUpperCase()}
+          <Avatar sx={{ bgcolor: alpha(c.text, 0.94), color: c.bg, width: 36, height: 36, fontWeight: 900, fontSize: '0.9rem' }}>
+            {(userName || 'U')[0].toUpperCase()}
           </Avatar>
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2" fontWeight={800} color={sidebarColors.text} noWrap>
-              SK Digital MIS
-            </Typography>
-            <Typography variant="caption" color={sidebarColors.textSoft} noWrap>
-              {roleKey} • {new Date().toLocaleDateString('en-IN')}
+            <Typography variant="subtitle2" fontWeight={800} color={c.text} noWrap>SK Digital MIS</Typography>
+            <Typography variant="caption" color={c.muted} noWrap>
+              {roleLabel} · {new Date().toLocaleDateString('en-IN')}
             </Typography>
           </Box>
         </Stack>
-
         <Button
-          fullWidth
-          size="small"
-          variant="contained"
+          fullWidth size="small" variant="contained"
           startIcon={<AddShoppingCartRoundedIcon fontSize="small" />}
-          onClick={() => handleNavigate(ROUTES.ORDERS_NEW)}
-          sx={{
-            mt: 1.25,
-            bgcolor: sidebarColors.accent,
-            color: sidebarColors.bg,
-            fontWeight: 700,
-            '&:hover': { bgcolor: alpha(sidebarColors.accent, 0.86) },
-          }}
+          onClick={() => goTo(ROUTES.ORDERS_NEW)}
+          sx={{ mt: 1.25, bgcolor: c.accent, color: c.bg, fontWeight: 700, '&:hover': { bgcolor: alpha(c.accent, 0.86) } }}
         >
           New Order
         </Button>
       </Box>
 
-      <Divider sx={{ borderColor: sidebarColors.border }} />
+      <Divider sx={{ borderColor: c.border }} />
 
-      {/* Nav groups */}
-      <List sx={{ py: 0.75, px: 0.75, overflowY: 'auto', flexGrow: 1 }}>
-        {groups.map((group) => (
-          <Box key={group.label} sx={{ mb: 0.85 }}>
+      <List sx={{ py: 1, px: 0.75, flexGrow: 1 }}>
+        {items.map((item) => {
+          const sel = isSelected(item.path);
+          return (
             <ListItemButton
-              onClick={() => toggleGroup(group.label)}
-              sx={{ minHeight: 30, borderRadius: 2, '&:hover': { bgcolor: sidebarColors.hover } }}
+              key={item.path} selected={sel} onClick={() => goTo(item.path)}
+              sx={{ minHeight: 42, mb: 0.4, borderRadius: 2, color: sel ? c.text : c.muted,
+                '&.Mui-selected': { bgcolor: c.selected }, '&:hover': { bgcolor: c.hover } }}
             >
+              <ListItemIcon sx={{ minWidth: 34, color: sel ? c.accent : alpha(c.text, 0.75) }}>
+                {item.icon}
+              </ListItemIcon>
               <ListItemText
-                primary={group.label}
-                primaryTypographyProps={{
-                  variant: 'caption',
-                  fontWeight: 800,
-                  sx: { letterSpacing: 0.45, textTransform: 'uppercase', color: sidebarColors.textMuted },
-                }}
+                primary={item.label}
+                primaryTypographyProps={{ variant: 'body2', fontWeight: 700, fontSize: '0.82rem', noWrap: true }}
               />
-              {openGroups[group.label]
-                ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />
-                : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: sidebarColors.textMuted }} />}
             </ListItemButton>
-
-            <Collapse in={openGroups[group.label]} timeout="auto" unmountOnExit={false}>
-              {group.items.map((item) => {
-                const selected = isSelected(item.path);
-                return (
-                  <ListItemButton
-                    key={item.path}
-                    selected={selected}
-                    onClick={() => handleNavigate(item.path)}
-                    sx={{
-                      minHeight: 38,
-                      ml: 0.5,
-                      mb: 0.4,
-                      borderRadius: 2,
-                      color: selected ? sidebarColors.text : sidebarColors.textSoft,
-                      '&.Mui-selected': {
-                        bgcolor: sidebarColors.selected,
-                        color: sidebarColors.text,
-                        boxShadow: `inset 0 0 0 1px ${alpha(sidebarColors.text, 0.1)}`,
-                      },
-                      '&.Mui-selected:hover': { bgcolor: alpha(sidebarColors.text, 0.22) },
-                      '&:hover': { bgcolor: sidebarColors.hover },
-                    }}
-                  >
-                    <ListItemIcon sx={{ minWidth: 30, color: selected ? sidebarColors.accent : alpha(sidebarColors.text, 0.78) }}>
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.label}
-                      primaryTypographyProps={{ variant: 'body2', fontWeight: 700, noWrap: true, sx: { fontSize: '0.78rem' } }}
-                    />
-                    {item.badge ? (
-                      <Chip
-                        label={item.badge}
-                        size="small"
-                        sx={{
-                          height: 18,
-                          fontSize: '0.62rem',
-                          fontWeight: 800,
-                          bgcolor: alpha(sidebarColors.text, 0.14),
-                          color: sidebarColors.text,
-                        }}
-                      />
-                    ) : null}
-                  </ListItemButton>
-                );
-              })}
-            </Collapse>
-          </Box>
-        ))}
+          );
+        })}
       </List>
 
-      {/* Logout */}
       <Box sx={{ p: 1 }}>
         <Button
-          fullWidth
-          color="inherit"
-          variant="outlined"
+          fullWidth color="inherit" variant="outlined"
           startIcon={<LogoutRoundedIcon fontSize="small" />}
-          onClick={handleLogout}
-          sx={{ borderColor: sidebarColors.border, color: sidebarColors.text, fontSize: '0.8rem' }}
+          onClick={() => { clearAuth(); navigate('/'); }}
+          sx={{ borderColor: c.border, color: c.text, fontSize: '0.8rem' }}
         >
           Logout
         </Button>
@@ -242,33 +119,15 @@ export default function Sidebar({ mobileOpen, onCloseMobile, onNewOrderClick }) 
 
   return (
     <>
-      {/* Desktop: permanent fixed sidebar */}
-      <Drawer
-        variant="permanent"
-        open
-        sx={{
-          display: { xs: 'none', md: 'block' },
-          width: DRAWER_WIDTH,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: DRAWER_WIDTH,
-            overflowX: 'hidden',
-            borderRight: 'none',
-          },
-        }}
-      >
-        {drawerContent}
+      <Drawer variant="permanent" open
+        sx={{ display: { xs: 'none', md: 'block' }, width: DRAWER_WIDTH, flexShrink: 0,
+          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, borderRight: 'none', overflowX: 'hidden' } }}>
+        {content}
       </Drawer>
-
-      {/* Mobile: temporary drawer */}
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={onCloseMobile}
+      <Drawer variant="temporary" open={mobileOpen} onClose={onCloseMobile}
         ModalProps={{ keepMounted: true }}
-        sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH, borderRight: 'none' } }}
-      >
-        {drawerContent}
+        sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH, borderRight: 'none' } }}>
+        {content}
       </Drawer>
     </>
   );
@@ -279,9 +138,4 @@ Sidebar.propTypes = {
   onCloseMobile: PropTypes.func,
   onNewOrderClick: PropTypes.func,
 };
-
-Sidebar.defaultProps = {
-  mobileOpen: false,
-  onCloseMobile: () => {},
-  onNewOrderClick: null,
-};
+Sidebar.defaultProps = { mobileOpen: false, onCloseMobile: () => {}, onNewOrderClick: null };

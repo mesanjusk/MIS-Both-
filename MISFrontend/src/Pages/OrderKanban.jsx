@@ -8,10 +8,10 @@ import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import axios from "../apiClient";
 import { toast } from "../Components";
 import { useOrdersData } from "../hooks/useOrdersData";
-import { useOrderDnD } from "../hooks/useOrderDnD";
+
 import OrderBoard from "../Components/orders/OrderBoard";
 
-const STAGES = ["Enquiry", "Design", "Printing", "Post Printing", "Finishing", "Ready", "Delivered"];
+const STAGES = ["Enquiry", "Quoted", "Approved", "Design", "Printing", "Post Printing", "Finishing", "Ready", "Delivered", "Paid"];
 
 const normalize  = (value = "") => String(value).trim().toLowerCase();
 const toDateInput = (value) => {
@@ -67,7 +67,7 @@ export default function OrderKanban() {
     [orderList, patchOrder]
   );
 
-  const { dragHandlers, statusMessage } = useOrderDnD({ onMove: moveOrderToStage });
+  
 
   const filteredOrders = useMemo(() => {
     return (orderList || []).filter((order) => {
@@ -174,8 +174,8 @@ export default function OrderKanban() {
           columnOrder={STAGES}
           groupedOrders={groupedOrders}
           isAdmin
-          dragHandlers={dragHandlers}
-          statusMessage={statusMessage}
+          
+          
           onView={(order) => {
             const oid = order?.Order_uuid || order?._id || order?.Order_id;
             if (oid) navigate(`/orderUpdate/${oid}`);

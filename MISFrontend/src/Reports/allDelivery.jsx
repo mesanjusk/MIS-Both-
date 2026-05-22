@@ -153,7 +153,7 @@ export default function AllDelivery() {
           params.fromDate = selectedDate;
           params.toDate = selectedDate;
         }
-        const res = await axios.get("/api/purchase-order/list", { params });
+        const res = await axios.get("/api/purchaseorder/list", { params });
         if (isMounted) setPurchaseOrders(res.data?.result ?? []);
       } catch (err) {
         console.error("PO fetch error:", err?.message || err);

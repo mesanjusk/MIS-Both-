@@ -21,6 +21,7 @@ router.put("/updateOrder/:id", async (req, res) => {
     const {
       Delivery_Date, Items, Steps, vendorAssignments, orderMode, orderNote,
       assignedTo, assignToUserId, assignToUserUuid, stage, productionStepsEnabled,
+      createdAt: rawCreatedAt,
       ...otherFields
     } = req.body;
 
@@ -102,6 +103,18 @@ router.put("/updateOrder/:id", async (req, res) => {
     }
 
     const saved = await order.save();
+
+    // Update createdAt directly — Mongoose timestamps option must be bypassed
+    if (rawCreatedAt) {
+      const newCreatedAt = toDate(rawCreatedAt, null);
+      if (newCreatedAt) {
+        await Orders.collection.updateOne(
+          { _id: saved._id },
+          { $set: { createdAt: newCreatedAt } }
+        );
+      }
+    }
+
     let vendorJobs = [];
     if (Array.isArray(saved.vendorAssignments) && saved.vendorAssignments.length) {
       vendorJobs = await syncVendorJobsForOrder(

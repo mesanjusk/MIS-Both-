@@ -291,17 +291,29 @@ export default function AllDelivery() {
     let successCount = 0;
     let failCount = 0;
     const selectedList = dateOrders.filter((o) => selectedOrders.has(o._id || o.Order_uuid));
+    const updatedIds = new Set();
     await Promise.all(
       selectedList.map(async (o) => {
         const id = o._id || o.Order_uuid;
         try {
-          await axios.put(`/order/updateOrder/${id}`, { Delivery_Date: bulkDate });
+          await axios.put(`/order/updateOrder/${id}`, { createdAt: bulkDate });
+          updatedIds.add(id);
           successCount++;
         } catch {
           failCount++;
         }
       })
     );
+    // Patch local state so the date grouping updates immediately
+    if (updatedIds.size > 0) {
+      setOrders((prev) =>
+        prev.map((o) => {
+          const id = o._id || o.Order_uuid;
+          if (!updatedIds.has(id)) return o;
+          return { ...o, createdAt: new Date(bulkDate).toISOString() };
+        })
+      );
+    }
     setBulkUpdating(false);
     setSelectedOrders(new Set());
     if (successCount) toast.success(`Updated ${successCount} order(s)`);

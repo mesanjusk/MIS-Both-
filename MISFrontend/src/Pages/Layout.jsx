@@ -15,6 +15,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
@@ -228,19 +229,42 @@ export default function Layout() {
 
         {/* ── Mobile: FAB to open left sidebar ── */}
         <Fab
-          color="primary"
           aria-label="open menu"
           onClick={() => setMobileOpen(true)}
           size="small"
-          sx={{ position: 'fixed', left: 12, bottom: 78, display: { xs: 'flex', md: 'none' }, zIndex: 1199 }}
+          sx={(t) => ({
+            position: 'fixed',
+            left: 12,
+            bottom: 82,
+            display: { xs: 'flex', md: 'none' },
+            zIndex: 1199,
+            bgcolor: 'background.paper',
+            color: t.palette.primary.main,
+            border: `1.5px solid ${alpha(t.palette.primary.main, 0.3)}`,
+            boxShadow: `0 4px 14px ${alpha(t.palette.primary.main, 0.18)}`,
+            '&:hover': {
+              bgcolor: alpha(t.palette.primary.main, 0.06),
+            },
+          })}
         >
           <AddIcon fontSize="small" />
         </Fab>
 
         {/* ── Mobile: Bottom navigation ── */}
         <Paper
-          sx={{ position: 'fixed', left: 0, right: 0, bottom: 0, display: { xs: 'block', md: 'none' }, zIndex: 1200 }}
-          elevation={6}
+          elevation={0}
+          sx={(t) => ({
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: { xs: 'block', md: 'none' },
+            zIndex: 1200,
+            background: 'rgba(255,255,255,0.97)',
+            backdropFilter: 'blur(20px)',
+            borderTop: `1px solid ${alpha(t.palette.primary.main, 0.12)}`,
+            boxShadow: '0 -4px 24px rgba(0,0,0,0.06)',
+          })}
         >
           <BottomNavigation
             showLabels
@@ -252,6 +276,30 @@ export default function Layout() {
                 navigate(next);
               }
             }}
+            sx={(t) => ({
+              height: 64,
+              bgcolor: 'transparent',
+              px: 0.5,
+              '& .MuiBottomNavigationAction-root': {
+                minWidth: 0,
+                px: 0.25,
+                py: 0.75,
+                borderRadius: 2,
+                transition: 'all 0.2s ease',
+                color: t.palette.text.secondary,
+                '& .MuiBottomNavigationAction-label': {
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                  transition: 'font-size 0.2s',
+                  '&.Mui-selected': {
+                    fontSize: '0.68rem',
+                  },
+                },
+              },
+              '& .Mui-selected': {
+                color: `${t.palette.primary.main} !important`,
+              },
+            })}
           >
             <BottomNavigationAction label="Home" value={ROUTES.HOME} icon={<HomeRoundedIcon />} />
             <BottomNavigationAction label="Orders" value="/allOrder" icon={<AssignmentRoundedIcon />} />

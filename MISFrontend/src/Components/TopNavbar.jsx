@@ -56,16 +56,24 @@ export default function TopNavbar() {
   });
 
   return (
-    <AppBar position="static" color="inherit" elevation={0} sx={{ borderBottom: (t) => `1px solid ${t.palette.divider}` }}>
+    <AppBar
+      position="static"
+      color="inherit"
+      elevation={0}
+      sx={(t) => ({
+        borderBottom: `1px solid ${t.palette.divider}`,
+        background: 'rgba(255,255,255,0.97)',
+        backdropFilter: 'blur(16px)',
+      })}
+    >
       <Toolbar sx={{ minHeight: { xs: 58, md: 64 }, px: { xs: 1, md: 1.5 }, gap: 1 }}>
 
         <Stack sx={{ minWidth: 0, mr: { xs: 0.5, md: 1.5 } }}>
-          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800, lineHeight: 1.2, fontSize: { xs: '0.9rem', md: '0.95rem' } }}>
             {titleFromPath(pathname)}
           </Typography>
-
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: { xs: 'none', sm: 'block' } }}>
-            {userGroup || 'Workspace'} • {todayLabel}
+            {userGroup || 'Workspace'} &bull; {todayLabel}
           </Typography>
         </Stack>
 
@@ -80,23 +88,47 @@ export default function TopNavbar() {
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchRoundedIcon fontSize="small" />
+                <SearchRoundedIcon fontSize="small" color="action" />
               </InputAdornment>
             ),
-            sx: { borderRadius: 2, fontSize: '0.82rem' },
+            sx: {
+              borderRadius: 2.5,
+              fontSize: '0.82rem',
+              bgcolor: (t) => t.palette.background.default,
+            },
           }}
         />
 
         <Box sx={{ flex: 1 }} />
 
-        <IconButton size="small" aria-label="notifications">
+        <IconButton
+          size="small"
+          aria-label="notifications"
+          sx={(t) => ({
+            borderRadius: 2,
+            '&:hover': { bgcolor: t.palette.action.hover },
+          })}
+        >
           <Badge color="primary" variant="dot">
             <NotificationsNoneRoundedIcon fontSize="small" />
           </Badge>
         </IconButton>
 
-        <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)}>
-          <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32, fontSize: '0.72rem', fontWeight: 800 }}>
+        <IconButton
+          size="small"
+          onClick={(e) => setMenuAnchor(e.currentTarget)}
+          sx={{ p: 0.5 }}
+        >
+          <Avatar
+            sx={(t) => ({
+              bgcolor: t.palette.primary.main,
+              width: 32,
+              height: 32,
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              boxShadow: `0 2px 8px ${t.palette.primary.main}40`,
+            })}
+          >
             {userName ? userName.slice(0, 2).toUpperCase() : 'NA'}
           </Avatar>
         </IconButton>

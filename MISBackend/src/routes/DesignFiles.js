@@ -30,6 +30,7 @@ const Orders = require('../repositories/order');
 const VendorWork = require('../repositories/vendorWork');
 const VendorLedger = require('../repositories/vendorLedger');
 const VendorMaster = require('../repositories/vendorMaster');
+const PurchaseOrder = require('../repositories/purchaseOrder');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
@@ -1442,4 +1443,187 @@ router.post('/validate-print-jobs', async (req, res) => {
   }
 });
 
+// ─── Auto Purchase Order from Print Vendor Folders ───────────────────────────
+
+/** Extract item name and qty from a print file name.
+ *  "banner=5.pdf" → { itemName: "banner", qty: 5 }
+ *  "visiting card=50.cdr" → { itemName: "visiting card", qty: 50 }
+ *  "flex.pdf" → { itemName: "flex", qty: 1 }
+ */
+function parsePrintFileName(rawName = '') {
+  const withoutExt = rawName.replace(/\.[^.]+$/, '').trim();
+  const m = withoutExt.match(/^(.+?)=(\d+(?:\.\d+)?)$/);
+  if (m) return { itemName: m[1].trim(), qty: Number(m[2]) };
+  return { itemName: withoutExt, qty: 1 };
+}
+
+/** Get next PO number using the shared counter. */
+async function nextAutoPONumber() {
+  const counter = await Counter.findByIdAndUpdate(
+    'purchase_order_number',
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+  return Number(counter?.seq || 1);
+}
+
+/**
+ * Find vendor by folder name (case-insensitive, first-word match).
+ * Creates a new vendor if none found.
+ */
+async function findOrCreateVendorByFolderName(folderName = '') {
+  const normalized = folderName.trim().toLowerCase();
+  // Exact match first
+  let vendor = await VendorMaster.findOne({
+    Vendor_name: { $regex: new RegExp(`^${normalized}$`, 'i') },
+    Active: true,
+  }).lean();
+  if (vendor) return vendor;
+
+  // Starts-with match (folderName is first word of vendor name)
+  vendor = await VendorMaster.findOne({
+    Vendor_name: { $regex: new RegExp(`^${normalized}\\b`, 'i') },
+    Active: true,
+  }).lean();
+  if (vendor) return vendor;
+
+  // Create new vendor using folder name as vendor name (capitalized)
+  const vendorName = folderName.trim().replace(/^\w/, (c) => c.toUpperCase());
+  const created = await VendorMaster.create({
+    Vendor_name: vendorName,
+    Vendor_type: 'jobwork',
+    Active: true,
+    Notes: `Auto-created from Drive print folder: ${folderName}`,
+  });
+  logger.info({ vendorName, folderName }, '[auto-po] Created new vendor from Drive folder');
+  return created.toObject ? created.toObject() : created;
+}
+
+/**
+ * Scans the archive Drive folder, finds Print vendor subfolders without a PO
+ * number prefix, creates PurchaseOrders, and renames the Drive folders.
+ * Called by the daily 12:00 PM scheduler and the manual POST /auto-po endpoint.
+ */
+async function autoPurchaseOrdersFromDrive() {
+  const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
+  if (!archiveFolderId) throw new Error('DRIVE_ARCHIVE_FOLDER_ID not configured');
+
+  const drive = await getAuthorizedDriveClient();
+
+  // Locate current month folder (same logic as scan-archive)
+  const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
+  if (!monthSubfolders.length) return [];
+
+  const now = new Date();
+  const yyyymm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const monthName = monthNames[now.getMonth()];
+  const year = String(now.getFullYear());
+
+  let monthFolder = monthSubfolders.find((f) => {
+    const n = f.name.toLowerCase().replace(/[/_]/g, '-');
+    return n.includes(yyyymm) || (n.includes(monthName) && n.includes(year));
+  });
+  if (!monthFolder) {
+    monthFolder = [...monthSubfolders].sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime))[0];
+  }
+  if (!monthFolder) return [];
+
+  const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
+
+  const results = [];
+
+  for (const dateFolder of dateFolders) {
+    const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
+
+    // Find the Print section folder
+    const printSection = sectionFolders.find((f) => f.name.toLowerCase().includes('print'));
+    if (!printSection) continue;
+
+    // List vendor subfolders inside Print
+    const vendorFolders = await listChildren(drive, printSection.id, 'application/vnd.google-apps.folder');
+
+    for (const vendorFolder of vendorFolders) {
+      // Skip folders that already start with a digit — they already have a PO number prefix
+      if (/^\d/.test(vendorFolder.name)) continue;
+
+      const files = await listChildren(drive, vendorFolder.id);
+      if (!files.length) continue;
+
+      const items = files.map((f) => {
+        const { itemName, qty } = parsePrintFileName(f.name);
+        return { itemName, qty, unit: 'Nos', rate: 1, amount: qty * 1 };
+      });
+
+      let vendor;
+      try {
+        vendor = await findOrCreateVendorByFolderName(vendorFolder.name);
+      } catch (vendorErr) {
+        logger.error({ err: vendorErr.message, folder: vendorFolder.name }, '[auto-po] Vendor find/create failed');
+        results.push({ date: dateFolder.name, folder: vendorFolder.name, error: vendorErr.message });
+        continue;
+      }
+
+      let po;
+      let poNumber;
+      try {
+        poNumber = await nextAutoPONumber();
+        po = await PurchaseOrder.create({
+          PO_Number: poNumber,
+          Vendor_uuid: vendor.Vendor_uuid,
+          Vendor_name: vendor.Vendor_name,
+          Items: items,
+          status: 'draft',
+          notes: `Auto-created from Drive: ${dateFolder.name}/Print/${vendorFolder.name}`,
+          createdBy: 'system',
+        });
+      } catch (poErr) {
+        logger.error({ err: poErr.message, folder: vendorFolder.name }, '[auto-po] PO creation failed');
+        results.push({ date: dateFolder.name, folder: vendorFolder.name, error: poErr.message });
+        continue;
+      }
+
+      // Rename Drive folder: "101-anand"
+      const newFolderName = `${poNumber}-${vendorFolder.name}`;
+      try {
+        await drive.files.update({
+          fileId: vendorFolder.id,
+          supportsAllDrives: true,
+          requestBody: { name: newFolderName },
+        });
+      } catch (renameErr) {
+        logger.warn({ err: renameErr.message, folder: vendorFolder.name }, '[auto-po] Drive folder rename failed');
+      }
+
+      logger.info({ poNumber, vendor: vendor.Vendor_name, itemCount: items.length }, '[auto-po] PO created');
+      results.push({
+        date: dateFolder.name,
+        originalFolderName: vendorFolder.name,
+        newFolderName,
+        vendorName: vendor.Vendor_name,
+        poNumber,
+        itemCount: items.length,
+        poUuid: po.PO_uuid,
+      });
+    }
+  }
+
+  return results;
+}
+
+// POST /api/design-files/auto-po  — manual trigger
+router.post('/auto-po', async (_req, res) => {
+  try {
+    const results = await autoPurchaseOrdersFromDrive();
+    return res.json({ success: true, created: results.length, results });
+  } catch (err) {
+    logger.error({ err }, 'design-files/auto-po error');
+    if (err?.reconnectRequired) {
+      return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;
+module.exports.autoPurchaseOrdersFromDrive = autoPurchaseOrdersFromDrive;

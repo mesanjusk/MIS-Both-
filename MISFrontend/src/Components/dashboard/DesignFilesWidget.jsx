@@ -39,7 +39,14 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded';
+import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import axios from '../../apiClient';
+
+// Mirrors the backend extractOrderNumber — checks if filename already starts with a given order number
+function extractLeadingOrderNumber(name = '') {
+  const m = String(name).match(/^(\d+)\s*[-_\s]/);
+  return m ? parseInt(m[1], 10) : null;
+}
 
 // ─── Stage chip ───────────────────────────────────────────────────────────────
 function StageChip({ stageLabel: label, stageColor }) {
@@ -90,10 +97,26 @@ function StageSummaryBar({ summary }) {
 }
 
 // ─── Single file row ──────────────────────────────────────────────────────────
-function FileRow({ file, checked, onToggle }) {
+function FileRow({ file, checked, onToggle, onRetryRename }) {
+  const [renaming, setRenaming] = useState(false);
   const isUnmatched = !file.matched;
   const isPrinting = file.stageNumber === 9;
   const isFinal = file.stageNumber === 8;
+
+  // Linked but filename doesn't start with the order number → rename pending
+  const needsRename = file.matched &&
+    file.orderNumber &&
+    extractLeadingOrderNumber(file.fileName) !== file.orderNumber;
+
+  const handleRename = async (e) => {
+    e.stopPropagation();
+    setRenaming(true);
+    try {
+      await onRetryRename(file);
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   return (
     <Stack
@@ -105,11 +128,13 @@ function FileRow({ file, checked, onToggle }) {
         px: 1,
         borderRadius: 1.5,
         border: '1px solid',
-        borderColor: checked ? 'primary.main' : isUnmatched ? 'warning.200' : 'divider',
+        borderColor: checked ? 'primary.main' : isUnmatched ? 'warning.200' : needsRename ? 'orange' : 'divider',
         bgcolor: checked
           ? 'primary.50'
           : isUnmatched
           ? 'warning.50'
+          : needsRename
+          ? '#FFF3E0'
           : isPrinting
           ? 'success.50'
           : 'transparent',
@@ -155,10 +180,15 @@ function FileRow({ file, checked, onToggle }) {
             Order #{file.extractedOrderNumber || '?'} not found in MIS
           </Typography>
         )}
-        {file.matched && file.orderStage && (
+        {needsRename && (
+          <Typography variant="caption" sx={{ fontSize: 10, color: 'orange' }}>
+            Rename pending — close file in CorelDraw, then click Rename
+          </Typography>
+        )}
+        {file.matched && !needsRename && file.orderStage && (
           <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
             MIS stage: {file.orderStage}
-            {file.linkedViaManual ? ' (manually linked)' : ''}
+            {file.linkedViaManual ? ' · manually linked' : ''}
           </Typography>
         )}
       </Box>
@@ -167,7 +197,23 @@ function FileRow({ file, checked, onToggle }) {
         <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />
       )}
 
-      {file.matched && (
+      {/* Rename retry button — shown when linked but filename not yet updated */}
+      {needsRename && onRetryRename && (
+        <Tooltip title={`Rename file to start with order #${file.orderNumber}`}>
+          <IconButton
+            size="small"
+            onClick={handleRename}
+            disabled={renaming}
+            sx={{ p: 0.3, flexShrink: 0, color: 'warning.700' }}
+          >
+            {renaming
+              ? <CircularProgress size={12} />
+              : <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 14 }} />}
+          </IconButton>
+        </Tooltip>
+      )}
+
+      {file.matched && !needsRename && (
         <Tooltip title={`Matched to Order #${file.orderNumber}`}>
           <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.500', flexShrink: 0 }} />
         </Tooltip>
@@ -255,9 +301,20 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
       });
       const renamedCount = res.data?.drive?.renamed?.length || 0;
       const trashed = res.data?.drive?.trashed;
+      const driveError = res.data?.drive?.driveError;
+
       let msg = `${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''} linked to Order #${order.Order_Number}`;
-      if (renamedCount) msg += ` · ${renamedCount} renamed in Drive`;
+      if (renamedCount) msg += ` · ${renamedCount} file${renamedCount !== 1 ? 's' : ''} renamed in Drive`;
       if (trashed) msg += ' · duplicate blank deleted';
+
+      if (driveError) {
+        // Link saved but rename failed — keep dialog open to show the warning
+        setError(`Linked successfully, but Drive rename failed: ${driveError}`);
+        // Still notify parent so it refreshes the list
+        onSuccess(msg);
+        return; // don't close — user needs to see the warning
+      }
+
       onSuccess(msg);
       onClose();
     } catch (err) {
@@ -281,8 +338,16 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
         customerUuid: customer.Customer_uuid,
         orderNote: orderNote || file.fileName,
       });
+      const driveError = res.data?.drive?.driveError;
       let msg = `Order #${res.data.orderNumber} created for ${res.data.customerName}`;
-      if (res.data.drive?.renamed) msg += ' · file renamed in Drive';
+      if (res.data.drive?.renamed) msg += ' · file renamed in Drive (will sync to your computer)';
+
+      if (driveError) {
+        setError(`Order created (#${res.data.orderNumber}), but Drive rename failed: ${driveError}`);
+        onSuccess(msg);
+        return;
+      }
+
       onSuccess(msg);
       onClose();
     } catch (err) {
@@ -797,7 +862,7 @@ function ArchivePanel() {
             </Alert>
           )}
           {files.map((file) => (
-            <FileRow key={file.fileId} file={file} checked={false} onToggle={() => {}} />
+            <FileRow key={file.fileId} file={file} checked={false} onToggle={() => {}} onRetryRename={null} />
           ))}
         </Stack>
       )}
@@ -851,6 +916,25 @@ export default function DesignFilesWidget() {
       return next;
     });
   }, []);
+
+  // Retry rename for a single already-linked file whose filename wasn't updated
+  const retryRename = useCallback(async (file) => {
+    try {
+      const res = await axios.post('/api/design-files/rename-file', {
+        fileId: file.fileId,
+        orderUuid: file.orderUuid,
+      });
+      if (res.data?.alreadyCorrect) {
+        setToast(`File already named correctly: ${res.data.fileName}`);
+      } else {
+        setToast(`Renamed to: ${res.data.newName} — Google Drive will sync to your computer shortly`);
+        load(); // refresh list so needsRename clears
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.message || err.message || 'Rename failed';
+      setToast(`Rename failed: ${msg}`);
+    }
+  }, [load]);
 
   // ── Config missing ────────────────────────────────────────────────────────
   if (configMissing) {
@@ -1060,6 +1144,7 @@ export default function DesignFilesWidget() {
                 file={file}
                 checked={selectedIds.has(file.fileId)}
                 onToggle={toggleSelect}
+                onRetryRename={retryRename}
               />
             ))}
           </Stack>

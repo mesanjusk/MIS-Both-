@@ -559,7 +559,11 @@ router.post('/link-order', async (req, res) => {
         }
       }
     } catch (driveErr) {
-      driveUpdates.driveError = driveErr?.message || 'Drive operation failed';
+      // Store error so the frontend can show a clear warning to the user.
+      // Common causes: expired Drive token, file open/locked in CorelDraw.
+      driveUpdates.driveError = driveErr?.reconnectRequired
+        ? 'Google Drive token expired — please reconnect Drive, then use the Rename button on the file.'
+        : (driveErr?.message || 'Drive rename failed — file may be open in CorelDraw. Close it and use the Rename button.');
       logger.warn({ driveErr }, 'design-files/link-order: Drive steps failed (non-fatal)');
     }
 
@@ -653,6 +657,84 @@ router.post('/quick-order', async (req, res) => {
     });
   } catch (err) {
     logger.error({ err }, 'design-files/quick-order error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/rename-file ──────────────────────────────────────
+/**
+ * Explicit, retry-able rename endpoint. Called when:
+ *  - The rename failed during link-order (file was open / token expired)
+ *  - User clicks the "Rename" button on an already-linked file row
+ *
+ * Unlike link-order, this returns a proper 4xx/5xx error (not success+warning)
+ * so the frontend can show the user exactly what went wrong.
+ *
+ * Body: { fileId, orderUuid }
+ */
+router.post('/rename-file', async (req, res) => {
+  try {
+    const { fileId, orderUuid } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!orderUuid) return res.status(400).json({ success: false, message: 'orderUuid required' });
+
+    const order = await Orders.findOne(
+      { Order_uuid: orderUuid },
+      { Order_uuid: 1, Order_Number: 1 }
+    ).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    // Get the current filename from DesignFileLink or fall back to fileId
+    const link = await DesignFileLink.findOne({ driveFileId: fileId }, { fileName: 1 }).lean();
+    const currentName = link?.fileName || fileId;
+
+    // Don't rename if already correct
+    if (extractOrderNumber(currentName) === order.Order_Number) {
+      return res.json({ success: true, alreadyCorrect: true, fileName: currentName });
+    }
+
+    const newName = buildOrderFileName(order.Order_Number, currentName);
+
+    // This time we do NOT swallow the error — let it propagate as a real HTTP error
+    // so the user sees exactly why it failed.
+    let drive;
+    try {
+      drive = await getAuthorizedDriveClient();
+    } catch (authErr) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google Drive token expired. Please reconnect Google Drive and try again.',
+        reconnectRequired: true,
+      });
+    }
+
+    let updated;
+    try {
+      const res2 = await drive.files.update({
+        fileId,
+        supportsAllDrives: true,
+        requestBody: { name: newName },
+        fields: 'id,name',
+      });
+      updated = res2.data;
+    } catch (driveErr) {
+      // Surface the Drive error clearly
+      const msg = driveErr?.errors?.[0]?.message || driveErr?.message || 'Drive rename failed';
+      const isLocked = msg.toLowerCase().includes('locked') || msg.toLowerCase().includes('403');
+      return res.status(502).json({
+        success: false,
+        message: isLocked
+          ? `Drive rename failed — the file may be open in CorelDraw. Close the file on your computer and try again. (${msg})`
+          : `Drive rename failed: ${msg}`,
+      });
+    }
+
+    // Update DesignFileLink with new name
+    await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+
+    return res.json({ success: true, newName: updated.name || newName, fileId });
+  } catch (err) {
+    logger.error({ err }, 'design-files/rename-file error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

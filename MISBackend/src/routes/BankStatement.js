@@ -598,6 +598,13 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
       resolveAccount(entry.account_assigned),
     ]);
 
+    if (assignedAcct.name === assignedAcct.uuid) {
+      return res.status(400).json({
+        success: false,
+        message: `Assigned account '${entry.account_assigned}' could not be resolved to a name. Check that it exists in Accounts or Customers.`,
+      });
+    }
+
     const journal = entry.direction === 'in'
       ? [
           { Account_id: bankAcct.uuid,     Account_name: bankAcct.name,     Type: 'Debit',  Amount: amount },

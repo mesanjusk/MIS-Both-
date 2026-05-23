@@ -385,6 +385,10 @@ router.post('/:uuid/confirm', async (req, res) => {
       const ledgerAccountName = await getAccountName(ledgerAccountUuid);
 
       const assignedAcct = await resolveAccount(entry.account_assigned);
+      if (assignedAcct.name === assignedAcct.uuid) {
+        logger.error(`Diary confirm: cannot resolve name for account_assigned '${entry.account_assigned}' — skipping entry`);
+        continue;
+      }
 
       const journal = entry.direction === 'in'
         ? [

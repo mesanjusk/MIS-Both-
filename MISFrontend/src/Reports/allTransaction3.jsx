@@ -1,5 +1,7 @@
 // src/Pages/AllTransaction3.jsx
 import React, { useEffect, useMemo, useState } from 'react';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import axios from '../apiClient.js';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -140,10 +142,10 @@ const AllTransaction3 = () => {
       let aVal = '', bVal = '';
 
       if (key === "Name") {
-        const aNameId = (a.Journal_entry || []).find(e => e.Account_id !== customerUuid)?.Account_id;
-        const bNameId = (b.Journal_entry || []).find(e => e.Account_id !== customerUuid)?.Account_id;
-        aVal = customerMap[aNameId] || "";
-        bVal = customerMap[bNameId] || "";
+        const aLeg = (a.Journal_entry || []).find(e => e.Account_id !== customerUuid);
+        const bLeg = (b.Journal_entry || []).find(e => e.Account_id !== customerUuid);
+        aVal = (aLeg?.Account_name && !UUID_RE.test(aLeg.Account_name)) ? aLeg.Account_name : lookupName(aLeg?.Account_id);
+        bVal = (bLeg?.Account_name && !UUID_RE.test(bLeg.Account_name)) ? bLeg.Account_name : lookupName(bLeg?.Account_id);
       } else if (key === "Transaction_date") {
         aVal = new Date(a.Transaction_date).getTime();
         bVal = new Date(b.Transaction_date).getTime();
@@ -387,7 +389,9 @@ const AllTransaction3 = () => {
 
                         const secondEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
                         const secondCustomerName = secondEntry
-                          ? (customerMap[secondEntry.Account_id] || secondEntry.Account_name || secondEntry.Account_id || 'N/A')
+                          ? ((secondEntry.Account_name && !UUID_RE.test(secondEntry.Account_name))
+                              ? secondEntry.Account_name
+                              : (lookupName(secondEntry.Account_id) || 'N/A'))
                           : 'N/A';
 
                         return (

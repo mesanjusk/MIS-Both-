@@ -255,7 +255,9 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
 }
 
 // =================== LEDGER DAY VIEW (historical transactions, read-only) ===================
-function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAccounts = [], bankNames = [], customerMap = {} }) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAccounts = [], bankNames = [], customerMap = {}, accountsMap = {} }) {
   if (!txns.length) {
     return (
       <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, textAlign: 'center' }}>
@@ -279,9 +281,11 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 
     const book      = ledgerLeg ? (isBank(ledgerLeg.Account_id) ? 'bank' : 'cash') : 'cash';
     const direction = ledgerLeg?.Type === 'Debit' ? 'in' : 'out';
-    // Resolve UUID → name, fall back to raw Account_id if not in map
-    const rawId     = otherLeg?.Account_id || '—';
-    const account   = customerMap[rawId] || rawId;
+    const rawId      = otherLeg?.Account_id || '—';
+    const storedName = otherLeg?.Account_name || '';
+    const account    = (storedName && !UUID_RE.test(storedName))
+      ? storedName
+      : (customerMap[rawId] || accountsMap[rawId] || rawId);
 
     return { txn, book, direction, account };
   });
@@ -586,6 +590,7 @@ export default function DayBook() {
   const [successMsg, setSuccessMsg]       = useState('');
   const [ledgerAccounts, setLedgerAccounts] = useState([]);
   const [customerMap, setCustomerMap]       = useState({});
+  const [accountsMap, setAccountsMap]       = useState({});
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -659,20 +664,21 @@ export default function DayBook() {
   }, [ledgerDateParam]);
 
   useEffect(() => {
-    axios.get('/api/customers/GetCustomersList')
-      .then((res) => {
-        const all = Array.isArray(res.data?.result) ? res.data.result : [];
-        // Build UUID → name map for all customers (used in LedgerDayView display)
+    Promise.all([
+      axios.get('/api/customers/GetCustomersList'),
+      axios.get('/api/accounts'),
+    ])
+      .then(([custRes, acctRes]) => {
+        const all = Array.isArray(custRes.data?.result) ? custRes.data.result : [];
         const map = {};
         all.forEach((c) => { if (c.Customer_uuid) map[c.Customer_uuid] = c.Customer_name; });
         setCustomerMap(map);
-        // Dropdown: only Bank and Account group, sorted names
-        const accounts = all
-       
-          .map((c) => c.Customer_name)
-          .filter(Boolean)
-          .sort();
-        setLedgerAccounts(accounts);
+        const accts = Array.isArray(acctRes.data?.accounts) ? acctRes.data.accounts : [];
+        const amap = {};
+        accts.forEach((a) => { if (a.Account_uuid) amap[a.Account_uuid] = a.Account_name; });
+        setAccountsMap(amap);
+        const names = all.map((c) => c.Customer_name).filter(Boolean).sort();
+        setLedgerAccounts(names);
       })
       .catch(() => {});
   }, []);
@@ -931,6 +937,7 @@ export default function DayBook() {
             bankAccounts={ledgerMeta.bankAccounts}
             bankNames={ledgerMeta.bankNames || []}
             customerMap={customerMap}
+            accountsMap={accountsMap}
           />
         )}
 

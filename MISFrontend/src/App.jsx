@@ -81,6 +81,7 @@ const AllTransaction1 = lazy(() => import('./Reports/allTransaction1'));
 const AllTransaction2 = lazy(() => import('./Reports/allTransaction2'));
 const AllTransaction3 = lazy(() => import('./Reports/allTransaction3'));
 const AllTransaction4D = lazy(() => import('./Reports/allTransaction4D'));
+const AllTransaction5  = lazy(() => import('./Reports/allTransaction5'));
 const PriorityReport = lazy(() => import('./Reports/priorityReport'));
 const DiaryUpload = lazy(() => import('./Pages/DiaryUpload'));
 const DayBook = lazy(() => import('./Pages/DayBook'));
@@ -209,6 +210,7 @@ export default function App() {
             <Route path={ROUTES.REPORTS_TRANSACTION_2} element={withSuspense(<AllTransaction2 />)} />
             <Route path={ROUTES.REPORTS_TRANSACTION_3} element={withSuspense(<AllTransaction3 />)} />
             <Route path={ROUTES.REPORTS_TRANSACTION_4D} element={withSuspense(<AllTransaction4D />)} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_5}  element={withSuspense(<AllTransaction5 />)} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_1_TYPO} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_1} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_2_LOWER} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_2} replace />} />
             <Route path={ROUTES.AGING_REPORT} element={withSuspense(<AgingReport />)} />

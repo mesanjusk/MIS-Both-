@@ -63,6 +63,7 @@ export const ROUTES = {
   REPORTS_TRANSACTION_2: '/allTransaction2',
   REPORTS_TRANSACTION_3: '/allTransaction3',
   REPORTS_TRANSACTION_4D: '/allTransaction4D',
+  REPORTS_TRANSACTION_5: '/allTransaction5',
   REPORTS_CUSTOMERS: '/reports/customers',
   REPORTS_PAYMENTS: '/reports/payments',
   REPORTS_ITEMS: '/reports/items',

@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -30,14 +30,6 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
-
-const isUuidOrId = (s) => /^[0-9a-f]{8,}[-0-9a-f]*$/i.test(s) || /^[a-f0-9]{24}$/i.test(s);
-
-const titleFromPath = (pathname = '/home') => {
-  const parts = pathname.split('/').filter(Boolean);
-  const segment = [...parts].reverse().find((p) => !isUuidOrId(p)) || parts.at(-1) || 'home';
-  return segment.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-};
 
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -185,7 +177,6 @@ NavDropdown.propTypes = {
 
 export default function TopNavbar() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
@@ -199,13 +190,6 @@ export default function TopNavbar() {
     navigate(ROUTES.ROOT);
   };
 
-  const todayLabel = new Date().toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-
   return (
     <AppBar
       position="static"
@@ -217,17 +201,26 @@ export default function TopNavbar() {
         backdropFilter: 'blur(16px)',
       })}
     >
-      <Toolbar sx={{ minHeight: { xs: 56, md: 56 }, px: { xs: 1, md: 1.5 }, gap: 0.5 }}>
+      <Toolbar sx={{ minHeight: { xs: 52, md: 52 }, px: { xs: 1, md: 1.5 }, gap: 0.5 }}>
 
-        {/* Page title + date */}
-        <Stack sx={{ minWidth: 0, mr: { xs: 0.5, md: 1 }, flexShrink: 0 }}>
-          <Typography variant="subtitle1" noWrap sx={{ fontWeight: 800, lineHeight: 1.2, fontSize: { xs: '0.9rem', md: '0.92rem' } }}>
-            {titleFromPath(pathname)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: { xs: 'none', sm: 'block' }, fontSize: '0.65rem' }}>
-            {userGroup || 'Workspace'} &bull; {todayLabel}
-          </Typography>
-        </Stack>
+        {/* Brand name */}
+        <Typography
+          noWrap
+          onClick={() => navigate(ROUTES.HOME)}
+          sx={(t) => ({
+            fontWeight: 900,
+            fontSize: '0.88rem',
+            color: t.palette.primary.main,
+            letterSpacing: 0.3,
+            cursor: 'pointer',
+            mr: 0.5,
+            flexShrink: 0,
+            display: { xs: 'none', sm: 'block' },
+            '&:hover': { opacity: 0.8 },
+          })}
+        >
+          SK Digital MIS
+        </Typography>
 
         {/* Nav dropdowns — desktop only */}
         <Stack
@@ -272,6 +265,38 @@ export default function TopNavbar() {
 
         <Box sx={{ flex: 1 }} />
 
+        {/* Right quick links — desktop only */}
+        <Stack
+          direction="row"
+          spacing={0}
+          sx={{ display: { xs: 'none', xl: 'flex' }, alignItems: 'center', flexShrink: 0, mr: 0.5 }}
+        >
+          {[
+            { label: 'Day Book', path: ROUTES.DAY_BOOK },
+            { label: 'SOP', path: ROUTES.SOP },
+            { label: 'Email', path: ROUTES.EMAIL_COMPOSE },
+          ].map((link) => (
+            <Button
+              key={link.label}
+              size="small"
+              onClick={() => navigate(link.path)}
+              sx={(t) => ({
+                fontSize: '0.76rem',
+                fontWeight: 600,
+                color: 'text.secondary',
+                borderRadius: 1.5,
+                px: 1,
+                py: 0.5,
+                minWidth: 0,
+                textTransform: 'none',
+                '&:hover': { bgcolor: alpha(t.palette.primary.main, 0.06), color: 'text.primary' },
+              })}
+            >
+              {link.label}
+            </Button>
+          ))}
+        </Stack>
+
         {/* Notification bell */}
         <IconButton
           size="small"
@@ -286,25 +311,44 @@ export default function TopNavbar() {
           </Badge>
         </IconButton>
 
-        {/* Avatar + dropdown */}
-        <IconButton
-          size="small"
+        {/* User zone: avatar + name + role + dropdown */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.75}
           onClick={(e) => setMenuAnchor(e.currentTarget)}
-          sx={{ p: 0.5 }}
+          sx={(t) => ({
+            cursor: 'pointer',
+            px: 0.75,
+            py: 0.4,
+            borderRadius: 2,
+            ml: 0.25,
+            '&:hover': { bgcolor: t.palette.action.hover },
+          })}
         >
           <Avatar
             sx={(t) => ({
               bgcolor: t.palette.primary.main,
-              width: 32,
-              height: 32,
-              fontSize: '0.72rem',
+              width: 30,
+              height: 30,
+              fontSize: '0.68rem',
               fontWeight: 800,
               boxShadow: `0 2px 8px ${t.palette.primary.main}40`,
+              flexShrink: 0,
             })}
           >
             {userName ? userName.slice(0, 2).toUpperCase() : 'NA'}
           </Avatar>
-        </IconButton>
+          <Box sx={{ display: { xs: 'none', sm: 'block' }, minWidth: 0 }}>
+            <Typography noWrap sx={{ fontSize: '0.76rem', fontWeight: 700, lineHeight: 1.2, color: 'text.primary' }}>
+              {userName || 'Guest'}
+            </Typography>
+            <Typography noWrap sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>
+              {userGroup || 'User'}
+            </Typography>
+          </Box>
+          <KeyboardArrowDownRoundedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0, display: { xs: 'none', sm: 'block' } }} />
+        </Stack>
 
         <Menu
           anchorEl={menuAnchor}

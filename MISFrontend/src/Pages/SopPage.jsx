@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, FormControl, FormControlLabel, IconButton, InputLabel, MenuItem,
+  Divider, FormControl, FormControlLabel, Grid, IconButton, InputLabel, MenuItem,
   Select, Stack, Switch, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -270,55 +270,67 @@ export default function SopPage() {
           if (!group?.length) return null;
           return (
             <SectionCard key={timeLabel} title={timeLabel} sx={{ mb: 2 }} contentSx={{ p: 1 }}>
-              <Stack spacing={1}>
+              <Grid container spacing={1}>
                 {group.map((task) => (
-                  <Box
-                    key={task._id}
-                    sx={{
-                      border: '1px solid',
-                      borderColor: task.isActive ? 'divider' : 'action.disabledBackground',
-                      borderRadius: 2,
-                      p: 1.5,
-                      opacity: task.isActive ? 1 : 0.55,
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                      <Box flex={1}>
-                        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" sx={{ mb: 0.5 }}>
-                          <Typography variant="subtitle2" fontWeight={700}>{task.title}</Typography>
-                          {!task.isActive && <Chip label="Inactive" size="small" color="default" />}
-                          <Chip label={task.isSkippable ? 'Optional' : 'Mandatory'} size="small" color={task.isSkippable ? 'default' : 'error'} variant="outlined" />
-                          <Chip label={TIME_LABEL[task.timeOfDay]} size="small" color={TIME_COLOR[task.timeOfDay]} />
-                          <Chip label={task.frequency} size="small" color="primary" variant="outlined" />
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={task._id}>
+                    <Box
+                      sx={{
+                        border: '1px solid',
+                        borderColor: task.isActive ? 'divider' : 'action.disabledBackground',
+                        borderRadius: 1.5,
+                        p: 1,
+                        opacity: task.isActive ? 1 : 0.55,
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 0.5,
+                      }}
+                    >
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                        <Typography
+                          variant="caption"
+                          fontWeight={700}
+                          sx={{ fontSize: '0.75rem', lineHeight: 1.3, flex: 1, mr: 0.5 }}
+                        >
+                          {task.title}
+                        </Typography>
+                        <Stack direction="row" spacing={0.25} flexShrink={0}>
+                          <Tooltip title="Edit">
+                            <IconButton size="small" sx={{ p: 0.25 }} onClick={() => openEdit(task)}>
+                              <EditIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" color="error" sx={{ p: 0.25 }} onClick={() => setDeleteConfirm(task._id)}>
+                              <DeleteIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Tooltip>
                         </Stack>
-                        {task.description && (
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>{task.description}</Typography>
-                        )}
-                        <Stack direction="row" spacing={1} flexWrap="wrap">
-                          <Chip label={`Primary: ${task.primaryGroup}`} size="small" sx={{ bgcolor: 'primary.light', color: 'primary.contrastText' }} />
-                          {(task.fallbackGroups || []).filter(Boolean).map((fg, i) => (
-                            <Chip key={i} label={`Fallback ${i + 1}: ${fg}`} size="small" variant="outlined" />
-                          ))}
-                        </Stack>
-                        {task.section && (
-                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.5 }}>{task.section}</Typography>
-                        )}
-                        {task.kpi && (
-                          <Typography variant="caption" color="success.main">KPI: {task.kpi}</Typography>
-                        )}
-                      </Box>
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Edit">
-                          <IconButton size="small" onClick={() => openEdit(task)}><EditIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <IconButton size="small" color="error" onClick={() => setDeleteConfirm(task._id)}><DeleteIcon fontSize="small" /></IconButton>
-                        </Tooltip>
                       </Stack>
-                    </Stack>
-                  </Box>
+                      {task.description && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ fontSize: '0.68rem', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+                        >
+                          {task.description}
+                        </Typography>
+                      )}
+                      <Stack direction="row" spacing={0.4} flexWrap="wrap" useFlexGap>
+                        <Chip label={task.primaryGroup} size="small" sx={{ fontSize: '0.6rem', height: 16, bgcolor: 'primary.light', color: 'primary.contrastText' }} />
+                        <Chip label={task.frequency} size="small" color="primary" variant="outlined" sx={{ fontSize: '0.6rem', height: 16 }} />
+                        <Chip label={task.isSkippable ? 'Optional' : 'Must'} size="small" color={task.isSkippable ? 'default' : 'error'} variant="outlined" sx={{ fontSize: '0.6rem', height: 16 }} />
+                        {!task.isActive && <Chip label="Off" size="small" sx={{ fontSize: '0.6rem', height: 16 }} />}
+                      </Stack>
+                      {task.kpi && (
+                        <Typography variant="caption" color="success.main" sx={{ fontSize: '0.65rem' }}>
+                          KPI: {task.kpi}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
                 ))}
-              </Stack>
+              </Grid>
             </SectionCard>
           );
         })

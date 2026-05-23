@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, IconButton,
-  InputAdornment, Paper, Stack, Table, TableBody, TableCell,
+  InputAdornment, LinearProgress, Paper, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -10,6 +10,7 @@ import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
+import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import axios from '../apiClient.js';
 import { toast } from '../Components/Toast';
 
@@ -42,14 +43,18 @@ function buildWhatsAppText(inv) {
 export default function InvoicesList() {
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [backendDown, setBackendDown] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [preview, setPreview] = useState(null);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateResult, setMigrateResult] = useState(null);
   const LIMIT = 50;
 
   const load = useCallback(async (q = search, pg = page) => {
     setLoading(true);
+    setBackendDown(false);
     try {
       const res = await axios.get('/api/public-invoices', {
         params: { search: q, page: pg, limit: LIMIT },
@@ -58,14 +63,37 @@ export default function InvoicesList() {
         setInvoices(res.data.result || []);
         setTotal(res.data.total || 0);
       }
-    } catch {
-      toast.error('Failed to load invoices');
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 503 || status === 502 || !err?.response) {
+        setBackendDown(true);
+      } else {
+        toast.error('Failed to load invoices');
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { load('', 1); }, [load]);
+
+  const handleMigrate = async () => {
+    setMigrating(true);
+    setMigrateResult(null);
+    try {
+      const res = await axios.post('/api/public-invoices/migrate');
+      if (res.data?.success) {
+        const { migrated, skipped, total: tot } = res.data.result;
+        setMigrateResult({ migrated, skipped, total: tot });
+        toast.success(`Migrated ${migrated} invoices!`);
+        load('', 1);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Migration failed');
+    } finally {
+      setMigrating(false);
+    }
+  };
 
   const handleSearch = (e) => {
     const v = e.target.value;
@@ -111,17 +139,49 @@ export default function InvoicesList() {
           <Typography variant="h6" fontWeight={800}>Invoices</Typography>
           <Typography variant="body2" color="text.secondary">{total} total — click any row to preview</Typography>
         </Box>
-        <TextField
-          size="small"
-          placeholder="Search order # or customer…"
-          value={search}
-          onChange={handleSearch}
-          sx={{ minWidth: 240 }}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment>,
-          }}
-        />
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          <Button
+            size="small"
+            variant="outlined"
+            color="warning"
+            startIcon={migrating ? <CircularProgress size={14} /> : <SyncRoundedIcon fontSize="small" />}
+            onClick={handleMigrate}
+            disabled={migrating}
+            sx={{ borderRadius: 2, textTransform: 'none' }}
+          >
+            {migrating ? 'Migrating…' : 'Sync Existing Orders'}
+          </Button>
+          <TextField
+            size="small"
+            placeholder="Search order # or customer…"
+            value={search}
+            onChange={handleSearch}
+            sx={{ minWidth: 220 }}
+            InputProps={{
+              startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment>,
+            }}
+          />
+        </Stack>
       </Stack>
+
+      {/* Backend down / 503 alert */}
+      {backendDown && (
+        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}
+          action={<Button size="small" onClick={() => load('', 1)}>Retry</Button>}
+        >
+          Backend is starting up (Render free tier sleeps after inactivity). Wait 30–60 seconds and click <strong>Retry</strong>, or redeploy the backend if this persists.
+        </Alert>
+      )}
+
+      {/* Migration result */}
+      {migrateResult && (
+        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setMigrateResult(null)}>
+          Migration complete — <strong>{migrateResult.migrated}</strong> invoices created,{' '}
+          <strong>{migrateResult.skipped}</strong> already existed (out of {migrateResult.total} invoiced orders).
+        </Alert>
+      )}
+
+      {migrating && <LinearProgress color="warning" sx={{ mb: 1, borderRadius: 1 }} />}
 
       <Paper variant="outlined" sx={{ borderRadius: 3 }}>
         <TableContainer>

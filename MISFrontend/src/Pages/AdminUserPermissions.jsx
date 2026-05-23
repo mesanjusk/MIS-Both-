@@ -8,6 +8,7 @@ import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
@@ -21,7 +22,17 @@ const DEFAULT_PERMISSIONS = {
   canViewAccounts: true,
   canExportData: false,
   dashboardCards: [],
+  allowedWidgets: [],
 };
+
+const HOME_WIDGETS = [
+  { id: 'quickLinks',       label: 'Quick Links',          desc: 'Navigate to all tools & pages',       color: '#16a34a', bg: '#dcfce7' },
+  { id: 'attendance',       label: 'Attendance Snapshot',  desc: 'Live team attendance (admin only)',    color: '#2563eb', bg: '#dbeafe', adminOnly: true },
+  { id: 'myTasks',          label: 'My Tasks',             desc: 'Current task assignments for user',   color: '#d97706', bg: '#fef3c7' },
+  { id: 'recentAttendance', label: 'My Attendance',        desc: 'Recent personal check-in/out logs',   color: '#7c3aed', bg: '#ede9fe' },
+  { id: 'pendingTasks',     label: 'Pending Task Queue',   desc: 'Click any task to update progress',   color: '#dc2626', bg: '#fee2e2' },
+  { id: 'ordersBoard',      label: 'Orders Pipeline',      desc: 'Full order board & activity stream',  color: '#0891b2', bg: '#cffafe' },
+];
 
 const PERMISSION_LABELS = [
   { key: 'canCreateOrders',  label: 'Create Orders',   desc: 'Can create new orders' },
@@ -81,14 +92,26 @@ function UserPermissionPanel({ user, onSaved }) {
     }
   };
 
+  const toggleWidget = (widgetId) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.allowedWidgets) ? p.allowedWidgets : [];
+      const next = current.includes(widgetId)
+        ? current.filter((id) => id !== widgetId)
+        : [...current, widgetId];
+      return { ...p, allowedWidgets: next };
+    });
+  };
+
   const allGroupsChecked = perms.sidebarGroups.length === 0;
   const groupsRestricted = !allGroupsChecked;
+  const allWidgetsAllowed = !perms.allowedWidgets?.length;
 
   return (
     <Box>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Tab label="Sidebar Access" />
         <Tab label="Feature Rights" />
+        <Tab label="Home Widgets" icon={<WidgetsRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
       </Tabs>
 
       {tab === 0 && (
@@ -169,6 +192,74 @@ function UserPermissionPanel({ user, onSaved }) {
         </Box>
       )}
 
+      {tab === 2 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            {allWidgetsAllowed
+              ? 'User can see ALL home dashboard widgets. Restrict below to limit which widgets are available.'
+              : `User is restricted to ${perms.allowedWidgets.length} of ${HOME_WIDGETS.length} widgets.`}
+          </Alert>
+          <Stack spacing={1}>
+            {HOME_WIDGETS.map((w) => {
+              const isAllowed = allWidgetsAllowed || perms.allowedWidgets.includes(w.id);
+              return (
+                <Paper
+                  key={w.id}
+                  variant="outlined"
+                  onClick={() => toggleWidget(w.id)}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    borderColor: isAllowed ? w.color : 'divider',
+                    bgcolor: isAllowed ? alpha(w.color, 0.05) : 'transparent',
+                    transition: 'all 0.15s',
+                    '&:hover': { borderColor: w.color },
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box
+                      sx={{
+                        width: 32, height: 32, borderRadius: 1.5,
+                        bgcolor: w.bg, display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexShrink: 0,
+                      }}
+                    >
+                      <WidgetsRoundedIcon sx={{ fontSize: 16, color: w.color }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Stack direction="row" spacing={0.75} alignItems="center">
+                        <Typography variant="body2" fontWeight={700}>{w.label}</Typography>
+                        {w.adminOnly && (
+                          <Chip size="small" label="Admin only" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
+                        )}
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">{w.desc}</Typography>
+                    </Box>
+                    {isAllowed
+                      ? <CheckCircleRoundedIcon sx={{ color: w.color, flexShrink: 0 }} fontSize="small" />
+                      : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider', flexShrink: 0 }} />}
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+          <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
+            These settings control widget visibility in the <strong>Widget Library</strong> only. Users can still see widgets already pinned to their layout until they remove them.
+          </Alert>
+          {!allWidgetsAllowed && (
+            <Button
+              variant="outlined"
+              size="small"
+              sx={{ mt: 1.5 }}
+              onClick={() => setPerms((p) => ({ ...p, allowedWidgets: [] }))}
+            >
+              Allow All Widgets
+            </Button>
+          )}
+        </Box>
+      )}
+
       <Button
         variant="contained"
         startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
@@ -221,7 +312,7 @@ export default function AdminUserPermissions() {
         <Box>
           <Typography variant="h5" fontWeight={900}>User Permissions</Typography>
           <Typography variant="caption" color="text.secondary">
-            Manage sidebar access and feature rights per user
+            Manage sidebar access, feature rights & home dashboard widgets per user
           </Typography>
         </Box>
       </Stack>
@@ -261,7 +352,7 @@ export default function AdminUserPermissions() {
                         sx={{ height: 18, fontSize: '0.65rem', mt: 0.3 }}
                       />
                     </Box>
-                    {user.permissions?.sidebarGroups?.length > 0 && (
+                    {(user.permissions?.sidebarGroups?.length > 0 || user.permissions?.allowedWidgets?.length > 0) && (
                       <Chip size="small" label="Custom" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                     )}
                   </Stack>

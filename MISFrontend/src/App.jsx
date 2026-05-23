@@ -49,6 +49,7 @@ const VendorDetails = lazy(() => import('./Pages/vendorDetails'));
 const CustomerDetails = lazy(() => import('./Pages/CustomerDetails'));
 const WhatsAppCloudDashboard = lazy(() => import('./Pages/WhatsAppCloudDashboard'));
 const AllOrder = lazy(() => import('./Reports/allOrder'));
+const AllOrdersList = lazy(() => import('./Reports/allOrdersList'));
 const AllDelivery = lazy(() => import('./Reports/allDelivery'));
 const AllTransaction = lazy(() => import('./Reports/allTransaction'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
@@ -202,6 +203,7 @@ export default function App() {
 
             <Route path="/reports/orders" element={withSuspense(<AllOrder />)} />
             <Route path="/allOrder" element={withSuspense(<AllOrder />)} />
+            <Route path={ROUTES.REPORTS_ORDERS_LIST} element={withSuspense(<AllOrdersList />)} />
             <Route path="/reports/delivery" element={withSuspense(<AllDelivery />)} />
             <Route path="/allDelivery" element={withSuspense(<AllDelivery />)} />
             <Route path={ROUTES.ALL_TRANSACTION} element={withSuspense(<AllTransaction />)} />

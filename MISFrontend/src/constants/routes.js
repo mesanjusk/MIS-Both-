@@ -58,6 +58,7 @@ export const ROUTES = {
   WHATSAPP_BROADCAST: '/whatsapp/broadcast',
 
   REPORTS_ORDERS: '/reports/orders',
+  REPORTS_ORDERS_LIST: '/allOrdersList',
   REPORTS_TRANSACTIONS: '/reports/transactions',
   REPORTS_TRANSACTION_1: '/allTransaction1',
   REPORTS_TRANSACTION_2: '/allTransaction2',

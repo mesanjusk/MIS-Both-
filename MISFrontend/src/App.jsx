@@ -67,6 +67,7 @@ const CallLogs = lazy(() => import('./Pages/callLogs'));
 const FlowBuilderPage = lazy(() => import('./Pages/FlowBuilderPage'));
 const UpiCollectPublic = lazy(() => import('./Pages/UpiCollectPublic'));
 const PublicInvoice = lazy(() => import('./Pages/PublicInvoice'));
+const InvoicesList = lazy(() => import('./Pages/InvoicesList'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
 const SendMessageAll = lazy(() => import('./Pages/SendMessageAll'));
 const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
@@ -229,6 +230,7 @@ export default function App() {
             <Route path="/reports/users" element={withSuspense(<UserReport />)} />
             <Route path="/userReport" element={withSuspense(<UserReport />)} />
             <Route path={ROUTES.REPORTS_BILLS} element={withSuspense(<AllBills />)} />
+            <Route path={ROUTES.INVOICES_LIST} element={withSuspense(<InvoicesList />)} />
             <Route path={ROUTES.REPORTS_PRIORITY} element={withSuspense(<PriorityReport />)} />
 
             <Route path={ROUTES.GMAIL_ACCOUNTS} element={withSuspense(<GmailAccounts />)} />

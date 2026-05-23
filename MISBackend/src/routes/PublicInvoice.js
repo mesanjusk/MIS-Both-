@@ -3,6 +3,37 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const PublicInvoice = require('../repositories/publicInvoice');
 
+// List all invoices (authenticated, paginated)
+router.get('/', requireAuth, async (req, res) => {
+  try {
+    const page  = Math.max(1, parseInt(req.query.page  || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '50', 10)));
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    const filter = search
+      ? {
+          $or: [
+            { orderNumber: { $regex: search, $options: 'i' } },
+            { partyName:   { $regex: search, $options: 'i' } },
+          ],
+        }
+      : {};
+
+    const [total, docs] = await Promise.all([
+      PublicInvoice.countDocuments(filter),
+      PublicInvoice.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    res.json({ success: true, result: docs, total, page, limit });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Save invoice and return shareToken (authenticated)
 router.post('/', requireAuth, async (req, res) => {
   try {

@@ -38,6 +38,7 @@ export const ROUTES = {
   PAYMENT: '/accounts/payment',
   UPI_COLLECT_PUBLIC: '/upi/collect/:transactionRef',
   PUBLIC_INVOICE: '/invoice/:shareToken',
+  INVOICES_LIST: '/reports/invoices',
   UPI_PAYMENT: '/upi-payment',
   ADD_PAYMENT: '/addPayment',
   TRIAL_BALANCE: '/accounts/trial-balance',

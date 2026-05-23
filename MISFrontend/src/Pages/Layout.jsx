@@ -31,9 +31,9 @@ import CustomizeDialog from '../Components/CustomizeDialog';
 import axios, { getApiBase } from '../apiClient';
 import { ROUTES } from '../constants/routes';
 
-const LEFT_SIDEBAR_WIDTH = 240;
-const RIGHT_SIDEBAR_WIDTH = 80;
-const NAVBAR_HEIGHT = 64;
+const LEFT_SIDEBAR_WIDTH = 66;
+const RIGHT_SIDEBAR_WIDTH = 66;
+const NAVBAR_HEIGHT = 56;
 
 export const DashboardCustomizeCtx = createContext(null);
 export const useDashboardCustomize = () => useContext(DashboardCustomizeCtx);
@@ -55,6 +55,11 @@ export default function Layout() {
   const [upiOpen, setUpiOpen] = useState(false);
   const openUpi = useCallback(() => setUpiOpen(true), []);
   const closeUpi = useCallback(() => setUpiOpen(false), []);
+
+  /* Widget library — controlled here so sidebar can trigger it */
+  const [widgetLibOpen, setWidgetLibOpen] = useState(false);
+  const openWidgetLib = useCallback(() => setWidgetLibOpen(true), []);
+  const closeWidgetLib = useCallback(() => setWidgetLibOpen(false), []);
 
   const openGoogleDriveReconnect = () => {
     const baseUrl = getApiBase() || window.location.origin;
@@ -118,10 +123,16 @@ export default function Layout() {
   }, [location]);
 
   return (
-    <DashboardCustomizeCtx.Provider value={{ customizeOpen, openCustomize, closeCustomize, upiOpen, openUpi, closeUpi }}>
+    <DashboardCustomizeCtx.Provider
+      value={{
+        customizeOpen, openCustomize, closeCustomize,
+        upiOpen, openUpi, closeUpi,
+        widgetLibOpen, openWidgetLib, closeWidgetLib,
+      }}
+    >
       <Box sx={{ height: '100dvh', bgcolor: 'background.default', display: 'flex', overflow: 'hidden' }}>
 
-        {/* ── Left Sidebar (fixed 240px on desktop) ── */}
+        {/* ── Left Sidebar (fixed 66px on desktop) ── */}
         <Sidebar
           mobileOpen={mobileOpen}
           onCloseMobile={() => setMobileOpen(false)}
@@ -133,7 +144,6 @@ export default function Layout() {
           sx={{
             flexGrow: 1,
             minWidth: 0,
-            
             mr: { lg: `${RIGHT_SIDEBAR_WIDTH}px` },
             height: '100dvh',
             display: 'flex',
@@ -166,21 +176,22 @@ export default function Layout() {
               overflowX: 'hidden',
               px: { xs: 0.65, md: 1 },
               pt: `${NAVBAR_HEIGHT + 10}px`,
-              pb: { xs: 13, md: 1.5 },
               scrollBehavior: 'smooth',
             }}
           >
             <Box sx={{ maxWidth: 1700, mx: 'auto', minHeight: `calc(100dvh - ${NAVBAR_HEIGHT + 24}px)` }}>
               <Outlet />
             </Box>
-            <Footer />
           </Box>
+
+          {/* Footer outside the scrollable main Box */}
+          <Footer />
 
           {/* Floating speed-dial (repositioned left of right sidebar on desktop) */}
           <FloatingButtons buttonsList={buttonsList} />
         </Box>
 
-        {/* ── Right Sidebar (fixed 240px on lg+) ── */}
+        {/* ── Right Sidebar (fixed 66px on lg+) ── */}
         <RightSidebar
           onNewOrderClick={handleNewOrderClick}
           onCustomize={openCustomize}

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MIS Home UI Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; }
+  body { background: #f0fdf4; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── TOP NAVBAR ── */
+  .navbar {
+    height: 52px;
+    background: rgba(255,255,255,0.97);
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+    flex-shrink: 0;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+  }
+  .navbar .brand { font-weight: 900; font-size: 13px; color: #16a34a; letter-spacing: 0.5px; white-space: nowrap; }
+  .navbar .nav-links-left { display: flex; gap: 2px; }
+  .navbar .nav-links-left a {
+    font-size: 11px; font-weight: 600; color: #475569; padding: 4px 8px;
+    border-radius: 6px; text-decoration: none; cursor: pointer;
+  }
+  .navbar .nav-links-left a:hover { background: #f1f5f9; }
+  .navbar .spacer { flex: 1; }
+  .navbar .search-bar {
+    display: flex; align-items: center; gap: 6px;
+    background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 20px;
+    padding: 4px 12px; width: 320px;
+  }
+  .navbar .search-bar input {
+    border: none; background: transparent; outline: none; font-size: 12px; color: #334155; width: 100%;
+  }
+  .navbar .search-icon { color: #94a3b8; font-size: 14px; }
+  .navbar .nav-links-right { display: flex; gap: 2px; }
+  .navbar .nav-links-right a {
+    font-size: 11px; font-weight: 600; color: #475569; padding: 4px 8px;
+    border-radius: 6px; text-decoration: none; cursor: pointer;
+  }
+  .navbar .nav-links-right a:hover { background: #f1f5f9; }
+  .navbar .notif-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    color: #64748b; font-size: 16px;
+  }
+  .navbar .user-avatar {
+    width: 32px; height: 32px; border-radius: 50%; background: #16a34a;
+    color: white; font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    position: relative;
+  }
+  .dropdown-hint {
+    position: absolute; right: 0; top: 36px; background: white; border: 1px solid #e2e8f0;
+    border-radius: 10px; padding: 6px; width: 160px; box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    z-index: 200;
+  }
+  .dropdown-hint .duser { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; margin-bottom: 4px; }
+  .dropdown-hint .duser strong { display: block; font-size: 11px; color: #1e293b; }
+  .dropdown-hint .duser span { font-size: 10px; color: #94a3b8; }
+  .dropdown-hint a {
+    display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+    font-size: 11px; color: #475569; border-radius: 6px; cursor: pointer;
+    text-decoration: none;
+  }
+  .dropdown-hint a:hover { background: #f1f5f9; }
+
+  /* ── LAYOUT BODY ── */
+  .layout {
+    display: flex;
+    margin-top: 52px;
+    height: calc(100vh - 52px);
+    overflow: hidden;
+  }
+
+  /* ── LEFT SIDEBAR (icon-only, 52px) ── */
+  .left-sidebar {
+    width: 52px;
+    background: white;
+    border-right: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    gap: 2px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+  }
+  .sidebar-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: #64748b; font-size: 16px;
+    position: relative; transition: all 0.15s;
+  }
+  .sidebar-icon:hover { background: #f0fdf4; color: #16a34a; }
+  .sidebar-icon.active { background: #dcfce7; color: #16a34a; }
+  .sidebar-icon .tooltip {
+    position: absolute; left: 48px; top: 50%; transform: translateY(-50%);
+    background: rgba(15,23,42,0.88); color: white; font-size: 10px; font-weight: 700;
+    padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+    opacity: 0;
+  }
+  .sidebar-icon:hover .tooltip { opacity: 1; }
+  .sidebar-divider { width: 32px; height: 1px; background: #e2e8f0; margin: 4px 0; }
+  .sidebar-label {
+    font-size: 9px; font-weight: 800; color: #cbd5e1;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    text-align: center; padding: 4px 0 2px;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-content {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .home-center {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 20px 20px;
+    min-height: 320px;
+  }
+  .home-username {
+    font-size: 56px; font-weight: 900; color: #16a34a;
+    letter-spacing: -1px; margin-bottom: 24px; opacity: 0.92;
+  }
+  .home-search {
+    display: flex; align-items: center; gap: 0;
+    background: white; border: 1.5px solid #e2e8f0;
+    border-radius: 28px; width: 560px; max-width: 90%;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+  .search-plus-btn {
+    width: 44px; height: 44px; background: #16a34a;
+    border: none; cursor: pointer; color: white; font-size: 20px; font-weight: 300;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; border-radius: 0; border-right: 1.5px solid #e2e8f0;
+    transition: background 0.15s;
+  }
+  .search-plus-btn:hover { background: #15803d; }
+  .home-search input {
+    flex: 1; border: none; outline: none; padding: 10px 16px;
+    font-size: 14px; color: #334155; background: transparent;
+  }
+  .home-search .search-actions {
+    display: flex; gap: 4px; padding: 0 8px; align-items: center;
+  }
+  .home-search .search-actions button {
+    width: 32px; height: 32px; border-radius: 8px; border: none;
+    background: transparent; cursor: pointer; color: #94a3b8; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .home-search .search-actions button:hover { background: #f1f5f9; }
+
+  /* plus-menu popup */
+  .plus-popup {
+    position: absolute; top: 200px; left: 50%; transform: translateX(-260px);
+    width: 520px; background: white; border: 1px solid #e2e8f0; border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.12); padding: 12px; z-index: 300;
+  }
+  .plus-popup h4 { font-size: 11px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; padding: 0 4px; }
+  .plus-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 8px; }
+  .plus-item {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 4px; border-radius: 8px; cursor: pointer;
+    background: #f8fafc; border: 1px solid transparent;
+  }
+  .plus-item:hover { background: #dcfce7; border-color: #16a34a; }
+  .plus-item .pi-icon { font-size: 18px; }
+  .plus-item .pi-label { font-size: 10px; font-weight: 600; color: #475569; text-align: center; }
+
+  .home-chips { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+  .home-chip {
+    padding: 5px 14px; border-radius: 20px; background: white;
+    border: 1px solid #e2e8f0; font-size: 11px; color: #475569; cursor: pointer;
+    font-weight: 600;
+  }
+  .home-chip:hover { border-color: #16a34a; color: #16a34a; }
+
+  .home-widgets {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    padding: 0 20px 20px;
+  }
+  .widget-card {
+    background: white; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 16px; cursor: pointer;
+  }
+  .widget-card:hover { box-shadow: 0 4px 16px rgba(22,163,74,0.1); border-color: #bbf7d0; }
+  .widget-card .wc-icon { font-size: 28px; margin-bottom: 8px; }
+  .widget-card .wc-title { font-size: 13px; font-weight: 700; color: #1e293b; }
+  .widget-card .wc-desc { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+  /* ── RIGHT SIDEBAR (icon-only, 52px) ── */
+  .right-sidebar {
+    width: 52px;
+    background: white;
+    border-left: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    gap: 2px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.04);
+  }
+
+  /* ── FOOTER ── */
+  .footer {
+    background: white;
+    border-top: 1px solid #e2e8f0;
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    flex-shrink: 0;
+  }
+  .footer a {
+    font-size: 11px; color: #64748b; text-decoration: none; font-weight: 500; cursor: pointer;
+  }
+  .footer a:hover { color: #16a34a; }
+  .footer .sep { color: #cbd5e1; font-size: 10px; }
+
+  /* annotation labels */
+  .annotation {
+    position: absolute;
+    background: #1e40af;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 500;
+  }
+  .arrow { color: #1e40af; font-size: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ TOP NAVBAR ═══════════ -->
+<div class="navbar">
+  <span class="brand">SK Digital MIS</span>
+
+  <!-- Left nav links -->
+  <div class="nav-links-left">
+    <a>Home</a>
+    <a>Orders</a>
+    <a>Business</a>
+    <a>WhatsApp</a>
+    <a>Reports</a>
+  </div>
+
+  <div class="spacer"></div>
+
+  <!-- Search bar in center -->
+  <div class="search-bar">
+    <span class="search-icon">🔍</span>
+    <input type="text" placeholder="Search customer, order, payment..." />
+  </div>
+
+  <div class="spacer"></div>
+
+  <!-- Right nav links -->
+  <div class="nav-links-right">
+    <a>Day Book</a>
+    <a>Attendance</a>
+    <a>SOP</a>
+  </div>
+
+  <button class="notif-btn">🔔</button>
+
+  <!-- User avatar with dropdown -->
+  <div class="user-avatar" style="position:relative">
+    SK
+    <!-- Dropdown shown open for mockup -->
+    <div class="dropdown-hint">
+      <div class="duser">
+        <strong>Sanjay Kumar</strong>
+        <span>Admin · Today, 23 May</span>
+      </div>
+      <a>🏠 Home</a>
+      <a>🏪 Business Control</a>
+      <a>🖨️ Post Printing</a>
+      <a>⚙️ Workflow Templates</a>
+      <a>🚪 Logout</a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MAIN LAYOUT ═══════════ -->
+<div class="layout">
+
+  <!-- ═══ LEFT SIDEBAR (icon-only) ═══ -->
+  <div class="left-sidebar">
+    <!-- Overview -->
+    <div class="sidebar-label">·</div>
+    <div class="sidebar-icon active">
+      🏠<span class="tooltip">Dashboard</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- Attendance -->
+    <div class="sidebar-icon">
+      📅<span class="tooltip">Attendance</span>
+    </div>
+    <div class="sidebar-icon">
+      📋<span class="tooltip">Order Tasks</span>
+    </div>
+    <div class="sidebar-icon">
+      📆<span class="tooltip">My Day</span>
+    </div>
+    <div class="sidebar-icon">
+      👥<span class="tooltip">Users Report</span>
+    </div>
+    <div class="sidebar-icon">
+      ➕<span class="tooltip">Add User</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- Orders -->
+    <div class="sidebar-icon">
+      📦<span class="tooltip">All Orders</span>
+    </div>
+    <div class="sidebar-icon">
+      🛒<span class="tooltip">Purchase Orders</span>
+    </div>
+    <div class="sidebar-icon">
+      🚚<span class="tooltip">Deliveries</span>
+    </div>
+    <div class="sidebar-icon">
+      🧾<span class="tooltip">Invoices</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- Accounts -->
+    <div class="sidebar-icon">
+      🏦<span class="tooltip">Opening Balance</span>
+    </div>
+    <div class="sidebar-icon">
+      📖<span class="tooltip">Day Book</span>
+    </div>
+    <div class="sidebar-icon">
+      💳<span class="tooltip">UPI Payment</span>
+    </div>
+    <div class="sidebar-icon">
+      📊<span class="tooltip">Account Book</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- WhatsApp -->
+    <div class="sidebar-icon">
+      💬<span class="tooltip">WhatsApp Cloud</span>
+    </div>
+    <div class="sidebar-icon">
+      📨<span class="tooltip">Send Message</span>
+    </div>
+    <div class="sidebar-icon">
+      📡<span class="tooltip">Flow Builder</span>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- Other -->
+    <div class="sidebar-icon">
+      📞<span class="tooltip">Call Logs</span>
+    </div>
+    <div class="sidebar-icon">
+      ✅<span class="tooltip">SOP Tasks</span>
+    </div>
+    <div class="sidebar-icon">
+      🛡️<span class="tooltip">User Permissions</span>
+    </div>
+
+    <!-- Logout at bottom -->
+    <div style="flex:1"></div>
+    <div class="sidebar-icon" style="color:#ef4444">
+      🚪<span class="tooltip">Sign Out</span>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <div class="main-content">
+
+    <!-- Home hero center -->
+    <div class="home-center" style="position:relative">
+
+      <!-- Large username -->
+      <div class="home-username">Sanjay Kumar</div>
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:24px;margin-top:-18px;">Good morning · Admin</div>
+
+      <!-- Search + "+" button -->
+      <div class="home-search" style="position:relative">
+        <button class="search-plus-btn" title="All Links">+</button>
+        <input type="text" placeholder="Search customer, order, payment, task..." />
+        <div class="search-actions">
+          <button title="Voice">🎤</button>
+          <button title="Image">🖼️</button>
+        </div>
+      </div>
+
+      <!-- Plus button popup (shown open for mockup) -->
+      <div class="plus-popup" style="position:relative;transform:none;left:auto;top:auto;margin-top:10px;width:100%;max-width:560px">
+        <h4>📌 Quick Add &amp; Navigate (+ button opens this)</h4>
+        <div class="plus-grid">
+          <div class="plus-item"><span class="pi-icon">🛒</span><span class="pi-label">New Order</span></div>
+          <div class="plus-item"><span class="pi-icon">🧾</span><span class="pi-label">Receipt</span></div>
+          <div class="plus-item"><span class="pi-icon">💳</span><span class="pi-label">Payment</span></div>
+          <div class="plus-item"><span class="pi-icon">🔔</span><span class="pi-label">Followup</span></div>
+          <div class="plus-item"><span class="pi-icon">📋</span><span class="pi-label">Task</span></div>
+          <div class="plus-item"><span class="pi-icon">📱</span><span class="pi-label">Add UPI</span></div>
+          <div class="plus-item"><span class="pi-icon">📖</span><span class="pi-label">Day Book</span></div>
+          <div class="plus-item"><span class="pi-icon">📊</span><span class="pi-label">Reports</span></div>
+        </div>
+        <h4 style="margin-top:4px">🗂️ All Pages</h4>
+        <div class="plus-grid">
+          <div class="plus-item"><span class="pi-icon">📅</span><span class="pi-label">Attendance</span></div>
+          <div class="plus-item"><span class="pi-icon">🚚</span><span class="pi-label">Deliveries</span></div>
+          <div class="plus-item"><span class="pi-icon">💬</span><span class="pi-label">WhatsApp</span></div>
+          <div class="plus-item"><span class="pi-icon">✅</span><span class="pi-label">SOP Tasks</span></div>
+          <div class="plus-item"><span class="pi-icon">🏦</span><span class="pi-label">Day Book</span></div>
+          <div class="plus-item"><span class="pi-icon">📞</span><span class="pi-label">Call Logs</span></div>
+          <div class="plus-item"><span class="pi-icon">🧑‍💼</span><span class="pi-label">Customers</span></div>
+          <div class="plus-item"><span class="pi-icon">📦</span><span class="pi-label">Items</span></div>
+        </div>
+      </div>
+
+      <!-- Suggestion chips -->
+      <div class="home-chips">
+        <span class="home-chip">📋 Pending Tasks</span>
+        <span class="home-chip">🚚 Orders Pipeline</span>
+        <span class="home-chip">📅 My Attendance</span>
+        <span class="home-chip">📊 Account Book</span>
+        <span class="home-chip">💬 WhatsApp</span>
+      </div>
+    </div>
+
+    <!-- Widget grid (all existing widgets preserved) -->
+    <div class="home-widgets">
+      <div class="widget-card">
+        <div class="wc-icon">🔗</div>
+        <div class="wc-title">Quick Links</div>
+        <div class="wc-desc">Navigate to all tools &amp; pages</div>
+      </div>
+      <div class="widget-card">
+        <div class="wc-icon">⏳</div>
+        <div class="wc-title">Pending Task Queue</div>
+        <div class="wc-desc">Click any task to update progress</div>
+      </div>
+      <div class="widget-card">
+        <div class="wc-icon">🚢</div>
+        <div class="wc-title">Orders Pipeline</div>
+        <div class="wc-desc">Full order board &amp; activity stream</div>
+      </div>
+      <div class="widget-card">
+        <div class="wc-icon">📅</div>
+        <div class="wc-title">Attendance Snapshot</div>
+        <div class="wc-desc">Live team attendance overview</div>
+      </div>
+      <div class="widget-card">
+        <div class="wc-icon">📋</div>
+        <div class="wc-title">My Tasks</div>
+        <div class="wc-desc">Current task assignments</div>
+      </div>
+      <div class="widget-card">
+        <div class="wc-icon">🕐</div>
+        <div class="wc-title">My Attendance</div>
+        <div class="wc-desc">Recent check-in / check-out logs</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ RIGHT SIDEBAR (icon-only, already exists) ═══ -->
+  <div class="right-sidebar">
+    <div class="sidebar-label">·</div>
+    <div class="sidebar-icon">
+      📖<span class="tooltip" style="right:48px;left:auto">Day Book</span>
+    </div>
+    <div class="sidebar-icon">
+      📧<span class="tooltip" style="right:48px;left:auto">Send Email</span>
+    </div>
+    <div class="sidebar-icon">
+      💳<span class="tooltip" style="right:48px;left:auto">UPI Payment</span>
+    </div>
+    <div class="sidebar-icon">
+      🧾<span class="tooltip" style="right:48px;left:auto">Transaction 4D</span>
+    </div>
+    <div class="sidebar-icon">
+      👥<span class="tooltip" style="right:48px;left:auto">Attendance</span>
+    </div>
+    <div class="sidebar-divider"></div>
+    <div class="sidebar-icon">
+      📦<span class="tooltip" style="right:48px;left:auto">Orders</span>
+    </div>
+    <div class="sidebar-icon">
+      🏪<span class="tooltip" style="right:48px;left:auto">Business</span>
+    </div>
+    <div class="sidebar-icon">
+      🖨️<span class="tooltip" style="right:48px;left:auto">Post Print</span>
+    </div>
+    <div class="sidebar-icon">
+      💬<span class="tooltip" style="right:48px;left:auto">WhatsApp</span>
+    </div>
+    <div class="sidebar-icon">
+      📊<span class="tooltip" style="right:48px;left:auto">Reports</span>
+    </div>
+    <div style="flex:1"></div>
+    <div class="sidebar-icon">
+      🎨<span class="tooltip" style="right:48px;left:auto">Customize</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<div class="footer">
+  <a>Home</a><span class="sep">·</span>
+  <a>Orders</a><span class="sep">·</span>
+  <a>Attendance</a><span class="sep">·</span>
+  <a>WhatsApp</a><span class="sep">·</span>
+  <a>Day Book</a><span class="sep">·</span>
+  <a>Call Logs</a><span class="sep">·</span>
+  <a>SOP Tasks</a><span class="sep">·</span>
+  <a>Reports</a><span class="sep">·</span>
+  <a>Business</a><span class="sep">·</span>
+  <a>Post Printing</a>
+</div>
+
+<!-- Annotation labels explaining the plan -->
+<div style="position:fixed;bottom:60px;right:60px;background:rgba(30,64,175,0.9);color:white;padding:10px 14px;border-radius:10px;font-size:10px;max-width:220px;line-height:1.6;z-index:1000;">
+  <strong>📐 PLANNED CHANGES</strong><br/>
+  ✅ Left sidebar → icon-only (52px)<br/>
+  ✅ Right sidebar → icon-only (already 80px)<br/>
+  ✅ Top navbar → links + username dropdown<br/>
+  ✅ Home → big username + search + + button<br/>
+  ✅ + button → all nav links panel<br/>
+  ✅ Footer → simple text links (desktop too)<br/>
+  ✅ All widgets preserved (6 widgets)<br/>
+  ✅ Drag-to-customize still works
+</div>
+
+</body>
+</html>

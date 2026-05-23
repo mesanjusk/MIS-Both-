@@ -588,6 +588,7 @@ export default function UpdateDelivery({
           partyName={customerMap[Customer_uuid] || Customer_name}
           items={items}
           extraCharges={extraCharges}
+          customerMobile={customerMobile}
           onWhatsApp={handleWhatsApp}
           onReady={() => {}}
         />

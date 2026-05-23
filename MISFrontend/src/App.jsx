@@ -66,6 +66,7 @@ const AddPayment = lazy(() => import('./Pages/addPayment'));
 const CallLogs = lazy(() => import('./Pages/callLogs'));
 const FlowBuilderPage = lazy(() => import('./Pages/FlowBuilderPage'));
 const UpiCollectPublic = lazy(() => import('./Pages/UpiCollectPublic'));
+const PublicInvoice = lazy(() => import('./Pages/PublicInvoice'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
 const SendMessageAll = lazy(() => import('./Pages/SendMessageAll'));
 const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
@@ -128,6 +129,7 @@ export default function App() {
           <Route path={ROUTES.LOGIN} element={withSuspense(<Login />)} />
           <Route path={ROUTES.REGISTER} element={withSuspense(<Register />)} />
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
+          <Route path={ROUTES.PUBLIC_INVOICE} element={withSuspense(<PublicInvoice />)} />
 
           <Route element={<RequireAuth><ErrorBoundary><Layout /></ErrorBoundary></RequireAuth>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />

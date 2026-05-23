@@ -77,6 +77,7 @@ const Gmail = require("./routes/Gmail");
 const AccountsRouter = require("./routes/Accounts");
 const SopRouter = require("./routes/sop");
 const { seedUserGroups } = require("./services/sopService");
+const BusinessProfile = require("./routes/BusinessProfile");
 
 const app = express();
 const server = http.createServer(app);
@@ -132,6 +133,7 @@ app.use("/api/contacts", Contacts);
 app.use("/api/calllogs", CallLogs);
 app.use("/api/upi", UpiPayments);
 app.use("/api/business-control", BusinessOps);
+app.use("/api/business-profile", BusinessProfile);
 app.use("/api/workflow-templates", WorkflowTemplate);
 app.use("/api/purchaseorder", PurchaseOrder);
 app.use("/api/scheduler", Scheduler);

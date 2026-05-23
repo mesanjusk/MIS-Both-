@@ -1,31 +1,55 @@
 import React, { forwardRef } from "react";
+import ReactQRCode from "react-qr-code";
 
-/**
- * InvoicePreview
- * - forwardRef so parent can access the rendered node (for html2canvas / print)
- * - purely presentational (no biz logic)
- */
 const InvoicePreview = forwardRef(function InvoicePreview(
-  { store = "S.K. Digital", addressLines = [], orderNumber, dateStr, partyName, items = [], qrSrc = "/qr.png" },
+  {
+    store = "S.K. Digital",
+    addressLines = [],
+    phone = "",
+    email = "",
+    gst = "",
+    upiId = "",
+    upiName = "",
+    orderNumber,
+    dateStr,
+    partyName,
+    items = [],
+    extraCharges = [],
+  },
   ref
 ) {
-  const total = items.reduce((sum, i) => sum + (Number(i.Amount) || 0), 0);
+  const itemsTotal = items.reduce((sum, i) => sum + (Number(i.Amount) || 0), 0);
+  const extrasTotal = extraCharges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const grandTotal = itemsTotal + extrasTotal;
+
+  const upiLink = upiId
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName || store)}&cu=INR`
+    : null;
 
   return (
     <div ref={ref} className="mx-auto w-[320px] border bg-white p-4 text-[12px] rounded shadow-md">
+      {/* Header */}
       <div className="text-center border-b pb-2">
         <h2 className="text-lg font-bold">{store}</h2>
-        {addressLines?.map((line, idx) => (
-          <p key={idx}>{line}</p>
+        {addressLines.map((line, idx) => (
+          <p key={idx} className="text-[11px]">{line}</p>
         ))}
+        {(phone || email) && (
+          <p className="text-[10px] text-gray-500 mt-0.5">
+            {phone && `📞 ${phone}`}{phone && email && "  |  "}{email && `✉ ${email}`}
+          </p>
+        )}
+        {gst && <p className="text-[10px] text-gray-500">GST: {gst}</p>}
       </div>
 
+      {/* Bill info */}
       <div className="mt-2 flex justify-between text-sm">
         <p><strong>Bill No:</strong> {orderNumber || "-"}</p>
         <p><strong>Date:</strong> {dateStr}</p>
       </div>
       <p className="mt-1 text-sm"><strong>Party:</strong> {partyName}</p>
 
+      {/* Items table */}
       <table className="w-full text-left mt-2">
         <thead>
           <tr className="border-b">
@@ -40,7 +64,9 @@ const InvoicePreview = forwardRef(function InvoicePreview(
             <tr key={idx}>
               <td className="py-1">
                 {item.Item}
-                {item.Remark ? <div className="text-[10px] text-gray-600 italic">({item.Remark})</div> : null}
+                {item.Remark ? (
+                  <div className="text-[10px] text-gray-600 italic">({item.Remark})</div>
+                ) : null}
               </td>
               <td className="py-1 text-right">{item.Quantity}</td>
               <td className="py-1 text-right">₹{item.Rate}</td>
@@ -50,16 +76,41 @@ const InvoicePreview = forwardRef(function InvoicePreview(
         </tbody>
       </table>
 
-      <hr className="my-1" />
-
-      <div className="flex justify-between font-bold">
-        <span>Total</span>
-        <span>₹{total}</span>
+      {/* Subtotal */}
+      <div className="flex justify-between mt-1 text-[11px] text-gray-600 border-t pt-1">
+        <span>Subtotal</span>
+        <span>₹{itemsTotal.toLocaleString("en-IN")}</span>
       </div>
 
+      {/* Additional charges */}
+      {extraCharges.filter((c) => Number(c.amount) > 0).map((c, idx) => (
+        <div key={idx} className="flex justify-between text-[11px] text-gray-600">
+          <span>{c.label || "Extra"}</span>
+          <span>₹{Number(c.amount).toLocaleString("en-IN")}</span>
+        </div>
+      ))}
+
+      <hr className="my-1" />
+
+      {/* Grand total */}
+      <div className="flex justify-between font-bold text-sm">
+        <span>Total</span>
+        <span>₹{grandTotal.toLocaleString("en-IN")}</span>
+      </div>
+
+      {/* QR / UPI */}
       <div className="mt-3 text-center">
-        <p className="text-sm font-semibold">Scan to Pay via UPI</p>
-        <img src={qrSrc} alt="UPI QR" className="mx-auto h-24" />
+        <p className="text-[11px] font-semibold mb-1">Scan to Pay via UPI</p>
+        {upiLink ? (
+          <div className="flex justify-center">
+            <ReactQRCode value={upiLink} size={96} />
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-400 italic">No UPI configured</p>
+        )}
+        {upiId && (
+          <p className="text-[10px] text-gray-500 mt-1">{upiId}</p>
+        )}
       </div>
     </div>
   );

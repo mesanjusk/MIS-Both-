@@ -88,6 +88,7 @@ export default function UpdateDelivery({
   const [items, setItems] = useState([
     { Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: "" },
   ]);
+  const [extraCharges, setExtraCharges] = useState([]);
   const [Customer_name, setCustomer_name] = useState("");
   const [customers, setCustomers] = useState([]);
   const [itemOptions, setItemOptions] = useState([]);
@@ -135,6 +136,7 @@ export default function UpdateDelivery({
             }))
           : [{ Item: "", Quantity: 0, Rate: 0, Amount: 0, Priority: "Normal", Remark: fallbackRemark }];
       setItems(seeded);
+      setExtraCharges(Array.isArray(order.extraCharges) ? [...order.extraCharges] : []);
       setCustomer_name(order.Customer_name || "");
     }
   }, [order, mode]);
@@ -308,9 +310,11 @@ export default function UpdateDelivery({
         }
 
         // ── Step 2: update order with items + transaction back-reference ──
+        const validCharges = extraCharges.filter((c) => c.label?.trim() && Number(c.amount) > 0);
         const orderPayload = {
           Customer_uuid,
           Items: itemLines,
+          extraCharges: validCharges,
           ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
         };
         const response = await axios.put(`/order/updateDelivery/${idForApi}`, orderPayload);
@@ -506,10 +510,58 @@ export default function UpdateDelivery({
               </button>
             </div>
 
+            {/* Additional Charges */}
+            <div className="border-t pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-gray-700">Additional Charges</span>
+                <button
+                  type="button"
+                  onClick={() => setExtraCharges((prev) => [...prev, { label: "", amount: "" }])}
+                  className="text-blue-600 text-sm hover:underline"
+                >
+                  + Add
+                </button>
+              </div>
+              {extraCharges.length === 0 && (
+                <p className="text-xs text-gray-400 italic">No extra charges (e.g. freight, packing)</p>
+              )}
+              {extraCharges.map((c, idx) => (
+                <div key={idx} className="flex gap-2 mb-1 items-center">
+                  <input
+                    type="text"
+                    placeholder="Label (e.g. Freight)"
+                    value={c.label}
+                    onChange={(e) => setExtraCharges((prev) => prev.map((x, i) => i === idx ? { ...x, label: e.target.value } : x))}
+                    className="border p-2 rounded flex-1 text-sm"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Amount"
+                    value={c.amount}
+                    onChange={(e) => setExtraCharges((prev) => prev.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x))}
+                    className="border p-2 rounded w-24 text-sm"
+                    min="0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setExtraCharges((prev) => prev.filter((_, i) => i !== idx))}
+                    className="text-red-500 hover:text-red-700 text-lg leading-none"
+                    title="Remove"
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Grand Total */}
             <div className="flex items-center justify-between border-t pt-3">
-              <span className="text-gray-500 text-sm">Total Amount</span>
+              <span className="text-gray-500 text-sm">Grand Total</span>
               <span className="text-xl font-bold text-blue-700">
-                ₹{items.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toLocaleString("en-IN")}
+                ₹{(
+                  items.reduce((s, i) => s + (Number(i.Amount) || 0), 0) +
+                  extraCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0)
+                ).toLocaleString("en-IN")}
               </span>
             </div>
 
@@ -535,6 +587,7 @@ export default function UpdateDelivery({
           orderNumber={order.Order_Number}
           partyName={customerMap[Customer_uuid] || Customer_name}
           items={items}
+          extraCharges={extraCharges}
           onWhatsApp={handleWhatsApp}
           onReady={() => {}}
         />

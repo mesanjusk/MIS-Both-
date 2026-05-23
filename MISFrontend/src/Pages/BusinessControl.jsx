@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactQRCode from 'react-qr-code';
+import axios from '../apiClient.js';
 import {
   Alert,
   Box,
@@ -71,6 +73,7 @@ const tabItems = [
   { key: 'deliveredUnpaid', label: 'Delivered Unpaid' },
   { key: 'vendorPayable', label: 'Vendor Payable' },
   { key: 'overdueTasks', label: 'Overdue Tasks' },
+  { key: 'businessProfile', label: '⚙ Business Profile' },
 ];
 
 // Tabs where row checkboxes make sense
@@ -173,6 +176,13 @@ export default function BusinessControl() {
   const [stageForm, setStageForm] = useState({ nextStage: 'printing', assignedTo: '', note: '' });
   const [vendorPayForm, setVendorPayForm] = useState({ amount: '', paymentMode: 'UPI', reference: '', narration: '' });
 
+  // Business Profile
+  const EMPTY_PROFILE = { name: '', addressLine1: '', addressLine2: '', city: '', phone: '', email: '', gst: '', upiId: '', upiName: '' };
+  const [profileForm, setProfileForm] = useState(EMPTY_PROFILE);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState(null);
+
   // Bulk selection
   const [checkedIds, setCheckedIds] = useState(new Set());
 
@@ -235,6 +245,37 @@ export default function BusinessControl() {
   useEffect(() => {
     load();
   }, []);
+
+  // Load business profile when that tab is active
+  useEffect(() => {
+    if (activeTab !== 'businessProfile') return;
+    setProfileLoading(true);
+    axios.get('/api/business-profile')
+      .then((res) => {
+        if (res.data?.success && res.data.result && Object.keys(res.data.result).length) {
+          setProfileForm({ ...EMPTY_PROFILE, ...res.data.result });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProfileLoading(false));
+  }, [activeTab]);
+
+  const saveProfile = async () => {
+    setProfileSaving(true);
+    setProfileMsg(null);
+    try {
+      const res = await axios.put('/api/business-profile', profileForm);
+      if (res.data?.success) {
+        setProfileMsg({ severity: 'success', text: 'Business profile saved successfully.' });
+      } else {
+        setProfileMsg({ severity: 'error', text: res.data?.message || 'Save failed.' });
+      }
+    } catch (err) {
+      setProfileMsg({ severity: 'error', text: err?.response?.data?.message || 'Save failed.' });
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   // Clear selection whenever tab changes
   useEffect(() => {
@@ -349,7 +390,13 @@ export default function BusinessControl() {
         <Divider sx={{ my: 1.5 }} />
 
         <Tabs value={activeTab} onChange={(_event, value) => setActiveTab(value)} variant="scrollable" scrollButtons="auto" sx={{ minHeight: 38, '& .MuiTab-root': { minHeight: 38, textTransform: 'none', fontWeight: 800 } }}>
-          {tabItems.map((tab) => <Tab key={tab.key} value={tab.key} label={`${tab.label} (${bucketCount(summary[tab.key])})`} />)}
+          {tabItems.map((tab) => (
+            <Tab
+              key={tab.key}
+              value={tab.key}
+              label={tab.key === 'businessProfile' ? tab.label : `${tab.label} (${bucketCount(summary[tab.key])})`}
+            />
+          ))}
         </Tabs>
 
         {/* Bulk action bar */}
@@ -405,6 +452,89 @@ export default function BusinessControl() {
           </Paper>
         )}
 
+        {/* ── Business Profile Tab ── */}
+        {activeTab === 'businessProfile' && (
+          <Box sx={{ mt: 2 }}>
+            {profileLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+            ) : (
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={7}>
+                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+                    <Typography variant="subtitle1" fontWeight={800} gutterBottom>Business Details</Typography>
+                    {profileMsg && <Alert severity={profileMsg.severity} sx={{ mb: 2, borderRadius: 2 }}>{profileMsg.text}</Alert>}
+                    <Stack spacing={2}>
+                      <TextField label="Business Name" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} fullWidth size="small" />
+                      <TextField label="Address Line 1" value={profileForm.addressLine1} onChange={(e) => setProfileForm((p) => ({ ...p, addressLine1: e.target.value }))} fullWidth size="small" />
+                      <TextField label="Address Line 2" value={profileForm.addressLine2} onChange={(e) => setProfileForm((p) => ({ ...p, addressLine2: e.target.value }))} fullWidth size="small" />
+                      <TextField label="City" value={profileForm.city} onChange={(e) => setProfileForm((p) => ({ ...p, city: e.target.value }))} fullWidth size="small" />
+                      <Grid container spacing={1.5}>
+                        <Grid item xs={12} sm={6}>
+                          <TextField label="Phone" value={profileForm.phone} onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))} fullWidth size="small" />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField label="Email" value={profileForm.email} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} fullWidth size="small" />
+                        </Grid>
+                      </Grid>
+                      <TextField label="GST Number" value={profileForm.gst} onChange={(e) => setProfileForm((p) => ({ ...p, gst: e.target.value }))} fullWidth size="small" placeholder="e.g. 27AABCU9603R1ZX" />
+                      <Grid container spacing={1.5}>
+                        <Grid item xs={12} sm={6}>
+                          <TextField label="UPI ID" value={profileForm.upiId} onChange={(e) => setProfileForm((p) => ({ ...p, upiId: e.target.value }))} fullWidth size="small" placeholder="e.g. business@upi" />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField label="UPI Name (display)" value={profileForm.upiName} onChange={(e) => setProfileForm((p) => ({ ...p, upiName: e.target.value }))} fullWidth size="small" />
+                        </Grid>
+                      </Grid>
+                      <Button
+                        variant="contained"
+                        disabled={profileSaving}
+                        onClick={saveProfile}
+                        sx={{ alignSelf: 'flex-start', borderRadius: 2, bgcolor: '#128c7e', '&:hover': { bgcolor: '#075e54' } }}
+                      >
+                        {profileSaving ? 'Saving…' : 'Save Business Profile'}
+                      </Button>
+                    </Stack>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={12} md={5}>
+                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, textAlign: 'center' }}>
+                    <Typography variant="subtitle1" fontWeight={800} gutterBottom>Invoice QR Preview</Typography>
+                    {profileForm.upiId ? (
+                      <>
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                          <ReactQRCode
+                            value={`upi://pay?pa=${encodeURIComponent(profileForm.upiId)}&pn=${encodeURIComponent(profileForm.upiName || profileForm.name || '')}&cu=INR`}
+                            size={160}
+                          />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">{profileForm.upiId}</Typography>
+                        <Typography variant="caption" color="text.secondary">This QR will appear on all invoices</Typography>
+                      </>
+                    ) : (
+                      <Box sx={{ py: 4, color: 'text.disabled' }}>
+                        <Typography variant="body2">Enter a UPI ID to see the QR preview</Typography>
+                      </Box>
+                    )}
+                  </Paper>
+
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mt: 2 }}>
+                    <Typography variant="subtitle2" fontWeight={700} gutterBottom color="text.secondary">Invoice Header Preview</Typography>
+                    <Typography variant="body1" fontWeight={800}>{profileForm.name || '—'}</Typography>
+                    {profileForm.addressLine1 && <Typography variant="caption" display="block">{profileForm.addressLine1}</Typography>}
+                    {profileForm.addressLine2 && <Typography variant="caption" display="block">{profileForm.addressLine2}</Typography>}
+                    {profileForm.city && <Typography variant="caption" display="block">{profileForm.city}</Typography>}
+                    {profileForm.phone && <Typography variant="caption" display="block">📞 {profileForm.phone}</Typography>}
+                    {profileForm.email && <Typography variant="caption" display="block">✉ {profileForm.email}</Typography>}
+                    {profileForm.gst && <Typography variant="caption" display="block">GST: {profileForm.gst}</Typography>}
+                  </Paper>
+                </Grid>
+              </Grid>
+            )}
+          </Box>
+        )}
+
+        {activeTab !== 'businessProfile' && (
         <TableContainer component={Paper} elevation={0} sx={{ mt: 1.25, borderRadius: 3, border: '1px solid', borderColor: 'divider', maxHeight: { xs: '60vh', md: '63vh' } }}>
           <Table size="small" stickyHeader>
             <TableHead>
@@ -493,6 +623,7 @@ export default function BusinessControl() {
             </TableBody>
           </Table>
         </TableContainer>
+        )}
       </Paper>
 
       {/* Single-order dialogs */}

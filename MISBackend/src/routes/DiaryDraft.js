@@ -317,6 +317,29 @@ router.get('/ledger', async (req, res) => {
   }
 });
 
+// POST /api/diary/create — create empty draft (no CSV needed, date optional)
+router.post('/create', async (req, res) => {
+  try {
+    const { uploaded_by, diary_date, opening_balance, closing_balance } = req.body;
+    if (!uploaded_by) return res.status(400).json({ success: false, message: 'uploaded_by required' });
+
+    const draft = new DiaryDraft({
+      diary_uuid:      uuid(),
+      diary_date:      diary_date ? new Date(diary_date) : null,
+      status:          'draft',
+      uploaded_by,
+      opening_balance: toAmt(opening_balance),
+      closing_balance: toAmt(closing_balance),
+      entries:         [],
+    });
+    await draft.save();
+    return res.status(201).json({ success: true, message: 'Diary draft created', result: draft });
+  } catch (err) {
+    logger.error({ err }, 'POST /diary/create');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
 // GET /api/diary/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
@@ -358,6 +381,85 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     return res.json({ success: true, result: updated });
   } catch (err) {
     logger.error({ err }, 'PUT /diary/:uuid/entry/:entryUuid');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// POST /api/diary/:uuid/entry — add a new entry to a draft diary
+router.post('/:uuid/entry', async (req, res) => {
+  try {
+    const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid });
+    if (!draft) return res.status(404).json({ success: false, message: 'Diary not found' });
+    if (draft.status === 'confirmed') {
+      return res.status(400).json({ success: false, message: 'Diary is confirmed. Reopen it first to add entries.' });
+    }
+
+    const { party, amount, direction, book, mode, notes } = req.body;
+    if (!party || !amount) return res.status(400).json({ success: false, message: 'party and amount are required' });
+
+    const newEntry = {
+      entry_uuid:       uuid(),
+      time_slot:        '',
+      party:            party.trim(),
+      amount:           toAmt(amount),
+      direction:        direction === 'out' ? 'out' : 'in',
+      book:             book === 'bank' ? 'bank' : 'cash',
+      mode:             (mode || 'cash').toLowerCase(),
+      checked:          false,
+      notes:            notes || '',
+      account_assigned: '',
+      entry_status:     'draft',
+      transaction_uuid: null,
+    };
+
+    const [enriched] = await suggestAccountsForEntries([newEntry]);
+    draft.entries.push(enriched || newEntry);
+    draft.markModified('entries');
+    await draft.save();
+    return res.json({ success: true, result: draft });
+  } catch (err) {
+    logger.error({ err }, 'POST /diary/:uuid/entry');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// PUT /api/diary/:uuid — update diary metadata (date, balances)
+router.put('/:uuid', async (req, res) => {
+  try {
+    const { diary_date, opening_balance, closing_balance } = req.body;
+    const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid });
+    if (!draft) return res.status(404).json({ success: false, message: 'Diary not found' });
+
+    if (diary_date !== undefined) {
+      draft.diary_date = (diary_date && diary_date !== '') ? new Date(diary_date) : null;
+    }
+    if (opening_balance !== undefined) draft.opening_balance = toAmt(opening_balance);
+    if (closing_balance !== undefined) draft.closing_balance = toAmt(closing_balance);
+    await draft.save();
+    return res.json({ success: true, result: draft });
+  } catch (err) {
+    logger.error({ err }, 'PUT /diary/:uuid');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// POST /api/diary/:uuid/reopen — reopen a confirmed diary for editing
+router.post('/:uuid/reopen', async (req, res) => {
+  try {
+    const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid });
+    if (!draft) return res.status(404).json({ success: false, message: 'Diary not found' });
+    if (draft.status !== 'confirmed') {
+      return res.status(400).json({ success: false, message: 'Diary is not confirmed' });
+    }
+    draft.status = 'draft';
+    draft.entries.forEach((entry) => {
+      if (entry.entry_status === 'confirmed') entry.entry_status = 'draft';
+    });
+    draft.markModified('entries');
+    await draft.save();
+    return res.json({ success: true, result: draft });
+  } catch (err) {
+    logger.error({ err }, 'POST /diary/:uuid/reopen');
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
@@ -412,7 +514,7 @@ router.post('/:uuid/confirm', async (req, res) => {
       const txn = new Transaction({
         Transaction_uuid: uuid(),
         Transaction_id:   Number(counter?.seq || 1),
-        Transaction_date: draft.diary_date,
+        Transaction_date: draft.diary_date || new Date(),
         Description:      description,
         Total_Debit:      entry.amount,
         Total_Credit:     entry.amount,

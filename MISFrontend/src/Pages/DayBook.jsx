@@ -14,12 +14,16 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControl,
   IconButton,
+  InputLabel,
   List,
   ListItem,
   ListItemButton,
   ListItemText,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Table,
   TableBody,
@@ -68,7 +72,6 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
     setEditing(false);
   };
 
-  // Accept the auto-suggested account as-is (confirms it, clears auto_suggested flag)
   const acceptSuggestion = () => save(entry.account_assigned);
 
   const reject = async () => {
@@ -139,7 +142,6 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
         ) : (
           <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap">
             {isSuggested ? (
-              // ── Auto-suggested: show amber chip + Accept / Change buttons ──
               <>
                 <Tooltip title={`Auto-suggested: ${entry.suggestion_source || 'from past entries'}`}>
                   <Chip
@@ -176,7 +178,6 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
                 )}
               </>
             ) : entry.account_assigned ? (
-              // ── Manually confirmed account ──
               <>
                 <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
                 {isDraft && entry.entry_status !== 'rejected' && (
@@ -186,7 +187,6 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
                 )}
               </>
             ) : (
-              // ── Nothing assigned yet ──
               isDraft && entry.entry_status !== 'rejected' && (
                 <Button
                   size="small"
@@ -266,7 +266,6 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
     );
   }
 
-  // Match by UUID (new transactions) AND by name (old diary-confirmed transactions)
   const cashUuidSet = new Set(cashAccounts);
   const bankUuidSet = new Set(bankAccounts);
   const cashNameSet = new Set(cashNames.map((n) => n.toLowerCase()));
@@ -292,10 +291,13 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 
   const cashIn  = classified.filter((r) => r.book === 'cash' && r.direction === 'in');
   const cashOut = classified.filter((r) => r.book === 'cash' && r.direction === 'out');
-  const bank    = classified.filter((r) => r.book === 'bank');
+  const bankIn  = classified.filter((r) => r.book === 'bank' && r.direction === 'in');
+  const bankOut = classified.filter((r) => r.book === 'bank' && r.direction === 'out');
 
-  const totalIn  = cashIn.reduce((s, r)  => s + (r.txn.Total_Debit  || 0), 0);
-  const totalOut = cashOut.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
+  const totalCashIn  = cashIn.reduce((s, r)  => s + (r.txn.Total_Debit  || 0), 0);
+  const totalCashOut = cashOut.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
+  const totalBankIn  = bankIn.reduce((s, r)  => s + (r.txn.Total_Debit  || 0), 0);
+  const totalBankOut = bankOut.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
 
   const TxnTable = ({ rows, color, title }) => (
     <Box sx={{ mb: 2 }}>
@@ -304,7 +306,7 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
           {title}
         </Typography>
         <Typography variant="caption" fontWeight={700} color={color}>
-          {money(rows.reduce((s, r) => s + r.txn.Total_Debit, 0))}
+          {money(rows.reduce((s, r) => s + (r.txn.Total_Debit || 0), 0))}
         </Typography>
       </Stack>
       <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
@@ -350,10 +352,11 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
         {[
-          { label: 'Cash Receipts', value: totalIn,  color: 'success.dark' },
-          { label: 'Cash Payments', value: totalOut, color: 'error.dark' },
-          { label: 'Bank Entries',  value: bank.reduce((s, r) => s + r.txn.Total_Debit, 0), color: 'info.dark' },
-          { label: 'Total Entries', value: txns.length, color: 'text.primary', isCount: true },
+          { label: 'Cash Receipts', value: totalCashIn,  color: 'success.dark' },
+          { label: 'Cash Payments', value: totalCashOut, color: 'error.dark' },
+          { label: 'Bank IN',       value: totalBankIn,  color: 'info.dark' },
+          { label: 'Bank OUT',      value: totalBankOut, color: 'warning.dark' },
+          { label: 'Total Entries', value: txns.length,  color: 'text.primary', isCount: true },
         ].map(({ label, value, color, isCount }) => (
           <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
             <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
@@ -366,6 +369,7 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
         ))}
       </Stack>
 
+      {/* Cash sections side by side */}
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <Box sx={{ flex: 1 }}>
           <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
@@ -375,12 +379,24 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
         </Box>
       </Stack>
 
-      {bank.length > 0 && (
+      {/* Bank sections side by side */}
+      {(bankIn.length > 0 || bankOut.length > 0) && (
         <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main' }}>
           <Typography variant="subtitle2" fontWeight={700} color="info.dark" sx={{ mb: 1 }}>
             Bank Entries — UPI Sanju SK
           </Typography>
-          <TxnTable rows={bank} title="Bank Entries" color="info.dark" />
+          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+            {bankIn.length > 0 && (
+              <Box sx={{ flex: 1 }}>
+                <TxnTable rows={bankIn} title="Bank Receipts (IN)" color="info.dark" />
+              </Box>
+            )}
+            {bankOut.length > 0 && (
+              <Box sx={{ flex: 1 }}>
+                <TxnTable rows={bankOut} title="Bank Receipts (OUT)" color="warning.dark" />
+              </Box>
+            )}
+          </Stack>
         </Paper>
       )}
     </>
@@ -439,7 +455,7 @@ function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts
               onInputChange={(_, v) => setAcct(v)}
               onChange={(_, v) => setAcct(v || '')}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select account" sx={{ width: 190 }} />
+                <TextField {...params} placeholder="Select account (e.g. UPI Sanju SK)" sx={{ width: 200 }} />
               )}
             />
             <IconButton size="small" color="success" onClick={() => save()} disabled={saving || !acct}>
@@ -511,9 +527,49 @@ function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts
 function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccounts }) {
   if (!entries.length) return null;
   const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
-  const total = entries
-    .filter((e) => e.entry_status !== 'rejected')
-    .reduce((s, e) => s + (e.credit > 0 ? e.credit : e.debit), 0);
+
+  const inEntries  = entries.filter((e) => e.direction === 'in');
+  const outEntries = entries.filter((e) => e.direction === 'out');
+  const totalIn  = inEntries.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + (e.credit || 0), 0);
+  const totalOut = outEntries.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + (e.debit || 0), 0);
+
+  const SectionTable = ({ rows, title, color }) => {
+    if (!rows.length) return null;
+    return (
+      <Box sx={{ flex: 1 }}>
+        <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+          <Typography variant="caption" fontWeight={700} color={color} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+            {title}
+          </Typography>
+        </Stack>
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, borderColor: 'secondary.light' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#ede7f6' }}>
+                <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((e) => (
+                <BankStmtEntryRow
+                  key={e.entry_uuid}
+                  entry={e}
+                  onAssign={onAssign}
+                  onConfirm={onConfirm}
+                  onReject={onReject}
+                  ledgerAccounts={ledgerAccounts}
+                />
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    );
+  };
 
   return (
     <Paper
@@ -523,47 +579,25 @@ function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccount
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
         <Box>
           <Typography variant="subtitle2" fontWeight={700} color="secondary.dark">
-            Bank Statement Entries — Not in Diary
+            Bank Statement Entries — UPI Sanju SK
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            These entries are from your uploaded bank statement but have no matching diary entry.
-            Assign accounts and post them, then remind your team to write them in the physical diary.
+            Entries from your uploaded bank statement. Assign customer account (e.g. UPI Sanju SK) and post to ledger.
           </Typography>
         </Box>
-        <Chip
-          label={`${entries.filter((e) => e.entry_status !== 'confirmed').length} pending`}
-          size="small" color="secondary" variant="outlined"
-        />
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Chip label={`IN: ${money(totalIn)}`} size="small" color="success" variant="outlined" />
+          <Chip label={`OUT: ${money(totalOut)}`} size="small" color="error" variant="outlined" />
+          <Chip
+            label={`${entries.filter((e) => e.entry_status !== 'confirmed').length} pending`}
+            size="small" color="secondary" variant="outlined"
+          />
+        </Stack>
       </Stack>
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, borderColor: 'secondary.light' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ bgcolor: '#ede7f6' }}>
-              <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {entries.map((e) => (
-              <BankStmtEntryRow
-                key={e.entry_uuid}
-                entry={e}
-                onAssign={onAssign}
-                onConfirm={onConfirm}
-                onReject={onReject}
-                ledgerAccounts={ledgerAccounts}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mt: 0.5 }}>
-        <Typography variant="caption" fontWeight={700} color="secondary.dark">
-          Total pending: {money(total)}
-        </Typography>
+
+      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+        <SectionTable rows={inEntries} title="Bank Receipts (IN)" color="success.dark" />
+        <SectionTable rows={outEntries} title="Bank Receipts (OUT)" color="error.dark" />
       </Stack>
     </Paper>
   );
@@ -573,15 +607,15 @@ function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccount
 export default function DayBook() {
   const { uuid: selectedUuid } = useParams();
   const [searchParams] = useSearchParams();
-  const ledgerDateParam = searchParams.get('date'); // YYYY-MM-DD for historical view
+  const ledgerDateParam = searchParams.get('date');
   const navigate = useNavigate();
 
   const [diaryList, setDiaryList]         = useState([]);
-  const [ledgerDates, setLedgerDates]     = useState([]);  // historical dates
+  const [ledgerDates, setLedgerDates]     = useState([]);
   const [diary, setDiary]                 = useState(null);
-  const [ledgerTxns, setLedgerTxns]       = useState(null); // historical transactions
+  const [ledgerTxns, setLedgerTxns]       = useState(null);
   const [ledgerMeta, setLedgerMeta]       = useState({ cashAccounts: [], cashNames: [], bankAccounts: [], bankNames: [] });
-  const [bankStmtEntries, setBankStmtEntries] = useState([]); // unmatched bank statement entries for date
+  const [bankStmtEntries, setBankStmtEntries] = useState([]);
   const [loading, setLoading]             = useState(false);
   const [listLoading, setListLoading]     = useState(true);
   const [confirming, setConfirming]       = useState(false);
@@ -592,9 +626,20 @@ export default function DayBook() {
   const [customerMap, setCustomerMap]       = useState({});
   const [accountsMap, setAccountsMap]       = useState({});
 
+  // Edit diary dialog state
+  const [editDiaryDialog, setEditDiaryDialog]   = useState(false);
+  const [editDiaryData, setEditDiaryData]         = useState({ diary_date: '', opening_balance: '', closing_balance: '' });
+  const [savingMeta, setSavingMeta]               = useState(false);
+  const [reopenDialog, setReopenDialog]           = useState(false);
+  const [reopening, setReopening]                 = useState(false);
+
+  // Add entry dialog state
+  const [addEntryDialog, setAddEntryDialog] = useState(false);
+  const [newEntry, setNewEntry] = useState({ party: '', amount: '', direction: 'in', book: 'cash', mode: 'cash', notes: '' });
+  const [addingEntry, setAddingEntry]       = useState(false);
+
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
-  // --- load diary list + ledger dates ---
   const loadList = useCallback(async () => {
     setListLoading(true);
     try {
@@ -612,7 +657,6 @@ export default function DayBook() {
     }
   }, []);
 
-  // --- load single diary + bank statement entries for that date ---
   const loadDiary = useCallback(async (uid) => {
     if (!uid) return;
     setLoading(true);
@@ -691,7 +735,6 @@ export default function DayBook() {
     navigate(`${ROUTES.DAY_BOOK}?date=${date}`);
   };
 
-  // --- update single entry ---
   const handleUpdateEntry = useCallback(async (entryUuid, fields) => {
     if (!diary) return;
     try {
@@ -702,7 +745,6 @@ export default function DayBook() {
     }
   }, [diary]);
 
-  // --- accept all auto-suggestions at once ---
   const handleAcceptAllSuggestions = useCallback(async () => {
     if (!diary) return;
     const pending = (diary.entries || []).filter(
@@ -713,7 +755,6 @@ export default function DayBook() {
     }
   }, [diary, handleUpdateEntry]);
 
-  // --- bank statement entry handlers ---
   const handleBsAssign = useCallback(async (stmtUuid, entryUuid, account) => {
     await axios.put(`/api/bank-statement/${stmtUuid}/entry/${entryUuid}`, { account_assigned: account });
     setBankStmtEntries((prev) =>
@@ -743,7 +784,6 @@ export default function DayBook() {
     );
   }, []);
 
-  // --- confirm all ---
   const handleConfirm = async () => {
     if (!diary) return;
     setConfirming(true);
@@ -763,25 +803,92 @@ export default function DayBook() {
     }
   };
 
+  // --- edit diary metadata ---
+  const handleOpenEditDiary = () => {
+    setEditDiaryData({
+      diary_date:       diary?.diary_date ? new Date(diary.diary_date).toISOString().slice(0, 10) : '',
+      opening_balance:  diary?.opening_balance ?? 0,
+      closing_balance:  diary?.closing_balance ?? 0,
+    });
+    setEditDiaryDialog(true);
+  };
+
+  const handleSaveDiaryMeta = async () => {
+    if (!diary) return;
+    setSavingMeta(true);
+    setError('');
+    try {
+      const res = await axios.put(`/api/diary/${diary.diary_uuid}`, editDiaryData);
+      setDiary(res.data?.result || diary);
+      setEditDiaryDialog(false);
+      loadList();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not save changes.');
+    } finally {
+      setSavingMeta(false);
+    }
+  };
+
+  // --- reopen confirmed diary ---
+  const handleReopen = async () => {
+    if (!diary) return;
+    setReopening(true);
+    setError('');
+    try {
+      const res = await axios.post(`/api/diary/${diary.diary_uuid}/reopen`);
+      setDiary(res.data?.result || diary);
+      setReopenDialog(false);
+      setEditDiaryDialog(false);
+      loadList();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not reopen diary.');
+    } finally {
+      setReopening(false);
+    }
+  };
+
+  // --- add entry to draft ---
+  const handleAddEntry = async () => {
+    if (!diary || !newEntry.party || !newEntry.amount) return;
+    setAddingEntry(true);
+    setError('');
+    try {
+      const res = await axios.post(`/api/diary/${diary.diary_uuid}/entry`, {
+        ...newEntry,
+        amount: Number(newEntry.amount),
+      });
+      setDiary(res.data?.result || diary);
+      setAddEntryDialog(false);
+      setNewEntry({ party: '', amount: '', direction: 'in', book: 'cash', mode: 'cash', notes: '' });
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not add entry.');
+    } finally {
+      setAddingEntry(false);
+    }
+  };
+
   // derived data
   const entries     = diary?.entries || [];
   const cashIn      = entries.filter((e) => e.book === 'cash' && e.direction === 'in');
   const cashOut     = entries.filter((e) => e.book === 'cash' && e.direction === 'out');
   const bankEntries = entries.filter((e) => e.book === 'bank');
+  const bankIn      = bankEntries.filter((e) => e.direction === 'in');
+  const bankOut     = bankEntries.filter((e) => e.direction === 'out');
 
-  const totalIn  = cashIn.filter((e)  => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
-  const totalOut = cashOut.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
-  const bankTotal = bankEntries.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
+  const totalIn     = cashIn.filter((e)  => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
+  const totalOut    = cashOut.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
+  const bankInTotal = bankIn.filter((e)  => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
+  const bankOutTotal= bankOut.filter((e) => e.entry_status !== 'rejected').reduce((s, e) => s + e.amount, 0);
 
   const suggestedCount = entries.filter((e) => e.auto_suggested && e.account_assigned && e.entry_status !== 'rejected').length;
   const unassigned     = entries.filter((e) => e.entry_status !== 'rejected' && !e.account_assigned).length;
   const isDraft        = diary?.status !== 'confirmed';
 
   const summaryCards = [
-    { label: 'Opening Balance', value: diary?.opening_balance, color: 'text.primary' },
-    { label: 'Cash Receipts (+)', value: totalIn, color: 'success.dark' },
-    { label: 'Cash Payments (−)', value: totalOut, color: 'error.dark' },
-    { label: 'Closing Balance', value: diary?.closing_balance, color: 'primary.main' },
+    { label: 'Opening Balance',  value: diary?.opening_balance, color: 'text.primary' },
+    { label: 'Cash Receipts (+)', value: totalIn,   color: 'success.dark' },
+    { label: 'Cash Payments (−)', value: totalOut,  color: 'error.dark' },
+    { label: 'Closing Balance',   value: diary?.closing_balance, color: 'primary.main' },
   ];
 
   return (
@@ -805,30 +912,30 @@ export default function DayBook() {
         {listLoading ? (
           <Box sx={{ p: 2, textAlign: 'center' }}><CircularProgress size={20} /></Box>
         ) : (() => {
-          // Merge diary drafts + ledger dates into one sorted list
           const draftDateSet = new Set(
-            diaryList.map((d) => new Date(d.diary_date).toISOString().slice(0, 10))
+            diaryList
+              .filter((d) => d.diary_date)
+              .map((d) => new Date(d.diary_date).toISOString().slice(0, 10))
           );
-          // Ledger dates not already covered by a draft
           const extraLedgerDates = ledgerDates.filter((ld) => !draftDateSet.has(ld));
 
           const sidebarItems = [
             ...diaryList.map((d) => ({
-              key: d.diary_uuid,
-              date: new Date(d.diary_date),
-              label: fmtDate(d.diary_date),
-              sub: d.status === 'confirmed' ? '✓ Confirmed' : 'Draft',
+              key:      d.diary_uuid,
+              date:     d.diary_date ? new Date(d.diary_date) : new Date(d.updatedAt || d.createdAt || 0),
+              label:    d.diary_date ? fmtDate(d.diary_date) : 'No Date',
+              sub:      d.status === 'confirmed' ? '✓ Confirmed' : 'Draft',
               subColor: d.status === 'confirmed' ? 'success.main' : 'warning.main',
-              onClick: () => handleSelectDiary(d.diary_uuid),
+              onClick:  () => handleSelectDiary(d.diary_uuid),
               selected: d.diary_uuid === selectedUuid,
             })),
             ...extraLedgerDates.map((ld) => ({
-              key: `ledger-${ld}`,
-              date: new Date(ld),
-              label: fmtDate(ld),
-              sub: 'Manual entries',
+              key:      `ledger-${ld}`,
+              date:     new Date(ld),
+              label:    fmtDate(ld),
+              sub:      'Bank/Cash entries',
               subColor: 'info.main',
-              onClick: () => handleSelectLedgerDate(ld),
+              onClick:  () => handleSelectLedgerDate(ld),
               selected: ledgerDateParam === ld,
             })),
           ].sort((a, b) => b.date - a.date);
@@ -868,13 +975,15 @@ export default function DayBook() {
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
           <Box>
             <Typography variant="h5" fontWeight={900}>
-              Day Book{diary ? ` — ${fmtDate(diary.diary_date)}` : ledgerDateParam ? ` — ${fmtDate(ledgerDateParam)}` : ''}
+              Day Book{diary
+                ? ` — ${diary.diary_date ? fmtDate(diary.diary_date) : 'No Date'}`
+                : ledgerDateParam ? ` — ${fmtDate(ledgerDateParam)}` : ''}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {ledgerDateParam ? 'Historical cash/bank transactions (read-only)' : 'Review diary entries, assign accounts, then confirm to post transactions'}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
             <Button
               variant="outlined"
               startIcon={<AddRoundedIcon />}
@@ -883,12 +992,19 @@ export default function DayBook() {
             >
               Upload New
             </Button>
+            {diary && (
+              <Tooltip title="Edit diary details (date, balances)">
+                <IconButton size="small" color="primary" onClick={handleOpenEditDiary} sx={{ border: '1px solid', borderColor: 'primary.main', borderRadius: 1 }}>
+                  <EditRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             {diary && isDraft && (() => {
-              const suggestedCount = (diary.entries || []).filter(
+              const sc = (diary.entries || []).filter(
                 (e) => e.auto_suggested && e.account_assigned && e.entry_status !== 'rejected',
               ).length;
-              return suggestedCount > 0 ? (
-                <Tooltip title={`Accept all ${suggestedCount} auto-suggested accounts at once`}>
+              return sc > 0 ? (
+                <Tooltip title={`Accept all ${sc} auto-suggested accounts at once`}>
                   <Button
                     variant="outlined"
                     color="warning"
@@ -896,21 +1012,32 @@ export default function DayBook() {
                     startIcon={<AutoFixHighRoundedIcon />}
                     onClick={handleAcceptAllSuggestions}
                   >
-                    Accept {suggestedCount} Suggestions
+                    Accept {sc} Suggestions
                   </Button>
                 </Tooltip>
               ) : null;
             })()}
             {diary && isDraft && (
-              <Button
-                variant="contained"
-                color="success"
-                size="small"
-                onClick={() => setConfirmDialog(true)}
-                disabled={confirming}
-              >
-                {confirming ? 'Confirming…' : 'Confirm All'}
-              </Button>
+              <>
+                <Button
+                  variant="outlined"
+                  color="info"
+                  size="small"
+                  startIcon={<AddRoundedIcon />}
+                  onClick={() => setAddEntryDialog(true)}
+                >
+                  Add Entry
+                </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="small"
+                  onClick={() => setConfirmDialog(true)}
+                  disabled={confirming}
+                >
+                  {confirming ? 'Confirming…' : 'Confirm All'}
+                </Button>
+              </>
             )}
           </Stack>
         </Stack>
@@ -956,6 +1083,7 @@ export default function DayBook() {
             {diary.status === 'confirmed' && (
               <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
                 This day book is confirmed. All transactions have been posted to the ledger.
+                Use the <strong>Edit</strong> icon to reopen for corrections.
               </Alert>
             )}
             {isDraft && suggestedCount > 0 && (
@@ -982,7 +1110,7 @@ export default function DayBook() {
               ))}
             </Stack>
 
-            {/* Cash entries */}
+            {/* Cash entries side by side */}
             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
               <Box sx={{ flex: 1 }}>
                 <EntrySection
@@ -1006,33 +1134,53 @@ export default function DayBook() {
               </Box>
             </Stack>
 
-            {/* Bank entries (from diary) */}
+            {/* Bank entries split into IN/OUT */}
             {bankEntries.length > 0 && (
               <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main', mb: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                  <Typography variant="subtitle2" fontWeight={700} color="info.dark">
-                    Bank Entries — Sanju SK Account
-                  </Typography>
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700} color="info.dark">
+                      Bank Entries — UPI Sanju SK
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Assign account as UPI Sanju SK or relevant customer account. These will post to Bank ledger.
+                    </Typography>
+                  </Box>
                   <Stack direction="row" alignItems="center" spacing={1}>
-                    <Chip label="PENDING bank confirmation" size="small" color="warning" variant="outlined" />
-                    <Typography variant="caption" fontWeight={700} color="info.dark">{money(bankTotal)}</Typography>
+                    {isDraft && (
+                      <Chip label="PENDING bank confirmation" size="small" color="warning" variant="outlined" />
+                    )}
+                    <Typography variant="caption" fontWeight={700} color="info.dark">
+                      IN: {money(bankInTotal)} | OUT: {money(bankOutTotal)}
+                    </Typography>
                   </Stack>
                 </Stack>
-                <EntrySection
-                  title="Bank Book Entries (below the line)"
-                  entries={bankEntries}
-                  color="info.dark"
-                  diaryStatus={diary.status}
-                  onUpdate={handleUpdateEntry}
-                  ledgerAccounts={ledgerAccounts}
-                />
-                <Typography variant="caption" color="text.secondary">
-                  These entries will appear in the Bank Book. Upload your bank statement in 2–3 days to auto-match them.
-                </Typography>
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                  <Box sx={{ flex: 1 }}>
+                    <EntrySection
+                      title="Bank Receipts (IN)"
+                      entries={bankIn}
+                      color="info.dark"
+                      diaryStatus={diary.status}
+                      onUpdate={handleUpdateEntry}
+                      ledgerAccounts={ledgerAccounts}
+                    />
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <EntrySection
+                      title="Bank Receipts (OUT)"
+                      entries={bankOut}
+                      color="warning.dark"
+                      diaryStatus={diary.status}
+                      onUpdate={handleUpdateEntry}
+                      ledgerAccounts={ledgerAccounts}
+                    />
+                  </Box>
+                </Stack>
               </Paper>
             )}
 
-            {/* Bank statement entries not in diary (purple section) */}
+            {/* Bank statement entries not in diary */}
             <BankStmtSection
               entries={bankStmtEntries}
               onAssign={handleBsAssign}
@@ -1044,13 +1192,15 @@ export default function DayBook() {
         )}
       </Box>
 
-      {/* Confirm dialog */}
+      {/* ============ DIALOGS ============ */}
+
+      {/* Confirm all dialog */}
       <Dialog open={confirmDialog} onClose={() => setConfirmDialog(false)} maxWidth="xs" fullWidth>
         <DialogTitle fontWeight={700}>Confirm Day Book?</DialogTitle>
         <DialogContent>
           <Typography>
             This will create <strong>{entries.filter((e) => e.account_assigned && e.entry_status !== 'rejected').length}</strong> transactions
-            in the ledger for <strong>{fmtDate(diary?.diary_date)}</strong>.
+            in the ledger{diary?.diary_date ? ` for ${fmtDate(diary.diary_date)}` : ''}.
           </Typography>
           {unassigned > 0 && (
             <Alert severity="warning" sx={{ mt: 1 }}>
@@ -1065,6 +1215,163 @@ export default function DayBook() {
           <Button onClick={() => setConfirmDialog(false)}>Cancel</Button>
           <Button variant="contained" color="success" onClick={handleConfirm}>
             Confirm &amp; Post
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit diary metadata dialog */}
+      <Dialog open={editDiaryDialog} onClose={() => setEditDiaryDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Edit Diary Details</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Date"
+              type="date"
+              size="small"
+              value={editDiaryData.diary_date}
+              onChange={(e) => setEditDiaryData((p) => ({ ...p, diary_date: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+              helperText="Leave empty for no date"
+            />
+            <TextField
+              label="Opening Balance"
+              type="number"
+              size="small"
+              value={editDiaryData.opening_balance}
+              onChange={(e) => setEditDiaryData((p) => ({ ...p, opening_balance: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Closing Balance"
+              type="number"
+              size="small"
+              value={editDiaryData.closing_balance}
+              onChange={(e) => setEditDiaryData((p) => ({ ...p, closing_balance: e.target.value }))}
+              fullWidth
+            />
+            {diary?.status === 'confirmed' && (
+              <Alert severity="info">
+                This diary is confirmed. You can edit metadata here. To add/edit entries, reopen it below.
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
+          {diary?.status === 'confirmed' ? (
+            <Button color="warning" variant="outlined" onClick={() => setReopenDialog(true)}>
+              Reopen Diary
+            </Button>
+          ) : <span />}
+          <Stack direction="row" spacing={1}>
+            <Button onClick={() => setEditDiaryDialog(false)}>Cancel</Button>
+            <Button variant="contained" onClick={handleSaveDiaryMeta} disabled={savingMeta}>
+              {savingMeta ? 'Saving…' : 'Save'}
+            </Button>
+          </Stack>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reopen confirmed diary dialog */}
+      <Dialog open={reopenDialog} onClose={() => setReopenDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700} color="warning.dark">Reopen Confirmed Diary?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 1.5 }}>
+            <strong>Warning:</strong> Reopening resets all confirmed entries to draft status.
+            Transactions already posted to the ledger will NOT be reversed automatically.
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            Use this to correct entries, then confirm again to re-post. Manage any duplicate ledger entries manually.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReopenDialog(false)}>Cancel</Button>
+          <Button variant="contained" color="warning" onClick={handleReopen} disabled={reopening}>
+            {reopening ? 'Reopening…' : 'Yes, Reopen'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add entry to draft dialog */}
+      <Dialog open={addEntryDialog} onClose={() => setAddEntryDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle fontWeight={700}>Add Entry to Diary</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Party / Purpose"
+              size="small"
+              value={newEntry.party}
+              onChange={(e) => setNewEntry((p) => ({ ...p, party: e.target.value }))}
+              fullWidth
+              required
+              autoFocus
+            />
+            <TextField
+              label="Amount (₹)"
+              type="number"
+              size="small"
+              value={newEntry.amount}
+              onChange={(e) => setNewEntry((p) => ({ ...p, amount: e.target.value }))}
+              fullWidth
+              required
+            />
+            <Stack direction="row" spacing={1}>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Direction</InputLabel>
+                <Select
+                  label="Direction"
+                  value={newEntry.direction}
+                  onChange={(e) => setNewEntry((p) => ({ ...p, direction: e.target.value }))}
+                >
+                  <MenuItem value="in">IN (Receipt)</MenuItem>
+                  <MenuItem value="out">OUT (Payment)</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Book</InputLabel>
+                <Select
+                  label="Book"
+                  value={newEntry.book}
+                  onChange={(e) => setNewEntry((p) => ({ ...p, book: e.target.value }))}
+                >
+                  <MenuItem value="cash">Cash</MenuItem>
+                  <MenuItem value="bank">Bank</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Payment Mode</InputLabel>
+              <Select
+                label="Payment Mode"
+                value={newEntry.mode}
+                onChange={(e) => setNewEntry((p) => ({ ...p, mode: e.target.value }))}
+              >
+                <MenuItem value="cash">Cash</MenuItem>
+                <MenuItem value="upi">UPI</MenuItem>
+                <MenuItem value="cheque">Cheque</MenuItem>
+                <MenuItem value="neft">NEFT / RTGS</MenuItem>
+                <MenuItem value="bank">Bank Transfer</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Notes (optional)"
+              size="small"
+              value={newEntry.notes}
+              onChange={(e) => setNewEntry((p) => ({ ...p, notes: e.target.value }))}
+              fullWidth
+              multiline
+              rows={2}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddEntryDialog(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddEntry}
+            disabled={addingEntry || !newEntry.party || !newEntry.amount}
+          >
+            {addingEntry ? 'Adding…' : 'Add Entry'}
           </Button>
         </DialogActions>
       </Dialog>

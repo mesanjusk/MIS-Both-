@@ -19,7 +19,7 @@ const diaryEntrySchema = new mongoose.Schema({
 
 const DiaryDraftSchema = new mongoose.Schema({
   diary_uuid:       { type: String, required: true, unique: true },
-  diary_date:       { type: Date, required: true },
+  diary_date:       { type: Date, required: false, default: null },
   status:           { type: String, enum: ['draft', 'confirmed'], default: 'draft' },
   uploaded_by:      { type: String, required: true },
   opening_balance:  { type: Number, default: 0 },

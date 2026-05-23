@@ -280,6 +280,12 @@ export default function AllDelivery() {
     return dateOrders.filter((o) => !hasBillableAmount(o.Items));
   }, [dateOrders, showEmptyItems, hasBillableAmount]);
 
+  // Count of orders with no billable items (pending/near-empty)
+  const emptyItemsCount = useMemo(
+    () => dateOrders.filter((o) => !hasBillableAmount(o.Items)).length,
+    [dateOrders, hasBillableAmount]
+  );
+
   // Summary stats
   const stats = useMemo(() => {
     const deliveryValue = dateOrders.reduce((s, o) => s + o.totalAmount, 0);
@@ -807,9 +813,19 @@ export default function AllDelivery() {
                           />
                         }
                         label={
-                          <Typography variant="caption" color={showEmptyItems ? "warning.dark" : "text.secondary"} fontWeight={600}>
-                            Empty Items
-                          </Typography>
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="caption" color={showEmptyItems ? "warning.dark" : "text.secondary"} fontWeight={600}>
+                              Empty Items
+                            </Typography>
+                            {emptyItemsCount > 0 && (
+                              <Chip
+                                label={emptyItemsCount}
+                                size="small"
+                                color="warning"
+                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, "& .MuiChip-label": { px: 0.75 } }}
+                              />
+                            )}
+                          </Stack>
                         }
                         sx={{ ml: 0.5, mr: 0 }}
                       />

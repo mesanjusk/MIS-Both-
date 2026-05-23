@@ -437,21 +437,14 @@ export default function UpdateDelivery({
 
             {items.map((item, index) => (
               <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-2 items-center">
-                {/* Item name: readonly when pre-filled in edit mode */}
-                {mode === "edit" && item.Item ? (
-                  <div className="md:col-span-2 border p-2 rounded bg-gray-50 text-gray-700 font-medium truncate">
-                    {item.Item}
-                  </div>
-                ) : (
-                  <Select
-                    className="md:col-span-2"
-                    options={selectOptions}
-                    value={item.Item ? { label: item.Item, value: item.Item } : null}
-                    onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
-                    placeholder={loadingLists ? "Loading…" : "Select item"}
-                    isDisabled={loadingLists}
-                  />
-                )}
+                <Select
+                  className="md:col-span-2"
+                  options={selectOptions}
+                  value={item.Item ? { label: item.Item, value: item.Item } : null}
+                  onChange={(opt) => handleItemChange(index, "Item", opt?.value || "")}
+                  placeholder={loadingLists ? "Loading…" : "Select item"}
+                  isDisabled={loadingLists}
+                />
 
                 <input
                   type="number"
@@ -472,6 +465,16 @@ export default function UpdateDelivery({
                 <div className="border p-2 bg-gray-100 rounded text-gray-700 font-semibold">
                   ₹{Number(item.Amount || 0).toLocaleString("en-IN")}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
+                  disabled={items.length === 1}
+                  className="flex items-center justify-center h-10 w-10 rounded border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Delete row"
+                >
+                  🗑
+                </button>
 
                 <input
                   type="text"

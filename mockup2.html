@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MIS UI Mockup v2</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif;}
+html,body{height:100%;overflow:hidden;background:#f0fdf4;}
+
+/* ══════════════ TOP NAVBAR ══════════════ */
+.navbar{
+  height:50px;background:rgba(255,255,255,0.98);
+  border-bottom:1px solid #e2e8f0;
+  display:flex;align-items:center;padding:0 10px;gap:6px;
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  box-shadow:0 1px 6px rgba(0,0,0,0.07);
+  flex-shrink:0;
+}
+.brand{font-weight:900;font-size:13px;color:#16a34a;letter-spacing:.3px;white-space:nowrap;margin-right:4px;}
+
+/* Dropdown nav items in navbar */
+.nav-dd{position:relative;display:inline-block;}
+.nav-dd-btn{
+  font-size:11.5px;font-weight:600;color:#475569;padding:5px 9px;
+  border-radius:7px;border:none;background:transparent;cursor:pointer;
+  display:flex;align-items:center;gap:3px;white-space:nowrap;
+}
+.nav-dd-btn:hover{background:#f1f5f9;color:#16a34a;}
+.nav-dd-btn .arr{font-size:8px;color:#94a3b8;}
+.dd-menu{
+  display:none;position:absolute;top:34px;left:0;
+  background:white;border:1px solid #e2e8f0;border-radius:10px;
+  box-shadow:0 8px 28px rgba(0,0,0,0.12);padding:6px;
+  min-width:180px;z-index:500;
+}
+.nav-dd:hover .dd-menu{display:block;}
+.dd-section{font-size:9.5px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;padding:5px 8px 3px;}
+.dd-item{
+  display:flex;align-items:center;gap:7px;padding:6px 8px;
+  border-radius:7px;cursor:pointer;font-size:11.5px;color:#334155;font-weight:500;
+}
+.dd-item:hover{background:#f0fdf4;color:#16a34a;}
+.dd-item .ico{font-size:14px;width:18px;text-align:center;}
+.dd-sep{height:1px;background:#f1f5f9;margin:4px 0;}
+
+.navbar-spacer{flex:1;}
+
+/* Center search in navbar */
+.nav-search{
+  display:flex;align-items:center;background:#f8fafc;
+  border:1px solid #e2e8f0;border-radius:20px;padding:4px 12px;
+  width:260px;gap:6px;
+}
+.nav-search input{border:none;background:transparent;outline:none;font-size:11.5px;color:#334155;width:100%;}
+.nav-search .si{color:#94a3b8;font-size:13px;}
+
+/* Right nav items */
+.nav-right-links{display:flex;gap:2px;align-items:center;}
+.nav-right-links a{font-size:11px;font-weight:600;color:#475569;padding:4px 7px;border-radius:6px;cursor:pointer;text-decoration:none;}
+.nav-right-links a:hover{background:#f1f5f9;color:#16a34a;}
+
+.notif-btn{
+  width:30px;height:30px;border-radius:7px;border:none;background:transparent;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  color:#64748b;font-size:15px;flex-shrink:0;
+}
+.user-zone{position:relative;display:flex;align-items:center;gap:5px;cursor:pointer;padding:4px 8px;border-radius:8px;}
+.user-zone:hover{background:#f1f5f9;}
+.user-avatar{
+  width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#16a34a,#15803d);
+  color:white;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;box-shadow:0 2px 8px rgba(22,163,74,.3);
+}
+.user-name-text{font-size:11px;font-weight:700;color:#334155;}
+.user-role-text{font-size:9.5px;color:#94a3b8;}
+.user-menu{
+  display:none;position:absolute;top:38px;right:0;
+  background:white;border:1px solid #e2e8f0;border-radius:10px;
+  box-shadow:0 8px 28px rgba(0,0,0,0.12);padding:6px;width:170px;z-index:500;
+}
+.user-zone:hover .user-menu{display:block;}
+.user-menu .uhead{padding:7px 8px 6px;border-bottom:1px solid #f1f5f9;margin-bottom:4px;}
+.user-menu .uhead strong{display:block;font-size:11.5px;color:#1e293b;}
+.user-menu .uhead span{font-size:9.5px;color:#94a3b8;}
+.user-menu a{
+  display:flex;align-items:center;gap:6px;padding:5px 8px;
+  font-size:11.5px;color:#475569;border-radius:6px;cursor:pointer;
+}
+.user-menu a:hover{background:#f0fdf4;color:#16a34a;}
+.user-menu .logout{color:#ef4444;}
+.user-menu .logout:hover{background:#fef2f2;color:#dc2626;}
+
+/* ══════════════ MAIN LAYOUT ══════════════ */
+.layout{
+  display:flex;
+  margin-top:50px;
+  height:calc(100vh - 50px - 38px); /* navbar + footer */
+  overflow:hidden;
+}
+
+/* ══════════════ LEFT SIDEBAR ══════════════ */
+.left-sb{
+  width:66px;background:white;border-right:1px solid #e2e8f0;
+  display:flex;flex-direction:column;align-items:center;
+  padding:6px 0;overflow-y:auto;overflow-x:hidden;flex-shrink:0;
+  box-shadow:2px 0 8px rgba(0,0,0,0.04);
+  scrollbar-width:none;
+}
+.left-sb::-webkit-scrollbar{display:none;}
+
+.sb-item{
+  width:54px;height:50px;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;color:#64748b;transition:all .15s;gap:2px;padding:4px 2px;
+  position:relative;
+}
+.sb-item:hover{background:#f0fdf4;color:#16a34a;}
+.sb-item.active{background:#dcfce7;color:#16a34a;}
+.sb-item .sb-ico{font-size:22px;line-height:1;}
+.sb-item .sb-lbl{font-size:9px;font-weight:700;line-height:1;text-align:center;white-space:nowrap;max-width:52px;overflow:hidden;text-overflow:ellipsis;}
+.sb-div{width:40px;height:1px;background:#f1f5f9;margin:3px 0;flex-shrink:0;}
+
+/* ══════════════ MAIN CONTENT ══════════════ */
+.main{
+  flex:1;display:flex;flex-direction:column;
+  overflow:hidden;padding:0;
+  background:#f0fdf4;
+}
+
+/* Home hero */
+.home-hero{
+  display:flex;flex-direction:column;align-items:center;
+  padding:22px 16px 16px;flex-shrink:0;
+}
+.hero-username{
+  font-size:52px;font-weight:900;color:#16a34a;
+  letter-spacing:-1.5px;line-height:1;margin-bottom:4px;
+}
+.hero-subtitle{font-size:11.5px;color:#94a3b8;font-weight:500;margin-bottom:18px;}
+
+/* Search bar with + */
+.search-wrap{
+  display:flex;align-items:center;
+  background:white;border:1.5px solid #d1fae5;
+  border-radius:28px;width:540px;max-width:94%;
+  box-shadow:0 4px 20px rgba(22,163,74,.1);
+  position:relative;
+}
+.plus-btn{
+  width:42px;height:42px;background:#16a34a;
+  border:none;cursor:pointer;color:white;font-size:22px;font-weight:300;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  border-radius:26px 0 0 26px;border-right:1.5px solid #d1fae5;
+  transition:background .15s;
+}
+.plus-btn:hover{background:#15803d;}
+.search-input{
+  flex:1;border:none;outline:none;padding:10px 14px;
+  font-size:13px;color:#334155;background:transparent;
+}
+.search-input::placeholder{color:#94a3b8;}
+.search-actions{display:flex;gap:2px;padding:0 6px;align-items:center;}
+.search-actions button{
+  width:30px;height:30px;border-radius:7px;border:none;
+  background:transparent;cursor:pointer;color:#94a3b8;font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+}
+.search-actions button:hover{background:#f1f5f9;color:#475569;}
+
+/* + dropdown popup (Google-style) */
+.plus-popup{
+  position:absolute;top:48px;left:0;
+  background:white;border:1px solid #e2e8f0;border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,0,0,0.14);padding:6px;
+  min-width:220px;z-index:400;
+}
+.pp-section{font-size:9.5px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.7px;padding:5px 8px 3px;}
+.pp-item{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;
+  border-radius:8px;cursor:pointer;font-size:12px;color:#334155;font-weight:500;
+}
+.pp-item:hover{background:#f0fdf4;color:#16a34a;}
+.pp-item .pp-ico{font-size:16px;width:20px;text-align:center;}
+.pp-sep{height:1px;background:#f1f5f9;margin:4px 0;}
+
+/* Chips */
+.home-chips{
+  display:flex;gap:6px;margin-top:10px;flex-wrap:nowrap;
+  justify-content:center;max-width:94%;
+}
+.chip{
+  padding:4px 12px;border-radius:16px;background:white;
+  border:1px solid #e2e8f0;font-size:10.5px;color:#475569;cursor:pointer;
+  font-weight:600;white-space:nowrap;flex-shrink:0;
+}
+.chip:hover{border-color:#16a34a;color:#16a34a;}
+
+/* Widget grid */
+.widgets{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:8px;padding:10px 12px;flex:1;min-height:0;
+}
+.wcard{
+  background:white;border:1px solid #e8f5e9;border-radius:10px;
+  padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;
+  overflow:hidden;min-height:0;
+}
+.wcard:hover{box-shadow:0 4px 14px rgba(22,163,74,.1);border-color:#bbf7d0;}
+.wcard-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-shrink:0;}
+.wcard-ico{font-size:16px;}
+.wcard-title{font-size:11.5px;font-weight:700;color:#1e293b;}
+.wcard-body{flex:1;overflow:hidden;min-height:0;font-size:10px;color:#94a3b8;line-height:1.5;}
+
+/* sample mini content */
+.mini-row{display:flex;justify-content:space-between;align-items:center;padding:2px 0;border-bottom:1px solid #f8fafc;}
+.mini-row:last-child{border-bottom:none;}
+.mini-tag{padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;}
+.tag-green{background:#dcfce7;color:#16a34a;}
+.tag-red{background:#fee2e2;color:#dc2626;}
+.tag-yellow{background:#fef3c7;color:#d97706;}
+.tag-blue{background:#dbeafe;color:#2563eb;}
+
+/* ══════════════ RIGHT SIDEBAR ══════════════ */
+.right-sb{
+  width:66px;background:white;border-left:1px solid #e2e8f0;
+  display:flex;flex-direction:column;align-items:center;
+  padding:6px 0;overflow-y:auto;overflow-x:hidden;flex-shrink:0;
+  box-shadow:-2px 0 8px rgba(0,0,0,0.04);
+  scrollbar-width:none;
+}
+.right-sb::-webkit-scrollbar{display:none;}
+
+/* ══════════════ FOOTER ══════════════ */
+.footer{
+  height:38px;background:white;border-top:1px solid #e2e8f0;
+  display:flex;align-items:center;justify-content:center;
+  gap:16px;flex-shrink:0;
+  box-shadow:0 -1px 6px rgba(0,0,0,0.04);
+}
+.footer a{font-size:11px;color:#64748b;text-decoration:none;font-weight:500;cursor:pointer;}
+.footer a:hover{color:#16a34a;}
+.footer .sep{color:#cbd5e1;font-size:10px;}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ TOP NAVBAR ═══════════════ -->
+<div class="navbar">
+  <span class="brand">⬡ SK MIS</span>
+
+  <!-- Nav dropdowns (left sidebar groups moved here) -->
+  <div class="nav-dd">
+    <button class="nav-dd-btn">Attendance <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Staff</div>
+      <div class="dd-item"><span class="ico">📅</span>Attendance</div>
+      <div class="dd-item"><span class="ico">📊</span>Attendance Report</div>
+      <div class="dd-item"><span class="ico">📆</span>My Day</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">Users</div>
+      <div class="dd-item"><span class="ico">👥</span>Users Report</div>
+      <div class="dd-item"><span class="ico">➕</span>Add User</div>
+      <div class="dd-item"><span class="ico">🗂️</span>Add User Group</div>
+    </div>
+  </div>
+
+  <div class="nav-dd">
+    <button class="nav-dd-btn">Orders <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Order Management</div>
+      <div class="dd-item"><span class="ico">📦</span>All Orders</div>
+      <div class="dd-item"><span class="ico">🛒</span>Purchase Orders</div>
+      <div class="dd-item"><span class="ico">🖨️</span>Post-Print Jobs</div>
+      <div class="dd-item"><span class="ico">⚙️</span>Operations Center</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">Fulfilment</div>
+      <div class="dd-item"><span class="ico">🚚</span>Deliveries</div>
+      <div class="dd-item"><span class="ico">🧾</span>Invoices</div>
+      <div class="dd-item"><span class="ico">📈</span>Bills Report</div>
+    </div>
+  </div>
+
+  <div class="nav-dd">
+    <button class="nav-dd-btn">Accounts <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Books</div>
+      <div class="dd-item"><span class="ico">🏦</span>Opening Balance</div>
+      <div class="dd-item"><span class="ico">📁</span>Diary Upload</div>
+      <div class="dd-item"><span class="ico">📖</span>Day Book</div>
+      <div class="dd-item"><span class="ico">🏛️</span>Bank Reconciliation</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">Payments</div>
+      <div class="dd-item"><span class="ico">📱</span>UPI Payment</div>
+      <div class="dd-item"><span class="ico">💸</span>Record Expense</div>
+      <div class="dd-item"><span class="ico">💰</span>Record Income</div>
+      <div class="dd-item"><span class="ico">🔔</span>Payment Reminders</div>
+    </div>
+  </div>
+
+  <div class="nav-dd">
+    <button class="nav-dd-btn">Reports <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Financial</div>
+      <div class="dd-item"><span class="ico">⚖️</span>Trial Balance</div>
+      <div class="dd-item"><span class="ico">📒</span>Account Book</div>
+      <div class="dd-item"><span class="ico">📋</span>Transactions 1–5</div>
+      <div class="dd-item"><span class="ico">💳</span>Payments Report</div>
+      <div class="dd-item"><span class="ico">🕑</span>Aging Report</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">Dashboard</div>
+      <div class="dd-item"><span class="ico">👤</span>Customers Report</div>
+      <div class="dd-item"><span class="ico">📦</span>Items Report</div>
+      <div class="dd-item"><span class="ico">🎯</span>Priority Report</div>
+    </div>
+  </div>
+
+  <div class="nav-dd">
+    <button class="nav-dd-btn">WhatsApp <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Messaging</div>
+      <div class="dd-item"><span class="ico">💬</span>WhatsApp Cloud</div>
+      <div class="dd-item"><span class="ico">📨</span>Send Message</div>
+      <div class="dd-item"><span class="ico">📢</span>Bulk Message</div>
+      <div class="dd-item"><span class="ico">📡</span>Broadcast Page</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">Setup</div>
+      <div class="dd-item"><span class="ico">🛠️</span>Admin Panel</div>
+      <div class="dd-item"><span class="ico">🔗</span>Session</div>
+      <div class="dd-item"><span class="ico">🔀</span>Flow Builder</div>
+    </div>
+  </div>
+
+  <div class="nav-dd">
+    <button class="nav-dd-btn">Admin <span class="arr">▼</span></button>
+    <div class="dd-menu">
+      <div class="dd-section">Master Data</div>
+      <div class="dd-item"><span class="ico">👤</span>Add Customer</div>
+      <div class="dd-item"><span class="ico">📦</span>Add Item</div>
+      <div class="dd-item"><span class="ico">🎯</span>Add Priority</div>
+      <div class="dd-item"><span class="ico">📋</span>Add Task</div>
+      <div class="dd-sep"></div>
+      <div class="dd-section">System</div>
+      <div class="dd-item"><span class="ico">🛡️</span>User Permissions</div>
+      <div class="dd-item"><span class="ico">⚙️</span>Workflow Templates</div>
+      <div class="dd-item"><span class="ico">✅</span>SOP Tasks</div>
+      <div class="dd-item"><span class="ico">📞</span>Call Logs</div>
+    </div>
+  </div>
+
+  <div class="navbar-spacer"></div>
+
+  <!-- Center search -->
+  <div class="nav-search">
+    <span class="si">🔍</span>
+    <input type="text" placeholder="Order #, customer, item, vendor, amount…"/>
+  </div>
+
+  <div class="navbar-spacer"></div>
+
+  <!-- Right quick links -->
+  <div class="nav-right-links">
+    <a>Day Book</a>
+    <a>SOP</a>
+    <a>Email</a>
+  </div>
+
+  <button class="notif-btn">🔔</button>
+
+  <!-- User zone with dropdown -->
+  <div class="user-zone">
+    <div class="user-avatar">SK</div>
+    <div>
+      <div class="user-name-text">Sanjay Kumar</div>
+      <div class="user-role-text">Admin</div>
+    </div>
+    <span style="font-size:9px;color:#94a3b8;margin-left:2px;">▼</span>
+    <div class="user-menu">
+      <div class="uhead">
+        <strong>Sanjay Kumar</strong>
+        <span>Admin · 23 May 2026</span>
+      </div>
+      <a>🏠 Home</a>
+      <a>🏪 Business Control</a>
+      <a>🖨️ Post Printing</a>
+      <a>⚙️ Workflow Templates</a>
+      <a class="logout">🚪 Logout</a>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ LAYOUT ═══════════════ -->
+<div class="layout">
+
+  <!-- ══════ LEFT SIDEBAR (icon + label, 10+ items) ══════ -->
+  <div class="left-sb">
+
+    <div class="sb-item active">
+      <span class="sb-ico">🏠</span><span class="sb-lbl">Dashboard</span>
+    </div>
+
+    <div class="sb-div"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">📅</span><span class="sb-lbl">Attend.</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📋</span><span class="sb-lbl">Tasks</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📆</span><span class="sb-lbl">My Day</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">👥</span><span class="sb-lbl">Users</span>
+    </div>
+
+    <div class="sb-div"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">📦</span><span class="sb-lbl">Orders</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🚚</span><span class="sb-lbl">Delivery</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🧾</span><span class="sb-lbl">Invoices</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🛒</span><span class="sb-lbl">Purchase</span>
+    </div>
+
+    <div class="sb-div"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">📖</span><span class="sb-lbl">Day Book</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">💳</span><span class="sb-lbl">UPI</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📊</span><span class="sb-lbl">Accounts</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">⚖️</span><span class="sb-lbl">Trial Bal</span>
+    </div>
+
+    <div class="sb-div"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">💬</span><span class="sb-lbl">WhatsApp</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📞</span><span class="sb-lbl">Call Logs</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">✅</span><span class="sb-lbl">SOP</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🛡️</span><span class="sb-lbl">Admin</span>
+    </div>
+  </div>
+
+  <!-- ══════ MAIN CONTENT ══════ -->
+  <div class="main">
+
+    <!-- Hero -->
+    <div class="home-hero">
+      <div class="hero-username">Sanjay Kumar</div>
+      <div class="hero-subtitle">☀️ Good morning · Admin · Friday, 23 May 2026</div>
+
+      <!-- Search with + button -->
+      <div class="search-wrap">
+        <button class="plus-btn" id="plusBtn">+</button>
+
+        <!-- + dropdown (Google-style, shown by default for mockup) -->
+        <div class="plus-popup" id="plusMenu">
+          <div class="pp-section">⚡ Quick Add</div>
+          <div class="pp-item"><span class="pp-ico">🛒</span>New Order</div>
+          <div class="pp-item"><span class="pp-ico">🧾</span>Receipt</div>
+          <div class="pp-item"><span class="pp-ico">💳</span>Payment</div>
+          <div class="pp-item"><span class="pp-ico">🔔</span>Followup</div>
+          <div class="pp-item"><span class="pp-ico">📋</span>New Task</div>
+          <div class="pp-item"><span class="pp-ico">📱</span>Add UPI</div>
+          <div class="pp-sep"></div>
+          <div class="pp-section">📂 Reports</div>
+          <div class="pp-item"><span class="pp-ico">📖</span>Day Book</div>
+          <div class="pp-item"><span class="pp-ico">📊</span>Account Book</div>
+          <div class="pp-item"><span class="pp-ico">⚖️</span>Trial Balance</div>
+          <div class="pp-sep"></div>
+          <div class="pp-section">🗂️ Pages</div>
+          <div class="pp-item"><span class="pp-ico">📅</span>Attendance</div>
+          <div class="pp-item"><span class="pp-ico">💬</span>WhatsApp Cloud</div>
+          <div class="pp-item"><span class="pp-ico">✅</span>SOP Tasks</div>
+          <div class="pp-item"><span class="pp-ico">📞</span>Call Logs</div>
+        </div>
+
+        <input class="search-input" type="text"
+          placeholder="Search by order #, customer name, item, vendor, or amount…"/>
+        <div class="search-actions">
+          <button title="Voice">🎤</button>
+          <button title="Scan">📷</button>
+        </div>
+      </div>
+
+      <!-- Suggestion chips -->
+      <div class="home-chips">
+        <span class="chip">⏳ Pending Tasks</span>
+        <span class="chip">🚢 Orders Pipeline</span>
+        <span class="chip">📅 My Attendance</span>
+        <span class="chip">💬 WhatsApp</span>
+        <span class="chip">📊 Account Book</span>
+      </div>
+    </div>
+
+    <!-- ══ Widgets grid (all 6 preserved, compact) ══ -->
+    <div class="widgets">
+
+      <!-- Quick Links -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">🔗</span>
+          <span class="wcard-title">Quick Links</span>
+        </div>
+        <div class="wcard-body" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+          <div style="padding:4px 6px;background:#f0fdf4;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">📦 All Orders</div>
+          <div style="padding:4px 6px;background:#dbeafe;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">📅 Attendance</div>
+          <div style="padding:4px 6px;background:#fef3c7;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">💳 UPI Pay</div>
+          <div style="padding:4px 6px;background:#ede9fe;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">📖 Day Book</div>
+          <div style="padding:4px 6px;background:#fee2e2;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">🔔 Followup</div>
+          <div style="padding:4px 6px;background:#cffafe;border-radius:6px;font-size:9.5px;font-weight:600;color:#334155;">💬 WhatsApp</div>
+        </div>
+      </div>
+
+      <!-- Pending Tasks -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">⏳</span>
+          <span class="wcard-title">Pending Task Queue</span>
+        </div>
+        <div class="wcard-body">
+          <div class="mini-row"><span>Design brochure</span><span class="mini-tag tag-yellow">Medium</span></div>
+          <div class="mini-row"><span>Invoice #1024</span><span class="mini-tag tag-red">High</span></div>
+          <div class="mini-row"><span>Follow up call</span><span class="mini-tag tag-blue">Low</span></div>
+          <div class="mini-row"><span>Order dispatch</span><span class="mini-tag tag-green">Done</span></div>
+          <div class="mini-row"><span>Payment verify</span><span class="mini-tag tag-yellow">Pending</span></div>
+        </div>
+      </div>
+
+      <!-- Orders Pipeline -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">🚢</span>
+          <span class="wcard-title">Orders Pipeline</span>
+        </div>
+        <div class="wcard-body">
+          <div class="mini-row"><span>ORD-2041 · Ravi Printers</span><span class="mini-tag tag-blue">Design</span></div>
+          <div class="mini-row"><span>ORD-2042 · Star Graphics</span><span class="mini-tag tag-yellow">Print</span></div>
+          <div class="mini-row"><span>ORD-2043 · City Office</span><span class="mini-tag tag-green">Ready</span></div>
+          <div class="mini-row"><span>ORD-2044 · Anand Co.</span><span class="mini-tag tag-red">Pending</span></div>
+          <div class="mini-row"><span>ORD-2045 · MK Traders</span><span class="mini-tag tag-blue">Dispatch</span></div>
+        </div>
+      </div>
+
+      <!-- Attendance Snapshot -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">📅</span>
+          <span class="wcard-title">Attendance Snapshot</span>
+        </div>
+        <div class="wcard-body">
+          <div class="mini-row"><span>Rahul</span><span class="mini-tag tag-green">In 09:02</span></div>
+          <div class="mini-row"><span>Priya</span><span class="mini-tag tag-green">In 09:15</span></div>
+          <div class="mini-row"><span>Amit</span><span class="mini-tag tag-red">Absent</span></div>
+          <div class="mini-row"><span>Suresh</span><span class="mini-tag tag-yellow">Late</span></div>
+          <div class="mini-row"><span>Kavita</span><span class="mini-tag tag-green">In 08:55</span></div>
+        </div>
+      </div>
+
+      <!-- My Tasks -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">📋</span>
+          <span class="wcard-title">My Tasks</span>
+        </div>
+        <div class="wcard-body">
+          <div class="mini-row"><span>Review orders list</span><span class="mini-tag tag-blue">Today</span></div>
+          <div class="mini-row"><span>Call vendor ABC</span><span class="mini-tag tag-yellow">Pending</span></div>
+          <div class="mini-row"><span>Update price list</span><span class="mini-tag tag-red">Urgent</span></div>
+          <div class="mini-row"><span>Approve invoice</span><span class="mini-tag tag-green">Done</span></div>
+          <div class="mini-row"><span>WhatsApp campaign</span><span class="mini-tag tag-blue">Due</span></div>
+        </div>
+      </div>
+
+      <!-- My Attendance -->
+      <div class="wcard">
+        <div class="wcard-head">
+          <span class="wcard-ico">🕐</span>
+          <span class="wcard-title">My Attendance</span>
+        </div>
+        <div class="wcard-body">
+          <div class="mini-row"><span>21 May</span><span class="mini-tag tag-green">In 09:00 · Out 18:02</span></div>
+          <div class="mini-row"><span>22 May</span><span class="mini-tag tag-green">In 09:05 · Out 17:58</span></div>
+          <div class="mini-row"><span>23 May</span><span class="mini-tag tag-blue">In 09:10</span></div>
+          <div class="mini-row"><span>19 May</span><span class="mini-tag tag-yellow">Late — In 09:45</span></div>
+          <div class="mini-row"><span>18 May</span><span class="mini-tag tag-green">In 08:55 · Out 18:10</span></div>
+        </div>
+      </div>
+
+    </div><!-- /widgets -->
+  </div><!-- /main -->
+
+  <!-- ══════ RIGHT SIDEBAR (icon + label, 10+ items) ══════ -->
+  <div class="right-sb">
+
+    <div class="sb-item">
+      <span class="sb-ico">📖</span><span class="sb-lbl">Day Book</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📧</span><span class="sb-lbl">Email</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">💳</span><span class="sb-lbl">UPI Pay</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🧾</span><span class="sb-lbl">Trans 4D</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">👥</span><span class="sb-lbl">Attend.</span>
+    </div>
+
+    <div class="sb-div"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">📦</span><span class="sb-lbl">Orders</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🏪</span><span class="sb-lbl">Business</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🖨️</span><span class="sb-lbl">Post Print</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">⚙️</span><span class="sb-lbl">Workflow</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">💬</span><span class="sb-lbl">WhatsApp</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">📊</span><span class="sb-lbl">Reports</span>
+    </div>
+    <div class="sb-item">
+      <span class="sb-ico">🚚</span><span class="sb-lbl">Dispatch</span>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div class="sb-item">
+      <span class="sb-ico">🎨</span><span class="sb-lbl">Customize</span>
+    </div>
+  </div>
+
+</div><!-- /layout -->
+
+<!-- ═══════════════ FOOTER ═══════════════ -->
+<div class="footer">
+  <a>Home</a><span class="sep">·</span>
+  <a>Orders</a><span class="sep">·</span>
+  <a>Attendance</a><span class="sep">·</span>
+  <a>WhatsApp</a><span class="sep">·</span>
+  <a>Day Book</a><span class="sep">·</span>
+  <a>Call Logs</a><span class="sep">·</span>
+  <a>SOP Tasks</a><span class="sep">·</span>
+  <a>Reports</a><span class="sep">·</span>
+  <a>Business</a><span class="sep">·</span>
+  <a>Post Printing</a><span class="sep">·</span>
+  <a>Invoices</a><span class="sep">·</span>
+  <a>UPI Payment</a>
+</div>
+
+<script>
+// Toggle + popup
+const btn = document.getElementById('plusBtn');
+const menu = document.getElementById('plusMenu');
+menu.style.display = 'block'; // show by default for mockup
+btn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+});
+document.addEventListener('click', () => { menu.style.display = 'none'; });
+</script>
+
+</body>
+</html>

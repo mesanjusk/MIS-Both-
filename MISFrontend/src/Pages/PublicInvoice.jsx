@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Alert, Box, CircularProgress, Container, Stack } from '@mui/material';
 import InvoicePreview from '../Components/InvoicePreview';
+import { getApiBase } from '../apiClient.js';
 
 export default function PublicInvoice() {
   const { shareToken } = useParams();
@@ -11,7 +12,7 @@ export default function PublicInvoice() {
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/public-invoices/p/${shareToken}`)
+    fetch(`${getApiBase()}/api/public-invoices/p/${shareToken}`)
       .then((r) => r.json())
       .then((data) => {
         if (!active) return;

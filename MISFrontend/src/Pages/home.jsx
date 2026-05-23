@@ -3,12 +3,13 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Tooltip, Stack, Paper,
   Button, Drawer, LinearProgress, Dialog, DialogContent,
-  Chip, Grid,
+  Chip, Grid, Divider,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
+import ClickAwayListener from '@mui/material/ClickAwayListener';
 
 import AllOrder from '../Reports/allOrder';
 import UserTask from './userTask';
@@ -17,6 +18,7 @@ import AllAttandance from './AllAttandance';
 import TaskUpdate from './taskUpdate';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
+import { useDashboardCustomize } from './Layout';
 
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -34,6 +36,31 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import Brightness3RoundedIcon from '@mui/icons-material/Brightness3Rounded';
 import WbTwilightRoundedIcon from '@mui/icons-material/WbTwilightRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
+import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
+import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
+import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
+
+import { ROUTES } from '../constants/routes';
+
+/* ─── Google-colored name ────────────────────────────────────────── */
+const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
+
+function ColoredName({ name }) {
+  let ci = 0;
+  return (
+    <Box component="span">
+      {(name || '').split('').map((ch, i) => {
+        if (ch === ' ') return <Box key={i} component="span" sx={{ display: 'inline-block', width: '0.25em' }} />;
+        const col = GOOGLE_COLORS[ci++ % GOOGLE_COLORS.length];
+        return <Box key={i} component="span" sx={{ color: col }}>{ch}</Box>;
+      })}
+    </Box>
+  );
+}
 
 /* ─── Widget Registry ─────────────────────────────────────────────── */
 export const WIDGET_REGISTRY = [
@@ -312,17 +339,23 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         <Typography variant="caption" fontWeight={700} sx={{ flex: 1, color: 'text.secondary', fontSize: '0.72rem' }}>
           {wdef?.label || widgetId}
         </Typography>
-        {editMode && (
-          <Tooltip title="Remove widget">
-            <IconButton
-              size="small"
-              onClick={() => onRemove(widgetId)}
-              sx={{ p: 0.25, color: 'text.disabled', '&:hover': { color: 'error.main' } }}
-            >
-              <CloseRoundedIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          </Tooltip>
-        )}
+        {/* Close button — always visible on hover */}
+        <Tooltip title="Remove widget">
+          <IconButton
+            size="small"
+            onClick={() => onRemove(widgetId)}
+            sx={{
+              p: 0.25,
+              opacity: editMode ? 1 : 0,
+              '.MuiPaper-root:hover &': { opacity: 1 },
+              transition: 'opacity 0.15s',
+              color: 'text.disabled',
+              '&:hover': { color: 'error.main' },
+            }}
+          >
+            <CloseRoundedIcon sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Tooltip>
       </Stack>
       <Box sx={{ p: 1.25, overflowY: 'auto', maxHeight: 520 }}>
         {children}
@@ -486,6 +519,7 @@ function WidgetLibrary({ open, onClose, unusedWidgets, isAdmin, permissions, onA
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { search } = useLocation();
   const { userName, userGroup, isAdmin, permissions } = useAuth();
 
   const [loggedInUser, setLoggedInUser] = useState(null);
@@ -498,8 +532,58 @@ export default function Home() {
   const [layout, setLayout] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [showLibrary, setShowLibrary] = useState(false);
   const dragPayload = useRef(null);
+
+  /* Widget library via context */
+  const dashCtx = useDashboardCustomize();
+  const showLibrary = dashCtx?.widgetLibOpen ?? false;
+  const setShowLibrary = (v) => v ? dashCtx?.openWidgetLib?.() : dashCtx?.closeWidgetLib?.();
+
+  /* Handle ?widgets=1 query param */
+  useEffect(() => {
+    if (new URLSearchParams(search).get('widgets') === '1') {
+      dashCtx?.openWidgetLib?.();
+    }
+  }, [search]);
+
+  /* Plus dropdown */
+  const [plusOpen, setPlusOpen] = useState(false);
+  const plusAnchorRef = useRef(null);
+
+  const PLUS_SECTIONS = [
+    {
+      label: '⚡ Quick Add',
+      items: [
+        { label: 'New Order', icon: <AddShoppingCartRoundedIcon fontSize="small" />, onClick: () => navigate(ROUTES.ORDERS_NEW) },
+        { label: 'Receipt', icon: <ReceiptLongRoundedIcon fontSize="small" />, path: ROUTES.RECEIPT },
+        { label: 'Payment', icon: <PaymentsRoundedIcon fontSize="small" />, path: ROUTES.PAYMENT },
+        { label: 'Followup', icon: <NotificationsActiveRoundedIcon fontSize="small" />, path: ROUTES.FOLLOWUPS },
+        { label: 'New Task', icon: <AddTaskRoundedIcon fontSize="small" />, path: ROUTES.TASKS_NEW },
+        { label: 'Add UPI', icon: <AddCardRoundedIcon fontSize="small" />, onClick: () => dashCtx?.openUpi?.() },
+      ],
+    },
+    {
+      label: '📂 Reports',
+      items: [
+        { label: 'Day Book', path: ROUTES.DAY_BOOK },
+        { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
+        { label: 'Trial Balance', path: ROUTES.TRIAL_BALANCE },
+        { label: 'Trans 4D', path: ROUTES.REPORTS_TRANSACTION_4D },
+        { label: 'Aging Report', path: ROUTES.AGING_REPORT },
+      ],
+    },
+    {
+      label: '🗂️ Pages',
+      items: [
+        { label: 'Attendance', path: ROUTES.ATTENDANCE },
+        { label: 'WhatsApp', path: ROUTES.WHATSAPP },
+        { label: 'Call Logs', path: ROUTES.CALL_LOGS },
+        { label: 'SOP Tasks', path: ROUTES.SOP },
+        { label: 'User Perms', path: ROUTES.ADMIN_USER_PERMISSIONS },
+        { label: 'Business', path: ROUTES.BUSINESS_CONTROL },
+      ],
+    },
+  ];
 
   /* Init user */
   useEffect(() => {
@@ -671,145 +755,236 @@ export default function Home() {
   const GreetIcon = greeting.icon;
 
   return (
-    <Box sx={{ minHeight: '100%', bgcolor: '#f0fdf4', px: { xs: 1, md: 1.5 }, pt: 0.5, pb: 4 }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
 
-      {/* ── Hero Header ────────────────────────────────────────── */}
-      <Paper
-        elevation={0}
-        sx={{
-          mb: 2,
-          p: { xs: 1.5, md: 2 },
-          borderRadius: 3,
-          bgcolor: 'white',
-          border: '1px solid',
-          borderColor: alpha('#16a34a', 0.12),
-          boxShadow: '0 2px 12px rgba(22,163,74,0.06)',
-        }}
-      >
-        <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1.5}>
-          {/* Greeting */}
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: 1 }}>
+      {/* ── Hero ── */}
+      <Box sx={{ textAlign: 'center', pt: { xs: 2, md: 3 }, pb: 1.5, flexShrink: 0 }}>
+        <Typography
+          variant="h2"
+          sx={{
+            fontFamily: '"Google Sans","Product Sans",Roboto,sans-serif',
+            fontWeight: 900,
+            fontSize: { xs: '2.4rem', md: '3.2rem' },
+            lineHeight: 1,
+            mb: 0.5,
+            userSelect: 'none',
+          }}
+        >
+          <ColoredName name={(loggedInUser || userName || 'User').split(' ')[0]} />
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+          <Box component="span" sx={{ color: '#FBBC05' }}>
+            <GreetIcon sx={{ fontSize: 12, mr: 0.4, mb: '-2px' }} />
+          </Box>
+          {greeting.text} · {userGroup || 'User'} · {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </Typography>
+
+        {/* Search with + button */}
+        <ClickAwayListener onClickAway={() => setPlusOpen(false)}>
+          <Box sx={{ position: 'relative', display: 'inline-flex', maxWidth: 560, width: '90%' }}>
             <Box
+              ref={plusAnchorRef}
               sx={{
-                width: 44, height: 44, borderRadius: 2.5,
-                bgcolor: '#dcfce7',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0,
+                display: 'flex', alignItems: 'center',
+                bgcolor: 'white', border: '1.5px solid', borderColor: alpha('#16a34a', 0.25),
+                borderRadius: '28px', width: '100%',
+                boxShadow: '0 4px 20px rgba(22,163,74,.1)',
+                '&:focus-within': { borderColor: '#16a34a', boxShadow: '0 4px 20px rgba(22,163,74,.18)' },
               }}
             >
-              <GreetIcon sx={{ color: '#16a34a', fontSize: 22 }} />
-            </Box>
-            <Box>
-              <Typography variant="h6" fontWeight={800} color="#15803d" sx={{ lineHeight: 1.2 }}>
-                {greeting.text}, {(loggedInUser || userName || 'User').split(' ')[0]}!
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </Typography>
-            </Box>
-          </Stack>
-
-          {/* Customize controls */}
-          <Stack direction="row" spacing={0.75} alignItems="center" flexShrink={0}>
-            {editMode && (
-              <>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<WidgetsRoundedIcon sx={{ fontSize: 15 }} />}
-                  onClick={() => setShowLibrary(true)}
+              <Tooltip title="Quick Add & Navigate">
+                <Box
+                  component="button"
+                  onClick={() => setPlusOpen((p) => !p)}
                   sx={{
-                    borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-                    borderColor: '#16a34a', color: '#16a34a',
-                    '&:hover': { bgcolor: alpha('#16a34a', 0.05) },
+                    width: 44, height: 44, bgcolor: '#16a34a', border: 'none', cursor: 'pointer',
+                    borderRadius: '26px 0 0 26px', color: 'white', fontSize: '1.4rem', fontWeight: 300,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    borderRight: '1.5px solid', borderRightColor: alpha('#16a34a', 0.25),
+                    '&:hover': { bgcolor: '#15803d' },
                   }}
                 >
-                  Add Widget
-                </Button>
-                <Tooltip title="Reset to default">
-                  <IconButton
-                    size="small"
-                    onClick={handleResetLayout}
-                    sx={{ color: 'text.secondary', '&:hover': { color: '#16a34a' } }}
-                  >
-                    <RestartAltRoundedIcon sx={{ fontSize: 18 }} />
+                  +
+                </Box>
+              </Tooltip>
+              <Box
+                component="input"
+                placeholder="Search order #, customer name, item, vendor, or amount…"
+                sx={{
+                  flex: 1, border: 'none', outline: 'none', px: 2, py: 1.25,
+                  fontSize: '0.85rem', color: '#334155', bgcolor: 'transparent',
+                  '&::placeholder': { color: '#94a3b8' },
+                }}
+              />
+              <Stack direction="row" spacing={0.25} sx={{ pr: 1 }}>
+                <Tooltip title="Voice Search">
+                  <IconButton size="small" sx={{ color: 'text.disabled' }}>
+                    <SearchRoundedIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
-              </>
+              </Stack>
+            </Box>
+
+            {/* Plus dropdown - Google style */}
+            {plusOpen && (
+              <Paper
+                elevation={4}
+                sx={{
+                  position: 'absolute', top: 52, left: 0,
+                  minWidth: 240, borderRadius: 2.5,
+                  border: '1px solid', borderColor: 'divider',
+                  zIndex: 1400, py: 0.5, overflow: 'hidden',
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
+                }}
+              >
+                {PLUS_SECTIONS.map((section, si) => (
+                  <Box key={section.label}>
+                    {si > 0 && <Divider sx={{ my: 0.5 }} />}
+                    <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.8, px: 2, pt: 0.75, pb: 0.25 }}>
+                      {section.label}
+                    </Typography>
+                    {section.items.map((item) => (
+                      <Box
+                        key={item.label}
+                        component="button"
+                        onClick={() => {
+                          setPlusOpen(false);
+                          if (item.onClick) item.onClick();
+                          else if (item.path) navigate(item.path);
+                        }}
+                        sx={{
+                          display: 'flex', alignItems: 'center', gap: 1.25,
+                          width: '100%', px: 2, py: 0.85, border: 'none', cursor: 'pointer',
+                          bgcolor: 'transparent', textAlign: 'left',
+                          fontSize: '0.82rem', color: '#334155', fontWeight: 500,
+                          '&:hover': { bgcolor: '#f0fdf4', color: '#16a34a' },
+                        }}
+                      >
+                        <Box sx={{ color: 'text.secondary', display: 'flex' }}>{item.icon || <SearchRoundedIcon sx={{ fontSize: 16 }} />}</Box>
+                        {item.label}
+                      </Box>
+                    ))}
+                  </Box>
+                ))}
+              </Paper>
             )}
+          </Box>
+        </ClickAwayListener>
+
+        {/* Suggestion chips */}
+        <Stack direction="row" spacing={0.75} justifyContent="center" sx={{ mt: 1.5, flexWrap: 'nowrap', overflow: 'hidden' }}>
+          {[
+            { label: 'Pending Tasks', path: ROUTES.PENDING_TASKS },
+            { label: 'Orders Pipeline', path: ROUTES.REPORTS_ORDERS_LIST },
+            { label: 'My Attendance', path: ROUTES.ATTENDANCE },
+            { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
+            { label: 'WhatsApp', path: ROUTES.WHATSAPP },
+          ].map((chip) => (
+            <Chip
+              key={chip.label}
+              label={chip.label}
+              size="small"
+              onClick={() => navigate(chip.path)}
+              sx={{ fontSize: '0.7rem', fontWeight: 600, bgcolor: 'white', border: '1px solid', borderColor: 'divider', cursor: 'pointer', '&:hover': { borderColor: '#16a34a', color: '#16a34a' } }}
+            />
+          ))}
+        </Stack>
+      </Box>
+
+      {/* ── Edit mode toolbar ── */}
+      <Stack
+        direction="row"
+        spacing={0.75}
+        alignItems="center"
+        justifyContent="center"
+        sx={{ px: { xs: 1, md: 1.5 }, pb: 0.75, flexShrink: 0 }}
+      >
+        {editMode && (
+          <>
             <Button
               size="small"
-              variant={editMode ? 'contained' : 'outlined'}
-              startIcon={editMode ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <DashboardCustomizeRoundedIcon sx={{ fontSize: 15 }} />}
-              onClick={() => setEditMode((p) => !p)}
+              variant="outlined"
+              startIcon={<WidgetsRoundedIcon sx={{ fontSize: 15 }} />}
+              onClick={() => setShowLibrary(true)}
               sx={{
                 borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-                ...(editMode
-                  ? { bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }
-                  : { borderColor: '#16a34a', color: '#16a34a', '&:hover': { bgcolor: alpha('#16a34a', 0.05) } }),
+                borderColor: '#16a34a', color: '#16a34a',
+                '&:hover': { bgcolor: alpha('#16a34a', 0.05) },
               }}
             >
-              {editMode ? 'Done' : 'Customize'}
+              Add Widget
             </Button>
-          </Stack>
-        </Stack>
-      </Paper>
+            <Tooltip title="Reset to default">
+              <IconButton
+                size="small"
+                onClick={handleResetLayout}
+                sx={{ color: 'text.secondary', '&:hover': { color: '#16a34a' } }}
+              >
+                <RestartAltRoundedIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+        <Button
+          size="small"
+          variant={editMode ? 'contained' : 'outlined'}
+          startIcon={editMode ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <DashboardCustomizeRoundedIcon sx={{ fontSize: 15 }} />}
+          onClick={() => setEditMode((p) => !p)}
+          sx={{
+            borderRadius: 2, fontSize: '0.72rem', py: 0.5,
+            ...(editMode
+              ? { bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }
+              : { borderColor: '#16a34a', color: '#16a34a', '&:hover': { bgcolor: alpha('#16a34a', 0.05) } }),
+          }}
+        >
+          {editMode ? 'Done' : 'Customize'}
+        </Button>
+      </Stack>
 
       {isLoading && (
-        <LinearProgress sx={{ mb: 1.5, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
+        <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}
 
-      {/* ── 3-Panel Grid ──────────────────────────────────────── */}
+      {/* ── 3-Panel Grid ── */}
       <Box
         sx={{
+          flex: 1,
+          minHeight: 0,
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            md: [
-              hasLeft ? '260px' : '',
-              '1fr',
-              hasRight ? '260px' : '',
-            ].filter(Boolean).join(' '),
+            md: [hasLeft ? '260px' : '', '1fr', hasRight ? '260px' : ''].filter(Boolean).join(' '),
           },
           gap: 1.5,
           alignItems: 'start',
+          px: { xs: 1, md: 1.5 },
+          pb: 1,
+          overflow: 'hidden',
         }}
       >
         {/* Left Panel */}
         {hasLeft && (
-          <DashboardPanel
-            panelId="left"
-            widgetIds={layout.left || []}
-            editMode={editMode}
-            isDragging={isDragging}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDropAt={handleDropAt}
-            onDropOnPanel={handleDropOnPanel}
-            onRemoveWidget={handleRemoveWidget}
-            renderWidget={renderWidget}
-          />
+          <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+            <DashboardPanel
+              panelId="left"
+              widgetIds={layout.left || []}
+              editMode={editMode}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDropAt={handleDropAt}
+              onDropOnPanel={handleDropOnPanel}
+              onRemoveWidget={handleRemoveWidget}
+              renderWidget={renderWidget}
+            />
+          </Box>
         )}
 
         {/* Center Panel */}
-        <DashboardPanel
-          panelId="center"
-          widgetIds={layout.center || []}
-          editMode={editMode}
-          isDragging={isDragging}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDropAt={handleDropAt}
-          onDropOnPanel={handleDropOnPanel}
-          onRemoveWidget={handleRemoveWidget}
-          renderWidget={renderWidget}
-        />
-
-        {/* Right Panel */}
-        {hasRight && (
+        <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
           <DashboardPanel
-            panelId="right"
-            widgetIds={layout.right || []}
+            panelId="center"
+            widgetIds={layout.center || []}
             editMode={editMode}
             isDragging={isDragging}
             onDragStart={handleDragStart}
@@ -819,6 +994,24 @@ export default function Home() {
             onRemoveWidget={handleRemoveWidget}
             renderWidget={renderWidget}
           />
+        </Box>
+
+        {/* Right Panel */}
+        {hasRight && (
+          <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+            <DashboardPanel
+              panelId="right"
+              widgetIds={layout.right || []}
+              editMode={editMode}
+              isDragging={isDragging}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+              onDropAt={handleDropAt}
+              onDropOnPanel={handleDropOnPanel}
+              onRemoveWidget={handleRemoveWidget}
+              renderWidget={renderWidget}
+            />
+          </Box>
         )}
       </Box>
 

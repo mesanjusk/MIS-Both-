@@ -1,50 +1,62 @@
-import { useMemo } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { BottomNavigation, BottomNavigationAction, Paper } from '@mui/material';
-import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
-import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
-import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
-import TaskRoundedIcon from '@mui/icons-material/TaskRounded';
-import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
+import { Box, Typography } from '@mui/material';
+import { Link } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
 
+const FOOTER_LINKS = [
+  { label: 'Home', path: ROUTES.HOME },
+  { label: 'Orders', path: ROUTES.REPORTS_ORDERS_LIST },
+  { label: 'Attendance', path: ROUTES.ATTENDANCE },
+  { label: 'Tasks', path: ROUTES.PENDING_TASKS },
+  { label: 'WhatsApp', path: ROUTES.WHATSAPP },
+  { label: 'Day Book', path: ROUTES.DAY_BOOK },
+  { label: 'Call Logs', path: ROUTES.CALL_LOGS },
+  { label: 'SOP Tasks', path: ROUTES.SOP },
+  { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
+  { label: 'Business', path: ROUTES.BUSINESS_CONTROL },
+  { label: 'Post Print', path: ROUTES.POST_PRINTING_CONTROL },
+  { label: 'Invoices', path: ROUTES.INVOICES_LIST },
+  { label: 'UPI Payment', path: ROUTES.UPI_PAYMENT },
+  { label: 'Reports', path: ROUTES.REPORTS_BILLS },
+  { label: 'Customers', path: ROUTES.REPORTS_CUSTOMERS },
+  { label: 'Items', path: ROUTES.REPORTS_ITEMS },
+];
+
 export default function Footer() {
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-
-  const tabs = useMemo(
-    () => [
-      { label: 'Home', path: ROUTES.HOME, icon: <DashboardRoundedIcon fontSize="small" /> },
-      { label: 'Orders', path: '/allOrder', icon: <DescriptionRoundedIcon fontSize="small" /> },
-      { label: 'Tasks', path: ROUTES.PENDING_TASKS, icon: <TaskRoundedIcon fontSize="small" /> },
-      { label: 'Bills', path: ROUTES.ALL_BILLS, icon: <ReceiptLongRoundedIcon fontSize="small" /> },
-      { label: 'Chat', path: ROUTES.WHATSAPP_CLOUD, icon: <ChatRoundedIcon fontSize="small" /> },
-    ],
-    [],
-  );
-
-  const active = tabs.find((tab) => pathname.toLowerCase().startsWith(tab.path.toLowerCase()))?.path ?? false;
-
   return (
-    <Paper
+    <Box
+      component="footer"
       sx={{
-        position: 'fixed',
-        left: 8,
-        right: 8,
-        bottom: 8,
-        zIndex: 1100,
-        display: { xs: 'block', md: 'none' },
-        border: (theme) => `1px solid ${theme.palette.divider}`,
-        borderRadius: 2,
-        overflow: 'hidden',
+        px: 2,
+        py: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+        gap: 0.25,
+        borderTop: (t) => `1px solid ${t.palette.divider}`,
+        bgcolor: 'background.paper',
       }}
-      elevation={1}
     >
-      <BottomNavigation value={active} onChange={(_, next) => next && navigate(next)} showLabels sx={{ minHeight: 58 }}>
-        {tabs.map((tab) => (
-          <BottomNavigationAction key={tab.path} value={tab.path} label={tab.label} icon={tab.icon} sx={{ minWidth: 0, px: 0.25 }} />
-        ))}
-      </BottomNavigation>
-    </Paper>
+      {FOOTER_LINKS.map((link, i) => (
+        <Box key={link.path} sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography
+            component={Link}
+            to={link.path}
+            sx={{
+              fontSize: '0.7rem',
+              color: 'text.secondary',
+              textDecoration: 'none',
+              px: 0.5,
+              '&:hover': { color: 'primary.main' },
+            }}
+          >
+            {link.label}
+          </Typography>
+          {i < FOOTER_LINKS.length - 1 && (
+            <Typography sx={{ fontSize: '0.7rem', color: 'text.disabled', lineHeight: 1 }}>·</Typography>
+          )}
+        </Box>
+      ))}
+    </Box>
   );
 }

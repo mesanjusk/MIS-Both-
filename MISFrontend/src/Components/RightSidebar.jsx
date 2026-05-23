@@ -28,7 +28,7 @@ import { ROUTES } from '../constants/routes';
 import { useNavCustomize, isRightActionVisible, isRightLinkVisible } from '../hooks/useNavCustomize';
 
 const NAVBAR_HEIGHT = 64;
-const RIGHT_SIDEBAR_WIDTH = 80;
+const RIGHT_SIDEBAR_WIDTH = 66;
 
 function RailItem({ icon, label, onClick, selected = false, accent }) {
   const theme = useTheme();
@@ -56,7 +56,7 @@ function RailItem({ icon, label, onClick, selected = false, accent }) {
           },
         }}
       >
-        <Box sx={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}>
+        <Box sx={{ fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'inherit' }}>
           {icon}
         </Box>
 
@@ -67,7 +67,7 @@ function RailItem({ icon, label, onClick, selected = false, accent }) {
             lineHeight: 1,
             color: 'inherit',
             textAlign: 'center',
-            maxWidth: 64,
+            maxWidth: 60,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',

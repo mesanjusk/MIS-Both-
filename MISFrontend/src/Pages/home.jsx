@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Box, Typography, IconButton, Tooltip, Stack, Paper, alpha,
-  Button, Drawer, Divider, LinearProgress, Dialog, DialogContent,
+  Box, Typography, IconButton, Tooltip, Stack, Paper,
+  Button, Drawer, LinearProgress, Dialog, DialogContent,
   Chip, Grid,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
@@ -17,7 +18,6 @@ import TaskUpdate from './taskUpdate';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 
-import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';

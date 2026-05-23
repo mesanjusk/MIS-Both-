@@ -100,6 +100,7 @@ export default function AllTransaction() {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const [transactions, setTransactions] = useState([]);
   const [customers, setCustomers]       = useState([]);
+  const [accounts, setAccounts]         = useState([]);
   const [loading, setLoading]           = useState(true);
 
   // Original endpoints from allTransaction4D
@@ -107,17 +108,32 @@ export default function AllTransaction() {
     Promise.all([
       axios.get('/api/transaction'),
       axios.get('/api/customers/GetCustomersList'),
+      axios.get('/api/accounts'),
     ])
-      .then(([txRes, custRes]) => {
+      .then(([txRes, custRes, acctRes]) => {
         if (txRes.data.success)   setTransactions(txRes.data.result);
         if (custRes.data.success) setCustomers(custRes.data.result);
+        if (acctRes.data.accounts) setAccounts(acctRes.data.accounts);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  // UUID → name map for all customers (for display in Account column)
+  // UUID → name maps for both customers and system accounts
   const customerMap = customers.reduce((acc, c) => { if (c.Customer_uuid) acc[c.Customer_uuid] = c.Customer_name; return acc; }, {});
+  const accountsMap = accounts.reduce((acc, a) => { if (a.Account_uuid) acc[a.Account_uuid] = a.Account_name; return acc; }, {});
+
+  // UUID regex — used to detect when Account_name was never resolved (old data)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const resolveName = (otherLeg) => {
+    const rawId     = otherLeg?.Account_id || '—';
+    const storedName = otherLeg?.Account_name || '';
+    // Prefer the denormalized Account_name unless it still looks like a UUID (old unfixed entry)
+    if (storedName && !UUID_RE.test(storedName)) return storedName;
+    // Fall back to lookup maps
+    return customerMap[rawId] || accountsMap[rawId] || rawId;
+  };
 
   // Cash/Bank accounts — match by UUID (new txns) and name (old diary-confirmed txns)
   const ledgerAccounts = customers.filter((c) => c.Customer_group === 'Bank and Account');
@@ -158,12 +174,11 @@ export default function AllTransaction() {
         const acctLeg  = j.find((e) => isAccountFn(e.Account_id));
         const otherLeg = j.find((e) => e !== acctLeg);
         if (!acctLeg) return null;
-        const rawId = otherLeg?.Account_id || '—';
         return {
           txn,
           direction: acctLeg.Type === 'Debit' ? 'in' : 'out',
           amount:    acctLeg.Amount || txn.Total_Debit || 0,
-          account:   customerMap[rawId] || rawId,
+          account:   resolveName(otherLeg),
         };
       })
       .filter(Boolean);

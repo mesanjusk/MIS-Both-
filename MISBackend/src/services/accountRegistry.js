@@ -14,6 +14,7 @@
 
 const { v4: uuid } = require('uuid');
 const Accounts = require('../repositories/accounts');
+const Customer = require('../repositories/customer');
 
 // ---------------------------------------------------------------------------
 // System-account metadata: name → { type, normal_balance_side, group }
@@ -163,6 +164,12 @@ async function getName(accountUuid) {
     _uuidToName.set(key, acct.Account_name);
     _nameToUuid.set(acct.Account_name.toLowerCase(), key);
     return acct.Account_name;
+  }
+
+  // Customer UUIDs are sometimes used as account IDs — resolve their display name too
+  const cust = await Customer.findOne({ Customer_uuid: key }, { Customer_name: 1 }).lean();
+  if (cust?.Customer_name) {
+    return cust.Customer_name;
   }
 
   return key; // fallback: return UUID itself

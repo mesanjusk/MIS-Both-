@@ -125,6 +125,13 @@ async function buildLine(accountIdentifier, type, amount) {
 
   const { uuid: accountUuid, name: accountName } = await resolveAccount(accountIdentifier);
 
+  if (accountName === accountUuid) {
+    throw Object.assign(
+      new Error(`Account '${accountIdentifier}' not found in Accounts or Customers — cannot determine display name`),
+      { statusCode: 400 }
+    );
+  }
+
   return {
     Account_id:   accountUuid,  // UUID – stored as FK in the journal
     Account_name: accountName,  // Denormalized display label

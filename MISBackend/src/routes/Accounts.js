@@ -103,6 +103,10 @@ router.post('/opening-balance', async (req, res) => {
       resolveAccount('Opening Balance Equity'),
     ]);
 
+    if (acctResult.name === acctResult.uuid) {
+      return res.status(400).json({ error: `Account UUID '${accountUuid}' not found in Accounts collection` });
+    }
+
     // Delete any existing opening balance transaction for this account so we can re-post
     const existingTxns = await Transaction.find({ Source: OPENING_BALANCE_SOURCE }).lean();
     for (const txn of existingTxns) {

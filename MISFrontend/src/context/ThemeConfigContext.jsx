@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { createAppTheme, THEME_PRESETS } from '../theme';
 
-const STORAGE_KEY = 'mis_dashboard_theme_key';
+const STORAGE_KEY = 'mis_dashboard_theme_key_v2';
 const DEFAULT_THEME = 'mint';
 const ThemeConfigContext = createContext({
   themeKey: DEFAULT_THEME,
@@ -14,7 +14,8 @@ const ThemeConfigContext = createContext({
 export function AppThemeProvider({ children }) {
   const [themeKey, setThemeKeyState] = useState(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return (stored && THEME_PRESETS[stored]) ? stored : DEFAULT_THEME;
+    // Only accept 'mint' as the allowed theme for now; anything else resets to mint
+    return stored === 'mint' ? 'mint' : DEFAULT_THEME;
   });
   const theme = useMemo(() => createAppTheme(themeKey), [themeKey]);
 

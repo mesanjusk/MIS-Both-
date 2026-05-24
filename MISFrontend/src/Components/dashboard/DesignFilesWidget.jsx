@@ -1184,7 +1184,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink }) {
+function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 8 || section.stageNumber === 9;
@@ -1203,27 +1203,46 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
         {expanded ? <ExpandLessRoundedIcon sx={{ fontSize: 13 }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 13 }} />}
       </Stack>
       <Collapse in={expanded}>
-        <Stack spacing={0.35} sx={{ pl: 1, mt: 0.35 }}>
-          {section.files.map((file) => (
-            <FileListRow
-              key={file.fileId}
-              file={file}
-              viewOnly={!isActionable}
-              checked={isActionable && selectedIds?.has(file.fileId)}
-              onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
-              onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
-              onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-              onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
-              onRelink={isActionable ? onRelink : undefined}
-            />
-          ))}
-        </Stack>
+        {viewMode === 'grid' ? (
+          <Grid container spacing={0.75} sx={{ pl: 1, mt: 0.25 }}>
+            {section.files.map((file) => (
+              <Grid item xs={6} sm={4} md={3} key={file.fileId}>
+                <FileCard
+                  file={file}
+                  viewOnly={!isActionable}
+                  checked={isActionable && selectedIds?.has(file.fileId)}
+                  onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
+                  onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
+                  onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                  onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                  onRelink={isActionable ? onRelink : undefined}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          <Stack spacing={0.35} sx={{ pl: 1, mt: 0.35 }}>
+            {section.files.map((file) => (
+              <FileListRow
+                key={file.fileId}
+                file={file}
+                viewOnly={!isActionable}
+                checked={isActionable && selectedIds?.has(file.fileId)}
+                onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
+                onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
+                onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                onRelink={isActionable ? onRelink : undefined}
+              />
+            ))}
+          </Stack>
+        )}
       </Collapse>
     </Box>
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -1247,7 +1266,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
           {dateGroup.sections.map((section, i) => (
             <ArchiveDateSection key={i} section={section}
               onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
-              selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink}
+              selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink} viewMode={viewMode}
             />
           ))}
         </Stack>
@@ -1257,7 +1276,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // "By Type" view — flat rows per type, grouped by date
-function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, stageNumber }) {
+function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, stageNumber, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   const totalFiles = filesByDate.reduce((s, d) => s + d.files.length, 0);
   if (!totalFiles) return null;
@@ -1281,21 +1300,40 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, fontWeight: 600, px: 0.5, display: 'block', mb: 0.25 }}>
                 {dg.dateName}
               </Typography>
-              <Stack spacing={0.3} sx={{ pl: 1 }}>
-                {dg.files.map((file) => (
-                  <FileListRow
-                    key={file.fileId}
-                    file={file}
-                    viewOnly={false}
-                    checked={selectedIds?.has(file.fileId)}
-                    onToggle={onToggle ? () => onToggle(file) : undefined}
-                    onConfirm={stageNumber === 8 ? onConfirm : undefined}
-                    onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                    onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
-                    onRelink={onRelink}
-                  />
-                ))}
-              </Stack>
+              {viewMode === 'grid' ? (
+                <Grid container spacing={0.75} sx={{ pl: 1 }}>
+                  {dg.files.map((file) => (
+                    <Grid item xs={6} sm={4} md={3} key={file.fileId}>
+                      <FileCard
+                        file={file}
+                        viewOnly={false}
+                        checked={selectedIds?.has(file.fileId)}
+                        onToggle={onToggle ? () => onToggle(file) : undefined}
+                        onConfirm={stageNumber === 8 ? onConfirm : undefined}
+                        onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                        onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                        onRelink={onRelink}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              ) : (
+                <Stack spacing={0.3} sx={{ pl: 1 }}>
+                  {dg.files.map((file) => (
+                    <FileListRow
+                      key={file.fileId}
+                      file={file}
+                      viewOnly={false}
+                      checked={selectedIds?.has(file.fileId)}
+                      onToggle={onToggle ? () => onToggle(file) : undefined}
+                      onConfirm={stageNumber === 8 ? onConfirm : undefined}
+                      onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                      onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                      onRelink={onRelink}
+                    />
+                  ))}
+                </Stack>
+              )}
             </Box>
           ))}
         </Stack>
@@ -1304,12 +1342,12 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
   );
 }
 
-function ArchivePanel({ onConfirm, onEditPrintJob }) {
+function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [viewMode, setViewMode] = useState('byDate'); // 'byDate' | 'byType'
+  const [archiveViewMode, setArchiveViewMode] = useState('byDate'); // 'byDate' | 'byType'
 
   const [selectedMap, setSelectedMap] = useState({});
   const [relinkFile, setRelinkFile] = useState(null);
@@ -1429,8 +1467,8 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
         </Typography>
         {/* View mode toggle */}
         <ToggleButtonGroup
-          value={viewMode} exclusive
-          onChange={(_, v) => { if (v) setViewMode(v); }}
+          value={archiveViewMode} exclusive
+          onChange={(_, v) => { if (v) setArchiveViewMode(v); }}
           size="small"
           sx={{ height: 24, '& .MuiToggleButton-root': { px: 0.75, py: 0, fontSize: 10, textTransform: 'none' } }}
         >
@@ -1488,7 +1526,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
           </Box>
-        ) : viewMode === 'byDate' ? (
+        ) : archiveViewMode === 'byDate' ? (
           <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
             {dates.map((dateGroup) => (
               <ArchiveDateGroup
@@ -1500,6 +1538,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
                 selectedIds={selectedIds}
                 onToggle={toggleSelect}
                 onRelink={(file) => setRelinkFile(file)}
+                viewMode={viewMode}
               />
             ))}
           </Stack>
@@ -1516,6 +1555,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
               selectedIds={selectedIds}
               onToggle={toggleSelect}
               onRelink={(file) => setRelinkFile(file)}
+              viewMode={viewMode}
             />
             <ArchiveTypeSection
               label="Design / Final Files"
@@ -1527,6 +1567,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob }) {
               selectedIds={selectedIds}
               onToggle={toggleSelect}
               onRelink={(file) => setRelinkFile(file)}
+              viewMode={viewMode}
             />
           </Stack>
         )}
@@ -1872,7 +1913,7 @@ export default function DesignFilesWidget() {
           )}
 
           {/* List / grid toggle */}
-          {activeTab !== 'archive' && (
+          {(
             <Stack direction="row" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
               <Tooltip title="List view">
                 <IconButton size="small" onClick={() => setView('list')}
@@ -1911,7 +1952,7 @@ export default function DesignFilesWidget() {
         {/* Archive */}
         {activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
-            <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} />
+            <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} viewMode={viewMode} />
           </Box>
         ) : (
           /* File list / grid */

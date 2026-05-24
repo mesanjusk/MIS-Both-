@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions,
-  DialogContent, DialogTitle, Divider, Stack, Tooltip, Typography,
+  Alert, Box, Button, Chip, Dialog, DialogActions,
+  DialogContent, DialogTitle, Stack, Tooltip, Typography,
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
@@ -27,17 +27,14 @@ export default function UserTask() {
   const { userName, userGroup } = useAuth();
   const [tasks, setTasks] = useState([]);
   const [attendanceFlow, setAttendanceFlow] = useState([]);
-  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [pendingAssignments, setPendingAssignments] = useState([]);
   const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
 
-  // SOP state
   const [sopTasks, setSopTasks] = useState([]);
   const [sopCompletions, setSopCompletions] = useState({});
   const [sopCanEndDay, setSopCanEndDay] = useState(true);
   const [sopBlockingTasks, setSopBlockingTasks] = useState([]);
-  const [sopLoading, setSopLoading] = useState(false);
   const [sopAction, setSopAction] = useState(false);
   const [showSkipDialog, setShowSkipDialog] = useState(null);
   const [skipReason, setSkipReason] = useState('');
@@ -46,7 +43,6 @@ export default function UserTask() {
 
   const loadSopStatus = useCallback(async () => {
     if (!group) return;
-    setSopLoading(true);
     try {
       const res = await axios.get('/api/sop/daily', { params: { userGroup: group } });
       if (res.data.success) {
@@ -55,11 +51,7 @@ export default function UserTask() {
         setSopCanEndDay(res.data.canEndDay !== false);
         setSopBlockingTasks(res.data.blockingTasks || []);
       }
-    } catch {
-      // silently ignore; SOP is non-blocking
-    } finally {
-      setSopLoading(false);
-    }
+    } catch {}
   }, [group]);
 
   const loadPage = useCallback(async () => {
@@ -75,10 +67,9 @@ export default function UserTask() {
       setTasks(myTasks);
       setAttendanceFlow(attendanceRes?.data?.flow || []);
       setPendingAssignments(pending);
-      setMessage(myTasks.length ? `You have ${myTasks.length} assigned pending tasks.` : '');
     } catch (err) {
       console.error(err);
-      setError('Failed to load your day view.');
+      setError('Failed to load tasks.');
     }
   }, [userName]);
 
@@ -89,8 +80,6 @@ export default function UserTask() {
 
   const hasStarted = attendanceFlow.includes('In');
   const hasEnded = attendanceFlow.includes('Out');
-
-  const canEndDay = hasStarted && !hasEnded && sopCanEndDay;
 
   const saveAttendance = async (type) => {
     try {
@@ -139,43 +128,43 @@ export default function UserTask() {
     }
   };
 
-  const summary = useMemo(() => {
-    const overdue = tasks.filter((task) => task.overdue).length;
-    return `${tasks.length} assigned tasks${overdue ? ` • ${overdue} overdue` : ''}`;
+  const taskSummary = useMemo(() => {
+    const overdue = tasks.filter((t) => t.overdue).length;
+    return overdue ? `${tasks.length} tasks · ${overdue} overdue` : `${tasks.length} tasks`;
   }, [tasks]);
 
   const endDayButton = (() => {
     if (!hasStarted || hasEnded) return null;
     if (!sopCanEndDay) {
       const label = sopBlockingTasks.length
-        ? `${sopBlockingTasks.length} mandatory SOP task${sopBlockingTasks.length > 1 ? 's' : ''} pending`
+        ? `${sopBlockingTasks.length} SOP task${sopBlockingTasks.length > 1 ? 's' : ''} pending`
         : 'SOP tasks pending';
       return (
         <Tooltip title={label} arrow>
           <span>
-            <Button variant="outlined" disabled>End day</Button>
+            <Button variant="outlined" size="small" disabled
+              sx={{ py: 0.2, px: 1, fontSize: '0.72rem', minHeight: 24 }}>
+              End day
+            </Button>
           </span>
         </Tooltip>
       );
     }
     return (
-      <Button variant="outlined" onClick={() => saveAttendance('Out')}>End day</Button>
+      <Button variant="outlined" size="small" onClick={() => saveAttendance('Out')}
+        sx={{ py: 0.2, px: 1, fontSize: '0.72rem', minHeight: 24 }}>
+        End day
+      </Button>
     );
   })();
 
   return (
-    <Stack spacing={2} sx={{ p: { xs: 1, md: 2 } }}>
-      <Box>
-        <Typography variant="h5" fontWeight={700}>My day</Typography>
-        <Typography color="text.secondary">Start attendance, then work your assigned queue till 8:00 PM.</Typography>
-      </Box>
-
-      {error && <Alert severity="error">{error}</Alert>}
-      {message && <Alert severity="info">{message}</Alert>}
+    <Stack spacing={1.5} sx={{ p: { xs: 0.75, md: 1 } }}>
+      {error && <Alert severity="error" sx={{ py: 0.5, fontSize: '0.78rem' }}>{error}</Alert>}
 
       {/* Pending assignments dialog */}
       <Dialog open={showAssignmentDialog} onClose={() => setShowAssignmentDialog(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Your pending assignments</DialogTitle>
+        <DialogTitle>Pending assignments</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             {pendingAssignments.length ? pendingAssignments.map((task) => (
@@ -187,7 +176,7 @@ export default function UserTask() {
                   Due: {task?.dueDate ? new Date(task.dueDate).toLocaleString() : 'Today 8:00 PM'}
                 </Typography>
               </Box>
-            )) : <Typography variant="body2" color="text.secondary">No pending assignments right now.</Typography>}
+            )) : <Typography variant="body2" color="text.secondary">No pending assignments.</Typography>}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -215,152 +204,144 @@ export default function UserTask() {
         </DialogActions>
       </Dialog>
 
-      {/* Attendance card */}
-      <Card>
-        <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ sm: 'center' }}>
-            <Box>
-              <Typography variant="subtitle1" fontWeight={700}>Attendance actions</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Today flow: {attendanceFlow.length ? attendanceFlow.join(' → ') : 'Not started'}
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Button variant="contained" disabled={hasStarted} onClick={() => saveAttendance('In')}>Start day</Button>
-              {endDayButton}
-            </Stack>
-          </Stack>
-          {!sopCanEndDay && hasStarted && !hasEnded && sopBlockingTasks.length > 0 && (
-            <Alert severity="warning" sx={{ mt: 1.5 }}>
-              Complete these mandatory SOP tasks before ending the day:
-              <ul style={{ margin: '4px 0 0', paddingLeft: 20 }}>
-                {sopBlockingTasks.map((t) => <li key={t.sop_uuid}>{t.title}</li>)}
-              </ul>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
+      {/* ── Compact attendance row ── */}
+      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap"
+        sx={{ px: 0.75, py: 0.6, borderRadius: 1.5, bgcolor: 'rgba(22,163,74,0.04)', border: '1px solid', borderColor: 'rgba(22,163,74,0.15)' }}>
+        <Chip
+          size="small"
+          label={attendanceFlow.length ? attendanceFlow.join(' → ') : 'Not checked in'}
+          color={hasStarted && !hasEnded ? 'success' : 'default'}
+          variant={hasStarted ? 'filled' : 'outlined'}
+          sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600 }}
+        />
+        <Box sx={{ flex: 1 }} />
+        {!hasStarted && (
+          <Button size="small" variant="contained" onClick={() => saveAttendance('In')}
+            sx={{ py: 0.2, px: 1, fontSize: '0.72rem', minHeight: 24 }}>
+            Start day
+          </Button>
+        )}
+        {endDayButton}
+      </Stack>
 
-      {/* SOP Daily Checklist */}
-      {sopTasks.length > 0 && (
-        <Card>
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={700}>Daily SOP Checklist</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {sopTasks.filter((t) => sopCompletions[t.sop_uuid]).length} of {sopTasks.length} completed
-                </Typography>
-              </Box>
-              <Chip
-                label={sopCanEndDay ? 'All clear' : `${sopBlockingTasks.length} blocking`}
-                color={sopCanEndDay ? 'success' : 'error'}
-                size="small"
-              />
-            </Stack>
-            <Divider sx={{ mb: 1.5 }} />
-            <Stack spacing={1}>
-              {sopTasks.map((task) => {
-                const completion = sopCompletions[task.sop_uuid];
-                const done = Boolean(completion);
-                const skipped = completion?.skipped;
-                return (
-                  <Box
-                    key={task.sop_uuid}
-                    sx={{
-                      border: '1px solid',
-                      borderColor: done ? (skipped ? 'warning.light' : 'success.light') : 'divider',
-                      borderRadius: 2,
-                      p: 1.25,
-                      bgcolor: done ? (skipped ? 'warning.50' : 'success.50') : 'transparent',
-                      opacity: done ? 0.85 : 1,
-                    }}
-                  >
-                    <Stack direction="row" spacing={1} alignItems="flex-start">
-                      <Box sx={{ pt: 0.25 }}>
-                        {done
-                          ? <CheckCircleIcon fontSize="small" color={skipped ? 'warning' : 'success'} />
-                          : <RadioButtonUncheckedIcon fontSize="small" color="disabled" />}
-                      </Box>
-                      <Box flex={1}>
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center" sx={{ mb: 0.25 }}>
-                          <Typography variant="body2" fontWeight={done ? 400 : 600} sx={{ textDecoration: skipped ? 'line-through' : 'none' }}>
-                            {task.title}
-                          </Typography>
-                          <Chip label={TIME_LABEL[task.timeOfDay]} size="small" color={TIME_COLOR[task.timeOfDay]} sx={{ height: 18, fontSize: 10 }} />
-                          {!task.isSkippable && !done && <Chip label="Mandatory" size="small" color="error" variant="outlined" sx={{ height: 18, fontSize: 10 }} />}
-                          {skipped && <Chip label="Skipped" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />}
-                        </Stack>
-                        {task.description && (
-                          <Typography variant="caption" color="text.secondary">{task.description}</Typography>
-                        )}
-                        {task.kpi && (
-                          <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>KPI: {task.kpi}</Typography>
-                        )}
-                      </Box>
-                      {!done && (
-                        <Stack direction="row" spacing={0.5}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            onClick={() => handleComplete(task.sop_uuid)}
-                            disabled={sopAction}
-                            sx={{ minWidth: 80, fontSize: 12 }}
-                          >
-                            Done
-                          </Button>
-                          {task.isSkippable && (
-                            <Tooltip title="Skip this task">
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                color="warning"
-                                onClick={() => setShowSkipDialog(task.sop_uuid)}
-                                disabled={sopAction}
-                                sx={{ minWidth: 32, px: 0.5 }}
-                              >
-                                <SkipNextIcon fontSize="small" />
-                              </Button>
-                            </Tooltip>
-                          )}
-                        </Stack>
-                      )}
-                    </Stack>
-                  </Box>
-                );
-              })}
-            </Stack>
-          </CardContent>
-        </Card>
+      {!sopCanEndDay && hasStarted && !hasEnded && sopBlockingTasks.length > 0 && (
+        <Alert severity="warning" sx={{ py: 0.4, fontSize: '0.73rem' }}>
+          {sopBlockingTasks.length} mandatory SOP task{sopBlockingTasks.length > 1 ? 's' : ''} pending before end day
+        </Alert>
       )}
 
-      {/* Assigned tasks */}
-      <Card>
-        <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Box>
-              <Typography variant="subtitle1" fontWeight={700}>Assigned tasks</Typography>
-              <Typography variant="body2" color="text.secondary">{summary}</Typography>
-            </Box>
-            <Chip label={tasks.length ? 'Working queue' : 'No tasks'} color={tasks.length ? 'primary' : 'default'} />
+      {/* ── SOP Checklist ── */}
+      {sopTasks.length > 0 && (
+        <Box>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.6 }}>
+            <Typography variant="caption" fontWeight={800} color="text.disabled"
+              sx={{ textTransform: 'uppercase', letterSpacing: 0.8, fontSize: '0.6rem' }}>
+              SOP Checklist
+            </Typography>
+            <Chip
+              label={sopCanEndDay ? 'All clear' : `${sopBlockingTasks.length} blocking`}
+              color={sopCanEndDay ? 'success' : 'error'}
+              size="small"
+              sx={{ height: 18, fontSize: '0.6rem' }}
+            />
           </Stack>
-          <Divider sx={{ my: 2 }} />
-          <Stack spacing={1.5}>
-            {tasks.map((task) => (
-              <Box key={`${task.source}-${task.id}`} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
-                <Typography fontWeight={700}>{task.title}</Typography>
-                <Typography variant="body2" color="text.secondary">Type: {task.source}</Typography>
-                <Typography variant="body2" color="text.secondary">Task: {task.taskName}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Due: {task?.dueDate ? new Date(task.dueDate).toLocaleString() : 'Today 8:00 PM'}
+          <Stack spacing={0.4}>
+            {sopTasks.map((task) => {
+              const completion = sopCompletions[task.sop_uuid];
+              const done = Boolean(completion);
+              const skipped = completion?.skipped;
+              return (
+                <Stack
+                  key={task.sop_uuid}
+                  direction="row" alignItems="center" spacing={0.75}
+                  sx={{
+                    py: 0.5, px: 0.75, borderRadius: 1.5,
+                    bgcolor: done ? (skipped ? '#fffbeb' : '#f0fdf4') : 'transparent',
+                    border: '1px solid',
+                    borderColor: done ? (skipped ? '#fde68a' : '#bbf7d0') : 'divider',
+                    opacity: done ? 0.8 : 1,
+                  }}
+                >
+                  {done
+                    ? <CheckCircleIcon sx={{ fontSize: 14, color: skipped ? 'warning.main' : 'success.main', flexShrink: 0 }} />
+                    : <RadioButtonUncheckedIcon sx={{ fontSize: 14, color: 'action.disabled', flexShrink: 0 }} />}
+                  <Typography variant="caption" fontWeight={done ? 400 : 600} noWrap sx={{ flex: 1, textDecoration: skipped ? 'line-through' : 'none' }}>
+                    {task.title}
+                  </Typography>
+                  <Chip label={TIME_LABEL[task.timeOfDay]} size="small" color={TIME_COLOR[task.timeOfDay]}
+                    sx={{ height: 16, fontSize: 9, flexShrink: 0 }} />
+                  {!task.isSkippable && !done && (
+                    <Chip label="Must" size="small" color="error" variant="outlined"
+                      sx={{ height: 16, fontSize: 9, flexShrink: 0, minWidth: 30 }} />
+                  )}
+                  {!done && (
+                    <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0 }}>
+                      <Button size="small" variant="contained" onClick={() => handleComplete(task.sop_uuid)}
+                        disabled={sopAction} sx={{ py: 0, px: 0.75, fontSize: 10, minHeight: 22, minWidth: 40 }}>
+                        Done
+                      </Button>
+                      {task.isSkippable && (
+                        <Tooltip title="Skip">
+                          <Button size="small" variant="outlined" color="warning"
+                            onClick={() => setShowSkipDialog(task.sop_uuid)} disabled={sopAction}
+                            sx={{ py: 0, px: 0.4, minHeight: 22, minWidth: 26 }}>
+                            <SkipNextIcon sx={{ fontSize: 12 }} />
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </Stack>
+                  )}
+                </Stack>
+              );
+            })}
+          </Stack>
+        </Box>
+      )}
+
+      {/* ── Assigned tasks ── */}
+      <Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.6 }}>
+          <Typography variant="caption" fontWeight={800} color="text.disabled"
+            sx={{ textTransform: 'uppercase', letterSpacing: 0.8, fontSize: '0.6rem' }}>
+            Assigned Tasks
+          </Typography>
+          {tasks.length > 0 && (
+            <Chip label={taskSummary} color="primary" size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
+          )}
+        </Stack>
+        <Stack spacing={0.4}>
+          {tasks.map((task) => (
+            <Stack
+              key={`${task.source}-${task.id}`}
+              direction="row" alignItems="center" spacing={0.75}
+              sx={{
+                py: 0.6, px: 0.75, borderRadius: 1.5,
+                bgcolor: task.overdue ? '#fff5f5' : 'rgba(0,0,0,0.02)',
+                border: '1px solid',
+                borderColor: task.overdue ? '#fecaca' : 'divider',
+              }}
+            >
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" fontWeight={700} noWrap sx={{ display: 'block' }}>
+                  {task.title}
                 </Typography>
-                {task.overdue && <Chip size="small" color="error" label="Pending from previous day" sx={{ mt: 1 }} />}
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontSize: '0.63rem' }}>
+                  {task.taskName} · {task.source}
+                </Typography>
               </Box>
-            ))}
-            {!tasks.length && <Typography variant="body2" color="text.secondary">No assigned tasks yet.</Typography>}
-          </Stack>
-        </CardContent>
-      </Card>
+              {task.overdue && (
+                <Chip size="small" color="error" label="Overdue" sx={{ height: 16, fontSize: '0.6rem', flexShrink: 0 }} />
+              )}
+            </Stack>
+          ))}
+          {!tasks.length && (
+            <Typography variant="caption" color="text.disabled"
+              sx={{ py: 1.5, textAlign: 'center', display: 'block' }}>
+              No tasks assigned yet
+            </Typography>
+          )}
+        </Stack>
+      </Box>
     </Stack>
   );
 }

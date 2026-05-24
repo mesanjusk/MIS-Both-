@@ -148,7 +148,11 @@ export default function TopNavbar() {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
   const { prefs } = useNavCustomize();
-  const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => isTopNavItemVisible(prefs, d.label));
+  const { permissions } = useAuth();
+  const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => {
+    if ((permissions?.topNavHidden || []).includes(d.label)) return false;
+    return isTopNavItemVisible(prefs, d.label);
+  });
 
   useEffect(() => {
     if (!userName) navigate(ROUTES.LOGIN);

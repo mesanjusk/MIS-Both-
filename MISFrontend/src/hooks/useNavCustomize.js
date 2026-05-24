@@ -39,3 +39,6 @@ export const isRightLinkVisible = (prefs, label) =>
 
 export const isTopNavItemVisible = (prefs, label) =>
   !(prefs.topNavHidden || []).includes(label);
+
+export const isFooterLinkVisible = (prefs, label) =>
+  !(prefs.footerHidden || []).includes(label);

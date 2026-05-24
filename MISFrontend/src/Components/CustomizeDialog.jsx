@@ -19,6 +19,7 @@ import {
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry.jsx';
 import { useNavCustomize } from '../hooks/useNavCustomize';
+import { FOOTER_LINKS } from './Footer';
 
 const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Transaction 4D', 'Attendance'];
 const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];
@@ -66,6 +67,12 @@ export default function CustomizeDialog({ open, onClose }) {
     setDraft((prev) => {
       const hidden = prev.topNavHidden || [];
       return { ...prev, topNavHidden: hidden.includes(label) ? hidden.filter((l) => l !== label) : [...hidden, label] };
+    });
+
+  const toggleFooter = (label) =>
+    setDraft((prev) => {
+      const hidden = prev.footerHidden || [];
+      return { ...prev, footerHidden: hidden.includes(label) ? hidden.filter((l) => l !== label) : [...hidden, label] };
     });
 
   /* ── widget toggles ── */
@@ -116,6 +123,7 @@ export default function CustomizeDialog({ open, onClose }) {
         <Tab label="Left Sidebar" />
         <Tab label="Right Sidebar" />
         <Tab label="Home Widgets" />
+        <Tab label="Footer" />
       </Tabs>
 
       <Divider />
@@ -192,6 +200,23 @@ export default function CustomizeDialog({ open, onClose }) {
                 />
               ))}
             </Box>
+          </Box>
+        )}
+
+        {/* ── Footer ── */}
+        {tab === 4 && (
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Choose which links appear in the footer bar at the bottom of the screen.
+            </Typography>
+            {FOOTER_LINKS.map((link) => (
+              <FormControlLabel
+                key={link.label}
+                control={<Switch size="small" checked={!(draft.footerHidden || []).includes(link.label)} onChange={() => toggleFooter(link.label)} />}
+                label={<Typography variant="body2">{link.label}</Typography>}
+                sx={{ display: 'flex', mx: 0, my: 0.2 }}
+              />
+            ))}
           </Box>
         )}
 

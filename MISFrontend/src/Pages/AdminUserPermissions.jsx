@@ -9,9 +9,15 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
+import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
+import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
+import { FOOTER_LINKS } from '../Components/Footer';
+
+const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Call Logs', 'SOP', 'Admin'];
+const FOOTER_LABELS = FOOTER_LINKS.map((l) => l.label);
 
 const DEFAULT_PERMISSIONS = {
   sidebarGroups: [],
@@ -23,6 +29,8 @@ const DEFAULT_PERMISSIONS = {
   canExportData: false,
   dashboardCards: [],
   allowedWidgets: [],
+  topNavHidden: [],
+  footerHidden: [],
 };
 
 const HOME_WIDGETS = [
@@ -102,16 +110,38 @@ function UserPermissionPanel({ user, onSaved }) {
     });
   };
 
+  const toggleTopNav = (label) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.topNavHidden) ? p.topNavHidden : [];
+      const next = current.includes(label)
+        ? current.filter((l) => l !== label)
+        : [...current, label];
+      return { ...p, topNavHidden: next };
+    });
+  };
+
+  const toggleFooter = (label) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.footerHidden) ? p.footerHidden : [];
+      const next = current.includes(label)
+        ? current.filter((l) => l !== label)
+        : [...current, label];
+      return { ...p, footerHidden: next };
+    });
+  };
+
   const allGroupsChecked = perms.sidebarGroups.length === 0;
   const groupsRestricted = !allGroupsChecked;
   const allWidgetsAllowed = !perms.allowedWidgets?.length;
 
   return (
     <Box>
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }} variant="scrollable" scrollButtons="auto">
         <Tab label="Sidebar Access" />
         <Tab label="Feature Rights" />
         <Tab label="Home Widgets" icon={<WidgetsRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
+        <Tab label="Top Navbar" icon={<MenuRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
+        <Tab label="Footer" icon={<LinkRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
       </Tabs>
 
       {tab === 0 && (
@@ -260,6 +290,98 @@ function UserPermissionPanel({ user, onSaved }) {
         </Box>
       )}
 
+      {tab === 3 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            {!(perms.topNavHidden || []).length
+              ? 'User can see ALL top navbar dropdowns.'
+              : `${(perms.topNavHidden || []).length} dropdown(s) are hidden for this user.`}
+          </Alert>
+          <Stack spacing={1}>
+            {TOP_NAV_ITEMS.map((label) => {
+              const isHidden = (perms.topNavHidden || []).includes(label);
+              return (
+                <Paper
+                  key={label}
+                  variant="outlined"
+                  onClick={() => toggleTopNav(label)}
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    borderColor: isHidden ? 'divider' : 'primary.main',
+                    bgcolor: isHidden ? 'transparent' : (t) => alpha(t.palette.primary.main, 0.04),
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <MenuRoundedIcon sx={{ fontSize: 15, color: isHidden ? 'text.disabled' : 'primary.main' }} />
+                      <Typography variant="body2" fontWeight={600} color={isHidden ? 'text.disabled' : 'text.primary'}>{label}</Typography>
+                    </Stack>
+                    {!isHidden
+                      ? <CheckCircleRoundedIcon color="primary" fontSize="small" />
+                      : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider' }} />}
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+          {!!(perms.topNavHidden || []).length && (
+            <Button variant="outlined" size="small" sx={{ mt: 1.5 }}
+              onClick={() => setPerms((p) => ({ ...p, topNavHidden: [] }))}>
+              Show All Nav Items
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {tab === 4 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            {!(perms.footerHidden || []).length
+              ? 'User can see ALL footer links.'
+              : `${(perms.footerHidden || []).length} footer link(s) are hidden for this user.`}
+          </Alert>
+          <Stack spacing={0.75}>
+            {FOOTER_LABELS.map((label) => {
+              const isHidden = (perms.footerHidden || []).includes(label);
+              return (
+                <Paper
+                  key={label}
+                  variant="outlined"
+                  onClick={() => toggleFooter(label)}
+                  sx={{
+                    px: 1.5, py: 1,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    borderColor: isHidden ? 'divider' : 'primary.main',
+                    bgcolor: isHidden ? 'transparent' : (t) => alpha(t.palette.primary.main, 0.04),
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <LinkRoundedIcon sx={{ fontSize: 14, color: isHidden ? 'text.disabled' : 'primary.main' }} />
+                      <Typography variant="body2" fontWeight={600} color={isHidden ? 'text.disabled' : 'text.primary'}>{label}</Typography>
+                    </Stack>
+                    {!isHidden
+                      ? <CheckCircleRoundedIcon color="primary" fontSize="small" />
+                      : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider' }} />}
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+          {!!(perms.footerHidden || []).length && (
+            <Button variant="outlined" size="small" sx={{ mt: 1.5 }}
+              onClick={() => setPerms((p) => ({ ...p, footerHidden: [] }))}>
+              Show All Footer Links
+            </Button>
+          )}
+        </Box>
+      )}
+
       <Button
         variant="contained"
         startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
@@ -352,7 +474,12 @@ export default function AdminUserPermissions() {
                         sx={{ height: 18, fontSize: '0.65rem', mt: 0.3 }}
                       />
                     </Box>
-                    {(user.permissions?.sidebarGroups?.length > 0 || user.permissions?.allowedWidgets?.length > 0) && (
+                    {(
+                      user.permissions?.sidebarGroups?.length > 0 ||
+                      user.permissions?.allowedWidgets?.length > 0 ||
+                      user.permissions?.topNavHidden?.length > 0 ||
+                      user.permissions?.footerHidden?.length > 0
+                    ) && (
                       <Chip size="small" label="Custom" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                     )}
                   </Stack>

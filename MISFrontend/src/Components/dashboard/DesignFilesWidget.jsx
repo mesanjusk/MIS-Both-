@@ -1623,7 +1623,7 @@ export default function DesignFilesWidget() {
   const [reconnectRequired, setReconnectRequired] = useState(false);
   const [activeTab, setActiveTab] = useState('pending');
   const [viewMode, setViewMode] = useState(() => {
-    try { return localStorage.getItem('df_view') || 'list'; } catch { return 'list'; }
+    try { return localStorage.getItem('df_view') || 'grid'; } catch { return 'grid'; }
   });
   const [confirmFile, setConfirmFile] = useState(null);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
@@ -1771,7 +1771,7 @@ export default function DesignFilesWidget() {
   const handlePrint = () => openPrintWindow(filteredFiles, activeTabDef.label);
 
   return (
-    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', minHeight: 500, maxHeight: 640 }}>
+    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', minHeight: 480 }}>
 
       {/* ── Left sidebar ── */}
       <Box sx={{ width: 200, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', bgcolor: 'grey.50' }}>
@@ -1790,6 +1790,7 @@ export default function DesignFilesWidget() {
             const Icon = tab.icon;
             const count = tab.key !== 'archive' ? tabCount(tab) : null;
             const isActive = activeTab === tab.key;
+            const colorKey = tab.color === 'default' ? null : tab.color;
             return (
               <Stack
                 key={tab.key}
@@ -1798,19 +1799,19 @@ export default function DesignFilesWidget() {
                 sx={{
                   px: 1.5, py: 0.85, cursor: 'pointer',
                   borderLeft: '3px solid',
-                  borderLeftColor: isActive ? `${tab.color}.main` : 'transparent',
-                  bgcolor: isActive ? `${tab.color}.50` : 'transparent',
-                  '&:hover': { bgcolor: isActive ? `${tab.color}.50` : 'action.hover' },
+                  borderLeftColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
+                  bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'transparent',
+                  '&:hover': { bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'action.hover' },
                   transition: 'background 0.1s',
                 }}
               >
-                <Icon sx={{ fontSize: 15, color: isActive ? `${tab.color}.main` : 'text.secondary', flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ fontSize: 12, flex: 1, fontWeight: isActive ? 700 : 400, color: isActive ? `${tab.color}.main` : 'text.primary' }}>
+                <Icon sx={{ fontSize: 15, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.secondary', flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ fontSize: 12, flex: 1, fontWeight: isActive ? 700 : 400, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.primary' }}>
                   {tab.label}
                 </Typography>
                 {count != null && count > 0 && (
                   <Chip label={count} size="small"
-                    sx={{ fontSize: 10, height: 18, minWidth: 22, bgcolor: isActive ? `${tab.color}.main` : 'action.hover', color: isActive ? 'white' : 'text.secondary', fontWeight: 700, '& .MuiChip-label': { px: 0.5 } }}
+                    sx={{ fontSize: 10, height: 18, minWidth: 22, bgcolor: isActive ? (colorKey ? `${colorKey}.main` : 'grey.600') : 'action.hover', color: isActive ? 'white' : 'text.secondary', fontWeight: 700, '& .MuiChip-label': { px: 0.5 } }}
                   />
                 )}
               </Stack>
@@ -1930,7 +1931,7 @@ export default function DesignFilesWidget() {
             {viewMode === 'grid' ? (
               <Grid container spacing={0.75}>
                 {filteredFiles.map((file) => (
-                  <Grid item xs={6} sm={4} key={file.fileId}>
+                  <Grid item xs={6} sm={4} md={3} key={file.fileId}>
                     <FileCard
                       file={file}
                       checked={canSelect && selectedIds.has(file.fileId)}

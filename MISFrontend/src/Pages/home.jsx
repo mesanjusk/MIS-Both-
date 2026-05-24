@@ -797,7 +797,7 @@ export default function Home() {
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            md: [hasLeft ? '260px' : '', '1fr', hasRight ? '260px' : ''].filter(Boolean).join(' '),
+            md: [hasLeft ? 'minmax(0,1fr)' : '', 'minmax(0,2fr)', hasRight ? 'minmax(0,1fr)' : ''].filter(Boolean).join(' '),
           },
           gap: 1.5,
           alignItems: 'stretch',

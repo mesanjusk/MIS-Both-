@@ -79,10 +79,10 @@ export const WIDGET_REGISTRY = [
   },
 ];
 
-export const LAYOUT_KEY = (user) => `mis_home_layout_v4_${user}`;
+export const LAYOUT_KEY = (user) => `mis_home_layout_v5_${user}`;
 
 export const DEFAULT_LAYOUT = {
-  left: ['myTasks'],
-  center: ['designFiles'],
+  left: [],
+  center: ['myTasks', 'designFiles'],
   right: [],
 };

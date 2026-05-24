@@ -126,22 +126,13 @@ export const WIDGET_REGISTRY = [
   },
 ];
 
-const LAYOUT_KEY = (user) => `mis_home_layout_v3_${user}`;
+const LAYOUT_KEY = (user) => `mis_home_layout_v4_${user}`;
 
-const getDefaultLayout = (isAdmin) => {
-  if (isAdmin) {
-    return {
-      left: ['attendance', 'recentAttendance'],
-      center: ['quickLinks', 'pendingTasks', 'ordersBoard'],
-      right: ['myTasks'],
-    };
-  }
-  return {
-    left: ['myTasks', 'recentAttendance'],
-    center: ['quickLinks', 'pendingTasks', 'ordersBoard'],
-    right: [],
-  };
-};
+const getDefaultLayout = () => ({
+  left: [],
+  center: ['myTasks'],
+  right: [],
+});
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -585,7 +576,7 @@ export default function Home() {
       const saved = localStorage.getItem(LAYOUT_KEY(user));
       if (saved) { setLayout(JSON.parse(saved)); return; }
     } catch {}
-    setLayout(getDefaultLayout(isAdmin));
+    setLayout(getDefaultLayout());
   }, [userName, isAdmin]);
 
   /* Persist layout */
@@ -693,7 +684,7 @@ export default function Home() {
   }, []);
 
   const handleResetLayout = useCallback(() => {
-    setLayout(getDefaultLayout(isAdmin));
+    setLayout(getDefaultLayout());
     toast.success('Layout reset to defaults');
   }, [isAdmin]);
 
@@ -852,71 +843,8 @@ export default function Home() {
           </Box>
         </ClickAwayListener>
 
-        {/* Attendance + Customize row */}
-        <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1.25 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<EventAvailableRoundedIcon sx={{ fontSize: 15 }} />}
-            onClick={() => navigate(ROUTES.ATTENDANCE)}
-            sx={{
-              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-              borderColor: 'divider', color: 'text.secondary',
-              '&:hover': { borderColor: '#16a34a', color: '#16a34a', bgcolor: alpha('#16a34a', 0.04) },
-            }}
-          >
-            Attendance
-          </Button>
-          <Button
-            size="small"
-            variant={editMode ? 'contained' : 'outlined'}
-            startIcon={editMode ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <DashboardCustomizeRoundedIcon sx={{ fontSize: 15 }} />}
-            onClick={() => setEditMode((p) => !p)}
-            sx={{
-              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-              ...(editMode
-                ? { bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }
-                : { borderColor: '#16a34a', color: '#16a34a', '&:hover': { bgcolor: alpha('#16a34a', 0.05) } }),
-            }}
-          >
-            {editMode ? 'Done' : 'Customize'}
-          </Button>
-        </Stack>
       </Box>
 
-      {/* ── Edit mode toolbar (Add Widget + Reset only) ── */}
-      {editMode && (
-        <Stack
-          direction="row"
-          spacing={0.75}
-          alignItems="center"
-          justifyContent="center"
-          sx={{ px: { xs: 1, md: 1.5 }, pb: 0.75, flexShrink: 0 }}
-        >
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<WidgetsRoundedIcon sx={{ fontSize: 15 }} />}
-            onClick={() => setShowLibrary(true)}
-            sx={{
-              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-              borderColor: '#16a34a', color: '#16a34a',
-              '&:hover': { bgcolor: alpha('#16a34a', 0.05) },
-            }}
-          >
-            Add Widget
-          </Button>
-          <Tooltip title="Reset to default">
-            <IconButton
-              size="small"
-              onClick={handleResetLayout}
-              sx={{ color: 'text.secondary', '&:hover': { color: '#16a34a' } }}
-            >
-              <RestartAltRoundedIcon sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      )}
       {isLoading && (
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}

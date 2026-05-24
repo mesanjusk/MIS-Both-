@@ -36,3 +36,6 @@ export const isRightActionVisible = (prefs, label) =>
 
 export const isRightLinkVisible = (prefs, label) =>
   !(prefs.rightLinksHidden || []).includes(label);
+
+export const isTopNavItemVisible = (prefs, label) =>
+  !(prefs.topNavHidden || []).includes(label);

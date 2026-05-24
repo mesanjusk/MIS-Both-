@@ -30,6 +30,7 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
+import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
 
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -146,6 +147,8 @@ export default function TopNavbar() {
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
+  const { prefs } = useNavCustomize();
+  const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => isTopNavItemVisible(prefs, d.label));
 
   useEffect(() => {
     if (!userName) navigate(ROUTES.LOGIN);
@@ -194,7 +197,7 @@ export default function TopNavbar() {
           spacing={0}
           sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'center', flexShrink: 0 }}
         >
-          {NAV_DROPDOWN_DEFS.map((def) => (
+          {visibleNavDefs.map((def) => (
             <NavDropdown
               key={def.label}
               label={def.label}

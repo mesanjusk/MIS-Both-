@@ -22,6 +22,7 @@ import { useNavCustomize } from '../hooks/useNavCustomize';
 
 const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Transaction 4D', 'Attendance'];
 const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];
+const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Call Logs', 'SOP', 'Admin'];
 
 export default function CustomizeDialog({ open, onClose }) {
   const { prefs, save } = useNavCustomize();
@@ -59,6 +60,12 @@ export default function CustomizeDialog({ open, onClose }) {
     setDraft((prev) => {
       const hidden = prev.rightLinksHidden || [];
       return { ...prev, rightLinksHidden: hidden.includes(label) ? hidden.filter((l) => l !== label) : [...hidden, label] };
+    });
+
+  const toggleTopNav = (label) =>
+    setDraft((prev) => {
+      const hidden = prev.topNavHidden || [];
+      return { ...prev, topNavHidden: hidden.includes(label) ? hidden.filter((l) => l !== label) : [...hidden, label] };
     });
 
   /* ── widget toggles ── */
@@ -104,7 +111,8 @@ export default function CustomizeDialog({ open, onClose }) {
     <Dialog open={open} onClose={handleCancel} fullWidth maxWidth="sm">
       <DialogTitle sx={{ pb: 0, fontWeight: 800 }}>Customize</DialogTitle>
 
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 3 }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 3 }} variant="scrollable" scrollButtons="auto">
+        <Tab label="Top Navbar" />
         <Tab label="Left Sidebar" />
         <Tab label="Right Sidebar" />
         <Tab label="Home Widgets" />
@@ -113,8 +121,25 @@ export default function CustomizeDialog({ open, onClose }) {
       <Divider />
 
       <DialogContent sx={{ pt: 1.5, minHeight: 380, maxHeight: '60vh', overflowY: 'auto' }}>
-        {/* ── Left Sidebar ── */}
+        {/* ── Top Navbar ── */}
         {tab === 0 && (
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Choose which dropdown menus appear in the top navigation bar.
+            </Typography>
+            {TOP_NAV_ITEMS.map((label) => (
+              <FormControlLabel
+                key={label}
+                control={<Switch size="small" checked={!(draft.topNavHidden || []).includes(label)} onChange={() => toggleTopNav(label)} />}
+                label={<Typography variant="body2">{label}</Typography>}
+                sx={{ display: 'flex', mx: 0, my: 0.2 }}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* ── Left Sidebar ── */}
+        {tab === 1 && (
           <Box>
             {SIDEBAR_GROUPS.map((group) => (
               <Box key={group.label} sx={{ mb: 2 }}>
@@ -139,7 +164,7 @@ export default function CustomizeDialog({ open, onClose }) {
         )}
 
         {/* ── Right Sidebar ── */}
-        {tab === 1 && (
+        {tab === 2 && (
           <Box>
             <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
               Quick Actions
@@ -171,7 +196,7 @@ export default function CustomizeDialog({ open, onClose }) {
         )}
 
         {/* ── Home Widgets ── */}
-        {tab === 2 && (
+        {tab === 3 && (
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
               Toggle widgets on/off for your home page. Enabled widgets appear in the center panel.

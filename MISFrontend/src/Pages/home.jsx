@@ -309,6 +309,8 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         borderColor: editMode ? alpha('#16a34a', 0.4) : 'divider',
         bgcolor: 'white',
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
         cursor: editMode ? 'grab' : 'default',
         transition: 'box-shadow 0.2s, border-color 0.2s',
         boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
@@ -357,7 +359,7 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
           </IconButton>
         </Tooltip>
       </Stack>
-      <Box sx={{ p: 1.25, overflowY: 'auto', maxHeight: 520 }}>
+      <Box sx={{ p: 1.25, overflowY: 'auto', flex: 1, minHeight: 0 }}>
         {children}
       </Box>
     </Paper>
@@ -956,7 +958,7 @@ export default function Home() {
             md: [hasLeft ? '260px' : '', '1fr', hasRight ? '260px' : ''].filter(Boolean).join(' '),
           },
           gap: 1.5,
-          alignItems: 'start',
+          alignItems: 'stretch',
           px: { xs: 1, md: 1.5 },
           pb: 1,
           overflow: 'hidden',
@@ -964,7 +966,7 @@ export default function Home() {
       >
         {/* Left Panel */}
         {hasLeft && (
-          <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+          <Box sx={{ overflow: 'auto', minHeight: 0, height: '100%' }}>
             <DashboardPanel
               panelId="left"
               widgetIds={layout.left || []}
@@ -981,7 +983,7 @@ export default function Home() {
         )}
 
         {/* Center Panel */}
-        <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+        <Box sx={{ overflow: 'auto', minHeight: 0, height: '100%' }}>
           <DashboardPanel
             panelId="center"
             widgetIds={layout.center || []}
@@ -998,7 +1000,7 @@ export default function Home() {
 
         {/* Right Panel */}
         {hasRight && (
-          <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+          <Box sx={{ overflow: 'auto', minHeight: 0, height: '100%' }}>
             <DashboardPanel
               panelId="right"
               widgetIds={layout.right || []}

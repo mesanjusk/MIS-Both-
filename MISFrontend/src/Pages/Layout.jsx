@@ -33,7 +33,7 @@ import { ROUTES } from '../constants/routes';
 
 const LEFT_SIDEBAR_WIDTH = 66;
 const RIGHT_SIDEBAR_WIDTH = 66;
-const NAVBAR_HEIGHT = 56;
+const NAVBAR_HEIGHT = 52;
 
 export const DashboardCustomizeCtx = createContext(null);
 export const useDashboardCustomize = () => useContext(DashboardCustomizeCtx);
@@ -174,12 +174,14 @@ export default function Layout() {
               minHeight: 0,
               overflowY: 'auto',
               overflowX: 'hidden',
-              px: { xs: 0.65, md: 1 },
-              pt: `${NAVBAR_HEIGHT + 10}px`,
+              display: 'flex',
+              flexDirection: 'column',
+              pt: `${NAVBAR_HEIGHT}px`,
+              pb: { xs: '72px', md: 0 },
               scrollBehavior: 'smooth',
             }}
           >
-            <Box sx={{ maxWidth: 1700, mx: 'auto', minHeight: `calc(100dvh - ${NAVBAR_HEIGHT + 24}px)` }}>
+            <Box sx={{ flex: 1, minHeight: 0, maxWidth: 1700, mx: 'auto', width: '100%', px: { xs: 0.65, md: 1 } }}>
               <Outlet />
             </Box>
           </Box>

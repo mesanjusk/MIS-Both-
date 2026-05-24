@@ -28,7 +28,7 @@ export default function Footer() {
       sx={{
         px: 2,
         py: 1,
-        display: 'flex',
+        display: { xs: 'none', md: 'flex' },
         alignItems: 'center',
         justifyContent: 'center',
         flexWrap: 'wrap',

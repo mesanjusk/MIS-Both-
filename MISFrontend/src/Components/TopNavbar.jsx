@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
@@ -50,31 +50,20 @@ const NAV_DROPDOWN_DEFS = [
   { label: 'Accounts',   groups: ['Accounts & UPI', 'Account Reports', 'Collection Reports'] },
   { label: 'Reports',    groups: ['Dashboard Reports'] },
   { label: 'WhatsApp',   groups: ['WhatsApp', 'Email'] },
-  { label: 'More',       groups: ['Call Logs', 'SOP', 'Admin'] },
+  { label: 'Call Logs',  groups: ['Call Logs'] },
+  { label: 'SOP',        groups: ['SOP'] },
+  { label: 'Admin',      groups: ['Admin'] },
 ];
 
 function NavDropdown({ label, groups, roleKey, onNavigate }) {
   const [anchorEl, setAnchorEl] = useState(null);
-  const closeTimer = useRef(null);
-
   const open = Boolean(anchorEl);
 
-  const handleMouseEnter = (e) => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    setAnchorEl(e.currentTarget);
+  const handleToggle = (e) => {
+    setAnchorEl((prev) => (prev ? null : e.currentTarget));
   };
 
-  const handleMouseLeave = () => {
-    closeTimer.current = setTimeout(() => setAnchorEl(null), 120);
-  };
-
-  const handleMenuMouseEnter = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-  };
-
-  const handleMenuMouseLeave = () => {
-    closeTimer.current = setTimeout(() => setAnchorEl(null), 120);
-  };
+  const handleClose = () => setAnchorEl(null);
 
   const matchedGroups = SIDEBAR_GROUPS.filter((g) => groups.includes(g.label)).map((g) => ({
     ...g,
@@ -91,18 +80,18 @@ function NavDropdown({ label, groups, roleKey, onNavigate }) {
       <Button
         size="small"
         endIcon={<KeyboardArrowDownRoundedIcon sx={{ fontSize: '14px !important', transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }} />}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onClick={handleToggle}
         sx={(t) => ({
           fontSize: '0.78rem',
           fontWeight: 600,
-          color: 'text.secondary',
+          color: open ? t.palette.primary.main : 'text.secondary',
           borderRadius: 1.5,
           px: 1,
           py: 0.5,
           minWidth: 0,
           textTransform: 'none',
           whiteSpace: 'nowrap',
+          bgcolor: open ? alpha(t.palette.primary.main, 0.07) : 'transparent',
           '&:hover': { bgcolor: alpha(t.palette.primary.main, 0.06), color: 'text.primary' },
         })}
       >
@@ -111,16 +100,11 @@ function NavDropdown({ label, groups, roleKey, onNavigate }) {
       <Menu
         anchorEl={anchorEl}
         open={open}
-        onClose={() => setAnchorEl(null)}
+        onClose={handleClose}
         transformOrigin={{ horizontal: 'left', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'left', vertical: 'bottom' }}
         disableAutoFocusItem
-        MenuListProps={{
-          onMouseEnter: handleMenuMouseEnter,
-          onMouseLeave: handleMenuMouseLeave,
-          dense: true,
-          sx: { minWidth: 200 },
-        }}
+        MenuListProps={{ dense: true, sx: { minWidth: 200 } }}
         PaperProps={{
           elevation: 4,
           sx: { borderRadius: 2, border: '1px solid', borderColor: 'divider', mt: 0.5 },
@@ -129,33 +113,15 @@ function NavDropdown({ label, groups, roleKey, onNavigate }) {
         {matchedGroups.map((group, gi) => (
           <Box key={group.label}>
             {gi > 0 && <Divider sx={{ my: 0.5 }} />}
-            <Typography
-              sx={{
-                fontSize: '0.6rem',
-                fontWeight: 800,
-                color: 'text.disabled',
-                textTransform: 'uppercase',
-                letterSpacing: 0.8,
-                px: 2,
-                pt: 0.75,
-                pb: 0.25,
-              }}
-            >
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.8, px: 2, pt: 0.75, pb: 0.25 }}>
               {group.label}
             </Typography>
             {group.items.map((item) => (
               <MenuItem
                 key={item.path}
                 dense
-                onClick={() => { setAnchorEl(null); onNavigate(item.path); }}
-                sx={{
-                  fontSize: '0.82rem',
-                  fontWeight: 500,
-                  gap: 1,
-                  borderRadius: 1,
-                  mx: 0.5,
-                  '&:hover': { bgcolor: 'action.hover' },
-                }}
+                onClick={() => { handleClose(); onNavigate(item.path); }}
+                sx={{ fontSize: '0.82rem', fontWeight: 500, gap: 1, borderRadius: 1, mx: 0.5, '&:hover': { bgcolor: 'action.hover' } }}
               >
                 <Box sx={{ color: 'text.secondary', display: 'flex', fontSize: 16 }}>{item.icon}</Box>
                 {item.label}
@@ -219,7 +185,7 @@ export default function TopNavbar() {
             '&:hover': { opacity: 0.8 },
           })}
         >
-          SK Digital MIS
+          SK Digital
         </Typography>
 
         {/* Nav dropdowns — desktop only */}
@@ -247,7 +213,7 @@ export default function TopNavbar() {
           placeholder="Search order #, customer, item, vendor, amount…"
           sx={{
             display: { xs: 'none', lg: 'flex' },
-            width: { lg: 260, xl: 340 },
+            width: { lg: 170, xl: 220 },
           }}
           InputProps={{
             startAdornment: (

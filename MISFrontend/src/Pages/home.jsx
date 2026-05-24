@@ -564,27 +564,6 @@ export default function Home() {
         { label: 'Add UPI', icon: <AddCardRoundedIcon fontSize="small" />, onClick: () => dashCtx?.openUpi?.() },
       ],
     },
-    {
-      label: '📂 Reports',
-      items: [
-        { label: 'Day Book', path: ROUTES.DAY_BOOK },
-        { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
-        { label: 'Trial Balance', path: ROUTES.TRIAL_BALANCE },
-        { label: 'Trans 4D', path: ROUTES.REPORTS_TRANSACTION_4D },
-        { label: 'Aging Report', path: ROUTES.AGING_REPORT },
-      ],
-    },
-    {
-      label: '🗂️ Pages',
-      items: [
-        { label: 'Attendance', path: ROUTES.ATTENDANCE },
-        { label: 'WhatsApp', path: ROUTES.WHATSAPP },
-        { label: 'Call Logs', path: ROUTES.CALL_LOGS },
-        { label: 'SOP Tasks', path: ROUTES.SOP },
-        { label: 'User Perms', path: ROUTES.ADMIN_USER_PERMISSIONS },
-        { label: 'Business', path: ROUTES.BUSINESS_CONTROL },
-      ],
-    },
   ];
 
   /* Init user */
@@ -873,76 +852,71 @@ export default function Home() {
           </Box>
         </ClickAwayListener>
 
-        {/* Suggestion chips */}
-        <Stack direction="row" spacing={0.75} justifyContent="center" sx={{ mt: 1.5, flexWrap: 'nowrap', overflow: 'hidden' }}>
-          {[
-            { label: 'Pending Tasks', path: ROUTES.PENDING_TASKS },
-            { label: 'Orders Pipeline', path: ROUTES.REPORTS_ORDERS_LIST },
-            { label: 'My Attendance', path: ROUTES.ATTENDANCE },
-            { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
-            { label: 'WhatsApp', path: ROUTES.WHATSAPP },
-          ].map((chip) => (
-            <Chip
-              key={chip.label}
-              label={chip.label}
-              size="small"
-              onClick={() => navigate(chip.path)}
-              sx={{ fontSize: '0.7rem', fontWeight: 600, bgcolor: 'white', border: '1px solid', borderColor: 'divider', cursor: 'pointer', '&:hover': { borderColor: '#16a34a', color: '#16a34a' } }}
-            />
-          ))}
+        {/* Attendance + Customize row */}
+        <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1.25 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<EventAvailableRoundedIcon sx={{ fontSize: 15 }} />}
+            onClick={() => navigate(ROUTES.ATTENDANCE)}
+            sx={{
+              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
+              borderColor: 'divider', color: 'text.secondary',
+              '&:hover': { borderColor: '#16a34a', color: '#16a34a', bgcolor: alpha('#16a34a', 0.04) },
+            }}
+          >
+            Attendance
+          </Button>
+          <Button
+            size="small"
+            variant={editMode ? 'contained' : 'outlined'}
+            startIcon={editMode ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <DashboardCustomizeRoundedIcon sx={{ fontSize: 15 }} />}
+            onClick={() => setEditMode((p) => !p)}
+            sx={{
+              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
+              ...(editMode
+                ? { bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }
+                : { borderColor: '#16a34a', color: '#16a34a', '&:hover': { bgcolor: alpha('#16a34a', 0.05) } }),
+            }}
+          >
+            {editMode ? 'Done' : 'Customize'}
+          </Button>
         </Stack>
       </Box>
 
-      {/* ── Edit mode toolbar ── */}
-      <Stack
-        direction="row"
-        spacing={0.75}
-        alignItems="center"
-        justifyContent="center"
-        sx={{ px: { xs: 1, md: 1.5 }, pb: 0.75, flexShrink: 0 }}
-      >
-        {editMode && (
-          <>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<WidgetsRoundedIcon sx={{ fontSize: 15 }} />}
-              onClick={() => setShowLibrary(true)}
-              sx={{
-                borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-                borderColor: '#16a34a', color: '#16a34a',
-                '&:hover': { bgcolor: alpha('#16a34a', 0.05) },
-              }}
-            >
-              Add Widget
-            </Button>
-            <Tooltip title="Reset to default">
-              <IconButton
-                size="small"
-                onClick={handleResetLayout}
-                sx={{ color: 'text.secondary', '&:hover': { color: '#16a34a' } }}
-              >
-                <RestartAltRoundedIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-          </>
-        )}
-        <Button
-          size="small"
-          variant={editMode ? 'contained' : 'outlined'}
-          startIcon={editMode ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <DashboardCustomizeRoundedIcon sx={{ fontSize: 15 }} />}
-          onClick={() => setEditMode((p) => !p)}
-          sx={{
-            borderRadius: 2, fontSize: '0.72rem', py: 0.5,
-            ...(editMode
-              ? { bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' } }
-              : { borderColor: '#16a34a', color: '#16a34a', '&:hover': { bgcolor: alpha('#16a34a', 0.05) } }),
-          }}
+      {/* ── Edit mode toolbar (Add Widget + Reset only) ── */}
+      {editMode && (
+        <Stack
+          direction="row"
+          spacing={0.75}
+          alignItems="center"
+          justifyContent="center"
+          sx={{ px: { xs: 1, md: 1.5 }, pb: 0.75, flexShrink: 0 }}
         >
-          {editMode ? 'Done' : 'Customize'}
-        </Button>
-      </Stack>
-
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<WidgetsRoundedIcon sx={{ fontSize: 15 }} />}
+            onClick={() => setShowLibrary(true)}
+            sx={{
+              borderRadius: 2, fontSize: '0.72rem', py: 0.5,
+              borderColor: '#16a34a', color: '#16a34a',
+              '&:hover': { bgcolor: alpha('#16a34a', 0.05) },
+            }}
+          >
+            Add Widget
+          </Button>
+          <Tooltip title="Reset to default">
+            <IconButton
+              size="small"
+              onClick={handleResetLayout}
+              sx={{ color: 'text.secondary', '&:hover': { color: '#16a34a' } }}
+            >
+              <RestartAltRoundedIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      )}
       {isLoading && (
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}

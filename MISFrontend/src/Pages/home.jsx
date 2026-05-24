@@ -24,15 +24,7 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
-import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
-import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
-import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
-import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
-import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
-import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
-import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import Brightness3RoundedIcon from '@mui/icons-material/Brightness3Rounded';
 import WbTwilightRoundedIcon from '@mui/icons-material/WbTwilightRounded';
@@ -45,6 +37,8 @@ import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
 import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
 
 import { ROUTES } from '../constants/routes';
+import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
+import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
@@ -62,77 +56,7 @@ function ColoredName({ name }) {
   );
 }
 
-/* ─── Widget Registry ─────────────────────────────────────────────── */
-export const WIDGET_REGISTRY = [
-  {
-    id: 'quickLinks',
-    label: 'Quick Links',
-    icon: GridViewRoundedIcon,
-    color: '#16a34a',
-    bg: '#dcfce7',
-    defaultPanel: 'center',
-    adminOnly: false,
-    description: 'Navigate to all tools & pages',
-  },
-  {
-    id: 'attendance',
-    label: 'Attendance Snapshot',
-    icon: EventAvailableRoundedIcon,
-    color: '#2563eb',
-    bg: '#dbeafe',
-    defaultPanel: 'left',
-    adminOnly: true,
-    description: 'Live team attendance overview',
-  },
-  {
-    id: 'myTasks',
-    label: 'My Tasks',
-    icon: AssignmentRoundedIcon,
-    color: '#d97706',
-    bg: '#fef3c7',
-    defaultPanel: 'left',
-    adminOnly: false,
-    description: 'Current task assignments',
-  },
-  {
-    id: 'recentAttendance',
-    label: 'My Attendance',
-    icon: AccessTimeRoundedIcon,
-    color: '#7c3aed',
-    bg: '#ede9fe',
-    defaultPanel: 'left',
-    adminOnly: false,
-    description: 'Recent check-in / check-out logs',
-  },
-  {
-    id: 'pendingTasks',
-    label: 'Pending Task Queue',
-    icon: PendingActionsRoundedIcon,
-    color: '#dc2626',
-    bg: '#fee2e2',
-    defaultPanel: 'center',
-    adminOnly: false,
-    description: 'Click any task to update progress',
-  },
-  {
-    id: 'ordersBoard',
-    label: 'Orders Pipeline',
-    icon: LocalShippingRoundedIcon,
-    color: '#0891b2',
-    bg: '#cffafe',
-    defaultPanel: 'center',
-    adminOnly: false,
-    description: 'Full order board & activity stream',
-  },
-];
-
-const LAYOUT_KEY = (user) => `mis_home_layout_v4_${user}`;
-
-const getDefaultLayout = () => ({
-  left: [],
-  center: ['myTasks'],
-  right: [],
-});
+const getDefaultLayout = () => DEFAULT_LAYOUT;
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -585,6 +509,20 @@ export default function Home() {
     localStorage.setItem(LAYOUT_KEY(loggedInUser), JSON.stringify(layout));
   }, [layout, loggedInUser]);
 
+  /* Sync layout when CustomizeDialog saves */
+  useEffect(() => {
+    const handler = () => {
+      const user = localStorage.getItem('User_name') || userName;
+      if (!user) return;
+      try {
+        const saved = localStorage.getItem(LAYOUT_KEY(user));
+        if (saved) setLayout(JSON.parse(saved));
+      } catch {}
+    };
+    window.addEventListener('mis_widget_layout_changed', handler);
+    return () => window.removeEventListener('mis_widget_layout_changed', handler);
+  }, [userName]);
+
   const fetchData = async () => {
     try {
       const res = await axios.get('/api/usertasks/GetUsertaskList');
@@ -709,6 +647,8 @@ export default function Home() {
         );
       case 'ordersBoard':
         return <AllOrder />;
+      case 'designFiles':
+        return <DesignFilesWidget />;
       default:
         return (
           <Typography variant="caption" color="text.disabled">Unknown widget</Typography>

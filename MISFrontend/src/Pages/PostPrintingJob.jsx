@@ -27,8 +27,8 @@ import {
 import { fetchPayments } from '../services/paymentService';
 import axios from '../apiClient';
 
-const TONE = '#7c3aed';
-const TONE2 = '#5b21b6';
+const TONE = '#16a34a';
+const TONE2 = '#15803d';
 
 const JOB_TYPES = [
   { value: 'lamination',    label: 'Lamination' },
@@ -296,7 +296,7 @@ export default function PostPrintingJob() {
   };
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: '#f3f3fa', minHeight: '100%' }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
       <Paper elevation={0} sx={{ p: { xs: 1.25, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
 
         {/* Header */}

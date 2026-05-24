@@ -73,7 +73,7 @@ function getCustomerLabel(row = {}) {
   return row.customerName || row.Customer_name || row.customer?.Customer_name || '-';
 }
 
-function KpiCard({ title, value, amount, icon, tone = '#7c3aed' }) {
+function KpiCard({ title, value, amount, icon, tone = '#16a34a' }) {
   return (
     <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: alpha(tone, 0.16), bgcolor: alpha(tone, 0.055), height: '100%' }}>
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -216,7 +216,7 @@ export default function PostPrintingControl() {
   };
 
   const kpis = [
-    { title: 'Post Printing', value: postPrintOrders.filter((o) => o.stage === 'post_printing').length, icon: <PrintRoundedIcon fontSize="small" />, tone: '#7c3aed' },
+    { title: 'Post Printing', value: postPrintOrders.filter((o) => o.stage === 'post_printing').length, icon: <PrintRoundedIcon fontSize="small" />, tone: '#16a34a' },
     { title: 'Finishing', value: postPrintOrders.filter((o) => o.stage === 'finishing').length, icon: <CheckCircleRoundedIcon fontSize="small" />, tone: '#0f766e' },
     { title: 'Needs Assignment', value: needsAssignment.length, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#b45309' },
     { title: 'Contractor Payable', value: vendorPayable.length, amount: vendorPayable.reduce((s, r) => s + Number(r.balance || 0), 0), icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#dc2626' },
@@ -232,14 +232,14 @@ export default function PostPrintingControl() {
   const isVendorTab = activeTab === 'contractorPayable';
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: '#f3f3fa', minHeight: '100%' }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
       <Paper elevation={0} sx={{ p: { xs: 1.25, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" gap={1.5}>
           <Box>
-            <Typography variant="h5" fontWeight={900} color="#5b21b6">Post Printing Control</Typography>
+            <Typography variant="h5" fontWeight={900} color="primary.main">Post Printing Control</Typography>
             <Typography variant="body2" color="text.secondary">Printing done → Post Design Team assigns contractors → Finishing → Ready → Delivery</Typography>
           </Box>
-          <Button startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />} onClick={load} variant="contained" sx={{ bgcolor: '#7c3aed', borderRadius: 2.5, '&:hover': { bgcolor: '#5b21b6' } }}>
+          <Button startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />} onClick={load} variant="contained" sx={{ borderRadius: 2.5 }}>
             Refresh
           </Button>
         </Stack>
@@ -272,9 +272,9 @@ export default function PostPrintingControl() {
               <Paper key={order.Order_uuid} variant="outlined" sx={{ p: 1.5, mb: 1.25, borderRadius: 3 }}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1} mb={1}>
                   <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-                    <Typography variant="subtitle2" fontWeight={900} color="#5b21b6">#{order.Order_Number || '-'}</Typography>
+                    <Typography variant="subtitle2" fontWeight={900} color="primary.main">#{order.Order_Number || '-'}</Typography>
                     {order.customerName && <Typography variant="body2" color="text.secondary">{order.customerName}</Typography>}
-                    <Chip size="small" label={order.stage} sx={{ bgcolor: alpha('#7c3aed', 0.1), color: '#5b21b6', fontWeight: 800 }} />
+                    <Chip size="small" label={order.stage} sx={{ bgcolor: 'primary.50', color: 'primary.main', fontWeight: 800 }} />
                     {order.jobs?.length > 0 && (
                       <Chip size="small" label={`${order.jobs.filter((j) => j.status === 'completed').length}/${order.jobs.length} done`}
                         color={order.jobs.every((j) => j.status === 'completed') ? 'success' : 'warning'} />
@@ -362,7 +362,7 @@ export default function PostPrintingControl() {
                         <Chip size="small" label={money(isVendorTab ? row.balance : row.outstandingAmount)} color={(isVendorTab ? row.balance : row.outstandingAmount) > 0 ? 'warning' : 'success'} variant="outlined" />
                       </TableCell>
                       <TableCell>
-                        <Chip size="small" label={isVendorTab ? 'Payable' : row.stage || '-'} sx={{ bgcolor: alpha('#7c3aed', 0.1), color: '#5b21b6', fontWeight: 800 }} />
+                        <Chip size="small" label={isVendorTab ? 'Payable' : row.stage || '-'} sx={{ bgcolor: 'primary.50', color: 'primary.main', fontWeight: 800 }} />
                       </TableCell>
                       <TableCell>{shortDate(isVendorTab ? null : row.dueDate)}</TableCell>
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
@@ -418,7 +418,7 @@ export default function PostPrintingControl() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialog(null)}>Cancel</Button>
-          <Button disabled={saving || (!vendorForm.vendorId && !vendorForm.vendorName)} variant="contained" sx={{ bgcolor: '#7c3aed', '&:hover': { bgcolor: '#5b21b6' } }}
+          <Button disabled={saving || (!vendorForm.vendorId && !vendorForm.vendorName)} variant="contained" sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
             onClick={() => runAction(() => assignVendorToOrder(orderId(selected), vendorForm), 'Contractor assigned and follow-up created')}>
             Assign
           </Button>
@@ -440,7 +440,7 @@ export default function PostPrintingControl() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialog(null)}>Cancel</Button>
-          <Button disabled={saving} variant="contained" sx={{ bgcolor: '#7c3aed', '&:hover': { bgcolor: '#5b21b6' } }}
+          <Button disabled={saving} variant="contained" sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
             onClick={() => runAction(() => payVendor(selected?.vendorUuid || selected?.Vendor_uuid, vendorPayForm), 'Payment recorded')}>
             Pay
           </Button>

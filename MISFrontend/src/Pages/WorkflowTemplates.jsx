@@ -165,20 +165,20 @@ export default function WorkflowTemplates() {
   };
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: '#f5f3ff', minHeight: '100%' }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
       <Paper elevation={0} sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1.5}>
           <Box>
             <Stack direction="row" spacing={1} alignItems="center">
-              <AccountTreeRoundedIcon sx={{ color: '#7c3aed' }} />
-              <Typography variant="h5" fontWeight={900} color="#5b21b6">Item Workflow Templates</Typography>
+              <AccountTreeRoundedIcon sx={{ color: 'primary.main' }} />
+              <Typography variant="h5" fontWeight={900} color="primary.main">Item Workflow Templates</Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary">
               Define once per item type — the system auto-creates steps, assigns people, and advances stages for every matching order.
             </Typography>
           </Box>
           <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={openCreate}
-            sx={{ bgcolor: '#7c3aed', borderRadius: 2.5, '&:hover': { bgcolor: '#5b21b6' } }}>
+            sx={{ borderRadius: 2.5 }}>
             New Template
           </Button>
         </Stack>
@@ -191,7 +191,7 @@ export default function WorkflowTemplates() {
           <Box sx={{ py: 6, textAlign: 'center' }}><CircularProgress /></Box>
         ) : templates.length === 0 ? (
           <Box sx={{ py: 6, textAlign: 'center' }}>
-            <AccountTreeRoundedIcon sx={{ fontSize: 48, color: alpha('#7c3aed', 0.3), mb: 1 }} />
+            <AccountTreeRoundedIcon sx={{ fontSize: 48, color: 'primary.light', mb: 1 }} />
             <Typography color="text.secondary">No templates yet. Create one to automate your order workflow.</Typography>
           </Box>
         ) : (
@@ -210,7 +210,7 @@ export default function WorkflowTemplates() {
                 {templates.map((t) => (
                   <TableRow hover key={t.template_uuid}>
                     <TableCell>
-                      <Typography variant="body2" fontWeight={900} sx={{ color: '#5b21b6' }}>{t.itemNamePattern}</Typography>
+                      <Typography variant="body2" fontWeight={900} color="primary.main">{t.itemNamePattern}</Typography>
                     </TableCell>
                     <TableCell><Typography variant="caption" color="text.secondary">{t.description || '-'}</Typography></TableCell>
                     <TableCell sx={{ maxWidth: 400 }}>
@@ -270,10 +270,10 @@ export default function WorkflowTemplates() {
             </Stack>
 
             {form.steps.map((step, idx) => (
-              <Card key={idx} elevation={0} sx={{ border: '1px solid', borderColor: alpha('#7c3aed', 0.2), borderRadius: 2.5, bgcolor: alpha('#7c3aed', 0.03) }}>
+              <Card key={idx} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2.5, bgcolor: 'background.default' }}>
                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                   <Stack direction="row" alignItems="center" spacing={1} mb={1}>
-                    <Chip size="small" label={`Step ${step.order}`} sx={{ bgcolor: '#7c3aed', color: '#fff', fontWeight: 900 }} />
+                    <Chip size="small" label={`Step ${step.order}`} sx={{ bgcolor: 'primary.main', color: '#fff', fontWeight: 900 }} />
                     <Box flex={1} />
                     <Tooltip title="Move up">
                       <IconButton size="small" onClick={() => moveStep(idx, -1)} disabled={idx === 0}><ArrowUpwardRoundedIcon fontSize="small" /></IconButton>
@@ -376,7 +376,7 @@ export default function WorkflowTemplates() {
         <DialogActions>
           <Button onClick={() => setDialog(null)}>Cancel</Button>
           <Button disabled={saving} variant="contained" onClick={saveTemplate}
-            sx={{ bgcolor: '#7c3aed', '&:hover': { bgcolor: '#5b21b6' } }}>
+            sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}>
             {saving ? <CircularProgress size={18} /> : editId ? 'Update' : 'Create'}
           </Button>
         </DialogActions>

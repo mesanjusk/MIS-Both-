@@ -126,7 +126,7 @@ function rowKey(row, index) {
   return row._id || row.Order_uuid || row.vendorUuid || row.Task_uuid || index;
 }
 
-function KpiCard({ title, value, amount, icon, tone = '#128c7e' }) {
+function KpiCard({ title, value, amount, icon, tone = '#16a34a' }) {
   return (
     <Card elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: alpha(tone, 0.16), bgcolor: alpha(tone, 0.055), height: '100%' }}>
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -355,9 +355,9 @@ export default function BusinessControl() {
   const kpis = [
     { title: 'Open Orders', value: bucketCount(summary.openOrders), icon: <TimelineRoundedIcon fontSize="small" /> },
     { title: 'Unassigned Orders', value: bucketCount(summary.unassignedOrders), icon: <TimelineRoundedIcon fontSize="small" />, tone: '#64748b' },
-    { title: 'Ready Not Delivered', value: bucketCount(summary.readyNotDelivered), icon: <LocalShippingRoundedIcon fontSize="small" />, tone: '#0f766e' },
+    { title: 'Ready Not Delivered', value: bucketCount(summary.readyNotDelivered), icon: <LocalShippingRoundedIcon fontSize="small" />, tone: '#16a34a' },
     { title: 'Delivered Unpaid', value: bucketCount(summary.deliveredUnpaid), icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#b45309' },
-    { title: 'Vendor Payable', value: bucketCount(summary.vendorPayable), amount: summary.vendorPayable?.amount, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#7c3aed' },
+    { title: 'Vendor Payable', value: bucketCount(summary.vendorPayable), amount: summary.vendorPayable?.amount, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#16a34a' },
     { title: 'Today Receipts', value: bucketCount(summary.todayReceipts), amount: summary.todayReceipts?.amount, icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#16a34a' },
   ];
 
@@ -365,14 +365,14 @@ export default function BusinessControl() {
   const showBulkBar = bulkCount > 0 && SELECTABLE_TABS.has(activeTab);
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: '#f3f6f4', minHeight: '100%' }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
       <Paper elevation={0} sx={{ p: { xs: 1.25, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" gap={1.5}>
           <Box>
-            <Typography variant="h5" fontWeight={900} color="#075e54">Business Control Center</Typography>
+            <Typography variant="h5" fontWeight={900} color="primary.main">Business Control Center</Typography>
             <Typography variant="body2" color="text.secondary">Order → Task → Vendor/Purchase → Ready → Delivery → Payment → Accounting</Typography>
           </Box>
-          <Button startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />} onClick={load} variant="contained" sx={{ bgcolor: '#128c7e', borderRadius: 2.5, '&:hover': { bgcolor: '#075e54' } }}>
+          <Button startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />} onClick={load} variant="contained" sx={{ borderRadius: 2.5 }}>
             Refresh
           </Button>
         </Stack>
@@ -401,9 +401,9 @@ export default function BusinessControl() {
 
         {/* Bulk action bar */}
         {showBulkBar && (
-          <Paper variant="outlined" sx={{ mt: 1, px: 2, py: 1, borderRadius: 2, bgcolor: alpha('#128c7e', 0.06), borderColor: alpha('#128c7e', 0.3) }}>
+          <Paper variant="outlined" sx={(t) => ({ mt: 1, px: 2, py: 1, borderRadius: 2, bgcolor: alpha(t.palette.primary.main, 0.06), borderColor: alpha(t.palette.primary.main, 0.3) })}>
             <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" gap={1}>
-              <Typography variant="body2" fontWeight={800} color="#075e54">
+              <Typography variant="body2" fontWeight={800} color="primary.main">
                 {bulkCount} selected
               </Typography>
               <Divider orientation="vertical" flexItem />
@@ -412,7 +412,7 @@ export default function BusinessControl() {
                   <Button
                     size="small" variant="contained" startIcon={<CheckCircleRoundedIcon fontSize="small" />}
                     disabled={saving}
-                    sx={{ bgcolor: '#128c7e', '&:hover': { bgcolor: '#075e54' } }}
+                    sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
                     onClick={() => runBulkAction((id) => markOrderReady(id), 'Mark Ready')}
                   >
                     Mark Ready
@@ -430,7 +430,7 @@ export default function BusinessControl() {
                 <Button
                   size="small" variant="contained" startIcon={<LocalShippingRoundedIcon fontSize="small" />}
                   disabled={saving}
-                  sx={{ bgcolor: '#0f766e', '&:hover': { bgcolor: '#075e54' } }}
+                  sx={{ bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
                   onClick={() => runBulkAction((id) => markOrderDelivered(id), 'Mark Delivered')}
                 >
                   Mark Delivered
@@ -489,7 +489,7 @@ export default function BusinessControl() {
                         variant="contained"
                         disabled={profileSaving}
                         onClick={saveProfile}
-                        sx={{ alignSelf: 'flex-start', borderRadius: 2, bgcolor: '#128c7e', '&:hover': { bgcolor: '#075e54' } }}
+                        sx={{ alignSelf: 'flex-start', borderRadius: 2, bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
                       >
                         {profileSaving ? 'Saving…' : 'Save Business Profile'}
                       </Button>
@@ -600,7 +600,7 @@ export default function BusinessControl() {
                     <TableCell align="right">{isVendorRow ? money(row.credit) : money(getOrderAmount(row))}</TableCell>
                     <TableCell align="right">{isVendorRow ? money(row.debit) : money(row.receivedAmount)}</TableCell>
                     <TableCell align="right"><Chip size="small" label={isVendorRow ? money(row.balance) : money(row.outstandingAmount)} color={(isVendorRow ? row.balance : row.outstandingAmount) > 0 ? 'warning' : 'success'} variant="outlined" /></TableCell>
-                    <TableCell><Chip size="small" label={isTaskRow ? row.status : row.stage || row.latestTask || '-'} sx={{ bgcolor: '#e7f4ef', color: '#075e54', fontWeight: 800 }} /></TableCell>
+                    <TableCell><Chip size="small" label={isTaskRow ? row.status : row.stage || row.latestTask || '-'} sx={{ bgcolor: 'primary.50', color: 'primary.main', fontWeight: 800 }} /></TableCell>
                     <TableCell>{isTaskRow ? row.Task_group : row.responsiblePerson || row.assignedUserName || '-'}</TableCell>
                     <TableCell>{shortDate(isTaskRow ? row.deadline : row.dueDate || row.Delivery_Date)}</TableCell>
                     <TableCell align="right" sx={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>

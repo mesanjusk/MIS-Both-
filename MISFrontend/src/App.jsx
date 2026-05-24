@@ -20,7 +20,7 @@ function RequireAuth({ children }) {
 
 const Login = lazy(() => import('./Pages/login'));
 const Register = lazy(() => import('./Pages/Register'));
-const Dashboard = lazy(() => import('./Pages/Dashboard'));
+const Dashboard = lazy(() => import('./Pages/home'));
 const AllAttandance = lazy(() => import('./Pages/AllAttandance'));
 const AttendanceReport = lazy(() => import('./Pages/AttendanceReport'));
 const PendingTasks = lazy(() => import('./Pages/PendingTasks'));

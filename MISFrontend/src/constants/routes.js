@@ -80,10 +80,11 @@ export const ROUTES = {
   PURCHASE_ORDERS: '/purchase-orders',
   POST_PRINTING_JOBS: '/post-printing-jobs',
 
-  DIARY_UPLOAD:        '/accounts/diary-upload',
-  DAY_BOOK:            '/accounts/day-book',
-  BANK_RECONCILIATION: '/accounts/bank-reconciliation',
-  OPENING_BALANCE:     '/accounts/opening-balance',
+  DIARY_UPLOAD:              '/accounts/diary-upload',
+  DAY_BOOK:                  '/accounts/day-book',
+  BANK_RECONCILIATION:       '/accounts/bank-reconciliation',
+  OPENING_BALANCE:           '/accounts/opening-balance',
+  OPENING_BALANCE_UPLOAD:    '/accounts/opening-balance-upload',
 
   // Gmail / Email
   GMAIL_ACCOUNTS: '/gmail/accounts',

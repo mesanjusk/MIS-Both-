@@ -62,6 +62,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Accounts & UPI',
     items: [
       { label: 'Opening Balance', path: ROUTES.OPENING_BALANCE, icon: <AccountBalanceRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'OB Upload (CSV)', path: ROUTES.OPENING_BALANCE_UPLOAD, icon: <UploadFileRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Diary Upload', path: ROUTES.DIARY_UPLOAD, icon: <UploadFileRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Day Book', path: ROUTES.DAY_BOOK, icon: <MenuBookRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Bank Reconciliation', path: ROUTES.BANK_RECONCILIATION, icon: <AccountBalanceRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },

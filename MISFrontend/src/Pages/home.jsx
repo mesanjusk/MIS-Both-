@@ -467,6 +467,15 @@ export default function Home() {
   const [plusOpen, setPlusOpen] = useState(false);
   const plusAnchorRef = useRef(null);
 
+  /* Search */
+  const [searchQuery, setSearchQuery] = useState('');
+  const handleSearch = () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    navigate(`${ROUTES.REPORTS_ORDERS_LIST}?q=${encodeURIComponent(q)}`);
+    setSearchQuery('');
+  };
+
   const PLUS_SECTIONS = [
     {
       label: '⚡ Quick Add',
@@ -722,6 +731,9 @@ export default function Home() {
               <Box
                 component="input"
                 placeholder="Search order #, customer name, item, vendor, or amount…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
                 sx={{
                   flex: 1, border: 'none', outline: 'none', px: 2, py: 1.25,
                   fontSize: '0.85rem', color: '#334155', bgcolor: 'transparent',
@@ -729,8 +741,8 @@ export default function Home() {
                 }}
               />
               <Stack direction="row" spacing={0.25} sx={{ pr: 1 }}>
-                <Tooltip title="Voice Search">
-                  <IconButton size="small" sx={{ color: 'text.disabled' }}>
+                <Tooltip title="Search">
+                  <IconButton size="small" sx={{ color: searchQuery ? '#16a34a' : 'text.disabled' }} onClick={handleSearch}>
                     <SearchRoundedIcon sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>

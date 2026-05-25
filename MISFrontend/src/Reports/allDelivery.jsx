@@ -99,6 +99,9 @@ export default function AllDelivery() {
   // Toggle to show only orders with empty/no-value Items
   const [showEmptyItems, setShowEmptyItems] = useState(false);
 
+  // Toggle to show only orders with amount exactly ₹99
+  const [showOnly99, setShowOnly99] = useState(false);
+
   // Purchase Orders state
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loadingPOs, setLoadingPOs] = useState(false);
@@ -274,11 +277,19 @@ export default function AllDelivery() {
     return filteredOrders.filter((o) => o.orderDate === selectedDate);
   }, [filteredOrders, selectedDate]);
 
-  // Orders shown in the Deliveries to Customers table (respects showEmptyItems toggle)
+  // Orders shown in the Deliveries to Customers table (respects showEmptyItems + showOnly99 toggles)
   const deliveryTableOrders = useMemo(() => {
-    if (!showEmptyItems) return dateOrders;
-    return dateOrders.filter((o) => !hasBillableAmount(o.Items));
-  }, [dateOrders, showEmptyItems, hasBillableAmount]);
+    let rows = dateOrders;
+    if (showEmptyItems) rows = rows.filter((o) => !hasBillableAmount(o.Items));
+    if (showOnly99) rows = rows.filter((o) => o.totalAmount === 99);
+    return rows;
+  }, [dateOrders, showEmptyItems, showOnly99, hasBillableAmount]);
+
+  // Count of orders with amount exactly ₹99 (from all date-filtered orders)
+  const ninety9Count = useMemo(
+    () => dateOrders.filter((o) => o.totalAmount === 99).length,
+    [dateOrders]
+  );
 
   // Count of orders with no billable items (pending/near-empty)
   const emptyItemsCount = useMemo(
@@ -555,6 +566,49 @@ export default function AllDelivery() {
     XLSX.writeFile(wb, `delivery_report_${datePart}.xlsx`);
   };
 
+  const orders99 = useMemo(
+    () => dateOrders.filter((o) => o.totalAmount === 99),
+    [dateOrders]
+  );
+
+  const exportPDF99 = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("₹99 Bills Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Date: ${selectedDate ? fmtDate(selectedDate) : "All Dates"} · ${orders99.length} bills`, 14, 22);
+    doc.autoTable({
+      head: [["#", "Customer", "Remark", "Amount", "Date"]],
+      body: orders99.map((o) => [
+        o.Order_Number || "",
+        o.Customer_name || "",
+        getFirstRemark(o) || "",
+        money(o.totalAmount),
+        fmtDate(o.createdAt),
+      ]),
+      startY: 27,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [255, 152, 0] },
+    });
+    const datePart = selectedDate || "all";
+    doc.save(`99_bills_${datePart}.pdf`);
+  };
+
+  const exportExcel99 = () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(orders99.map((o) => ({
+      "Order #": o.Order_Number || "",
+      Customer: o.Customer_name || "",
+      Remark: getFirstRemark(o) || "",
+      Amount: o.totalAmount,
+      Date: fmtDate(o.createdAt),
+      Status: o.highestStatusTask?.Task || "",
+    })));
+    XLSX.utils.book_append_sheet(wb, ws, "₹99 Bills");
+    const datePart = selectedDate || "all";
+    XLSX.writeFile(wb, `99_bills_${datePart}.xlsx`);
+  };
+
   const handleEditClick = (order) => {
     const id = order._id || order.Order_id || null;
     if (!id) return toast.error("Invalid order ID.");
@@ -796,7 +850,7 @@ export default function AllDelivery() {
                   direction="row" justifyContent="space-between" alignItems="center"
                   sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
                 >
-                  <Stack direction="row" spacing={1} alignItems="center">
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                     <LocalShippingIcon fontSize="small" color="success" />
                     <Typography variant="subtitle2" fontWeight={700} color="success.dark"
                       sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
@@ -830,6 +884,58 @@ export default function AllDelivery() {
                         sx={{ ml: 0.5, mr: 0 }}
                       />
                     </Tooltip>
+                    <Tooltip title={showOnly99 ? "Showing ₹99 bills only — click to show all" : "Show only ₹99 bills"}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={showOnly99}
+                            onChange={(e) => setShowOnly99(e.target.checked)}
+                            color="error"
+                          />
+                        }
+                        label={
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="caption" color={showOnly99 ? "error.dark" : "text.secondary"} fontWeight={600}>
+                              ₹99 Bills
+                            </Typography>
+                            {ninety9Count > 0 && (
+                              <Chip
+                                label={ninety9Count}
+                                size="small"
+                                color="error"
+                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, "& .MuiChip-label": { px: 0.75 } }}
+                              />
+                            )}
+                          </Stack>
+                        }
+                        sx={{ ml: 0.5, mr: 0 }}
+                      />
+                    </Tooltip>
+                    {showOnly99 && (
+                      <Stack direction="row" spacing={0.5}>
+                        <Tooltip title="Export ₹99 bills as PDF">
+                          <Button
+                            variant="outlined" color="error" size="small"
+                            startIcon={<PictureAsPdfIcon />}
+                            onClick={exportPDF99}
+                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
+                          >
+                            PDF
+                          </Button>
+                        </Tooltip>
+                        <Tooltip title="Export ₹99 bills as Excel">
+                          <Button
+                            variant="outlined" color="success" size="small"
+                            startIcon={<GridOnIcon />}
+                            onClick={exportExcel99}
+                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
+                          >
+                            Excel
+                          </Button>
+                        </Tooltip>
+                      </Stack>
+                    )}
                   </Stack>
                   <Typography variant="subtitle2" fontWeight={700} color="success.dark">
                     {money(stats.deliveryValue)}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 
@@ -45,12 +45,13 @@ function latestTask(order) {
 
 export default function AllOrdersList() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [orders,    setOrders]    = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading,   setLoading]   = useState(false);
 
-  const [searchText,    setSearchText]    = useState('');
+  const [searchText,    setSearchText]    = useState(searchParams.get('q') || '');
   const [stageFilter,   setStageFilter]   = useState('');
   const [billFilter,    setBillFilter]    = useState('');
   const [startDate,     setStartDate]     = useState('');

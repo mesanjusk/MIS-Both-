@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mis-backend
+    runtime: node
+    rootDir: MISBackend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+  - type: static
+    name: mis-frontend
+    rootDir: MISFrontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_ENV
+        value: production

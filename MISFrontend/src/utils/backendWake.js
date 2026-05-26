@@ -9,7 +9,7 @@
  */
 
 const HEALTH_URL = `${
-  (import.meta.env.VITE_API_SERVER || 'https://misbackend-e078.onrender.com')
+  (import.meta.env.VITE_API_SERVER || 'https://mis-both.onrender.com')
     .replace(/\/api\/?$/, '')
 }/`;
 

@@ -20,7 +20,7 @@ import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
 
-const BACKEND_BASE = getApiBase() || import.meta.env.VITE_API_SERVER || 'https://misbackend-e078.onrender.com';
+const BACKEND_BASE = getApiBase() || import.meta.env.VITE_API_SERVER || 'https://mis-both.onrender.com';
 
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
 

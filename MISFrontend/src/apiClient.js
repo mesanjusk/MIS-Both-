@@ -5,7 +5,7 @@ let redirectingToLogin = false;
 
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
-const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
+const PRODUCTION_SERVER = "https://mis-both.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "") : url);
 

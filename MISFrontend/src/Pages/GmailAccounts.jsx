@@ -135,7 +135,7 @@ export default function GmailAccounts() {
             <li>Add this redirect URI: <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>
               {window.location.origin.includes('localhost')
                 ? 'http://localhost:5000/api/gmail/callback'
-                : 'https://misbackend-e078.onrender.com/api/gmail/callback'}
+                : 'https://mis-both.onrender.com/api/gmail/callback'}
             </code></li>
             <li>Enable the Gmail API in your Google Cloud project</li>
             <li>Set <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>GMAIL_REDIRECT_URI</code> in your Render backend env vars</li>

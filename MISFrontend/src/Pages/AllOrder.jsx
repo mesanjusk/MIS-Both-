@@ -106,6 +106,10 @@ export default function AllOrder() {
   const [pendingMove, setPendingMove] = useState(null);
   const [selectedAssignee, setSelectedAssignee] = useState("");
 
+  const [deliveredOrders, setDeliveredOrders] = useState([]);
+  const [deliveredLoading, setDeliveredLoading] = useState(false);
+  const [deliveredSearch, setDeliveredSearch] = useState("");
+
   const {
     orderList,
     orderMap,
@@ -169,6 +173,26 @@ export default function AllOrder() {
       navigator.msMaxTouchPoints > 0
     );
   }, []);
+
+  useEffect(() => {
+    if (viewTab !== "delivered") return;
+    if (deliveredOrders.length > 0) return;
+    setDeliveredLoading(true);
+    axios.get("/api/orders/GetDeliveredList")
+      .then((res) => setDeliveredOrders(res.data?.result || []))
+      .catch(() => toast.error("Failed to load delivered orders"))
+      .finally(() => setDeliveredLoading(false));
+  }, [viewTab]);
+
+  const filteredDeliveredOrders = useMemo(() => {
+    if (!deliveredSearch.trim()) return deliveredOrders;
+    const q = deliveredSearch.trim().toLowerCase();
+    return deliveredOrders.filter((o) =>
+      String(o.Order_Number || "").includes(q) ||
+      String(o.Customer_uuid || "").toLowerCase().includes(q) ||
+      (o.Items || []).map((it) => it.Remark || it.Item || "").join(" ").toLowerCase().includes(q)
+    );
+  }, [deliveredOrders, deliveredSearch]);
 
   const filteredOrderList = useMemo(() => {
     if (viewTab === "enquiries") return orderList.filter((o) => isEnquiry(o));
@@ -409,10 +433,10 @@ export default function AllOrder() {
         <AppBar position="sticky" elevation={0}>
           <Toolbar>
             <Typography variant="h6" sx={{ flex: 1 }}>
-              {viewTab === "enquiries" ? "All Enquiries" : "All Orders"}
+              {viewTab === "enquiries" ? "All Enquiries" : viewTab === "delivered" ? "Delivered Orders" : "All Orders"}
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              {viewTab === "enquiries" ? enquiriesCount : ordersCount}
+              {viewTab === "enquiries" ? enquiriesCount : viewTab === "delivered" ? deliveredOrders.length : ordersCount}
             </Typography>
           </Toolbar>
         </AppBar>
@@ -438,9 +462,10 @@ export default function AllOrder() {
             >
               <Tab value="orders" label={`Orders (${ordersCount})`} />
               <Tab value="enquiries" label={`Enquiries (${enquiriesCount})`} />
+              <Tab value="delivered" label={`Delivered (${deliveredOrders.length})`} sx={{ color: "success.main" }} />
             </Tabs>
 
-            <Stack
+            {viewTab !== "delivered" && <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={1.5}
               alignItems={{ xs: "stretch", sm: "center" }}
@@ -474,7 +499,7 @@ export default function AllOrder() {
                   ))}
                 </Select>
               </FormControl>
-            </Stack>
+            </Stack>}
           </Paper>
 
           {loadError && (
@@ -497,6 +522,19 @@ export default function AllOrder() {
             </Alert>
           )}
 
+          {viewTab === "delivered" && (
+            <Paper variant="outlined" sx={{ borderRadius: 3, p: { xs: 1, sm: 1.5 }, mb: 2 }}>
+              <TextField
+                fullWidth
+                size="small"
+                value={deliveredSearch}
+                onChange={(e) => setDeliveredSearch(e.target.value)}
+                placeholder="Search by order #, customer, item…"
+                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+              />
+            </Paper>
+          )}
+
           <Paper
             variant="outlined"
             sx={{
@@ -505,7 +543,57 @@ export default function AllOrder() {
               minHeight: 420,
             }}
           >
-            {allLoading ? (
+            {viewTab === "delivered" ? (
+              deliveredLoading ? (
+                <Stack spacing={1} sx={{ p: 2 }}>
+                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} variant="rounded" height={48} />)}
+                </Stack>
+              ) : filteredDeliveredOrders.length === 0 ? (
+                <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>No delivered orders found.</Alert>
+              ) : (
+                <Box sx={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                    <thead>
+                      <tr style={{ background: "#f3f4f6", textAlign: "left" }}>
+                        {["Order #", "Date", "Items / Remark", "Amount", "Stage", "Bill"].map((h) => (
+                          <th key={h} style={{ padding: "8px 12px", fontWeight: 700, color: "#374151", whiteSpace: "nowrap" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDeliveredOrders.map((o, idx) => {
+                        const remark = (o.Items || []).map((it) => it.Remark || it.Item || "").filter(Boolean).join(", ") || o.Remark || "—";
+                        const amount = (o.Items || []).reduce((s, it) => s + (Number(it.Amount) || 0), 0) || Number(o.Amount) || 0;
+                        const stage = o.stage || (o.Status?.slice(-1)[0]?.Task) || "delivered";
+                        const bill = (o.billStatus || "").toLowerCase();
+                        const date = o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+                        return (
+                          <tr key={o._id || idx} style={{ borderTop: "1px solid #e5e7eb" }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = "#eff6ff"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = ""}
+                          >
+                            <td style={{ padding: "8px 12px", fontWeight: 700, color: "#2563eb", whiteSpace: "nowrap" }}>#{o.Order_Number}</td>
+                            <td style={{ padding: "8px 12px", color: "#6b7280", whiteSpace: "nowrap" }}>{date}</td>
+                            <td style={{ padding: "8px 12px", maxWidth: 260 }}><span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={remark}>{remark}</span></td>
+                            <td style={{ padding: "8px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{amount > 0 ? `₹${Number(amount).toLocaleString("en-IN")}` : "—"}</td>
+                            <td style={{ padding: "8px 12px" }}>
+                              <span style={{ background: "#d1fae5", color: "#065f46", borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 700, textTransform: "capitalize" }}>{stage}</span>
+                            </td>
+                            <td style={{ padding: "8px 12px" }}>
+                              {bill ? (
+                                <span style={{ background: bill === "paid" ? "#d1fae5" : "#fee2e2", color: bill === "paid" ? "#065f46" : "#b91c1c", borderRadius: 99, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>
+                                  {bill.charAt(0).toUpperCase() + bill.slice(1)}
+                                </span>
+                              ) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </Box>
+              )
+            ) : allLoading ? (
               <Box>
                 <Stack spacing={1} sx={{ mb: 2 }}>
                   <Skeleton variant="rounded" height={36} />

@@ -208,7 +208,7 @@ export default function AllOrder() {
     isAdmin,
     viewTab === "enquiries"
       ? { singleColumn: true, singleColumnLabel: "Enquiry", includeCancelColumn: false }
-      : { includeCancelColumn: false }
+      : { includeCancelColumn: false, includeDeliveredColumn: false }
   );
 
   const performMove = useCallback(

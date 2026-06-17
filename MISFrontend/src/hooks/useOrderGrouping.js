@@ -34,8 +34,9 @@ export function useOrderGrouping(
 ) {
   const {
     includeCancelColumn = true,
-    singleColumn = false,                 // ✅ NEW
-    singleColumnLabel = "Enquiry",        // ✅ NEW
+    singleColumn = false,
+    singleColumnLabel = "Enquiry",
+    includeDeliveredColumn = true,   // ← new option
   } = options;
 
   const searchedOrders = useMemo(() => {
@@ -84,7 +85,7 @@ export function useOrderGrouping(
       base.push(TASK_TYPES.OTHER);
     }
 
-    if (!base.includes(TASK_TYPES.DELIVERED)) base.push(TASK_TYPES.DELIVERED);
+    if (includeDeliveredColumn && !base.includes(TASK_TYPES.DELIVERED)) base.push(TASK_TYPES.DELIVERED);
     if (includeCancelColumn && !base.includes(TASK_TYPES.CANCEL)) base.push(TASK_TYPES.CANCEL);
 
     if (!isAdmin && includeCancelColumn) {
@@ -113,6 +114,7 @@ export function useOrderGrouping(
     sortedOrders,
     tasksMeta,
     includeCancelColumn,
+    includeDeliveredColumn,
     isAdmin,
   ]);
 

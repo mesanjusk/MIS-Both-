@@ -57,6 +57,7 @@ export default function AllOrdersList() {
   const [startDate,     setStartDate]     = useState('');
   const [endDate,       setEndDate]       = useState('');
   const [sortConfig,    setSortConfig]    = useState({ key: 'Order_Number', direction: 'desc' });
+  const [showDelivered, setShowDelivered] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -99,9 +100,13 @@ export default function AllOrdersList() {
     date:         o.createdAt || o.updatedAt || '',
   })), [orders, customerMap]);
 
+  const DELIVERED_STAGES = new Set(['delivered', 'paid']);
+
   const filtered = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     return rows.filter(({ order, customerName, remark, stage, latestTask: lt }) => {
+      const isDelivered = DELIVERED_STAGES.has(stage) || DELIVERED_STAGES.has(lt.toLowerCase());
+      if (showDelivered ? !isDelivered : isDelivered) return false;
       if (startDate && new Date(order.createdAt) < new Date(startDate)) return false;
       if (endDate   && new Date(order.createdAt) > new Date(endDate + 'T23:59:59')) return false;
       if (stageFilter && stage !== stageFilter && lt.toLowerCase() !== stageFilter) return false;
@@ -118,7 +123,7 @@ export default function AllOrdersList() {
       }
       return true;
     });
-  }, [rows, searchText, stageFilter, billFilter, startDate, endDate]);
+  }, [rows, searchText, stageFilter, billFilter, startDate, endDate, showDelivered]);
 
   const sorted = useMemo(() => {
     const list = [...filtered];
@@ -155,10 +160,26 @@ export default function AllOrdersList() {
       <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
         <div>
           <h2 className="text-xl font-bold text-gray-800">All Orders</h2>
-          <p className="text-sm text-gray-500">Complete order register — active and delivered</p>
+          <p className="text-sm text-gray-500">{showDelivered ? 'Delivered & paid orders' : 'Active orders in progress'}</p>
         </div>
-        <div className="text-sm text-gray-600 font-medium">
-          Showing <span className="text-blue-600 font-bold">{filtered.length}</span> of {orders.length} orders
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-gray-600 font-medium">
+            Showing <span className="text-blue-600 font-bold">{filtered.length}</span> of {orders.length} orders
+          </div>
+          <div className="flex rounded-lg border overflow-hidden shadow-sm">
+            <button
+              onClick={() => { setShowDelivered(false); setStageFilter(''); }}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${!showDelivered ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => { setShowDelivered(true); setStageFilter(''); }}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors ${showDelivered ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              Delivered
+            </button>
+          </div>
         </div>
       </div>
 

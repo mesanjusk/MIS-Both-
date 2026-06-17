@@ -127,7 +127,8 @@ export default function AllOrder() {
 
   const isDelivered = useCallback((order) => {
     const task = normLower(order?.highestStatusTask?.Task);
-    return task === "delivered" || task === "paid";
+    const stage = normLower(order?.stage);
+    return task === "delivered" || task === "paid" || stage === "delivered" || stage === "paid";
   }, []);
 
   const { ordersCount, enquiriesCount, deliveredCount } = useMemo(() => {

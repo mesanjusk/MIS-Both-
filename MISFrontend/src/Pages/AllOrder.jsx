@@ -106,8 +106,6 @@ export default function AllOrder() {
   const [pendingMove, setPendingMove] = useState(null);
   const [selectedAssignee, setSelectedAssignee] = useState("");
 
-  const [deliveredOrders, setDeliveredOrders] = useState([]);
-  const [deliveredLoading, setDeliveredLoading] = useState(false);
   const [deliveredSearch, setDeliveredSearch] = useState("");
 
   const {
@@ -127,16 +125,23 @@ export default function AllOrder() {
     return isEnquiryTask(order?.Type);
   }, []);
 
-  const { ordersCount, enquiriesCount } = useMemo(() => {
-    let enquiries = 0;
+  const isDelivered = useCallback((order) => {
+    const task = normLower(order?.highestStatusTask?.Task);
+    return task === "delivered" || task === "paid";
+  }, []);
+
+  const { ordersCount, enquiriesCount, deliveredCount } = useMemo(() => {
+    let enquiries = 0, delivered = 0;
     for (const order of orderList) {
       if (isEnquiry(order)) enquiries += 1;
+      else if (isDelivered(order)) delivered += 1;
     }
     return {
-      ordersCount: orderList.length - enquiries,
+      ordersCount: orderList.length - enquiries - delivered,
       enquiriesCount: enquiries,
+      deliveredCount: delivered,
     };
-  }, [orderList, isEnquiry]);
+  }, [orderList, isEnquiry, isDelivered]);
 
   useEffect(() => {
     const role =
@@ -174,30 +179,26 @@ export default function AllOrder() {
     );
   }, []);
 
-  useEffect(() => {
-    if (viewTab !== "delivered") return;
-    if (deliveredOrders.length > 0) return;
-    setDeliveredLoading(true);
-    axios.get("/api/orders/GetDeliveredList")
-      .then((res) => setDeliveredOrders(res.data?.result || []))
-      .catch(() => toast.error("Failed to load delivered orders"))
-      .finally(() => setDeliveredLoading(false));
-  }, [viewTab]);
+  const deliveredOrderList = useMemo(
+    () => orderList.filter((o) => !isEnquiry(o) && isDelivered(o)),
+    [orderList, isEnquiry, isDelivered]
+  );
 
   const filteredDeliveredOrders = useMemo(() => {
-    if (!deliveredSearch.trim()) return deliveredOrders;
     const q = deliveredSearch.trim().toLowerCase();
-    return deliveredOrders.filter((o) =>
+    if (!q) return deliveredOrderList;
+    return deliveredOrderList.filter((o) =>
       String(o.Order_Number || "").includes(q) ||
-      String(o.Customer_uuid || "").toLowerCase().includes(q) ||
+      String(o.Customer_name || o.Customer_uuid || "").toLowerCase().includes(q) ||
       (o.Items || []).map((it) => it.Remark || it.Item || "").join(" ").toLowerCase().includes(q)
     );
-  }, [deliveredOrders, deliveredSearch]);
+  }, [deliveredOrderList, deliveredSearch]);
 
   const filteredOrderList = useMemo(() => {
     if (viewTab === "enquiries") return orderList.filter((o) => isEnquiry(o));
-    return orderList.filter((o) => !isEnquiry(o));
-  }, [orderList, viewTab, isEnquiry]);
+    // orders tab: exclude enquiries AND delivered/paid
+    return orderList.filter((o) => !isEnquiry(o) && !isDelivered(o));
+  }, [orderList, viewTab, isEnquiry, isDelivered]);
 
   const { columnOrder, groupedOrders } = useOrderGrouping(
     filteredOrderList,
@@ -436,7 +437,7 @@ export default function AllOrder() {
               {viewTab === "enquiries" ? "All Enquiries" : viewTab === "delivered" ? "Delivered Orders" : "All Orders"}
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              {viewTab === "enquiries" ? enquiriesCount : viewTab === "delivered" ? deliveredOrders.length : ordersCount}
+              {viewTab === "enquiries" ? enquiriesCount : viewTab === "delivered" ? deliveredCount : ordersCount}
             </Typography>
           </Toolbar>
         </AppBar>
@@ -462,7 +463,7 @@ export default function AllOrder() {
             >
               <Tab value="orders" label={`Orders (${ordersCount})`} />
               <Tab value="enquiries" label={`Enquiries (${enquiriesCount})`} />
-              <Tab value="delivered" label={`Delivered (${deliveredOrders.length})`} sx={{ color: "success.main" }} />
+              <Tab value="delivered" label={`Delivered (${deliveredCount})`} sx={{ color: "success.main" }} />
             </Tabs>
 
             {viewTab !== "delivered" && <Stack
@@ -544,11 +545,7 @@ export default function AllOrder() {
             }}
           >
             {viewTab === "delivered" ? (
-              deliveredLoading ? (
-                <Stack spacing={1} sx={{ p: 2 }}>
-                  {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} variant="rounded" height={48} />)}
-                </Stack>
-              ) : filteredDeliveredOrders.length === 0 ? (
+              filteredDeliveredOrders.length === 0 ? (
                 <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>No delivered orders found.</Alert>
               ) : (
                 <Box sx={{ overflowX: "auto" }}>

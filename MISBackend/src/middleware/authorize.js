@@ -17,7 +17,18 @@ const ROLE_HIERARCHY = {
   delivery: 1,
 };
 
+// Real User_group values stored on accounts (see MISFrontend/src/constants/roles.js
+// ROLE_TYPES.ADMIN = "Admin User") don't always match the short hierarchy keys
+// above — map known aliases to their canonical hierarchy key before comparing.
+const ROLE_ALIASES = {
+  'admin user': 'admin',
+  'superadmin': 'admin',
+  'super admin': 'admin',
+};
+
 const normalizeRole = (role = '') => String(role || '').trim().toLowerCase();
+
+const resolveHierarchyRole = (role) => ROLE_ALIASES[role] || role;
 
 /**
  * requireRole(roles) — require the user to have one of the specified roles.
@@ -39,8 +50,9 @@ const requireRole = (roles) => (req, _res, next) => {
   }
 
   // Also allow if user's hierarchy level >= minimum required
-  const userLevel = ROLE_HIERARCHY[userRole] || 0;
-  const minRequired = Math.min(...allowed.map((r) => ROLE_HIERARCHY[r] || 999));
+  const resolvedUserRole = resolveHierarchyRole(userRole);
+  const userLevel = ROLE_HIERARCHY[resolvedUserRole] || 0;
+  const minRequired = Math.min(...allowed.map((r) => ROLE_HIERARCHY[resolveHierarchyRole(r)] || 999));
 
   if (userLevel >= minRequired) {
     return next();

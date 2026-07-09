@@ -18,6 +18,7 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded';
+import ComputerRoundedIcon from '@mui/icons-material/ComputerRounded';
 import axios from '../apiClient';
 
 const ROOT_CRUMB = { id: 'root', name: 'My Drive' };
@@ -56,6 +57,27 @@ function buildAndDownloadExcel(job) {
   XLSX.writeFile(wb, `${safeName}-file-report.xlsx`);
 }
 
+/** Builds { rows, maxDepth, folderName } from a browser FileList picked via a folder input. */
+function rowsFromLocalFiles(fileList) {
+  let maxDepth = 0;
+  const rows = fileList.map((file) => {
+    const relPath = file.webkitRelativePath || file.name;
+    const segments = relPath.split('/');
+    const fileName = segments.pop();
+    maxDepth = Math.max(maxDepth, segments.length);
+    const extMatch = fileName.match(/\.([^.]+)$/);
+    return {
+      pathSegments: segments,
+      fileName,
+      extension: extMatch ? extMatch[1].toLowerCase() : '',
+      modifiedTime: file.lastModified ? new Date(file.lastModified).toISOString() : null,
+      size: file.size || null,
+    };
+  });
+  const folderName = fileList[0]?.webkitRelativePath?.split('/')[0] || 'Local-Folder';
+  return { rows, maxDepth: Math.max(1, maxDepth), folderName };
+}
+
 export default function DriveFolderReport() {
   const [breadcrumbs, setBreadcrumbs] = useState([ROOT_CRUMB]);
   const [folders, setFolders] = useState([]);
@@ -69,6 +91,9 @@ export default function DriveFolderReport() {
   const [scanProgress, setScanProgress] = useState(null); // { foldersScanned, filesFound }
   const [scanError, setScanError] = useState('');
   const pollRef = useRef(null);
+
+  const [localError, setLocalError] = useState('');
+  const localInputRef = useRef(null);
 
   const current = breadcrumbs[breadcrumbs.length - 1];
 
@@ -166,6 +191,18 @@ export default function DriveFolderReport() {
     }
   };
 
+  const handleLocalFolderSelect = (e) => {
+    const fileList = Array.from(e.target.files || []);
+    e.target.value = ''; // allow re-selecting the same folder later
+    if (!fileList.length) return;
+    setLocalError('');
+    try {
+      buildAndDownloadExcel(rowsFromLocalFiles(fileList));
+    } catch (err) {
+      setLocalError(err.message || 'Failed to build report');
+    }
+  };
+
   if (reconnectRequired) {
     return (
       <Box sx={{ p: { xs: 1, md: 2 } }}>
@@ -238,7 +275,7 @@ export default function DriveFolderReport() {
         {browseLoading ? (
           <Stack alignItems="center" py={3}><CircularProgress size={24} /></Stack>
         ) : (
-          <Stack spacing={0.4}>
+          <Stack spacing={0.4} sx={{ maxHeight: 420, overflowY: 'auto', pr: 0.5 }}>
             {folders.length === 0 && files.length === 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
                 No subfolders or files here.
@@ -292,6 +329,37 @@ export default function DriveFolderReport() {
           </Box>
         )}
         {scanError && <Alert severity="error" sx={{ mt: 1.5 }}>{scanError}</Alert>}
+      </Paper>
+
+      <Paper variant="outlined" sx={{ borderRadius: 3, p: 1.5, mt: 1.5 }}>
+        <Stack direction="row" alignItems="center" spacing={1.5}>
+          <ComputerRoundedIcon color="action" />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={600}>This computer's folder (not Google Drive)</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Pick a folder on this machine — only file names, folder paths, and sizes are read (in your browser).
+              Nothing is uploaded anywhere.
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadRoundedIcon />}
+            onClick={() => localInputRef.current?.click()}
+          >
+            Choose Local Folder
+          </Button>
+          <input
+            type="file"
+            ref={localInputRef}
+            onChange={handleLocalFolderSelect}
+            style={{ display: 'none' }}
+            webkitdirectory="true"
+            directory="true"
+            mozdirectory="true"
+            multiple
+          />
+        </Stack>
+        {localError && <Alert severity="error" sx={{ mt: 1.5 }}>{localError}</Alert>}
       </Paper>
     </Box>
   );

@@ -21,6 +21,7 @@ import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded';
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
+import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -145,6 +146,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Admin',
     items: [
       { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Drive Folder Report', path: ROUTES.DRIVE_FOLDER_REPORT, icon: <FolderOpenRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
 ];

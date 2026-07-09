@@ -61,6 +61,7 @@ const googleDriveOAuthRoutes = require("./routes/googleDriveOAuth");
 // Legacy googleDriveToken route removed — use /api/google-drive instead
 const FlowRouter = require("./routes/Flow");
 const DesignFiles = require("./routes/DesignFiles");
+const DriveFolderReport = require("./routes/driveFolderReport");
 const UpiPayments = require("./routes/UpiPayments");
 const BusinessOps = require("./routes/BusinessOps");
 const WorkflowTemplate = require("./routes/workflowTemplate");
@@ -148,6 +149,7 @@ app.use("/api/google-drive", googleDriveOAuthRoutes);
 app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);
+app.use("/api/drive-folder-report", DriveFolderReport);
 app.use("/api", Chat);
 
 // ---------- Baileys (unofficial WhatsApp Web / QR-based) ----------

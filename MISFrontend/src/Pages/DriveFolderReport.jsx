@@ -34,9 +34,12 @@ function extractFolderId(input) {
   return value;
 }
 
+const MIN_FOLDER_COLUMNS = 6;
+
 function buildAndDownloadExcel(job) {
   const rows = job.rows || [];
-  const maxDepth = Math.max(1, job.maxDepth || 1);
+  // Always show Folder 1..6 + File Name; only add Folder 7, 8, ... if a path actually goes deeper.
+  const maxDepth = Math.max(MIN_FOLDER_COLUMNS, job.maxDepth || 1);
 
   const excelRows = rows.map((r) => {
     const row = {};
@@ -44,9 +47,6 @@ function buildAndDownloadExcel(job) {
       row[`Folder ${i + 1}`] = r.pathSegments[i] || '';
     }
     row['File Name'] = r.fileName;
-    row['File Type'] = r.extension || '';
-    row['Last Modified'] = r.modifiedTime ? new Date(r.modifiedTime).toLocaleString('en-IN') : '';
-    row['Size (KB)'] = r.size ? Math.round(r.size / 1024) : '';
     return row;
   });
 

@@ -110,6 +110,7 @@ export const ROUTES = {
 
   // Admin
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
+  DRIVE_FOLDER_REPORT: '/admin/drive-folder-report',
 };
 
 export const ROUTE_ALIASES = {

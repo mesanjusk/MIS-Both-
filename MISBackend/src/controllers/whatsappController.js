@@ -1313,6 +1313,30 @@ const verifyWebhook = (req, res) => {
   return res.sendStatus(403);
 };
 
+const verifyMetabspSignature = (req) => {
+  const secret = process.env.METABSP_WEBHOOK_SECRET;
+  if (!secret) return false;
+
+  const signature = String(req.headers['x-metabsp-signature-256'] || '');
+
+  if (!req.rawBody || !signature.startsWith('sha256=')) {
+    return false;
+  }
+
+  const expectedSignature =
+    'sha256=' +
+    crypto
+      .createHmac('sha256', secret)
+      .update(req.rawBody)
+      .digest('hex');
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+  } catch (_error) {
+    return false;
+  }
+};
+
 const receiveWebhook = (req, res) => {
   try {
     logger.debug('Webhook event', { type: req.body?.type });
@@ -1441,82 +1465,7 @@ const receiveWebhook = (req, res) => {
       }
 
       for (const payload of incomingPayloads) {
-        try {
-          upsertContactFromIncomingMessage(payload).catch((contactError) => {
-            logger.error('[whatsapp] Failed to upsert contact:', contactError);
-          });
-
-          const customerSync = await upsertCustomerAndEnquiryFromIncomingMessage(payload).catch(
-            (customerError) => {
-              logger.error('[whatsapp] Failed to sync customer/enquiry:', customerError);
-              return null;
-            }
-          );
-
-          if (customerSync?.customer) {
-            payload.customerUuid = String(customerSync.customer.Customer_uuid || '');
-            payload.customerId = String(customerSync.customer._id || '');
-          }
-
-          const { message: savedMessage, isDuplicate } = await saveAndEmitMessage(payload);
-
-          if (!isDuplicate && payload.mediaId) {
-            setImmediate(() => {
-              processIncomingMediaMessage({
-                messageRecordId: savedMessage._id,
-                mediaId: payload.mediaId,
-              });
-            });
-          }
-
-          if (!isDuplicate && ['text', 'button', 'interactive'].includes(payload.type)) {
-            try {
-              const userMessage = String(payload?.text || payload?.message || '').trim();
-              logger.debug('Incoming message', { from: userMessage?.from });
-
-              const attendanceTriggerResult = await markWhatsAppStartAttendance(payload);
-              if (attendanceTriggerResult.handled) {
-                continue;
-              }
-
-              const flowResult = await processIncomingMessageFlow({
-                payload,
-                sendText: dispatchTextMessage,
-              });
-
-              if (flowResult?.handled) {
-                logger.debug('[whatsapp] Triggered flow ID:', flowResult?.flowId || flowResult?.session?.flowId || null);
-                logger.debug('[whatsapp] Matched keyword:', flowResult?.matchedKeyword || null);
-                continue;
-              }
-
-              const simpleFlowReply = await getFlowReply(userMessage);
-              logger.debug('[whatsapp] Flow matched', { flowId: simpleFlowReply?.flowId });
-
-              if (simpleFlowReply?.replyText) {
-                logger.debug('[whatsapp] Matched keyword:', simpleFlowReply.matchedKeyword || null);
-                logger.debug('[whatsapp] Triggered flow ID:', simpleFlowReply.flowId || null);
-                await dispatchTextMessage({
-                  to: payload.from,
-                  body: simpleFlowReply.replyText,
-                });
-                continue;
-              }
-
-              await sendAutoReplyForIncomingMessage({
-  ...payload,
-  type: 'text',
-  message: userMessage,
-  text: userMessage,
-});
-              continue;
-            } catch (replyError) {
-              logger.error('[whatsapp] Failed to send auto reply:', replyError);
-            }
-          }
-        } catch (saveError) {
-          logger.error('[whatsapp] Failed to save incoming message:', saveError);
-        }
+        await processIncomingWhatsAppPayload(payload);
       }
     });
   } catch (error) {
@@ -1524,6 +1473,137 @@ const receiveWebhook = (req, res) => {
     return res.status(200).json({ received: true });
   }
 };
+
+const processIncomingWhatsAppPayload = async (payload) => {
+  try {
+    upsertContactFromIncomingMessage(payload).catch((contactError) => {
+      logger.error('[whatsapp] Failed to upsert contact:', contactError);
+    });
+
+    const customerSync = await upsertCustomerAndEnquiryFromIncomingMessage(payload).catch(
+      (customerError) => {
+        logger.error('[whatsapp] Failed to sync customer/enquiry:', customerError);
+        return null;
+      }
+    );
+
+    if (customerSync?.customer) {
+      payload.customerUuid = String(customerSync.customer.Customer_uuid || '');
+      payload.customerId = String(customerSync.customer._id || '');
+    }
+
+    const { message: savedMessage, isDuplicate } = await saveAndEmitMessage(payload);
+
+    if (!isDuplicate && payload.mediaId) {
+      setImmediate(() => {
+        processIncomingMediaMessage({
+          messageRecordId: savedMessage._id,
+          mediaId: payload.mediaId,
+        });
+      });
+    }
+
+    if (!isDuplicate && ['text', 'button', 'interactive'].includes(payload.type)) {
+      try {
+        const userMessage = String(payload?.text || payload?.message || '').trim();
+        logger.debug('Incoming message', { from: userMessage?.from });
+
+        const attendanceTriggerResult = await markWhatsAppStartAttendance(payload);
+        if (attendanceTriggerResult.handled) {
+          return;
+        }
+
+        const flowResult = await processIncomingMessageFlow({
+          payload,
+          sendText: dispatchTextMessage,
+        });
+
+        if (flowResult?.handled) {
+          logger.debug('[whatsapp] Triggered flow ID:', flowResult?.flowId || flowResult?.session?.flowId || null);
+          logger.debug('[whatsapp] Matched keyword:', flowResult?.matchedKeyword || null);
+          return;
+        }
+
+        const simpleFlowReply = await getFlowReply(userMessage);
+        logger.debug('[whatsapp] Flow matched', { flowId: simpleFlowReply?.flowId });
+
+        if (simpleFlowReply?.replyText) {
+          logger.debug('[whatsapp] Matched keyword:', simpleFlowReply.matchedKeyword || null);
+          logger.debug('[whatsapp] Triggered flow ID:', simpleFlowReply.flowId || null);
+          await dispatchTextMessage({
+            to: payload.from,
+            body: simpleFlowReply.replyText,
+          });
+          return;
+        }
+
+        await sendAutoReplyForIncomingMessage({
+  ...payload,
+  type: 'text',
+  message: userMessage,
+  text: userMessage,
+});
+        return;
+      } catch (replyError) {
+        logger.error('[whatsapp] Failed to send auto reply:', replyError);
+      }
+    }
+  } catch (saveError) {
+    logger.error('[whatsapp] Failed to save incoming message:', saveError);
+  }
+};
+
+const metabspWebhookReceive = (req, res) => {
+  if (!verifyMetabspSignature(req)) {
+    return res.status(403).json({ message: 'Invalid signature' });
+  }
+
+  res.status(200).json({ received: true });
+
+  setImmediate(async () => {
+    try {
+      const body = req.body || {};
+
+      if (body.direction !== 'incoming' || body.fromMe === true) {
+        return;
+      }
+
+      const from = String(body.from || '').replace(/\D/g, '');
+      const text = String(body.message || body.text || '');
+      const payload = {
+        fromMe: false,
+        from,
+        to: body.to || body.phoneNumberId || '',
+        message: text,
+        body: text,
+        text,
+        timestamp: body.timestamp || body.time || new Date().toISOString(),
+        time: body.time || body.timestamp || new Date().toISOString(),
+        status: 'received',
+        direction: 'incoming',
+        messageId: body.messageId || '',
+        type: body.type || 'text',
+        mediaId: body.mediaId || '',
+        caption: '',
+        filename: '',
+        mimeType: '',
+        mediaUrl: '',
+        interactiveType: body.type === 'interactive' ? 'button_reply' : '',
+        replyId: body.interactiveId || '',
+        replyTitle: '',
+        flowId: '',
+        flowToken: '',
+        flowResponseData: '',
+      };
+
+      await processIncomingWhatsAppPayload(payload);
+    } catch (error) {
+      logger.error('[whatsapp] metabspWebhookReceive error:', error);
+    }
+  });
+};
+
+const metabspWebhookVerify = (_req, res) => res.status(200).json({ status: 'ok' });
 
 const getAnalytics = asyncHandler(async (req, res) => {
   const includeCampaignWise =
@@ -1662,4 +1742,6 @@ module.exports = {
   getAnalytics,
   verifyWebhook,
   receiveWebhook,
+  metabspWebhookReceive,
+  metabspWebhookVerify,
 };

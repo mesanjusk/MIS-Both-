@@ -13,6 +13,8 @@ const UsergroupSchema=new mongoose.Schema({
         viewOrders: { type: Boolean },
         advanceOrderStage: { type: Boolean },
         assignOrders: { type: Boolean },
+        createOrders: { type: Boolean },
+        receivePayments: { type: Boolean },
       },
       default: undefined,
     },

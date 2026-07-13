@@ -66,12 +66,14 @@ router.put(
   requireAdmin,
   asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const { viewOrders, advanceOrderStage, assignOrders } = req.body || {};
+    const { viewOrders, advanceOrderStage, assignOrders, createOrders, receivePayments } = req.body || {};
 
     const modulePermissions = {};
     if (typeof viewOrders === "boolean") modulePermissions.viewOrders = viewOrders;
     if (typeof advanceOrderStage === "boolean") modulePermissions.advanceOrderStage = advanceOrderStage;
     if (typeof assignOrders === "boolean") modulePermissions.assignOrders = assignOrders;
+    if (typeof createOrders === "boolean") modulePermissions.createOrders = createOrders;
+    if (typeof receivePayments === "boolean") modulePermissions.receivePayments = receivePayments;
 
     const filter = /^[0-9a-fA-F]{24}$/.test(id) ? { _id: id } : { User_group_uuid: id };
     const group = await Usergroup.findOneAndUpdate(

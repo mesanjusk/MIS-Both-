@@ -13,6 +13,8 @@ const PERMISSION_FIELDS = [
   { key: 'viewOrders', label: 'View orders', desc: 'Can run "MIS orders" / "MIS order <number>" to look up orders' },
   { key: 'advanceOrderStage', label: 'Advance order stage', desc: 'Can tap "Move to next stage / Mark ready / Mark delivered" buttons' },
   { key: 'assignOrders', label: 'Self-assign orders', desc: 'Can tap "Assign to me" on an unassigned order' },
+  { key: 'createOrders', label: 'Create orders', desc: 'Can run "MIS new order" to create an order for a customer by chat' },
+  { key: 'receivePayments', label: 'Record payments', desc: 'Can tap "Receive payment" and record an amount collected against an order' },
 ];
 
 // Defaults mirror MISBackend/src/services/permissionService.js — shown so
@@ -27,6 +29,8 @@ function defaultsForGroup(name = '') {
     viewOrders: true,
     advanceOrderStage: tier >= 2,
     assignOrders: tier >= 3,
+    createOrders: tier >= 2,
+    receivePayments: tier >= 3,
   };
 }
 
@@ -144,9 +148,10 @@ export default function AdminGroupPermissions() {
       </Stack>
 
       <Alert icon={<WhatsAppIcon fontSize="small" />} severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
-        These rights govern the "MIS orders" WhatsApp commands only (view / advance stage / self-assign).
-        A group left as "Using role default" follows the built-in tier: Admin/Owner get full control,
-        Office/Manager get view + advance, everyone else gets view of their own assigned orders only.
+        These rights govern the "MIS orders" / "MIS new order" WhatsApp commands only (view / advance stage /
+        self-assign / create / record payment). A group left as "Using role default" follows the built-in tier:
+        Admin/Owner get full control including payments, Office/Manager get view + advance + create, everyone
+        else gets view of their own assigned orders only.
       </Alert>
 
       <Stack spacing={2}>

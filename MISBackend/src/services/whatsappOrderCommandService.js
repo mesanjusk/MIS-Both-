@@ -1,15 +1,32 @@
+const { v4: uuidv4 } = require('uuid');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
 const WhatsAppActionLog = require('../repositories/WhatsAppActionLog');
+const WhatsAppPendingInput = require('../repositories/WhatsAppPendingInput');
 const { assignOrderToUser } = require('./orderTaskService');
-const { moveOrderStage, markOrderReady, markOrderDelivered, VALID_STAGES } = require('./businessWorkflowService');
+const {
+  moveOrderStage,
+  markOrderReady,
+  markOrderDelivered,
+  receiveOrderPayment,
+  createQuickOrderWorkflow,
+  getOrderTotal,
+  getReceivedAmountForOrder,
+  VALID_STAGES,
+} = require('./businessWorkflowService');
 const { resolveStaffFromWhatsApp } = require('./whatsappIdentityService');
 
 const CLOSED_STAGES = new Set(['delivered', 'paid']);
 const LIST_LIMIT = 10;
+const PENDING_TTL_MS = 10 * 60 * 1000;
+const PAY_MODE_LABELS = { cash: 'Cash', upi: 'UPI', bank: 'Bank' };
 
 const ORDERS_COMMAND = /^orders?$/i;
 const ORDER_DETAIL_COMMAND = /^order\s+(\d+)$/i;
+const NEW_ORDER_COMMAND = /^new\s*order$/i;
+const CANCEL_COMMAND = /^cancel$/i;
+
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
 const truncate = (value, max) => {
   const str = String(value ?? '').trim();
@@ -18,6 +35,19 @@ const truncate = (value, max) => {
 
 const formatDate = (value) => (value ? new Date(value).toLocaleDateString('en-IN') : 'not set');
 const formatAmount = (order) => Number(order.Amount || order.saleSubtotal || 0);
+
+function parseAmountFromText(text) {
+  const cleaned = String(text || '').replace(/[₹,\s]/g, '');
+  const amount = Number(cleaned);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return Math.round(amount * 100) / 100;
+}
+
+async function getOutstandingForOrder(order) {
+  const total = getOrderTotal(order);
+  const received = await getReceivedAmountForOrder(order);
+  return Math.max(0, Math.round((total - received) * 100) / 100);
+}
 
 async function findOrdersForStaff({ user, permissions }) {
   const filter = permissions.viewScope === 'all'
@@ -61,14 +91,16 @@ async function findOrderByUuid(orderUuid) {
   return Orders.findOne({ Order_uuid: orderUuid }).lean();
 }
 
-function buildOrderDetailMessage(order, permissions) {
+async function buildOrderDetailMessage(order, permissions) {
   const next = nextStageFor(order);
-  const bodyText = [
+  const outstanding = await getOutstandingForOrder(order);
+  const bodyLines = [
     `Order #${order.Order_Number}`,
     `Stage: ${order.stage}`,
     `Due: ${formatDate(order.dueDate)}`,
     `Amount: ₹${formatAmount(order)}`,
-  ].join('\n');
+  ];
+  if (outstanding > 0) bodyLines.push(`Outstanding: ₹${outstanding}`);
 
   const buttons = [];
   if (next && permissions.advanceOrderStage) {
@@ -78,8 +110,11 @@ function buildOrderDetailMessage(order, permissions) {
   if (!order.assignedTo && permissions.assignOrders) {
     buttons.push({ id: `act:assign:${order.Order_uuid}`, title: 'Assign to me' });
   }
+  if (outstanding > 0 && permissions.receivePayments) {
+    buttons.push({ id: `act:pay:${order.Order_uuid}`, title: 'Receive payment' });
+  }
 
-  return { bodyText, buttons: buttons.slice(0, 3) };
+  return { bodyText: bodyLines.join('\n'), buttons: buttons.slice(0, 3) };
 }
 
 async function logAction({ phone, user, action, order, result, detail = '' }) {
@@ -99,7 +134,232 @@ async function logAction({ phone, user, action, order, result, detail = '' }) {
   }
 }
 
+async function setPending(phone, fields) {
+  await WhatsAppPendingInput.findOneAndUpdate(
+    { phone: normalizePhone(phone) },
+    { $set: { ...fields, expiresAt: new Date(Date.now() + PENDING_TTL_MS) } },
+    { upsert: true }
+  );
+}
+
+async function clearPending(phone) {
+  await WhatsAppPendingInput.deleteOne({ phone: normalizePhone(phone) });
+}
+
+// ── Payment collection ──────────────────────────────────────────────────
+async function startPaymentFlow({ orderUuid, phone, user, permissions, sendText }) {
+  if (!permissions.receivePayments) {
+    await logAction({ phone, user, action: 'pay', order: { Order_uuid: orderUuid }, result: 'denied' });
+    await sendText({ to: phone, body: 'Your role cannot record payments from WhatsApp.' });
+    return { handled: true };
+  }
+
+  const order = await findOrderByUuid(orderUuid);
+  if (!order) {
+    await sendText({ to: phone, body: 'That order no longer exists.' });
+    return { handled: true };
+  }
+
+  const outstanding = await getOutstandingForOrder(order);
+  if (outstanding <= 0) {
+    await sendText({ to: phone, body: `Order #${order.Order_Number} has no outstanding balance.` });
+    return { handled: true };
+  }
+
+  await setPending(phone, { action: 'pay', step: 'awaiting_amount', orderUuid: order.Order_uuid, data: {} });
+  await sendText({
+    to: phone,
+    body: `Order #${order.Order_Number} outstanding: ₹${outstanding}. Reply with the amount received (numbers only), or CANCEL.`,
+  });
+  return { handled: true };
+}
+
+async function handlePaymentTextStep({ pending, rawText, phone, sendText, sendButtons }) {
+  if (pending.step !== 'awaiting_amount') {
+    await sendText({ to: phone, body: 'Please use the buttons above, or reply CANCEL.' });
+    return { handled: true };
+  }
+
+  const amount = parseAmountFromText(rawText);
+  if (amount === null) {
+    await sendText({ to: phone, body: 'Please send a valid amount (e.g. 500), or CANCEL.' });
+    return { handled: true };
+  }
+
+  await setPending(phone, { action: 'pay', step: 'awaiting_mode', orderUuid: pending.orderUuid, data: { amount } });
+  await sendButtons({
+    to: phone,
+    bodyText: `Amount: ₹${amount}. How was it received?`,
+    buttons: [
+      { id: `paymode:cash:${pending.orderUuid}`, title: 'Cash' },
+      { id: `paymode:upi:${pending.orderUuid}`, title: 'UPI' },
+      { id: `paymode:bank:${pending.orderUuid}`, title: 'Bank' },
+    ],
+  });
+  return { handled: true };
+}
+
+async function handlePayModeReply({ replyId, phone, sendText, sendButtons }) {
+  const parts = replyId.split(':');
+  const mode = parts[1];
+  const orderUuid = parts.slice(2).join(':');
+  const label = PAY_MODE_LABELS[mode] || mode;
+
+  const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
+  if (!pending || pending.action !== 'pay' || pending.step !== 'awaiting_mode' || pending.orderUuid !== orderUuid) {
+    await sendText({ to: phone, body: "That payment step has expired. Start again from the order's Receive payment button." });
+    return { handled: true };
+  }
+
+  await setPending(phone, { action: 'pay', step: 'confirm', orderUuid, data: { ...pending.data, paymentMode: label } });
+
+  const order = await findOrderByUuid(orderUuid);
+  await sendButtons({
+    to: phone,
+    bodyText: `Receive ₹${pending.data.amount} via ${label} for Order #${order?.Order_Number ?? ''}?`,
+    buttons: [
+      { id: `ok:pay:${orderUuid}`, title: 'Confirm' },
+      { id: `no:pay:${orderUuid}`, title: 'Cancel' },
+    ],
+  });
+  return { handled: true };
+}
+
+// ── Order creation ──────────────────────────────────────────────────────
+async function startCreateOrderFlow({ phone, user, permissions, sendText }) {
+  if (!permissions.createOrders) {
+    await logAction({ phone, user, action: 'createOrder', order: null, result: 'denied' });
+    await sendText({ to: phone, body: 'Your role cannot create orders from WhatsApp.' });
+    return { handled: true };
+  }
+
+  await setPending(phone, { action: 'createOrder', step: 'awaiting_customer_phone', orderUuid: '', data: {} });
+  await sendText({ to: phone, body: "New order — send the customer's 10-digit mobile number, or CANCEL." });
+  return { handled: true };
+}
+
+async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, sendButtons }) {
+  if (pending.step === 'awaiting_customer_phone') {
+    const last10 = rawText.replace(/\D/g, '').slice(-10);
+    if (last10.length !== 10) {
+      await sendText({ to: phone, body: 'Please send a valid 10-digit mobile number, or CANCEL.' });
+      return { handled: true };
+    }
+
+    const customer = await Customers.findOne({ Mobile_number: last10 }).lean();
+    if (customer) {
+      await setPending(phone, {
+        action: 'createOrder',
+        step: 'awaiting_description',
+        data: { customerUuid: customer.Customer_uuid, customerName: customer.Customer_name },
+      });
+      await sendText({ to: phone, body: `Customer: ${customer.Customer_name}. Now send a short order description (e.g. "500 visiting cards").` });
+      return { handled: true };
+    }
+
+    await setPending(phone, {
+      action: 'createOrder',
+      step: 'awaiting_new_customer_name',
+      data: { newCustomerMobile: last10 },
+    });
+    await sendText({ to: phone, body: "No customer found for that number. Send the customer's name to create a new customer record, or CANCEL." });
+    return { handled: true };
+  }
+
+  if (pending.step === 'awaiting_new_customer_name') {
+    const name = rawText.trim().slice(0, 120);
+    if (!name) {
+      await sendText({ to: phone, body: 'Please send a valid name, or CANCEL.' });
+      return { handled: true };
+    }
+
+    const created = await Customers.create({
+      Customer_uuid: uuidv4(),
+      Customer_name: name,
+      Mobile_number: pending.data.newCustomerMobile,
+      Customer_group: 'Customer',
+      Status: 'active',
+      Tags: ['whatsapp'],
+    });
+
+    await setPending(phone, {
+      action: 'createOrder',
+      step: 'awaiting_description',
+      data: { customerUuid: created.Customer_uuid, customerName: created.Customer_name },
+    });
+    await sendText({ to: phone, body: `Created new customer ${created.Customer_name}. Now send a short order description.` });
+    return { handled: true };
+  }
+
+  if (pending.step === 'awaiting_description') {
+    const note = rawText.trim().slice(0, 300);
+    if (!note) {
+      await sendText({ to: phone, body: 'Please send a short description, or CANCEL.' });
+      return { handled: true };
+    }
+
+    await setPending(phone, { action: 'createOrder', step: 'awaiting_amount', data: { ...pending.data, orderNote: note } });
+    await sendText({ to: phone, body: 'Enter the order amount (₹, numbers only).' });
+    return { handled: true };
+  }
+
+  if (pending.step === 'awaiting_amount') {
+    const amount = parseAmountFromText(rawText);
+    if (amount === null) {
+      await sendText({ to: phone, body: 'Please send a valid amount (e.g. 1500), or CANCEL.' });
+      return { handled: true };
+    }
+
+    await setPending(phone, { action: 'createOrder', step: 'confirm', data: { ...pending.data, amount } });
+    await sendButtons({
+      to: phone,
+      bodyText: `Create order for ${pending.data.customerName}: "${pending.data.orderNote}" — ₹${amount}. Confirm?`,
+      buttons: [
+        { id: 'ok:createOrder:new', title: 'Confirm' },
+        { id: 'no:createOrder:new', title: 'Cancel' },
+      ],
+    });
+    return { handled: true };
+  }
+
+  await sendText({ to: phone, body: 'Please use the Confirm/Cancel buttons above, or reply CANCEL.' });
+  return { handled: true };
+}
+
+async function executeCreateOrder({ phone, user, permissions }) {
+  const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
+  if (!pending || pending.action !== 'createOrder' || pending.step !== 'confirm') {
+    return { ok: false, message: 'That order draft has expired. Start again with "new order".' };
+  }
+
+  if (!permissions.createOrders) {
+    await logAction({ phone, user, action: 'createOrder', order: null, result: 'denied' });
+    await clearPending(phone);
+    return { ok: false, message: 'Your role cannot create orders from WhatsApp.' };
+  }
+
+  try {
+    const { order: createdOrder } = await createQuickOrderWorkflow({
+      Customer_uuid: pending.data.customerUuid,
+      amount: pending.data.amount,
+      orderNote: pending.data.orderNote,
+      createdBy: user.User_name || 'whatsapp',
+    });
+    await clearPending(phone);
+    await logAction({ phone, user, action: 'createOrder', order: createdOrder, result: 'success', detail: `₹${pending.data.amount}` });
+    return { ok: true, message: `Order #${createdOrder.Order_Number} created for ${pending.data.customerName} — ₹${pending.data.amount}.` };
+  } catch (error) {
+    await logAction({ phone, user, action: 'createOrder', order: null, result: 'error', detail: error.message });
+    return { ok: false, message: 'Could not create that order — please use the app.' };
+  }
+}
+
+// ── Stage-advance / assign / payment execution ──────────────────────────
 async function executeOrderAction({ action, orderUuid, phone, user, permissions }) {
+  if (action === 'createOrder') {
+    return executeCreateOrder({ phone, user, permissions });
+  }
+
   const order = await findOrderByUuid(orderUuid);
   if (!order) {
     return { ok: false, message: 'That order no longer exists.' };
@@ -150,25 +410,72 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
     return { ok: true, message: `Order #${order.Order_Number} assigned to you.` };
   }
 
+  if (action === 'pay') {
+    const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
+    if (!pending || pending.action !== 'pay' || pending.step !== 'confirm' || pending.orderUuid !== order.Order_uuid) {
+      return { ok: false, message: "That payment step has expired. Start again from the order's Receive payment button." };
+    }
+
+    if (!permissions.receivePayments) {
+      await logAction({ phone, user, action, order, result: 'denied' });
+      await clearPending(phone);
+      return { ok: false, message: 'Your role cannot record payments from WhatsApp.' };
+    }
+
+    const amount = Number(pending.data.amount);
+    const paymentMode = pending.data.paymentMode || 'Cash';
+
+    try {
+      const { order: updatedOrder } = await receiveOrderPayment({
+        orderUuid: order.Order_uuid,
+        amount,
+        paymentMode,
+        narration: 'WhatsApp payment',
+        createdBy: user.User_name || 'whatsapp',
+      });
+      await clearPending(phone);
+      await logAction({ phone, user, action, order, result: 'success', detail: `₹${amount} via ${paymentMode}` });
+      const outstanding = await getOutstandingForOrder(updatedOrder || order);
+      return {
+        ok: true,
+        message: `Recorded ₹${amount} (${paymentMode}) for Order #${order.Order_Number}. Outstanding: ₹${outstanding}.`,
+      };
+    } catch (error) {
+      await logAction({ phone, user, action, order, result: 'error', detail: error.message });
+      return { ok: false, message: 'Could not record that payment — please use the app.' };
+    }
+  }
+
   return { ok: false, message: 'Unknown action.' };
 }
 
-// Entry point wired into the WhatsApp inbound pipeline. Only intercepts
-// traffic that actually looks like an order command/reply; anything else is
-// left untouched (handled: false) so attendance/flow/auto-reply behave
-// exactly as before.
+// ── Entry point ──────────────────────────────────────────────────────────
+// Wired into the WhatsApp inbound pipeline. Only intercepts traffic that
+// looks like an order command/reply, or continues an in-progress
+// payment/order-creation conversation; anything else is left untouched
+// (handled: false) so attendance/flow/auto-reply behave exactly as before.
 async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, sendList }) {
   const rawText = String(payload?.message || payload?.text || '').trim();
   const replyId = String(payload?.replyId || '');
+  const isInteractive = Boolean(replyId);
 
-  const isOrdersList = ORDERS_COMMAND.test(rawText);
-  const orderNumberMatch = rawText.match(ORDER_DETAIL_COMMAND);
+  const isOrdersList = !isInteractive && ORDERS_COMMAND.test(rawText);
+  const isNewOrderCommand = !isInteractive && NEW_ORDER_COMMAND.test(rawText);
+  const orderNumberMatch = !isInteractive ? rawText.match(ORDER_DETAIL_COMMAND) : null;
   const isOrderDetailReply = replyId.startsWith('ord:');
   const isActionRequest = replyId.startsWith('act:');
+  const isPayModeReply = replyId.startsWith('paymode:');
   const isActionConfirm = replyId.startsWith('ok:');
   const isActionCancel = replyId.startsWith('no:');
 
-  if (!isOrdersList && !orderNumberMatch && !isOrderDetailReply && !isActionRequest && !isActionConfirm && !isActionCancel) {
+  const pending = !isInteractive
+    ? await WhatsAppPendingInput.findOne({ phone: normalizePhone(payload?.from) }).lean()
+    : null;
+
+  if (
+    !isOrdersList && !isNewOrderCommand && !orderNumberMatch && !isOrderDetailReply &&
+    !isActionRequest && !isPayModeReply && !isActionConfirm && !isActionCancel && !pending
+  ) {
     return { handled: false };
   }
 
@@ -178,6 +485,23 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
     return { handled: true };
   }
   const { user, permissions } = staff;
+
+  // A free-text answer to an in-progress conversation takes priority over
+  // the command grammar below — e.g. "500" is an amount, not junk.
+  if (pending) {
+    if (CANCEL_COMMAND.test(rawText)) {
+      await clearPending(payload.from);
+      await sendText({ to: payload.from, body: 'Cancelled — no changes made.' });
+      return { handled: true };
+    }
+    if (pending.action === 'pay') {
+      return handlePaymentTextStep({ pending, rawText, phone: payload.from, sendText, sendButtons });
+    }
+    if (pending.action === 'createOrder') {
+      return handleCreateOrderTextStep({ pending, rawText, phone: payload.from, sendText, sendButtons });
+    }
+    await clearPending(payload.from);
+  }
 
   if (isOrdersList) {
     const orders = await findOrdersForStaff({ user, permissions });
@@ -192,6 +516,14 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
       sections: await buildOrderListSections(orders),
     });
     return { handled: true };
+  }
+
+  if (isNewOrderCommand) {
+    return startCreateOrderFlow({ phone: payload.from, user, permissions, sendText });
+  }
+
+  if (isPayModeReply) {
+    return handlePayModeReply({ replyId, phone: payload.from, sendText, sendButtons });
   }
 
   let orderUuid = '';
@@ -212,7 +544,7 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
       await sendText({ to: payload.from, body: 'That order no longer exists.' });
       return { handled: true };
     }
-    const detail = buildOrderDetailMessage(order, permissions);
+    const detail = await buildOrderDetailMessage(order, permissions);
     if (detail.buttons.length) {
       await sendButtons({ to: payload.from, bodyText: detail.bodyText, buttons: detail.buttons });
     } else {
@@ -223,6 +555,11 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
 
   if (isActionRequest) {
     const action = replyId.split(':')[1];
+
+    if (action === 'pay') {
+      return startPaymentFlow({ orderUuid, phone: payload.from, user, permissions, sendText });
+    }
+
     await sendButtons({
       to: payload.from,
       bodyText: 'Please confirm this action.',
@@ -235,6 +572,10 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
   }
 
   if (isActionCancel) {
+    const action = replyId.split(':')[1];
+    if (action === 'pay' || action === 'createOrder') {
+      await clearPending(payload.from);
+    }
     await sendText({ to: payload.from, body: 'Cancelled — no changes made.' });
     return { handled: true };
   }
@@ -257,4 +598,5 @@ module.exports = {
   buildOrderDetailMessage,
   executeOrderAction,
   nextStageFor,
+  parseAmountFromText,
 };

@@ -111,6 +111,7 @@ export const ROUTES = {
   // Admin
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
   ADMIN_GROUP_PERMISSIONS: '/admin/group-permissions',
+  WHATSAPP_ACTION_LOG: '/admin/whatsapp-action-log',
   DRIVE_FOLDER_REPORT: '/admin/drive-folder-report',
 };
 

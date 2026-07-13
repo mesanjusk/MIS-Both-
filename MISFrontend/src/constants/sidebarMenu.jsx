@@ -147,6 +147,7 @@ export const SIDEBAR_GROUPS = [
     items: [
       { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Group Permissions', path: ROUTES.ADMIN_GROUP_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'WhatsApp Action Log', path: ROUTES.WHATSAPP_ACTION_LOG, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Drive Folder Report', path: ROUTES.DRIVE_FOLDER_REPORT, icon: <FolderOpenRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },

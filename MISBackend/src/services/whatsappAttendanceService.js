@@ -261,4 +261,5 @@ module.exports = {
   getAttendanceConfig,
   saveAttendanceConfig,
   processWhatsAppAttendanceCommand,
+  findEmployeeByWhatsAppNumber,
 };

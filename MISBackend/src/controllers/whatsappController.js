@@ -24,6 +24,7 @@ const {
 const Flow = require('../repositories/Flow');
 const WhatsAppGateSession = require('../repositories/WhatsAppGateSession');
 const { processWhatsAppAttendanceCommand } = require('../services/whatsappAttendanceService');
+const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
 const AutoReply = require('../repositories/AutoReply');
 const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
@@ -575,6 +576,108 @@ const dispatchFlowMessage = async ({
     flowId: String(flowId),
     flowToken: flowToken || '',
     interactiveType: 'flow',
+  });
+
+  return response;
+};
+
+// Native WhatsApp reply-button message (up to 3 tappable buttons). Nothing
+// in this codebase sent one of these before — every prior "menu" was a
+// numbered plain-text list the user had to type back.
+const dispatchInteractiveButtons = async ({ to, bodyText, buttons = [] }) => {
+  const normalizedTo = normalizePhone(to);
+  if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
+
+  const limitedButtons = buttons.slice(0, 3).map((btn) => ({
+    type: 'reply',
+    reply: { id: String(btn.id).slice(0, 256), title: String(btn.title).slice(0, 20) },
+  }));
+  if (!limitedButtons.length) throw new AppError('At least one button is required', 400);
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      body: { text: String(bodyText || '').slice(0, 1024) },
+      action: { buttons: limitedButtons },
+    },
+  };
+
+  const response = await callWhatsAppMessagesApi(payload, {
+    fallbackMessage: 'Failed to send WhatsApp button message',
+  });
+
+  const metaMessageId = response?.messages?.[0]?.id || '';
+  await saveAndEmitMessage({
+    fromMe: true,
+    from: WHATSAPP_PHONE_NUMBER_ID || '',
+    to: normalizedTo,
+    message: bodyText,
+    body: bodyText,
+    timestamp: new Date(),
+    status: 'sent',
+    direction: 'outgoing',
+    type: 'button',
+    text: bodyText,
+    time: new Date(),
+    messageId: metaMessageId,
+    interactiveType: 'button',
+  });
+
+  return response;
+};
+
+// Native WhatsApp list message (up to 10 rows) — used for "MIS orders" so
+// staff tap an order instead of typing back a number from a text menu.
+const dispatchInteractiveList = async ({ to, bodyText, buttonLabel = 'View', sections = [] }) => {
+  const normalizedTo = normalizePhone(to);
+  if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
+  if (!sections.length) throw new AppError('At least one section is required', 400);
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: normalizedTo,
+    type: 'interactive',
+    interactive: {
+      type: 'list',
+      body: { text: String(bodyText || '').slice(0, 1024) },
+      action: {
+        button: String(buttonLabel).slice(0, 20),
+        sections: sections.map((section) => ({
+          title: String(section.title || '').slice(0, 24),
+          rows: (section.rows || []).slice(0, 10).map((row) => ({
+            id: String(row.id).slice(0, 200),
+            title: String(row.title).slice(0, 24),
+            ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
+          })),
+        })),
+      },
+    },
+  };
+
+  const response = await callWhatsAppMessagesApi(payload, {
+    fallbackMessage: 'Failed to send WhatsApp list message',
+  });
+
+  const metaMessageId = response?.messages?.[0]?.id || '';
+  await saveAndEmitMessage({
+    fromMe: true,
+    from: WHATSAPP_PHONE_NUMBER_ID || '',
+    to: normalizedTo,
+    message: bodyText,
+    body: bodyText,
+    timestamp: new Date(),
+    status: 'sent',
+    direction: 'outgoing',
+    type: 'list',
+    text: bodyText,
+    time: new Date(),
+    messageId: metaMessageId,
+    interactiveType: 'list',
   });
 
   return response;
@@ -1593,6 +1696,19 @@ const processIncomingWhatsAppPayload = async (payload) => {
 
         const attendanceTriggerResult = await markWhatsAppStartAttendance({ ...payload, message: userMessage, text: userMessage });
         if (attendanceTriggerResult.handled) {
+          return;
+        }
+
+        const orderCommandResult = await handleWhatsAppOrderCommand({
+          payload: { ...payload, message: userMessage, text: userMessage },
+          sendText: dispatchTextMessage,
+          sendButtons: dispatchInteractiveButtons,
+          sendList: dispatchInteractiveList,
+        }).catch((orderCommandError) => {
+          logger.error('[whatsapp] Order command handling failed:', orderCommandError);
+          return { handled: false };
+        });
+        if (orderCommandResult?.handled) {
           return;
         }
 

@@ -3,6 +3,19 @@ const mongoose = require('mongoose');
 const UsergroupSchema=new mongoose.Schema({
     User_group_uuid: { type: String },
     User_group: { type: String, required: true },
+    // Group-level defaults for what members of this group may do from the
+    // WhatsApp order-management commands. Left unset ("not configured") on
+    // purpose — when absent, permissionService falls back to a role-tier
+    // default instead of locking every group out until an admin visits this
+    // screen. Set any subset of these keys to override the default.
+    modulePermissions: {
+      type: {
+        viewOrders: { type: Boolean },
+        advanceOrderStage: { type: Boolean },
+        assignOrders: { type: Boolean },
+      },
+      default: undefined,
+    },
  })
 
 // Index for faster retrieval

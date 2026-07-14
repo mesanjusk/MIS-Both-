@@ -13,4 +13,24 @@ async function resolveStaffFromWhatsApp(rawPhone) {
   return { user, permissions };
 }
 
-module.exports = { resolveStaffFromWhatsApp };
+const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+
+// Customers.Mobile_number isn't stored in one consistent format across the
+// app — WhatsApp auto-registration stores the full normalized number
+// (country code included), while records created from the web form
+// typically store the bare 10-digit local number. Match every shape rather
+// than assuming one, same approach as findEmployeeByWhatsAppNumber above.
+function buildCustomerPhoneQuery(rawPhone) {
+  const normalized = normalizePhone(rawPhone);
+  const last10 = normalized.slice(-10);
+  return {
+    $or: [
+      { Mobile_number: normalized },
+      { Mobile_number: `+${normalized}` },
+      { Mobile_number: last10 },
+      { $expr: { $eq: [{ $toString: '$Mobile_number' }, last10] } },
+    ],
+  };
+}
+
+module.exports = { resolveStaffFromWhatsApp, buildCustomerPhoneQuery };

@@ -25,6 +25,7 @@ const Flow = require('../repositories/Flow');
 const WhatsAppGateSession = require('../repositories/WhatsAppGateSession');
 const { processWhatsAppAttendanceCommand } = require('../services/whatsappAttendanceService');
 const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
+const { handleWhatsAppCustomerOrderCommand } = require('../services/whatsappCustomerCommandService');
 const AutoReply = require('../repositories/AutoReply');
 const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
@@ -1709,6 +1710,18 @@ const processIncomingWhatsAppPayload = async (payload) => {
           return { handled: false };
         });
         if (orderCommandResult?.handled) {
+          return;
+        }
+
+        const customerOrderCommandResult = await handleWhatsAppCustomerOrderCommand({
+          payload: { ...payload, message: userMessage, text: userMessage },
+          sendText: dispatchTextMessage,
+          sendList: dispatchInteractiveList,
+        }).catch((customerOrderCommandError) => {
+          logger.error('[whatsapp] Customer order command handling failed:', customerOrderCommandError);
+          return { handled: false };
+        });
+        if (customerOrderCommandResult?.handled) {
           return;
         }
 

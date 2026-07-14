@@ -14,7 +14,7 @@ const {
   getReceivedAmountForOrder,
   VALID_STAGES,
 } = require('./businessWorkflowService');
-const { resolveStaffFromWhatsApp } = require('./whatsappIdentityService');
+const { resolveStaffFromWhatsApp, buildCustomerPhoneQuery } = require('./whatsappIdentityService');
 
 const CLOSED_STAGES = new Set(['delivered', 'paid']);
 const LIST_LIMIT = 10;
@@ -246,7 +246,7 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
       return { handled: true };
     }
 
-    const customer = await Customers.findOne({ Mobile_number: last10 }).lean();
+    const customer = await Customers.findOne(buildCustomerPhoneQuery(last10)).lean();
     if (customer) {
       await setPending(phone, {
         action: 'createOrder',
@@ -481,8 +481,9 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
 
   const staff = await resolveStaffFromWhatsApp(payload?.from);
   if (!staff) {
-    await sendText({ to: payload.from, body: 'Your number is not registered as MIS staff. Contact an admin.' });
-    return { handled: true };
+    // Not a staff number — let the customer command handler (tried next in
+    // the pipeline) decide whether this sender has an order account.
+    return { handled: false };
   }
   const { user, permissions } = staff;
 

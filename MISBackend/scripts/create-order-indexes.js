@@ -1,9 +1,12 @@
 // scripts/create-order-indexes.js
+require("dotenv").config();
 const mongoose = require("mongoose");
 
-const MONGO_URI =
-  process.env.MONGO_URI ||
-  "mongodb+srv://sanjuahuja:cY7NtMKm8M10MbUs@cluster0.wdfsd.mongodb.net/MISSK"; // <-- change if not using env
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI is not set. Set it in your environment or .env file before running this script.");
+  process.exit(1);
+}
 
 (async () => {
   try {

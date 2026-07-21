@@ -71,7 +71,7 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
 
 
 // ADD USER — protected: only authenticated users (admins) can create users
-router.post("/addUser", requireAuth, validate({ body: z.object({
+router.post("/addUser", requireAuth, authLimiter, validate({ body: z.object({
   User_name:  z.string().min(1, 'User_name is required'),
   Password:   z.string().min(8, 'Password must be at least 8 characters'),
   Mobile_number: z.string().min(1, 'Mobile_number is required'),

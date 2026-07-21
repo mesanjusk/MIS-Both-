@@ -7,28 +7,7 @@
  *   router.get('/y', requireAuth, requireRole(['admin', 'office user']), handler)
  */
 const AppError = require('../utils/AppError');
-
-const ROLE_HIERARCHY = {
-  admin: 4,
-  owner: 4,
-  manager: 3,
-  'office user': 2,
-  worker: 1,
-  delivery: 1,
-};
-
-// Real User_group values stored on accounts (see MISFrontend/src/constants/roles.js
-// ROLE_TYPES.ADMIN = "Admin User") don't always match the short hierarchy keys
-// above — map known aliases to their canonical hierarchy key before comparing.
-const ROLE_ALIASES = {
-  'admin user': 'admin',
-  'superadmin': 'admin',
-  'super admin': 'admin',
-};
-
-const normalizeRole = (role = '') => String(role || '').trim().toLowerCase();
-
-const resolveHierarchyRole = (role) => ROLE_ALIASES[role] || role;
+const { ROLE_HIERARCHY, normalizeRole, resolveHierarchyRole } = require('../utils/roleHierarchy');
 
 /**
  * requireRole(roles) — require the user to have one of the specified roles.

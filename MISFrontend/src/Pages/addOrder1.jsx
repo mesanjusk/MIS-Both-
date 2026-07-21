@@ -72,7 +72,7 @@ const dateInputAfterDays = (days = 0) => {
   return date.toISOString().split('T')[0];
 };
 
-const DEFAULT_ORDER_ASSIGNEE_NAME = 'Sai';
+const DEFAULT_ORDER_ASSIGNEE_NAME = import.meta.env.VITE_DEFAULT_ORDER_ASSIGNEE || 'Sai';
 const DEFAULT_ORDER_PRIORITY = 'medium';
 
 const getUserSelectValue = (user = {}) => user.User_uuid || user._id || user.User_name || '';

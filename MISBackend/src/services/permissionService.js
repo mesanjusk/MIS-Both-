@@ -1,29 +1,5 @@
 const Usergroup = require('../repositories/usergroup');
-
-// Same tiering as middleware/authorize.js — duplicated here (not imported)
-// because this resolves WhatsApp-command permissions from a plain group
-// name string, not from an authenticated req.user.
-const ROLE_HIERARCHY = {
-  admin: 4,
-  owner: 4,
-  manager: 3,
-  'office user': 2,
-  worker: 1,
-  delivery: 1,
-};
-
-const ROLE_ALIASES = {
-  'admin user': 'admin',
-  superadmin: 'admin',
-  'super admin': 'admin',
-};
-
-const normalizeRole = (role = '') => String(role || '').trim().toLowerCase();
-const resolveHierarchyRole = (role) => ROLE_ALIASES[role] || role;
-
-function tierFor(userGroup) {
-  return ROLE_HIERARCHY[resolveHierarchyRole(normalizeRole(userGroup))] || 0;
-}
+const { tierFor } = require('../utils/roleHierarchy');
 
 // Default WhatsApp order-command permissions by role tier, used whenever a
 // Usergroup has no modulePermissions configured yet:

@@ -3,7 +3,11 @@ const mongoose = require('mongoose');
 const CallLogsSchema=new mongoose.Schema({
     CallLog_uuid: { type: String },
     Name: { type: String, required: true },
-    Mobile_number: { type:Number, required: true, unique: true},
+    // String, not Number — a numeric type silently drops a leading '0' or '+91'.
+    // Existing documents stored as Number will read back as their numeric string
+    // form (e.g. missing leading zeros already lost); this only prevents new
+    // writes from losing them going forward.
+    Mobile_number: { type: String, required: true, unique: true},
     Type: { type: String, required: true },
     Duration: { type: Number, required: true },
     Status: { type: String, required: true}

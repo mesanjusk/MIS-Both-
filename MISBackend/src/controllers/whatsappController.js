@@ -1454,7 +1454,16 @@ const receiveWebhook = (req, res) => {
     const enforceSignature =
       String(process.env.WHATSAPP_ENFORCE_WEBHOOK_SIGNATURE).toLowerCase() !== 'false';
 
-    if (enforceSignature && WHATSAPP_APP_SECRET) {
+    if (enforceSignature && !WHATSAPP_APP_SECRET) {
+      // Fail closed, not open: an unset secret must never be treated the same
+      // as "verification disabled" — that would silently accept any payload
+      // as if it came from Meta. Set WHATSAPP_ENFORCE_WEBHOOK_SIGNATURE=false
+      // to explicitly disable verification (e.g. local dev) instead.
+      logger.error('[whatsapp] WHATSAPP_APP_SECRET is not set — rejecting webhook');
+      return res.status(403).send('Webhook signature verification not configured');
+    }
+
+    if (enforceSignature) {
       const signature = String(req.headers['x-hub-signature-256'] || '');
 
       if (!req.rawBody || !signature.startsWith('sha256=')) {

@@ -91,6 +91,15 @@ async function findOrderByUuid(orderUuid) {
   return Orders.findOne({ Order_uuid: orderUuid }).lean();
 }
 
+// A restricted (viewScope !== 'all') staff member may only view/act on orders
+// assigned to them — the "orders" list already filters this way, but detail
+// lookups by tapping a row or typing "order <number>" must enforce it too, or
+// a restricted user could reach any order by guessing its number.
+function isOrderInScope(order, user, permissions) {
+  if (permissions.viewScope === 'all') return true;
+  return Boolean(order.assignedTo) && String(order.assignedTo) === String(user._id);
+}
+
 async function buildOrderDetailMessage(order, permissions) {
   const next = nextStageFor(order);
   const outstanding = await getOutstandingForOrder(order);
@@ -155,7 +164,7 @@ async function startPaymentFlow({ orderUuid, phone, user, permissions, sendText 
   }
 
   const order = await findOrderByUuid(orderUuid);
-  if (!order) {
+  if (!order || !isOrderInScope(order, user, permissions)) {
     await sendText({ to: phone, body: 'That order no longer exists.' });
     return { handled: true };
   }
@@ -183,6 +192,20 @@ async function handlePaymentTextStep({ pending, rawText, phone, sendText, sendBu
   const amount = parseAmountFromText(rawText);
   if (amount === null) {
     await sendText({ to: phone, body: 'Please send a valid amount (e.g. 500), or CANCEL.' });
+    return { handled: true };
+  }
+
+  const order = await findOrderByUuid(pending.orderUuid);
+  if (!order) {
+    await sendText({ to: phone, body: 'That order no longer exists.' });
+    return { handled: true };
+  }
+  const outstanding = await getOutstandingForOrder(order);
+  if (amount > outstanding) {
+    await sendText({
+      to: phone,
+      body: `That's more than the outstanding balance of ₹${outstanding}. Please send an amount up to ₹${outstanding}, or CANCEL.`,
+    });
     return { handled: true };
   }
 
@@ -327,14 +350,20 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
 }
 
 async function executeCreateOrder({ phone, user, permissions }) {
-  const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
-  if (!pending || pending.action !== 'createOrder' || pending.step !== 'confirm') {
+  // findOneAndDelete atomically claims and consumes the pending draft, so two
+  // near-simultaneous "Confirm" taps can't both pass this check and create
+  // the order twice — the second one always finds nothing left to claim.
+  const pending = await WhatsAppPendingInput.findOneAndDelete({
+    phone: normalizePhone(phone),
+    action: 'createOrder',
+    step: 'confirm',
+  }).lean();
+  if (!pending) {
     return { ok: false, message: 'That order draft has expired. Start again with "new order".' };
   }
 
   if (!permissions.createOrders) {
     await logAction({ phone, user, action: 'createOrder', order: null, result: 'denied' });
-    await clearPending(phone);
     return { ok: false, message: 'Your role cannot create orders from WhatsApp.' };
   }
 
@@ -345,7 +374,6 @@ async function executeCreateOrder({ phone, user, permissions }) {
       orderNote: pending.data.orderNote,
       createdBy: user.User_name || 'whatsapp',
     });
-    await clearPending(phone);
     await logAction({ phone, user, action: 'createOrder', order: createdOrder, result: 'success', detail: `₹${pending.data.amount}` });
     return { ok: true, message: `Order #${createdOrder.Order_Number} created for ${pending.data.customerName} — ₹${pending.data.amount}.` };
   } catch (error) {
@@ -362,6 +390,11 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
 
   const order = await findOrderByUuid(orderUuid);
   if (!order) {
+    return { ok: false, message: 'That order no longer exists.' };
+  }
+
+  if ((action === 'next' || action === 'pay') && !isOrderInScope(order, user, permissions)) {
+    await logAction({ phone, user, action, order, result: 'denied' });
     return { ok: false, message: 'That order no longer exists.' };
   }
 
@@ -411,14 +444,21 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
   }
 
   if (action === 'pay') {
-    const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
-    if (!pending || pending.action !== 'pay' || pending.step !== 'confirm' || pending.orderUuid !== order.Order_uuid) {
+    // findOneAndDelete atomically claims and consumes the pending payment, so
+    // two near-simultaneous "Confirm" taps can't both pass this check and
+    // post the payment twice — the second one always finds nothing to claim.
+    const pending = await WhatsAppPendingInput.findOneAndDelete({
+      phone: normalizePhone(phone),
+      action: 'pay',
+      step: 'confirm',
+      orderUuid: order.Order_uuid,
+    }).lean();
+    if (!pending) {
       return { ok: false, message: "That payment step has expired. Start again from the order's Receive payment button." };
     }
 
     if (!permissions.receivePayments) {
       await logAction({ phone, user, action, order, result: 'denied' });
-      await clearPending(phone);
       return { ok: false, message: 'Your role cannot record payments from WhatsApp.' };
     }
 
@@ -433,7 +473,6 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
         narration: 'WhatsApp payment',
         createdBy: user.User_name || 'whatsapp',
       });
-      await clearPending(phone);
       await logAction({ phone, user, action, order, result: 'success', detail: `₹${amount} via ${paymentMode}` });
       const outstanding = await getOutstandingForOrder(updatedOrder || order);
       return {
@@ -541,7 +580,7 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
 
   if (isOrderDetailReply || orderNumberMatch) {
     const order = await findOrderByUuid(orderUuid);
-    if (!order) {
+    if (!order || !isOrderInScope(order, user, permissions)) {
       await sendText({ to: payload.from, body: 'That order no longer exists.' });
       return { handled: true };
     }

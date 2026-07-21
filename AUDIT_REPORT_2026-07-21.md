@@ -209,3 +209,33 @@ deploying given the app's real-time usage.
 *This report supplements, and does not replace, `IMPROVEMENT_REPORT.md`
 (2026-05-20) and `MONGODB_AUDIT_REPORT.md` (2026-05-09) — see §2 and §3 above
 for what has changed since.*
+
+---
+
+## 7. Project Rating
+
+Scored against what a live, revenue-handling internal business system should
+meet — not against a green-field ideal.
+
+| Category | Score | Why |
+|---|---|---|
+| **Security** | 4 / 10 | One critical live credential leak (§0.1) caps this category regardless of everything else — a real, currently-usable DB password sitting in a public/history-readable repo is a live incident, not a style issue. Underlying practices are otherwise better than average (scrypt password hashing, CORS/rate-limit/mongo-sanitize wired up, most webhooks fail closed, per-action WhatsApp permission re-checks) — this would be a 7 on those alone. |
+| **Code quality / maintainability** | 6 / 10 | Real, completed refactors (`Order.js` split into a router directory, `addOrder1.jsx` broken into components, shared `apiResponse.js`/`orderHelpers.js`). Undercut by unfinished follow-through: magic strings still scattered, no `orderConstants.js`, a duplicated role-hierarchy table between two auth surfaces (§1.5), a corrupted filename sitting in `scripts/` unnoticed. |
+| **Test coverage** | 1 / 10 | Zero automated tests in either package — the backend's `test` script is a placeholder that exits 1. For an app now posting real payments and running unattended chat-triggered mutations (WhatsApp order/payment commands), this is the single biggest risk-multiplier: every finding above can regress silently on the next change. |
+| **Performance** | 6 / 10 | Past N+1 query problems were properly fixed with real aggregation pipelines, and useful compound indexes were added since the last audit. Still-open items are known and specific, not mysterious: `/all-data` and `/reports/planning` remain unbounded fetches. |
+| **Database design** | 6 / 10 | Core schema (orders/customers/users/transactions) is coherent and well-indexed. Drags: two parallel stock-tracking collections that never cross-reference each other, a legacy `vendors` table still being written to alongside its replacement, several "reference" collections (`priorities`, `taskgroups`) that store values elsewhere as unvalidated plain strings, and one schema bug (`calllogs.Mobile_number` as a unique `Number`). |
+| **Architecture** | 7 / 10 | Clear layering (routes → services → repositories), the WhatsApp command feature reuses the existing permission/identity plumbing instead of reinventing it, and offline-queue/IndexedDB handling on the frontend is genuinely resilient (backoff, quota eviction, error boundaries). |
+| **Dependency health** | 4 / 10 | 17 backend + 15 frontend `npm audit` findings, several critical/high, some with no upstream fix (`xlsx`). Most are transitive and time-bounded fixable via `npm audit fix`, but they're currently unaddressed. |
+| **Process / documentation** | 5 / 10 | Unusual strength: three dated, specific self-audits now exist (`IMPROVEMENT_REPORT.md`, `MONGODB_AUDIT_REPORT.md`, this one) showing real self-scrutiny over time. Unusual weakness: no root README, no backend README (frontend's is the unedited Vite template), and no CI pipeline (no `.github/workflows`) enforcing lint/audit/tests on push — so nothing currently stops a regression from merging. |
+
+### Overall: **5.5 / 10** — actively maintained with real engineering discipline, held back by one live incident and a near-total absence of a safety net
+
+This is not a neglected codebase — the git history shows a team that comes
+back and fixes what it finds (PR #52's N+1 fixes, the `Order.js` and
+`addOrder1.jsx` refactors, the careful multi-phase rollout of the WhatsApp
+command feature with audit logging built in from day one). The score is
+pulled down by two things that are fixable in an afternoon each but currently
+aren't fixed: the exposed database credential, and the absence of any CI
+gate or test suite that would have caught it or would catch the next one.
+Closing those two gaps would move this into 7–7.5 territory without touching
+a single feature.

@@ -9,6 +9,7 @@ const {
   getConversation,
   markConversationRead,
   sendText,
+  sendMedia,
   getLogs,
   getProvider,
   updateProvider,
@@ -32,7 +33,8 @@ router.get('/conversation/:conversationKey',        requireAuth, getConversation
 router.post('/conversation/:conversationKey/read',  requireAuth, markConversationRead);
 
 // ── Send ──────────────────────────────────────────────────────────────────────
-router.post('/send-text', requireAuth, sendText);
+router.post('/send-text',  requireAuth, sendText);
+router.post('/send-media', requireAuth, sendMedia);
 
 // ── Groups ────────────────────────────────────────────────────────────────────
 router.get('/groups',                                   requireAuth, getGroups);

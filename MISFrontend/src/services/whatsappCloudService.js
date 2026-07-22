@@ -31,10 +31,14 @@ const getCloudinaryResourceType = ({ type, fileType }) => {
     return 'image';
   }
 
+  // Cloudinary serves both video and audio files under the 'video' resource type
   if (
     normalizedType === 'video' ||
+    normalizedType === 'audio' ||
     normalizedType.startsWith('video/') ||
-    normalizedFileType.startsWith('video/')
+    normalizedType.startsWith('audio/') ||
+    normalizedFileType.startsWith('video/') ||
+    normalizedFileType.startsWith('audio/')
   ) {
     return 'video';
   }
@@ -197,6 +201,7 @@ export const baileysGetConversation = (key)     => apiClient.get(`/api/baileys/c
 export const baileysMarkRead        = (key)     => apiClient.post(`/api/baileys/conversation/${key}/read`);
 
 export const baileysSendText        = (payload) => apiClient.post('/api/baileys/send-text', payload);
+export const baileysSendMedia       = (payload) => apiClient.post('/api/baileys/send-media', payload);
 
 export const baileysGetLogs             = ()           => apiClient.get('/api/baileys/logs');
 
@@ -217,6 +222,7 @@ export const baileysService = {
   getConversation: baileysGetConversation,
   markRead:        baileysMarkRead,
   sendText:        baileysSendText,
+  sendMedia:       baileysSendMedia,
   getLogs:         baileysGetLogs,
   getProvider:     getWhatsAppProvider,
   setProvider:     updateWhatsAppProvider,

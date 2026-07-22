@@ -7,18 +7,25 @@
 
 const { emitNewMessage } = require('../../socket');
 const { useMongoAuthState, clearMongoAuthState } = require('./baileysAuthState');
+const { uploadBufferToCloudinary } = require('./whatsappMediaService');
 const logger = require('../utils/logger');
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+
+// Baileys numeric message status -> our status string
+// (WAMessageStatus: ERROR=0, PENDING=1, SERVER_ACK=2, DELIVERY_ACK=3, READ=4, PLAYED=5)
+const STATUS_MAP = { 0: 'FAILED', 1: 'PENDING', 2: 'SENT', 3: 'DELIVERED', 4: 'READ', 5: 'READ' };
 
 let baileysState   = { qr: null, status: 'DISCONNECTED', phone: '' };
 let baileysSocket  = null;
 let reconnectTimer = null;
 let isConnecting   = false;
 let reconnectCount = 0;
+let currentPinoLogger = null;
 
-// Listeners registered by the controller layer for incoming messages
+// Listeners registered by the controller layer for incoming messages / status updates
 const incomingListeners = [];
+const statusListeners   = [];
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,9 +76,38 @@ function formatJid(to) {
   return `${clean}@s.whatsapp.net`;
 }
 
-function normalizeBaileysMessage(msg) {
+function detectMediaType(m) {
+  if (m.imageMessage)    return 'IMAGE';
+  if (m.videoMessage)    return m.videoMessage.gifPlayback ? 'GIF' : 'VIDEO';
+  if (m.audioMessage)    return 'AUDIO';
+  if (m.documentMessage) return 'DOCUMENT';
+  if (m.stickerMessage)  return 'STICKER';
+  return '';
+}
+
+async function downloadAndUploadMedia(sock, msg, mediaType) {
+  try {
+    const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+    const buffer = await downloadMediaMessage(
+      msg,
+      'buffer',
+      {},
+      { logger: currentPinoLogger, reuploadRequest: sock.updateMediaMessage }
+    );
+    const mimetype = msg.message?.[`${mediaType.toLowerCase()}Message`]?.mimetype
+      || msg.message?.[`${mediaType === 'GIF' ? 'video' : mediaType.toLowerCase()}Message`]?.mimetype
+      || '';
+    const upload = await uploadBufferToCloudinary({ buffer, mimeType: mimetype, folder: 'baileys_media' });
+    return { mediaUrl: upload.secure_url, mimeType: mimetype };
+  } catch (err) {
+    logger.error({ err: err.message }, '[baileys] media download/upload failed');
+    return { mediaUrl: '', mimeType: '' };
+  }
+}
+
+async function normalizeBaileysMessage(sock, msg) {
   const jid         = msg.key?.remoteJid || '';
-  const isGroup     = jid.endsWith('@g.us');
+  const isGroup      = jid.endsWith('@g.us');
   const participant = msg.key?.participant || msg.participant || '';
   const senderJid   = isGroup ? participant : jid;
   const senderPhone = senderJid.split('@')[0];
@@ -86,14 +122,27 @@ function normalizeBaileysMessage(msg) {
     m.listResponseMessage?.title ||
     m.templateButtonReplyMessage?.selectedId ||
     '';
-  const isMedia = !!(m.imageMessage || m.videoMessage || m.documentMessage || m.audioMessage);
+  const mediaType = detectMediaType(m);
+  const fileName  = m.documentMessage?.fileName || '';
+
+  let mediaUrl = '';
+  let mimeType = '';
+  if (mediaType) {
+    const uploaded = await downloadAndUploadMedia(sock, msg, mediaType);
+    mediaUrl = uploaded.mediaUrl;
+    mimeType = uploaded.mimeType;
+  }
+
   return {
     id:          msg.key?.id || '',
     from:        senderPhone,
     groupId:     isGroup ? jid : '',
     isGroup,
-    body:        body || (isMedia ? '[Media]' : ''),
-    type:        isMedia ? 'media' : 'text',
+    body:        body || (mediaType ? `[${mediaType}]` : ''),
+    type:        mediaType ? mediaType.toLowerCase() : 'text',
+    mediaUrl,
+    mimeType,
+    fileName,
     timestamp:   msg.messageTimestamp,
   };
 }
@@ -124,6 +173,10 @@ function onIncomingMessage(fn) {
   incomingListeners.push(fn);
 }
 
+function onMessageStatus(fn) {
+  statusListeners.push(fn);
+}
+
 async function connect() {
   if (isConnecting) {
     logger.info('[baileys] resetting stuck isConnecting flag...');
@@ -139,6 +192,7 @@ async function connect() {
     const { makeWASocket, version } = await getWASocketAndVersion();
     const pino   = (await import('pino')).default;
     const pinoLogger = pino({ level: 'silent' });
+    currentPinoLogger = pinoLogger;
 
     const { state, saveCreds } = await useMongoAuthState();
 
@@ -214,9 +268,23 @@ async function connect() {
           if (msg.key?.fromMe) continue;
           const jid = msg.key?.remoteJid || '';
           if (!jid) continue;
-          emitIncoming(normalizeBaileysMessage(msg));
+          const normalized = await normalizeBaileysMessage(sock, msg);
+          emitIncoming(normalized);
         } catch (err) {
           logger.error({ err: err.message }, '[baileys] normalizeBaileysMessage error');
+        }
+      }
+    });
+
+    // Delivery / read receipts for messages we sent
+    sock.ev.on('messages.update', (updates) => {
+      for (const { key, update } of updates) {
+        const statusCode = update?.status;
+        if (statusCode == null || !key?.id) continue;
+        const status = STATUS_MAP[statusCode];
+        if (!status) continue;
+        for (const fn of statusListeners) {
+          try { fn({ id: key.id, status }); } catch (err) { logger.error({ err }, '[baileys] status listener error'); }
         }
       }
     });
@@ -255,6 +323,40 @@ async function sendImage({ to, imageUrl, caption = '' }) {
   return baileysSocket.sendMessage(formatJid(to), { image: { url: imageUrl }, caption });
 }
 
+async function sendMedia({ to, mediaUrl, type, caption = '', fileName = '', mimeType = '' }) {
+  if (!baileysSocket || baileysState.status !== 'CONNECTED') {
+    throw new Error('Baileys not connected — scan QR first.');
+  }
+  const jid = formatJid(to);
+  const kind = String(type || '').toUpperCase();
+
+  if (kind === 'IMAGE') {
+    return baileysSocket.sendMessage(jid, { image: { url: mediaUrl }, caption });
+  }
+  if (kind === 'VIDEO') {
+    return baileysSocket.sendMessage(jid, { video: { url: mediaUrl }, caption });
+  }
+  if (kind === 'AUDIO') {
+    return baileysSocket.sendMessage(jid, { audio: { url: mediaUrl }, mimetype: mimeType || 'audio/mp4', ptt: false });
+  }
+  if (kind === 'DOCUMENT') {
+    return baileysSocket.sendMessage(jid, {
+      document: { url: mediaUrl },
+      mimetype: mimeType || 'application/octet-stream',
+      fileName: fileName || 'file',
+      caption,
+    });
+  }
+  throw new Error(`Unsupported media type "${type}"`);
+}
+
+async function sendTyping({ to, isTyping = true }) {
+  if (!baileysSocket || baileysState.status !== 'CONNECTED') return;
+  try {
+    await baileysSocket.sendPresenceUpdate(isTyping ? 'composing' : 'paused', formatJid(to));
+  } catch (_) {}
+}
+
 async function getGroups() {
   if (!baileysSocket || baileysState.status !== 'CONNECTED') {
     throw new Error('Baileys not connected — scan QR first.');
@@ -287,8 +389,11 @@ module.exports = {
   disconnect,
   sendText,
   sendImage,
+  sendMedia,
+  sendTyping,
   getGroups,
   getStatus,
   onIncomingMessage,
+  onMessageStatus,
   autoConnectIfCredentialsExist,
 };

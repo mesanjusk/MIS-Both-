@@ -38,10 +38,12 @@ function wireIncomingMessages() {
   if (_wired) return;
   _wired = true;
 
-  baileysService.onIncomingMessage(async ({ id, from, groupId, isGroup, body, type, timestamp }) => {
+  baileysService.onIncomingMessage(async ({ id, from, groupId, isGroup, body, type, mediaUrl, mimeType, fileName, timestamp }) => {
     try {
       const existing = id ? await BaileysMessage.findOne({ baileysMessageId: id }) : null;
       if (existing) return;
+
+      const messageType = String(type || 'TEXT').toUpperCase();
 
       if (isGroup) {
         // Group message — save with chatType 'group'; conversationKey = groupId
@@ -55,10 +57,11 @@ function wireIncomingMessages() {
           baileysMessageId: id || '',
           direction:        'INCOMING',
           source:           'WEBHOOK',
-          messageType:      String(type || 'TEXT').toUpperCase(),
+          messageType,
           bodyText:         body || '',
+          mediaUrl:         mediaUrl || '',
           status:           'RECEIVED',
-          meta:             { timestamp },
+          meta:             { timestamp, mimeType, fileName },
         });
         logger.info({ groupId, from, bodyLen: (body || '').length }, '[baileysCtrl] group message saved');
         emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
@@ -76,17 +79,33 @@ function wireIncomingMessages() {
         baileysMessageId: id || '',
         direction:        'INCOMING',
         source:           'WEBHOOK',
-        messageType:      String(type || 'TEXT').toUpperCase(),
+        messageType,
         bodyText:         body || '',
+        mediaUrl:         mediaUrl || '',
         status:           'RECEIVED',
         chatType:         'individual',
-        meta:             { timestamp },
+        meta:             { timestamp, mimeType, fileName },
       });
 
       logger.info({ from, bodyLen: (body || '').length }, '[baileysCtrl] message saved');
       emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
     } catch (err) {
       logger.error({ err: err.message }, '[baileysCtrl] saveIncomingMessage error');
+    }
+  });
+
+  baileysService.onMessageStatus(async ({ id, status }) => {
+    try {
+      const msg = await BaileysMessage.findOneAndUpdate(
+        { baileysMessageId: id, direction: 'OUTGOING' },
+        { $set: { status } },
+        { new: true }
+      );
+      if (msg) {
+        emitNewMessage({ provider: 'baileys', event: 'message_status', message: msg });
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, '[baileysCtrl] status update error');
     }
   });
 }
@@ -276,6 +295,60 @@ const sendText = asyncHandler(async (req, res) => {
   }
 });
 
+// ── Send Media ────────────────────────────────────────────────────────────────
+
+const sendMedia = asyncHandler(async (req, res) => {
+  const {
+    to, mediaUrl, type, caption = '', fileName = '', mimeType = '',
+    contactName = '', groupName = '',
+  } = req.body;
+  if (!to || !mediaUrl || !type) throw new AppError('to, mediaUrl and type are required', 400);
+
+  const isGroupJid = String(to).includes('@g.us');
+  const convKey    = isGroupJid ? to : getConversationKey(to);
+  const messageType = String(type).toUpperCase();
+
+  try {
+    const result = await baileysService.sendMedia({ to, mediaUrl, type, caption, fileName, mimeType });
+    const log = await BaileysMessage.create({
+      to:               isGroupJid ? to : normalizePhone(to),
+      from:             '',
+      contactName,
+      conversationKey:  convKey,
+      baileysMessageId: result?.key?.id || '',
+      direction:        'OUTGOING',
+      source:           'MANUAL',
+      messageType,
+      bodyText:         caption,
+      mediaUrl,
+      status:           'SENT',
+      chatType:         isGroupJid ? 'group' : 'individual',
+      groupId:          isGroupJid ? to : '',
+      groupName:        isGroupJid ? groupName : '',
+      meta:             { mimeType, fileName },
+    });
+    emitNewMessage({ provider: 'baileys', event: 'new_message', message: log });
+    return res.status(201).json(log);
+  } catch (error) {
+    const log = await BaileysMessage.create({
+      to:              isGroupJid ? to : normalizePhone(to),
+      contactName,
+      conversationKey: convKey,
+      direction:       'OUTGOING',
+      source:          'MANUAL',
+      messageType,
+      bodyText:        caption,
+      mediaUrl,
+      status:          'FAILED',
+      chatType:        isGroupJid ? 'group' : 'individual',
+      groupId:         isGroupJid ? to : '',
+      groupName:       isGroupJid ? groupName : '',
+      meta:            { error: error.message, mimeType, fileName },
+    });
+    return res.status(500).json(log);
+  }
+});
+
 // ── Logs ──────────────────────────────────────────────────────────────────────
 
 const getLogs = asyncHandler(async (req, res) => {
@@ -312,6 +385,7 @@ module.exports = {
   getConversation,
   markConversationRead,
   sendText,
+  sendMedia,
   getLogs,
   getProvider,
   updateProvider,

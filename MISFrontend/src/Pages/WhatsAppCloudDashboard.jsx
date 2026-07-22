@@ -19,9 +19,7 @@ import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
 import { parseApiError } from '../utils/parseApiError';
 import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
-import BaileysSetupPanel from '../Components/whatsappCloud/BaileysSetupPanel';
-import BaileysInboxPanel from '../Components/whatsappCloud/BaileysInboxPanel';
-import BaileysGroupInboxPanel from '../Components/whatsappCloud/BaileysGroupInboxPanel';
+import BaileysWhatsAppWeb from '../Components/whatsappCloud/BaileysWhatsAppWeb';
 import WhatsAppProviderSwitcher from '../Components/whatsappCloud/WhatsAppProviderSwitcher';
 
 const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
@@ -38,11 +36,8 @@ const navItems = [
   { key: 'autoReply',   label: 'Auto Reply' },
   { key: 'analytics',   label: 'Analytics' },
   { key: 'settings',    label: 'Settings' },
-  // ── Baileys tabs ──────────────────────────────────────────
-  { key: 'baileys_inbox',  label: '📱 WA Web Inbox' },
-  { key: 'baileys_groups', label: '👥 WA Groups' },
-  { key: 'baileys_setup',  label: '📱 WA Web Setup' },
-  { key: 'provider',       label: '⚙ API Provider' },
+  { key: 'baileys_web',  label: '📱 WA Web (Baileys)' },
+  { key: 'provider',     label: '⚙ API Provider' },
 ];
 
 const getFriendlyStatusError = (error) => {
@@ -105,11 +100,8 @@ export default function WhatsAppCloudDashboard() {
     if (activeTab === 'campaigns')     return <BulkSender />;
     if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
     if (activeTab === 'analytics')     return <AnalyticsDashboard />;
-    // ── Baileys tabs ──────────────────────────────────────────────────────────
-    if (activeTab === 'baileys_inbox')  return <BaileysInboxPanel />;
-    if (activeTab === 'baileys_groups') return <BaileysGroupInboxPanel />;
-    if (activeTab === 'baileys_setup')  return <BaileysSetupPanel />;
-    if (activeTab === 'provider')       return <WhatsAppProviderSwitcher />;
+    if (activeTab === 'baileys_web') return <BaileysWhatsAppWeb />;
+    if (activeTab === 'provider')    return <WhatsAppProviderSwitcher />;
     // ─────────────────────────────────────────────────────────────────────────
     return <WhatsAppAttendanceSettings />;
   }, [activeTab, search]);

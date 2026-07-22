@@ -39,11 +39,13 @@ const downloadMediaBinary = async ({ mediaUrl, accessToken }) => {
 const uploadBufferToCloudinary = ({ buffer, mimeType = '', folder = 'whatsapp_media' }) =>
   new Promise((resolve, reject) => {
     const isImage = mimeType.startsWith('image/');
+    // Cloudinary serves both video and audio files under the 'video' resource type
+    const isAvMedia = mimeType.startsWith('video/') || mimeType.startsWith('audio/');
 
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder,
-        resource_type: isImage ? 'image' : 'raw',
+        resource_type: isImage ? 'image' : (isAvMedia ? 'video' : 'raw'),
       },
       (error, result) => {
         if (error) return reject(error);

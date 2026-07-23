@@ -1,4 +1,4 @@
-const { getWhatsAppProvider } = require('./whatsappProviderSetting');
+const { getProviderForActivity } = require('./whatsappActivityRouting');
 const baileysService = require('./baileysService');
 const { sendMessage } = require('./metaApiService');
 const BaileysMessage = require('../repositories/BaileysMessage');
@@ -7,8 +7,8 @@ const logger = require('../utils/logger');
 
 const norm = (v) => String(v || '').replace(/\D/g, '');
 
-async function sendWhatsAppText({ to, body, source = 'SYSTEM', contactName = '' }) {
-  const provider = await getWhatsAppProvider();
+async function sendWhatsAppText({ to, body, source = 'SYSTEM', contactName = '', activity = 'GENERAL' }) {
+  const provider = await getProviderForActivity(activity);
   const toClean = norm(to);
 
   if (provider === 'baileys') {

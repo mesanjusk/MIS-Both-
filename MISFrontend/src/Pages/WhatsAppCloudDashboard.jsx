@@ -21,6 +21,9 @@ import { parseApiError } from '../utils/parseApiError';
 import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
 import BaileysWhatsAppWeb from '../Components/whatsappCloud/BaileysWhatsAppWeb';
 import WhatsAppProviderSwitcher from '../Components/whatsappCloud/WhatsAppProviderSwitcher';
+import WhatsAppActivityRouting from '../Components/whatsappCloud/WhatsAppActivityRouting';
+import WhatsAppProjectHub from '../Components/whatsappCloud/WhatsAppProjectHub';
+import { useAuth } from '../context/AuthContext';
 
 const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
 const SendMessagePanel = lazy(() => import('../Components/whatsappCloud/SendMessagePanel'));
@@ -37,7 +40,12 @@ const navItems = [
   { key: 'analytics',   label: 'Analytics' },
   { key: 'settings',    label: 'Settings' },
   { key: 'baileys_web',  label: '📱 WA Web (Baileys)' },
-  { key: 'provider',     label: '⚙ API Provider' },
+];
+
+const adminNavItems = [
+  { key: 'provider',        label: '⚙ API Provider' },
+  { key: 'activityRouting', label: '🔀 Activity Routing' },
+  { key: 'projectHub',      label: '🗂 Project Hub' },
 ];
 
 const getFriendlyStatusError = (error) => {
@@ -50,6 +58,11 @@ const getFriendlyStatusError = (error) => {
 
 export default function WhatsAppCloudDashboard() {
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'));
+  const { isSuperAdmin } = useAuth();
+  const visibleNavItems = useMemo(
+    () => (isSuperAdmin ? [...navItems, ...adminNavItems] : navItems),
+    [isSuperAdmin],
+  );
   const [activeTab, setActiveTab] = useState('inbox');
   const [search, setSearch] = useState('');
   const [connectionState, setConnectionState] = useState('loading');
@@ -101,10 +114,12 @@ export default function WhatsAppCloudDashboard() {
     if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
     if (activeTab === 'analytics')     return <AnalyticsDashboard />;
     if (activeTab === 'baileys_web') return <BaileysWhatsAppWeb />;
-    if (activeTab === 'provider')    return <WhatsAppProviderSwitcher />;
+    if (activeTab === 'provider' && isSuperAdmin)        return <WhatsAppProviderSwitcher />;
+    if (activeTab === 'activityRouting' && isSuperAdmin) return <WhatsAppActivityRouting />;
+    if (activeTab === 'projectHub' && isSuperAdmin)      return <WhatsAppProjectHub />;
     // ─────────────────────────────────────────────────────────────────────────
     return <WhatsAppAttendanceSettings />;
-  }, [activeTab, search]);
+  }, [activeTab, search, isSuperAdmin]);
 
   const connectionChipColor =
     connectionState === 'connected'
@@ -160,7 +175,7 @@ export default function WhatsAppCloudDashboard() {
                 '& .MuiTabs-indicator': { left: 0, width: 3, borderRadius: 4, bgcolor: '#25d366' },
               }}
             >
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <Tab
                   key={item.key}
                   value={item.key}
@@ -266,7 +281,7 @@ export default function WhatsAppCloudDashboard() {
                   },
                 }}
               >
-                {navItems.map((item) => (
+                {visibleNavItems.map((item) => (
                   <Tab key={item.key} label={item.label} value={item.key} disableRipple />
                 ))}
               </Tabs>

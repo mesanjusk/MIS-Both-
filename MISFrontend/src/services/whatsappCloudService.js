@@ -214,6 +214,9 @@ export const baileysGroupMarkRead       = (groupId)   => apiClient.post(`/api/ba
 export const getWhatsAppProvider    = ()        => apiClient.get('/api/baileys/provider');
 export const updateWhatsAppProvider = (p)       => apiClient.put('/api/baileys/provider', { provider: p });
 
+export const getWhatsAppActivityProviders    = ()             => apiClient.get('/api/baileys/activity-providers');
+export const updateWhatsAppActivityProvider  = (activity, p)  => apiClient.put('/api/baileys/activity-providers', { activity, provider: p });
+
 export const baileysService = {
   getStatus:       baileysGetStatus,
   connect:         baileysConnect,

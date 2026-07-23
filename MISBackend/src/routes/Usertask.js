@@ -47,6 +47,7 @@ router.post("/addUsertask", async (req, res) => {
           to: formattedNumber,
           body: `Hello! Your task "${Usertask_name}" has been created and is pending. Deadline: ${Deadline || "N/A"}`,
           source: 'TASK_ASSIGNED',
+          activity: 'TASK_NOTIFICATIONS',
           contactName: User || '',
         });
       } catch (err) {
@@ -70,7 +71,7 @@ router.post('/send-message', async (req, res) => {
 
   try {
     const formattedMobile = normalizeWhatsAppNumber(mobile); // ✅ Format mobile number
-    const response = await sendWhatsAppText({ to: formattedMobile, body: message, source: 'TASK_MESSAGE' });
+    const response = await sendWhatsAppText({ to: formattedMobile, body: message, source: 'TASK_MESSAGE', activity: 'TASK_NOTIFICATIONS' });
     res.status(200).json(response);
   } catch (error) {
     logger.error('WhatsApp Send Error:', error);

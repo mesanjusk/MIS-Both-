@@ -38,7 +38,7 @@ function wireIncomingMessages() {
   if (_wired) return;
   _wired = true;
 
-  baileysService.onIncomingMessage(async ({ id, from, isLid, groupId, isGroup, body, type, mediaUrl, mimeType, fileName, timestamp }) => {
+  baileysService.onIncomingMessage(async ({ id, from, isLid, contactName, groupId, groupName, isGroup, body, type, mediaUrl, mimeType, fileName, timestamp }) => {
     try {
       const existing = id ? await BaileysMessage.findOne({ baileysMessageId: id }) : null;
       if (existing) return;
@@ -54,6 +54,7 @@ function wireIncomingMessages() {
           isLid:            !!isLid,
           conversationKey:  groupId,
           groupId,
+          groupName:        groupName || '',
           chatType:         'group',
           baileysMessageId: id || '',
           direction:        'INCOMING',
@@ -78,6 +79,7 @@ function wireIncomingMessages() {
         to:               '',
         from:             normalizePhone(from),
         isLid:            !!isLid,
+        contactName:      contactName || '',
         conversationKey:  getConversationKey(from),
         baileysMessageId: id || '',
         direction:        'INCOMING',

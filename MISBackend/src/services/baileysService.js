@@ -140,12 +140,36 @@ async function resolveSenderPhone(sock, msg, senderJid, isGroup) {
   return { phone: senderJid.split('@')[0], isLid: true };
 }
 
+// Group subjects rarely change — cache them briefly instead of calling
+// groupMetadata() on every single incoming group message.
+const GROUP_NAME_TTL_MS = 10 * 60 * 1000;
+const groupNameCache = new Map(); // groupJid -> { name, at }
+
+async function resolveGroupName(sock, groupJid) {
+  const cached = groupNameCache.get(groupJid);
+  if (cached && Date.now() - cached.at < GROUP_NAME_TTL_MS) return cached.name;
+  try {
+    const meta = await sock.groupMetadata(groupJid);
+    const name = meta?.subject || '';
+    groupNameCache.set(groupJid, { name, at: Date.now() });
+    return name;
+  } catch (err) {
+    logger.warn({ err: err.message, groupJid }, '[baileys] groupMetadata fetch failed');
+    return cached?.name || '';
+  }
+}
+
 async function normalizeBaileysMessage(sock, msg) {
   const jid         = msg.key?.remoteJid || '';
   const isGroup      = jid.endsWith('@g.us');
   const participant = msg.key?.participant || msg.participant || '';
   const senderJid   = isGroup ? participant : jid;
   const { phone: senderPhone, isLid } = await resolveSenderPhone(sock, msg, senderJid, isGroup);
+  // pushName is the sender's own WhatsApp display name — the same
+  // fallback Baileys' own examples use when a contact's saved name isn't
+  // known locally.
+  const contactName = !isGroup ? (msg.pushName || '') : '';
+  const groupName   = isGroup ? await resolveGroupName(sock, jid) : '';
   const m = msg.message || {};
   const body =
     m.conversation ||
@@ -172,7 +196,9 @@ async function normalizeBaileysMessage(sock, msg) {
     id:          msg.key?.id || '',
     from:        senderPhone,
     isLid,
+    contactName,
     groupId:     isGroup ? jid : '',
+    groupName,
     isGroup,
     body:        body || (mediaType ? `[${mediaType}]` : ''),
     type:        mediaType ? mediaType.toLowerCase() : 'text',

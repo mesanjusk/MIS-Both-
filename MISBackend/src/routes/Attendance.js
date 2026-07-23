@@ -132,6 +132,7 @@ router.post('/addAttendance', async (req, res, next) => {
             to: normalizeWhatsAppNumber(user.Mobile_number),
             body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
             source: 'ATTENDANCE',
+            activity: 'ATTENDANCE',
             contactName: user.User_name || '',
           });
         } catch (err) {
@@ -164,6 +165,7 @@ router.post('/addAttendance', async (req, res, next) => {
             to: normalizeWhatsAppNumber(user.Mobile_number),
             body: buildPendingTaskMessage({ user, assignments: assignmentSnapshot }),
             source: 'ATTENDANCE',
+            activity: 'ATTENDANCE',
             contactName: user.User_name || '',
           });
       } catch (err) {

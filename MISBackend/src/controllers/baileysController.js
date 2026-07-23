@@ -363,6 +363,10 @@ const getLogs = asyncHandler(async (req, res) => {
 // ── Provider Setting ──────────────────────────────────────────────────────────
 
 const { getWhatsAppProvider, setWhatsAppProvider } = require('../services/whatsappProviderSetting');
+const {
+  listActivitiesWithProviders,
+  setActivityProvider,
+} = require('../services/whatsappActivityRouting');
 
 const getProvider = asyncHandler(async (_req, res) => {
   const provider = await getWhatsAppProvider();
@@ -373,7 +377,23 @@ const updateProvider = asyncHandler(async (req, res) => {
   const { provider } = req.body;
   if (!provider) throw new AppError('provider is required', 400);
   const doc = await setWhatsAppProvider(provider);
+  logger.info({ changedBy: req.user?.userName, provider }, 'WhatsApp global provider changed');
   res.json({ message: 'Provider updated', provider: doc.value });
+});
+
+const getActivityProviders = asyncHandler(async (_req, res) => {
+  const activities = await listActivitiesWithProviders();
+  res.json({ activities });
+});
+
+const updateActivityProvider = asyncHandler(async (req, res) => {
+  const { activity, provider } = req.body;
+  if (!activity) throw new AppError('activity is required', 400);
+  if (!provider) throw new AppError('provider is required', 400);
+  await setActivityProvider(activity, provider);
+  logger.info({ changedBy: req.user?.userName, activity, provider }, 'WhatsApp activity provider changed');
+  const activities = await listActivitiesWithProviders();
+  res.json({ message: 'Activity provider updated', activities });
 });
 
 module.exports = {
@@ -389,6 +409,8 @@ module.exports = {
   getLogs,
   getProvider,
   updateProvider,
+  getActivityProviders,
+  updateActivityProvider,
   // group handlers
   getGroups,
   getGroupInbox,

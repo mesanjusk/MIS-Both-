@@ -3,7 +3,6 @@ const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const Users = require('../repositories/users');
 const Orders = require('../repositories/order');
 const Usertasks = require('../repositories/usertask');
-const { sendMessage } = require('./metaApiService');
 const logger = require('../utils/logger');
 
 async function processScheduledMessages() {
@@ -12,7 +11,7 @@ async function processScheduledMessages() {
 
   for (const msg of messages) {
     try {
-      await sendWhatsAppText({ to: msg.to, body: msg.message, source: 'SCHEDULED' });
+      await sendWhatsAppText({ to: msg.to, body: msg.message, source: 'SCHEDULED', activity: 'SCHEDULED_MESSAGES' });
       msg.status = 'sent';
     } catch (err) {
       logger.error('Failed to send scheduled message', err);
@@ -50,23 +49,11 @@ const addDays = (d, days) => {
 };
 
 async function sendEnvText(to, body) {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
   const cleanTo = normalizeNumber(to);
-  if (!phoneNumberId || !accessToken || !cleanTo) {
-    throw new Error('WhatsApp credentials or recipient missing');
+  if (!cleanTo) {
+    throw new Error('Recipient missing');
   }
-  return sendMessage({
-    phoneNumberId,
-    accessToken,
-    payload: {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: cleanTo,
-      type: 'text',
-      text: { preview_url: false, body },
-    },
-  });
+  return sendWhatsAppText({ to: cleanTo, body, source: 'DAILY_DIGEST', activity: 'DAILY_DIGEST' });
 }
 
 const isUserActive = (user = {}) => {
@@ -142,12 +129,10 @@ async function sendDigestToAllUsers(mode = 'morning') {
 
 async function sendOwnerDailySummary() {
   try {
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_ACCESS_TOKEN;
     const ownerMobile = process.env.OWNER_WHATSAPP_NUMBER;
 
-    if (!phoneNumberId || !accessToken || !ownerMobile) {
-      logger.info('Daily owner summary skipped — WhatsApp credentials or OWNER_WHATSAPP_NUMBER not set');
+    if (!ownerMobile) {
+      logger.info('Daily owner summary skipped — OWNER_WHATSAPP_NUMBER not set');
       return { skipped: true };
     }
 
@@ -180,16 +165,11 @@ async function sendOwnerDailySummary() {
       'Login to dashboard for full details.',
     ].join('\n');
 
-    await sendMessage({
-      phoneNumberId,
-      accessToken,
-      payload: {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: normalizeNumber(ownerMobile),
-        type: 'text',
-        text: { preview_url: false, body: summary },
-      },
+    await sendWhatsAppText({
+      to: normalizeNumber(ownerMobile),
+      body: summary,
+      source: 'OWNER_SUMMARY',
+      activity: 'OWNER_SUMMARY',
     });
     logger.info('Daily owner summary sent at', now.toISOString());
     return { sent: true };

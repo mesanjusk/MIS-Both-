@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { ROLE_TYPES, isAdminRole, isOfficeRole, normalizeRole } from "../constants/roles";
+import { ROLE_TYPES, isAdminRole, isOfficeRole, isSuperAdminRole, normalizeRole } from "../constants/roles";
 import {
   STORAGE_KEYS,
   clearStoredSession,
@@ -41,6 +41,7 @@ export function AuthProvider({ children }) {
       normalizedRole,
       role: authState.userGroup || ROLE_TYPES.OFFICE,
       isAdmin: isAdminRole(authState.userGroup),
+      isSuperAdmin: isSuperAdminRole(authState.userGroup),
       isOfficeUser: isOfficeRole(authState.userGroup) || !authState.userGroup,
       permissions: authState.permissions || {},
       setAuthData,

@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireRole } = require('../middleware/authorize');
 const {
   wireIncomingMessages,
   getStatus,
@@ -13,6 +14,8 @@ const {
   getLogs,
   getProvider,
   updateProvider,
+  getActivityProviders,
+  updateActivityProvider,
   getGroups,
   getGroupInbox,
   getGroupConversation,
@@ -45,8 +48,12 @@ router.post('/group-conversation/:groupId/read',        requireAuth, markGroupRe
 // ── Logs ──────────────────────────────────────────────────────────────────────
 router.get('/logs', requireAuth, getLogs);
 
-// ── Provider setting (admin: which API to use) ────────────────────────────────
-router.get('/provider',  requireAuth, getProvider);
-router.put('/provider',  requireAuth, updateProvider);
+// ── Provider setting (admin/owner/superadmin only: which API to use) ──────────
+router.get('/provider',  requireAuth, requireRole('admin'), getProvider);
+router.put('/provider',  requireAuth, requireRole('admin'), updateProvider);
+
+// ── Per-activity provider routing (admin/owner/superadmin only) ───────────────
+router.get('/activity-providers', requireAuth, requireRole('admin'), getActivityProviders);
+router.put('/activity-providers', requireAuth, requireRole('admin'), updateActivityProvider);
 
 module.exports = router;

@@ -91,6 +91,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Collection Reports',
     items: [
       { label: 'Aging Report', path: ROUTES.AGING_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Outstanding Report', path: ROUTES.OUTSTANDING_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
     ],
   },
   {

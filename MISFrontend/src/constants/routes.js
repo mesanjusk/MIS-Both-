@@ -77,6 +77,7 @@ export const ROUTES = {
   REPORTS_BILLS: '/allBills',
   REPORTS_PRIORITY: '/priorityReport',
   AGING_REPORT: '/reports/aging',
+  OUTSTANDING_REPORT: '/reports/outstanding',
   PURCHASE_ORDERS: '/purchase-orders',
   POST_PRINTING_JOBS: '/post-printing-jobs',
 

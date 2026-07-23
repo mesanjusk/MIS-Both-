@@ -53,6 +53,7 @@ const AllOrdersList = lazy(() => import('./Reports/allOrdersList'));
 const AllDelivery = lazy(() => import('./Reports/allDelivery'));
 const AllTransaction = lazy(() => import('./Reports/allTransaction'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
+const OutstandingReport = lazy(() => import('./Reports/outstandingReport'));
 const PurchaseOrder = lazy(() => import('./Pages/purchaseOrder'));
 const PostPrintingJob = lazy(() => import('./Pages/PostPrintingJob'));
 const CustomerReport = lazy(() => import('./Reports/customerReport'));
@@ -224,6 +225,7 @@ export default function App() {
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_1_TYPO} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_1} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_2_LOWER} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_2} replace />} />
             <Route path={ROUTES.AGING_REPORT} element={withSuspense(<AgingReport />)} />
+            <Route path={ROUTES.OUTSTANDING_REPORT} element={withSuspense(<OutstandingReport />)} />
             <Route path="/allTransaction" element={withSuspense(<AllTransaction />)} />
             <Route path="/reports/customers" element={withSuspense(<CustomerReport />)} />
             <Route path="/customerReport" element={withSuspense(<CustomerReport />)} />

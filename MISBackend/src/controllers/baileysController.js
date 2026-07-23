@@ -38,7 +38,7 @@ function wireIncomingMessages() {
   if (_wired) return;
   _wired = true;
 
-  baileysService.onIncomingMessage(async ({ id, from, groupId, isGroup, body, type, mediaUrl, mimeType, fileName, timestamp }) => {
+  baileysService.onIncomingMessage(async ({ id, from, isLid, groupId, isGroup, body, type, mediaUrl, mimeType, fileName, timestamp }) => {
     try {
       const existing = id ? await BaileysMessage.findOne({ baileysMessageId: id }) : null;
       if (existing) return;
@@ -51,6 +51,7 @@ function wireIncomingMessages() {
           to:               groupId,
           from:             normalizePhone(from),
           senderPhone:      normalizePhone(from),
+          isLid:            !!isLid,
           conversationKey:  groupId,
           groupId,
           chatType:         'group',
@@ -63,6 +64,7 @@ function wireIncomingMessages() {
           status:           'RECEIVED',
           meta:             { timestamp, mimeType, fileName },
         });
+        if (isLid) logger.warn({ groupId, from }, '[baileysCtrl] sender LID could not be resolved to a phone number');
         logger.info({ groupId, from, bodyLen: (body || '').length }, '[baileysCtrl] group message saved');
         emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
         return;
@@ -75,6 +77,7 @@ function wireIncomingMessages() {
       const msg = await BaileysMessage.create({
         to:               '',
         from:             normalizePhone(from),
+        isLid:            !!isLid,
         conversationKey:  getConversationKey(from),
         baileysMessageId: id || '',
         direction:        'INCOMING',
@@ -87,6 +90,7 @@ function wireIncomingMessages() {
         meta:             { timestamp, mimeType, fileName },
       });
 
+      if (isLid) logger.warn({ from }, '[baileysCtrl] sender LID could not be resolved to a phone number');
       logger.info({ from, bodyLen: (body || '').length }, '[baileysCtrl] message saved');
       emitNewMessage({ provider: 'baileys', event: 'new_message', message: msg });
     } catch (err) {

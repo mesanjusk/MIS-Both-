@@ -20,6 +20,7 @@ const baileysMessageSchema = new mongoose.Schema(
     groupId:          { type: String, default: '' },   // full @g.us JID
     groupName:        { type: String, default: '' },
     senderPhone:      { type: String, default: '' },   // individual sender within a group
+    isLid:            { type: Boolean, default: false }, // true when `from`/`senderPhone` is an unresolved WhatsApp LID, not a real phone number
     meta:             { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true, collection: 'baileys_messages' }

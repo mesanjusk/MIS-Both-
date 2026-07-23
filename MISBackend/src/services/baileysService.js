@@ -40,6 +40,8 @@ async function getWASocketAndVersion() {
   const fetchLatestBaileysVersion = mod.fetchLatestBaileysVersion
     ?? mod.default?.fetchLatestBaileysVersion;
 
+  const proto = mod.proto ?? mod.default?.proto;
+
   let version = [2, 3000, 1023024415]; // fallback
 
   if (typeof fetchLatestBaileysVersion === 'function') {
@@ -57,7 +59,7 @@ async function getWASocketAndVersion() {
     }
   }
 
-  return { makeWASocket, version };
+  return { makeWASocket, version, proto };
 }
 
 async function toQrDataUrl(raw) {
@@ -105,12 +107,45 @@ async function downloadAndUploadMedia(sock, msg, mediaType) {
   }
 }
 
+// WhatsApp's privacy rollout hides real phone numbers behind a `@lid`
+// (Linked ID) JID for many senders. Baileys does not silently translate
+// these — remoteJid/participant come through as `<digits>@lid`, and the
+// caller must resolve the real number itself:
+//   1. Prefer the companion phone-number JID Baileys attaches to the key
+//      (`senderPn` for 1:1 chats, `participantPn` for group messages) when
+//      WhatsApp included it inline.
+//   2. Otherwise consult Baileys' persisted LID<->PN map
+//      (`sock.signalRepository.lidMapping`), populated from history sync
+//      and lid-migration protocol messages.
+//   3. If neither is known yet, WhatsApp simply hasn't revealed this
+//      contact's number (privacy setting, or mapping not learned yet) —
+//      surface the LID as-is but flag it so downstream code doesn't treat
+//      it as a real phone number.
+async function resolveSenderPhone(sock, msg, senderJid, isGroup) {
+  if (!senderJid) return { phone: '', isLid: false };
+  if (!senderJid.endsWith('@lid')) {
+    return { phone: senderJid.split('@')[0], isLid: false };
+  }
+
+  const altJid = isGroup ? msg.key?.participantPn : msg.key?.senderPn;
+  if (altJid) return { phone: altJid.split('@')[0], isLid: false };
+
+  try {
+    const pn = await sock?.signalRepository?.lidMapping?.getPNForLID(senderJid);
+    if (pn) return { phone: pn.split('@')[0], isLid: false };
+  } catch (err) {
+    logger.warn({ err: err.message, senderJid }, '[baileys] lidMapping.getPNForLID failed');
+  }
+
+  return { phone: senderJid.split('@')[0], isLid: true };
+}
+
 async function normalizeBaileysMessage(sock, msg) {
   const jid         = msg.key?.remoteJid || '';
   const isGroup      = jid.endsWith('@g.us');
   const participant = msg.key?.participant || msg.participant || '';
   const senderJid   = isGroup ? participant : jid;
-  const senderPhone = senderJid.split('@')[0];
+  const { phone: senderPhone, isLid } = await resolveSenderPhone(sock, msg, senderJid, isGroup);
   const m = msg.message || {};
   const body =
     m.conversation ||
@@ -136,6 +171,7 @@ async function normalizeBaileysMessage(sock, msg) {
   return {
     id:          msg.key?.id || '',
     from:        senderPhone,
+    isLid,
     groupId:     isGroup ? jid : '',
     isGroup,
     body:        body || (mediaType ? `[${mediaType}]` : ''),
@@ -189,12 +225,15 @@ async function connect() {
   killSocket();
 
   try {
-    const { makeWASocket, version } = await getWASocketAndVersion();
+    const { makeWASocket, version, proto } = await getWASocketAndVersion();
     const pino   = (await import('pino')).default;
     const pinoLogger = pino({ level: 'silent' });
     currentPinoLogger = pinoLogger;
 
     const { state, saveCreds } = await useMongoAuthState();
+
+    // proto.HistorySync.HistorySyncType.FULL === 2
+    const HISTORY_SYNC_TYPE_FULL = proto?.HistorySync?.HistorySyncType?.FULL ?? 2;
 
     const sock = makeWASocket({
       version,
@@ -204,6 +243,14 @@ async function connect() {
       browser: ['MIS App', 'Chrome', '120.0.0'],
       generateHighQualityLinkPreview: false,
       syncFullHistory:                false,
+      // IMPORTANT: leaving shouldSyncHistoryMessage unset makes Baileys 7.x
+      // fall back to `() => !!syncFullHistory`, i.e. `() => false` — which
+      // rejects *every* sync type, not just the full-history download.
+      // Without it, WhatsApp never sends LID<->phone-number mappings or
+      // group participant data to this device, so senders show up as raw
+      // LIDs (158617571471610 etc.) instead of phone numbers. Accept every
+      // sync type except the expensive full-history one.
+      shouldSyncHistoryMessage: ({ syncType }) => syncType !== HISTORY_SYNC_TYPE_FULL,
       markOnlineOnConnect:            false,
       connectTimeoutMs:    60_000,
       keepAliveIntervalMs: 25_000,
@@ -260,6 +307,23 @@ async function connect() {
     });
 
     sock.ev.on('creds.update', () => saveCreds().catch((e) => logger.error({ err: e }, '[baileys] saveCreds error')));
+
+    // Visibility only — Baileys persists LID<->PN mappings and contacts
+    // itself (via the auth-state keys store passed into makeWASocket), so
+    // no app-level storage is required here. These just confirm sync is
+    // actually happening.
+    sock.ev.on('contacts.upsert', (contacts) => {
+      logger.info({ count: contacts?.length }, '[baileys] contacts.upsert');
+    });
+    sock.ev.on('messaging-history.set', ({ contacts, chats, isLatest }) => {
+      logger.info(
+        { contacts: contacts?.length || 0, chats: chats?.length || 0, isLatest },
+        '[baileys] messaging-history.set'
+      );
+    });
+    sock.ev.on('lid-mapping.update', (mapping) => {
+      logger.info({ mapping }, '[baileys] lid-mapping.update');
+    });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       logger.info({ type, count: messages?.length }, '[baileys] messages.upsert');

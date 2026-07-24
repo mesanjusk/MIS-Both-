@@ -17,10 +17,21 @@ router.post(
       description = "",
       defaultItemType = "finished_item",
       stockTrackedDefault = false,
+      parentGroup_uuid = "",
     } = req.body;
 
     const existingGroup = await Itemgroup.findOne({ Item_group });
     if (existingGroup) return res.status(409).json({ success: false, message: "Item group already exists" });
+
+    let parentGroup = "";
+    if (parentGroup_uuid) {
+      const parent = await Itemgroup.findOne({ Item_group_uuid: parentGroup_uuid });
+      if (!parent) return res.status(400).json({ success: false, message: "Parent group not found" });
+      if (parent.parentGroup_uuid) {
+        return res.status(400).json({ success: false, message: "Cannot nest a sub group under another sub group" });
+      }
+      parentGroup = parent.Item_group;
+    }
 
     const newGroup = new Itemgroup({
       Item_group,
@@ -29,6 +40,8 @@ router.post(
       description: String(description || "").trim(),
       defaultItemType,
       stockTrackedDefault: Boolean(stockTrackedDefault),
+      parentGroup_uuid: String(parentGroup_uuid || "").trim(),
+      parentGroup,
     });
 
     await newGroup.save();

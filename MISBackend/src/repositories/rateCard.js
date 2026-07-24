@@ -15,6 +15,8 @@ const RateCardSchema = new mongoose.Schema(
     rateCard_uuid: { type: String, required: true, unique: true },
     itemName: { type: String, required: true, trim: true },
     category: { type: String, default: "", trim: true },
+    itemUuid: { type: String, default: "", trim: true },
+    itemGroupUuid: { type: String, default: "", trim: true },
     pricingType: {
       type: String,
       enum: ["per_sqft", "per_piece", "slab"],
@@ -37,5 +39,6 @@ const RateCardSchema = new mongoose.Schema(
 RateCardSchema.index({ itemName: 1 });
 RateCardSchema.index({ category: 1 });
 RateCardSchema.index({ isActive: 1 });
+RateCardSchema.index({ itemUuid: 1 });
 
 module.exports = mongoose.model("RateCard", RateCardSchema);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -35,6 +36,7 @@ import {
   updateRateCard,
   deleteRateCard,
 } from '../services/rateCardService';
+import { fetchItems, fetchItemGroups } from '../services/itemService';
 
 const PRICING_TYPES = [
   { value: 'per_sqft', label: 'Per Sq.Ft (Flex / Banner)' },
@@ -47,6 +49,7 @@ const BLANK_SLAB = { minQty: 1, maxQty: 0, ratePerPiece: 0, flatPrice: 0 };
 const BLANK_FORM = {
   itemName: '',
   category: '',
+  itemUuid: '',
   pricingType: 'per_piece',
   unit: 'Nos',
   ratePerSqft: 0,
@@ -71,6 +74,8 @@ function pricingSummary(rc) {
 
 export default function RateCardMaster() {
   const [rateCards, setRateCards] = useState([]);
+  const [items, setItems] = useState([]);
+  const [itemGroups, setItemGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -81,8 +86,14 @@ export default function RateCardMaster() {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await fetchRateCards();
+      const [data, itemsRes, groupsRes] = await Promise.all([
+        fetchRateCards(),
+        fetchItems(),
+        fetchItemGroups(),
+      ]);
       setRateCards(Array.isArray(data) ? data : []);
+      if (itemsRes.data?.success) setItems(itemsRes.data.result || []);
+      if (groupsRes.data?.success) setItemGroups(groupsRes.data.result || []);
     } catch (err) {
       setMessage({ severity: 'error', text: err.response?.data?.message || err.message });
     } finally {
@@ -92,9 +103,21 @@ export default function RateCardMaster() {
 
   useEffect(() => { load(); }, []);
 
+  const groupLabel = (groupName) => {
+    const group = itemGroups.find((g) => g.Item_group === groupName);
+    return group?.parentGroup ? `${group.parentGroup} / ${group.Item_group}` : groupName;
+  };
+
   const categories = useMemo(
-    () => [...new Set(rateCards.map((r) => r.category).filter(Boolean))],
-    [rateCards]
+    () =>
+      [...new Set([...itemGroups.map((g) => g.Item_group), ...rateCards.map((r) => r.category)].filter(Boolean))]
+        .sort((a, b) => groupLabel(a).localeCompare(groupLabel(b))),
+    [rateCards, itemGroups]
+  );
+
+  const selectedItem = useMemo(
+    () => items.find((i) => i.Item_uuid === form.itemUuid) || null,
+    [items, form.itemUuid]
   );
 
   const openCreate = () => {
@@ -107,6 +130,7 @@ export default function RateCardMaster() {
     setForm({
       itemName: rc.itemName || '',
       category: rc.category || '',
+      itemUuid: rc.itemUuid || '',
       pricingType: rc.pricingType || 'per_piece',
       unit: rc.unit || 'Nos',
       ratePerSqft: rc.ratePerSqft || 0,
@@ -215,7 +239,7 @@ export default function RateCardMaster() {
                     <TableCell>
                       <Typography variant="body2" fontWeight={900} color="primary.main">{rc.itemName}</Typography>
                     </TableCell>
-                    <TableCell><Typography variant="caption" color="text.secondary">{rc.category || '-'}</Typography></TableCell>
+                    <TableCell><Typography variant="caption" color="text.secondary">{rc.category ? groupLabel(rc.category) : '-'}</Typography></TableCell>
                     <TableCell>
                       <Chip size="small" label={PRICING_TYPES.find((p) => p.value === rc.pricingType)?.label || rc.pricingType} variant="outlined" />
                     </TableCell>
@@ -244,12 +268,36 @@ export default function RateCardMaster() {
         <DialogTitle sx={{ fontWeight: 900 }}>{editId ? 'Edit Rate Card' : 'New Rate Card'}</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ mt: 1 }}>
+            <Autocomplete
+              options={items}
+              getOptionLabel={(item) => item.Item_name || ''}
+              isOptionEqualToValue={(a, b) => a.Item_uuid === b.Item_uuid}
+              value={selectedItem}
+              onChange={(_, item) => {
+                if (item) {
+                  setForm((f) => ({
+                    ...f,
+                    itemUuid: item.Item_uuid,
+                    itemName: item.Item_name,
+                    category: item.Item_group || f.category,
+                  }));
+                } else {
+                  setField('itemUuid', '');
+                }
+              }}
+              renderInput={(params) => (
+                <TextField {...params} label="Link to Item (optional)" placeholder="Search item master…" size="small" helperText="Pick an item from the master list so its name and group stay in sync here." />
+              )}
+              size="small"
+              fullWidth
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
               <TextField
                 label="Item Name"
                 placeholder="e.g. Visiting Card, Flex Banner, Standee"
                 value={form.itemName}
                 onChange={(e) => setField('itemName', e.target.value)}
+                disabled={Boolean(form.itemUuid)}
                 fullWidth
                 size="small"
               />
@@ -262,7 +310,7 @@ export default function RateCardMaster() {
                 fullWidth
                 size="small"
               >
-                {categories.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                {categories.map((c) => <MenuItem key={c} value={c}>{groupLabel(c)}</MenuItem>)}
               </TextField>
             </Stack>
 

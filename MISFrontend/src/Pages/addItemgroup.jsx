@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Alert, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
@@ -8,13 +8,30 @@ import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
 export default function AddItemGroup() {
   const navigate = useNavigate();
+  const [parentOptions, setParentOptions] = useState([]);
   const [form, setForm] = useState({
     Item_group: '',
     groupType: 'general',
     description: '',
     defaultItemType: 'finished_item',
     stockTrackedDefault: false,
+    parentGroup_uuid: '',
   });
+
+  useEffect(() => {
+    const loadParents = async () => {
+      try {
+        const res = await axios.get('/api/itemgroup/GetItemgroupList');
+        if (res.data?.success) {
+          // Only top-level groups can be a parent, so sub groups stay a single level deep.
+          setParentOptions((res.data.result || []).filter((g) => !g.parentGroup_uuid));
+        }
+      } catch (error) {
+        console.error('Error loading item groups:', error);
+      }
+    };
+    loadParents();
+  }, []);
 
   const setField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
@@ -22,7 +39,7 @@ export default function AddItemGroup() {
     e.preventDefault();
     try {
       await axios.post('/api/itemgroup/addItemgroup', form);
-      toast.success('Group added successfully');
+      toast.success(form.parentGroup_uuid ? 'Sub group added successfully' : 'Group added successfully');
       navigate('/home');
     } catch (error) {
       if (error.response?.status === 409) {
@@ -48,7 +65,22 @@ export default function AddItemGroup() {
             Recommended: Finished Goods, Raw Materials, Services, Consumables, Outsourced Work.
           </Alert>
           <Typography variant="subtitle2">Group Setup</Typography>
-          <TextField label="Item Group" value={form.Item_group} onChange={(e) => setField('Item_group', e.target.value)} size="small" fullWidth sx={compactFieldSx} />
+          <TextField
+            select
+            label="Parent Group (optional — creates a sub group)"
+            value={form.parentGroup_uuid}
+            onChange={(e) => setField('parentGroup_uuid', e.target.value)}
+            size="small"
+            fullWidth
+            sx={compactFieldSx}
+            helperText="Leave blank for a top-level group, or pick one to add this as its sub item group."
+          >
+            <MenuItem value="">None (top-level group)</MenuItem>
+            {parentOptions.map((group) => (
+              <MenuItem key={group.Item_group_uuid} value={group.Item_group_uuid}>{group.Item_group}</MenuItem>
+            ))}
+          </TextField>
+          <TextField label={form.parentGroup_uuid ? 'Sub Item Group' : 'Item Group'} value={form.Item_group} onChange={(e) => setField('Item_group', e.target.value)} size="small" fullWidth sx={compactFieldSx} />
           <TextField select label="Group Type" value={form.groupType} onChange={(e) => setField('groupType', e.target.value)} size="small" fullWidth sx={compactFieldSx}>
             <MenuItem value="general">General</MenuItem>
             <MenuItem value="finished_goods">Finished Goods</MenuItem>

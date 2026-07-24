@@ -80,6 +80,8 @@ export const ROUTES = {
   OUTSTANDING_REPORT: '/reports/outstanding',
   PURCHASE_ORDERS: '/purchase-orders',
   POST_PRINTING_JOBS: '/post-printing-jobs',
+  RATE_CALCULATOR: '/rate-calculator',
+  RATE_CARD_MASTER: '/rate-cards',
 
   DIARY_UPLOAD:              '/accounts/diary-upload',
   DAY_BOOK:                  '/accounts/day-book',

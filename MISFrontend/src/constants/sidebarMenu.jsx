@@ -22,6 +22,7 @@ import AccountBalanceRoundedIcon from '@mui/icons-material/AccountBalanceRounded
 import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
+import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -103,6 +104,8 @@ export const SIDEBAR_GROUPS = [
       { label: 'Items Report', path: ROUTES.REPORTS_ITEMS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Item', path: ROUTES.ADD_ITEM, icon: <Inventory2RoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Item Group', path: ROUTES.ADD_ITEM_GROUP, icon: <Inventory2RoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Rate Calculator', path: ROUTES.RATE_CALCULATOR, icon: <CalculateRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Rate Card Master', path: ROUTES.RATE_CARD_MASTER, icon: <CalculateRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Tasks Report', path: ROUTES.REPORTS_TASKS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Task Master', path: ROUTES.ADD_TASK, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Task Group', path: ROUTES.ADD_TASK_GROUP, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

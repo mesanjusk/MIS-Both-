@@ -2,6 +2,8 @@ const express = require("express");
 const { v4: uuid } = require("uuid");
 const { requireAuth } = require("../middleware/auth");
 const RateCard = require("../repositories/rateCard");
+const Items = require("../repositories/items");
+const Itemgroup = require("../repositories/itemgroup");
 const logger = require("../utils/logger");
 
 const router = express.Router();
@@ -26,6 +28,8 @@ const buildPayload = (body = {}) => {
   return {
     itemName: String(body.itemName || "").trim(),
     category: String(body.category || "").trim(),
+    itemUuid: String(body.itemUuid || "").trim(),
+    itemGroupUuid: String(body.itemGroupUuid || "").trim(),
     pricingType,
     unit: String(body.unit || "Nos").trim() || "Nos",
     ratePerSqft: Number(body.ratePerSqft ?? 0) || 0,
@@ -37,6 +41,20 @@ const buildPayload = (body = {}) => {
     isActive: body.isActive === undefined ? true : Boolean(body.isActive),
     notes: String(body.notes || "").trim(),
   };
+};
+
+// When a rate card is linked to a real Item, pull its name/group from the
+// Item and Item Group masters instead of letting itemName/category drift
+// out of sync as separate free-text data.
+const resolveItemLinkage = async (payload) => {
+  if (!payload.itemUuid) return payload;
+  const item = await Items.findOne({ Item_uuid: payload.itemUuid }).lean();
+  if (!item) return payload;
+  payload.itemName = item.Item_name;
+  payload.category = item.Item_group || payload.category;
+  const group = await Itemgroup.findOne({ Item_group: item.Item_group }).lean();
+  payload.itemGroupUuid = group?.Item_group_uuid || "";
+  return payload;
 };
 
 // List rate cards
@@ -65,7 +83,12 @@ router.get("/:id", async (req, res) => {
 
 // Create rate card
 router.post("/", async (req, res) => {
-  const payload = buildPayload(req.body);
+  let payload = buildPayload(req.body);
+  try {
+    payload = await resolveItemLinkage(payload);
+  } catch (err) {
+    logger.error("Error resolving item linkage:", err);
+  }
   if (!payload.itemName) {
     return res.status(400).json({ success: false, message: "itemName is required" });
   }
@@ -83,7 +106,12 @@ router.post("/", async (req, res) => {
 
 // Update rate card
 router.put("/:id", async (req, res) => {
-  const payload = buildPayload(req.body);
+  let payload = buildPayload(req.body);
+  try {
+    payload = await resolveItemLinkage(payload);
+  } catch (err) {
+    logger.error("Error resolving item linkage:", err);
+  }
   if (!payload.itemName) {
     return res.status(400).json({ success: false, message: "itemName is required" });
   }

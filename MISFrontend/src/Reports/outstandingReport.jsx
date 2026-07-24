@@ -45,6 +45,7 @@ const OutstandingReport = () => {
 
   const [transactions, setTransactions] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [customerGroups, setCustomerGroups] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [datePreset, setDatePreset] = useState('all');
@@ -52,6 +53,7 @@ const OutstandingReport = () => {
   const [customTo, setCustomTo] = useState(todayISO());
 
   const [partyFilter, setPartyFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
   const [filterType, setFilterType] = useState('all'); // receivable | payable | all
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
@@ -71,6 +73,18 @@ const OutstandingReport = () => {
       }
     };
     fetchCustomers();
+  }, []);
+
+  useEffect(() => {
+    const fetchCustomerGroups = async () => {
+      try {
+        const res = await axios.get('/api/customergroup/GetCustomergroupList');
+        if (res.data?.success) setCustomerGroups(res.data.result || []);
+      } catch (error) {
+        console.error('Error fetching customer groups:', error);
+      }
+    };
+    fetchCustomerGroups();
   }, []);
 
   useEffect(() => {
@@ -123,6 +137,11 @@ const OutstandingReport = () => {
     [customers]
   );
 
+  const groupOptions = useMemo(
+    () => Array.from(new Set(customerGroups.map((g) => g?.Customer_group).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [customerGroups]
+  );
+
   const filteredReport = useMemo(() => {
     return outstandingReport
       .filter((item) => (item.debit !== 0 || item.credit !== 0))
@@ -131,8 +150,9 @@ const OutstandingReport = () => {
         if (filterType === 'payable') return item.balance < 0;
         return true;
       })
-      .filter((item) => (partyFilter ? item.name === partyFilter : true));
-  }, [outstandingReport, filterType, partyFilter]);
+      .filter((item) => (partyFilter ? item.name === partyFilter : true))
+      .filter((item) => (groupFilter ? item.group === groupFilter : true));
+  }, [outstandingReport, filterType, partyFilter, groupFilter]);
 
   const sortedReport = useMemo(() => {
     const sorted = [...filteredReport].sort((a, b) => {
@@ -297,6 +317,16 @@ const OutstandingReport = () => {
             value={partyFilter || null}
             onChange={(_, value) => setPartyFilter(value || '')}
             renderInput={(params) => <TextField {...params} label="Filter by party" placeholder="All parties" />}
+          />
+        </div>
+
+        <div className="flex-1 min-w-[220px]">
+          <Autocomplete
+            size="small"
+            options={groupOptions}
+            value={groupFilter || null}
+            onChange={(_, value) => setGroupFilter(value || '')}
+            renderInput={(params) => <TextField {...params} label="Filter by customer group" placeholder="All groups" />}
           />
         </div>
 

@@ -167,7 +167,9 @@ export default function AddItem() {
             <TextField select label="Item Group" value={form.Item_group} onChange={(e) => onSelectGroup(e.target.value)} size="small" fullWidth sx={compactFieldSx}>
               <MenuItem value="">Select Group</MenuItem>
               {groupOptions.map((group) => (
-                <MenuItem key={group.Item_group_uuid || group.Item_group} value={group.Item_group}>{group.Item_group}</MenuItem>
+                <MenuItem key={group.Item_group_uuid || group.Item_group} value={group.Item_group} sx={group.parentGroup_uuid ? { pl: 3 } : undefined}>
+                  {group.parentGroup_uuid ? `↳ ${group.Item_group}` : group.Item_group}
+                </MenuItem>
               ))}
             </TextField>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>

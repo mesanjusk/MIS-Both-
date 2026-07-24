@@ -31,6 +31,8 @@ const AddUser = lazy(() => import('./Pages/addUser'));
 const AddUsergroup = lazy(() => import('./Pages/addUsergroup'));
 const AddItem = lazy(() => import('./Pages/addItem'));
 const AddItemgroup = lazy(() => import('./Pages/addItemgroup'));
+const RateCalculator = lazy(() => import('./Pages/RateCalculator'));
+const RateCardMaster = lazy(() => import('./Pages/RateCardMaster'));
 const AddTask = lazy(() => import('./Pages/addTask'));
 const AddTaskgroup = lazy(() => import('./Pages/addTaskgroup'));
 const AddOrder1 = lazy(() => import('./Pages/addOrder1'));
@@ -153,6 +155,8 @@ export default function App() {
             <Route path={ROUTES.ADD_USER_GROUP} element={withSuspense(<AddUsergroup />)} />
             <Route path={ROUTES.ADD_ITEM} element={withSuspense(<AddItem />)} />
             <Route path={ROUTES.ADD_ITEM_GROUP} element={withSuspense(<AddItemgroup />)} />
+            <Route path={ROUTES.RATE_CALCULATOR} element={withSuspense(<RateCalculator />)} />
+            <Route path={ROUTES.RATE_CARD_MASTER} element={withSuspense(<RateCardMaster />)} />
             <Route path={ROUTES.ADD_TASK} element={withSuspense(<AddTask />)} />
             <Route path={ROUTES.ADD_TASK_GROUP} element={withSuspense(<AddTaskgroup />)} />
             <Route path={ROUTES.ADD_PRIORITY} element={withSuspense(<AddPriority />)} />

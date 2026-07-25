@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Autocomplete,
   Button,
   Card,
   CardContent,
@@ -38,6 +39,7 @@ const formatDate = (value) => {
 export default function CustomerReport() {
   const [customers, setCustomers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [groupFilter, setGroupFilter] = useState([]);
   const [sortField, setSortField] = useState('Customer_name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -87,14 +89,21 @@ export default function CustomerReport() {
     );
   };
 
+  const groupOptions = useMemo(
+    () => Array.from(new Set(customers.map((c) => c.Customer_group).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [customers],
+  );
+
   const filteredCustomers = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return customers.filter((c) =>
-      [c.Customer_name, c.Mobile_number, c.Customer_group, c.Status]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(term)),
-    );
-  }, [customers, searchTerm]);
+    return customers
+      .filter((c) =>
+        [c.Customer_name, c.Mobile_number, c.Customer_group, c.Status]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(term)),
+      )
+      .filter((c) => (groupFilter.length === 0 ? true : groupFilter.includes(c.Customer_group)));
+  }, [customers, searchTerm, groupFilter]);
 
   const handleDeleteConfirm = async () => {
     if (!selectedCustomer?._id) return;
@@ -129,7 +138,7 @@ export default function CustomerReport() {
       }
     >
       <ReportFilterBar>
-        <Grid item xs={12} md={7}>
+        <Grid item xs={12} md={4}>
           <TextField
             fullWidth
             size="small"
@@ -137,6 +146,16 @@ export default function CustomerReport() {
             placeholder="Name, mobile, group, status"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
+          />
+        </Grid>
+        <Grid item xs={12} md={3}>
+          <Autocomplete
+            multiple
+            size="small"
+            options={groupOptions}
+            value={groupFilter}
+            onChange={(_, value) => setGroupFilter(value)}
+            renderInput={(params) => <TextField {...params} label="Filter by group" placeholder="All groups" />}
           />
         </Grid>
         <Grid item xs={6} md={2}>

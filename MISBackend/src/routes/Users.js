@@ -12,6 +12,7 @@ const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
+const { maskMobileNumbers } = require('../utils/mobileVisibility');
 
 // LOGIN
 router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.string().min(1), Password: z.string().min(1) }) }), async (req, res) => {
@@ -127,6 +128,8 @@ router.get("/GetUserList", requireAuth, async (req, res) => {
       isUsed: allUsed.has(user.User_name),
       Allowed_Task_Groups: user.Allowed_Task_Groups || [],
     }));
+
+    await maskMobileNumbers(userWithUsage, { role: req.user?.userGroup, entity: 'user' });
 
     res.json({ success: true, result: userWithUsage });
   } catch (err) {

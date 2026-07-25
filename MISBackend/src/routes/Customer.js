@@ -8,6 +8,7 @@ const Order = require("../repositories/order");
 const { getCustomerTimeline } = require("../controllers/customerTimelineController");
 const logger = require('../utils/logger');
 const { updateBalancesForJournal } = require('../services/accountRegistry');
+const { maskMobileNumbers } = require('../utils/mobileVisibility');
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 // The canonical "Opening Balance" contra-account UUID in this installation.
@@ -107,6 +108,12 @@ router.get("/GetCustomerList", async (req, res) => {
       Status: typeof c?.Status === "number" ? c.Status : 1,
       Customer_uuid: S(c?.Customer_uuid),
     }));
+
+    await maskMobileNumbers(result, {
+      role: req.user?.userGroup,
+      entity: 'customer',
+      fields: { groupField: 'Group', uuidField: 'Customer_uuid', mobileFields: ['Mobile'] },
+    });
 
     return res.json({ success: true, result });
   } catch (error) {
@@ -239,6 +246,8 @@ router.get("/GetCustomersList", async (req, res) => {
       };
     });
 
+    await maskMobileNumbers(result, { role: req.user?.userGroup, entity: 'customer' });
+
     return res.json({ success: true, result });
   } catch (error) {
     logger.error("Error fetching customers:", error);
@@ -330,10 +339,13 @@ router.get("/GetCustomerReport", async (req, res) => {
       Customer_name: S(customer?.Customer_name),
       Mobile_number: S(customer?.Mobile_number),
       Customer_group: S(customer?.Customer_group),
+      Customer_uuid: S(customer?.Customer_uuid),
       Status: customer?.Status,
       Tags: Array.isArray(customer?.Tags) ? customer.Tags.join(", ") : "",
       LastInteraction: customer?.LastInteraction || "No interaction",
     }));
+
+    await maskMobileNumbers(report, { role: req.user?.userGroup, entity: 'customer' });
 
     return res.json({ success: true, result: report });
   } catch (error) {
@@ -353,6 +365,9 @@ router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
+    // NOTE: intentionally not masked — this response feeds the edit-customer form,
+    // which round-trips the fetched Mobile_number back on save. Masking here would
+    // silently overwrite real numbers with masked placeholders.
     const customer = await Customers.findById(id);
     if (!customer) {
       return res

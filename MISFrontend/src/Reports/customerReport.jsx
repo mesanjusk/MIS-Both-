@@ -24,7 +24,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
-import { deleteCustomer, fetchCustomers } from '../services/customerService.js';
+import { deleteCustomer, fetchCustomersReport } from '../services/customerService.js';
 import EditCustomer from './editCustomer';
 import AddCustomer from '../Pages/addCustomer';
 import { ReportCardGrid, ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
@@ -56,7 +56,7 @@ export default function CustomerReport() {
     try {
       const group = localStorage.getItem('User_group');
       setUserGroup(group || '');
-      const res = await fetchCustomers();
+      const res = await fetchCustomersReport();
       const rows = res?.data?.success ? res.data.result || [] : [];
       setCustomers(rows.sort((a, b) => String(a.Customer_name || '').localeCompare(String(b.Customer_name || ''))));
     } catch (error) {
@@ -91,6 +91,15 @@ export default function CustomerReport() {
 
   const groupOptions = useMemo(
     () => Array.from(new Set(customers.map((c) => c.Customer_group).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [customers],
+  );
+
+  // Mobile numbers may come back masked (e.g. "90*****59") for non-admin users
+  // whose mobile-number-visibility setting hides them. If nothing in the fetched
+  // list is actually visible to this viewer, drop the column entirely instead of
+  // showing a column full of masked placeholders.
+  const showMobileColumn = useMemo(
+    () => customers.some((c) => c.Mobile_number && !String(c.Mobile_number).includes('*')),
     [customers],
   );
 
@@ -169,7 +178,7 @@ export default function CustomerReport() {
             SelectProps={{ native: true }}
           >
             <option value="Customer_name">Customer Name</option>
-            <option value="Mobile_number">Mobile</option>
+            {showMobileColumn ? <option value="Mobile_number">Mobile</option> : null}
             <option value="Customer_group">Group</option>
             <option value="Status">Status</option>
             <option value="LastInteraction">Last Interaction</option>
@@ -201,7 +210,9 @@ export default function CustomerReport() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {['Customer_name', 'Mobile_number', 'Email', 'Customer_group', 'Status', 'LastInteraction', 'Tags'].map((header) => (
+                {['Customer_name', 'Mobile_number', 'Email', 'Customer_group', 'Status', 'LastInteraction', 'Tags']
+                  .filter((header) => header !== 'Mobile_number' || showMobileColumn)
+                  .map((header) => (
                   <TableCell key={header} onClick={() => handleSort(header)} sx={{ fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                     {header.replace(/_/g, ' ')} {sortField === header ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </TableCell>
@@ -217,7 +228,7 @@ export default function CustomerReport() {
                       {customer.Customer_name}
                     </Button>
                   </TableCell>
-                  <TableCell>{customer.Mobile_number || '-'}</TableCell>
+                  {showMobileColumn ? <TableCell>{customer.Mobile_number || '-'}</TableCell> : null}
                   <TableCell>{customer.Email || '-'}</TableCell>
                   <TableCell>{customer.Customer_group || '-'}</TableCell>
                   <TableCell>{customer.Status || '-'}</TableCell>
@@ -254,7 +265,9 @@ export default function CustomerReport() {
                         <EditRoundedIcon fontSize="small" />
                       </IconButton>
                     </Stack>
-                    <Typography variant="body2" color="text.secondary">{customer.Mobile_number || '-'}</Typography>
+                    {showMobileColumn ? (
+                      <Typography variant="body2" color="text.secondary">{customer.Mobile_number || '-'}</Typography>
+                    ) : null}
                     <InfoRow label="Group" value={customer.Customer_group || '-'} />
                     <InfoRow label="Status" value={customer.Status || '-'} />
                     <InfoRow label="Last Interaction" value={formatDate(customer.LastInteraction)} />

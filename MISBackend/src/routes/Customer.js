@@ -100,6 +100,10 @@ router.get("/GetCustomerList", async (req, res) => {
       .sort({ Customer_name: 1 })
       .lean();
 
+    // NOTE: not masked — this is a shared operational endpoint (order creation,
+    // WhatsApp send, design-file autofill, etc. all resolve the real number from
+    // here). Mobile-number-visibility masking is only applied to report/listing
+    // views (see GetCustomerReport) so it never breaks messaging or order flows.
     const result = (customers || []).map((c) => ({
       Customer_name: S(c?.Customer_name),
       Mobile: S(c?.Mobile_number),
@@ -108,12 +112,6 @@ router.get("/GetCustomerList", async (req, res) => {
       Status: typeof c?.Status === "number" ? c.Status : 1,
       Customer_uuid: S(c?.Customer_uuid),
     }));
-
-    await maskMobileNumbers(result, {
-      role: req.user?.userGroup,
-      entity: 'customer',
-      fields: { groupField: 'Group', uuidField: 'Customer_uuid', mobileFields: ['Mobile'] },
-    });
 
     return res.json({ success: true, result });
   } catch (error) {
@@ -238,6 +236,9 @@ router.get("/GetCustomersList", async (req, res) => {
 
     const allUsed = new Set([...usedFromOrders, ...usedFromTransactions]);
 
+    // NOTE: not masked — shared operational endpoint used across orders, WhatsApp,
+    // printing, and payment follow-up flows. See GetCustomerReport for the masked,
+    // display-only view used by the Customers Report page.
     const result = (customers || []).map((cust) => {
       const uuid = S(cust?.Customer_uuid);
       return {
@@ -245,8 +246,6 @@ router.get("/GetCustomersList", async (req, res) => {
         isUsed: uuid ? allUsed.has(uuid) : false,
       };
     });
-
-    await maskMobileNumbers(result, { role: req.user?.userGroup, entity: 'customer' });
 
     return res.json({ success: true, result });
   } catch (error) {
@@ -324,26 +323,43 @@ router.get("/GetLinkedCustomerIds", async (req, res) => {
 });
 
 /* ----------------------------------------------------------------
-   Get customer report (Status, Tags, LastInteraction)
+   Get customer report — masked, display-only view for the Customers
+   Report page. Mirrors GetCustomersList's shape (full doc + isUsed)
+   so the report page can edit/delete, but applies mobile-number-
+   visibility masking since this is a display, not an operational, view.
 ----------------------------------------------------------------- */
 router.get("/GetCustomerReport", async (req, res) => {
   try {
-    const data = await Customers.find({}).lean();
-    if ((data || []).length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "No customers found" });
+    const [customers, orders, transactions] = await Promise.all([
+      Customers.find({}).lean(),
+      Order.find({}, "Customer_uuid").lean(),
+      Transaction.find({}, "Journal_entry Customer_uuid").lean(),
+    ]);
+
+    const usedFromOrders = new Set(
+      (orders || []).map((o) => S(o?.Customer_uuid)).filter(Boolean)
+    );
+
+    const usedFromTransactions = new Set();
+    for (const tx of transactions || []) {
+      const txCust = S(tx?.Customer_uuid);
+      if (txCust) usedFromTransactions.add(txCust);
+      const entries = Array.isArray(tx?.Journal_entry) ? tx.Journal_entry : [];
+      for (const entry of entries) {
+        const acc = S(entry?.Account_id);
+        if (acc) usedFromTransactions.add(acc);
+      }
     }
 
-    const report = data.map((customer) => ({
-      Customer_name: S(customer?.Customer_name),
-      Mobile_number: S(customer?.Mobile_number),
-      Customer_group: S(customer?.Customer_group),
-      Customer_uuid: S(customer?.Customer_uuid),
-      Status: customer?.Status,
-      Tags: Array.isArray(customer?.Tags) ? customer.Tags.join(", ") : "",
-      LastInteraction: customer?.LastInteraction || "No interaction",
-    }));
+    const allUsed = new Set([...usedFromOrders, ...usedFromTransactions]);
+
+    const report = (customers || []).map((cust) => {
+      const custUuid = S(cust?.Customer_uuid);
+      return {
+        ...cust,
+        isUsed: custUuid ? allUsed.has(custUuid) : false,
+      };
+    });
 
     await maskMobileNumbers(report, { role: req.user?.userGroup, entity: 'customer' });
 

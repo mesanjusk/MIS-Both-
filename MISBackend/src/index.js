@@ -94,7 +94,10 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
 }));
 app.use(cors(corsOptions));
-app.use(mongoSanitize());
+// allowDots: true — otherwise mongo-sanitize deletes any key containing a
+// literal ".", which strips Meta's hub.mode / hub.verify_token / hub.challenge
+// webhook verification query params before they reach the route handler.
+app.use(mongoSanitize({ allowDots: true }));
 
 // ---------- Core middleware ----------
 app.use(

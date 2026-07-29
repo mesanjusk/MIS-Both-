@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Divider,
   FormControlLabel,
   Grid,
@@ -31,12 +32,15 @@ const emptyCommand = () => ({
   enabled: true,
 });
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 const normalizeForUi = (config) => ({
   enabled: config?.enabled !== false,
   markUnknownNumbers: Boolean(config?.markUnknownNumbers),
   unknownNumberReply: config?.unknownNumberReply || '',
   duplicateReply: config?.duplicateReply || '',
   invalidTransitionReply: config?.invalidTransitionReply || '',
+  weeklyOffDays: Array.isArray(config?.weeklyOffDays) && config.weeklyOffDays.length ? config.weeklyOffDays : [0],
   commands: Array.isArray(config?.commands)
     ? config.commands.map((command) => ({
         ...command,
@@ -148,6 +152,38 @@ export default function WhatsAppAttendanceSettings() {
             label="Reply to unknown numbers"
           />
         </Stack>
+
+        <Box>
+          <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+            Weekly off day(s)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            On Day End, if tomorrow falls on one of these days, the "coming tomorrow?" prompt is skipped and the
+            next check-in reminder targets the next working day instead.
+          </Typography>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {WEEKDAY_LABELS.map((label, day) => {
+              const selected = (form.weeklyOffDays || []).includes(day);
+              return (
+                <Chip
+                  key={label}
+                  label={label}
+                  color={selected ? 'primary' : 'default'}
+                  variant={selected ? 'filled' : 'outlined'}
+                  onClick={() =>
+                    setForm((prev) => {
+                      const current = prev.weeklyOffDays || [];
+                      const next = current.includes(day)
+                        ? current.filter((d) => d !== day)
+                        : [...current, day];
+                      return { ...prev, weeklyOffDays: next };
+                    })
+                  }
+                />
+              );
+            })}
+          </Stack>
+        </Box>
 
         <Grid container spacing={2}>
           <Grid item xs={12} md={4}>

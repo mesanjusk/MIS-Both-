@@ -3,8 +3,19 @@ const Attendance = require('../repositories/attendance');
 const { AppSetting } = require('../repositories/appSetting');
 const { markAttendance } = require('./attendanceService');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
+const WhatsAppPendingInput = require('../repositories/WhatsAppPendingInput');
+const AttendanceReminder = require('../repositories/AttendanceReminder');
+const AttendanceAbsence = require('../repositories/AttendanceAbsence');
+const { sendWhatsAppText } = require('./unifiedWhatsAppService');
+const { tierFor } = require('../utils/roleHierarchy');
+const logger = require('../utils/logger');
+// buildOrderListSections is lazy-required inside sendPendingTaskList() —
+// whatsappOrderCommandService.js -> whatsappIdentityService.js already
+// requires this file at the top level, so a top-level require here would
+// close a circular-require loop.
 
 const SETTING_KEY = 'whatsapp_attendance_config';
+const ABSENCE_PENDING_TTL_MS = 15 * 60 * 1000;
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -12,6 +23,7 @@ const DEFAULT_CONFIG = {
   unknownNumberReply: 'Your number is not registered. Contact admin.',
   duplicateReply: 'Attendance for this action is already marked today.',
   invalidTransitionReply: 'This command is not allowed right now.',
+  weeklyOffDays: [0], // JS Date#getDay() values, 0 = Sunday
   commands: [
     {
       key: 'start',
@@ -64,6 +76,12 @@ function normalizeAliases(list = []) {
   return [...new Set(list.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
 }
 
+function normalizeWeeklyOffDays(list) {
+  if (!Array.isArray(list)) return [...DEFAULT_CONFIG.weeklyOffDays];
+  const days = [...new Set(list.map((value) => Number(value)).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))];
+  return days.length ? days : [...DEFAULT_CONFIG.weeklyOffDays];
+}
+
 async function getAttendanceConfig() {
   let value = await AppSetting.getSetting(SETTING_KEY, null);
   if (!value) {
@@ -78,6 +96,7 @@ async function getAttendanceConfig() {
   return {
     ...DEFAULT_CONFIG,
     ...value,
+    weeklyOffDays: normalizeWeeklyOffDays(value?.weeklyOffDays),
     commands: Array.isArray(value?.commands) && value.commands.length > 0
       ? value.commands.map((command) => ({
           ...command,
@@ -94,6 +113,7 @@ async function saveAttendanceConfig(payload) {
     unknownNumberReply: String(payload?.unknownNumberReply || DEFAULT_CONFIG.unknownNumberReply),
     duplicateReply: String(payload?.duplicateReply || DEFAULT_CONFIG.duplicateReply),
     invalidTransitionReply: String(payload?.invalidTransitionReply || DEFAULT_CONFIG.invalidTransitionReply),
+    weeklyOffDays: normalizeWeeklyOffDays(payload?.weeklyOffDays),
     commands: Array.isArray(payload?.commands)
       ? payload.commands.map((command, index) => ({
           key: String(command?.key || `command_${index + 1}`).trim().toLowerCase(),
@@ -182,7 +202,280 @@ function getApplicableCommands({ config, attendance }) {
   );
 }
 
-async function executeAttendanceCommand({ config, command, employee, payload, sendText, sourceLabel }) {
+// ── IST date helpers for the tomorrow-reminder scheduling ──────────────────
+
+// "Today" as a UTC-midnight-bucketed Date, same idiom as Attendance.Date.
+function computeIstDateOnly(base = new Date()) {
+  const ist = getIstDate(base);
+  return new Date(ist.toISOString().split('T')[0]);
+}
+
+function addDaysToDateOnly(dateOnly, days) {
+  const next = new Date(dateOnly);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function computeTomorrow9AmIst(base = new Date()) {
+  const ist = getIstDate(base);
+  return new Date(ist.getFullYear(), ist.getMonth(), ist.getDate() + 1, 9, 0, 0, 0);
+}
+
+// Next date after `fromDateOnly` that isn't a configured weekly-off day.
+function nextWorkingDateOnly(fromDateOnly, weeklyOffDays) {
+  let candidate = addDaysToDateOnly(fromDateOnly, 1);
+  let guard = 0;
+  while (weeklyOffDays.includes(candidate.getUTCDay()) && guard < 14) {
+    candidate = addDaysToDateOnly(candidate, 1);
+    guard += 1;
+  }
+  return candidate;
+}
+
+// ── WhatsAppPendingInput helpers, local to the attendance-absence flow ─────
+// (whatsappOrderCommandService.js has its own private setPending/clearPending
+// over the same collection — kept separate rather than exported/shared, both
+// files independently key off `action` to decide "is this pending doc mine?")
+
+async function getAttendanceAbsencePending(phone) {
+  const doc = await WhatsAppPendingInput.findOne({
+    phone: normalizePhoneForLookup(phone),
+    action: 'attendanceAbsence',
+  }).lean();
+  return doc || null;
+}
+
+async function setAttendancePending(phone, fields) {
+  await WhatsAppPendingInput.findOneAndUpdate(
+    { phone: normalizePhoneForLookup(phone) },
+    { $set: { ...fields, expiresAt: new Date(Date.now() + ABSENCE_PENDING_TTL_MS) } },
+    { upsert: true }
+  );
+}
+
+async function clearAttendancePending(phone) {
+  await WhatsAppPendingInput.deleteOne({ phone: normalizePhoneForLookup(phone) });
+}
+
+// ── Pending task list, shown after every activity ───────────────────────────
+
+async function sendPendingTaskList({ employee, payload, sendText, sendList, introText }) {
+  await rolloverPendingOrders();
+  const taskResult = await getPendingOrdersForUser(employee);
+  const orders = taskResult.orders || [];
+  const name = employee.name || employee.User_name || 'there';
+
+  if (!orders.length) {
+    if (sendText) {
+      await sendText({
+        to: payload.from,
+        body: introText || `Hi ${name}, no pending order tasks are assigned to you right now.`,
+      });
+    }
+    return;
+  }
+
+  if (sendList) {
+    // Lazy require — see the top-of-file note on the circular-require hazard.
+    const { buildOrderListSections } = require('./whatsappOrderCommandService');
+    const sections = await buildOrderListSections(orders.slice(0, 10));
+    await sendList({
+      to: payload.from,
+      bodyText: introText || `Hi ${name}, you have ${orders.length} pending task${orders.length === 1 ? '' : 's'}:`,
+      buttonLabel: 'View tasks',
+      sections,
+    });
+    return;
+  }
+
+  if (sendText) {
+    await sendText({ to: payload.from, body: buildTaskSummaryMessage({ employee, orders }) });
+  }
+}
+
+// ── Day End: tomorrow preview (work day) or auto-scheduled reminder (off day) ─
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+async function sendDayEndTomorrowPreview({ config, employee, payload, sendText, sendButtons, sendList }) {
+  const name = employee.name || employee.User_name || 'there';
+
+  await sendPendingTaskList({
+    employee,
+    payload,
+    sendText,
+    sendList,
+    introText: `Day ended, ${name}. Here's what's still pending / rolled to tomorrow:`,
+  });
+
+  const today = computeIstDateOnly();
+  const tomorrow = addDaysToDateOnly(today, 1);
+  const weeklyOffDays = config.weeklyOffDays || DEFAULT_CONFIG.weeklyOffDays;
+
+  if (!weeklyOffDays.includes(tomorrow.getUTCDay())) {
+    if (sendButtons) {
+      await sendButtons({
+        to: payload.from,
+        bodyText: 'Will you be in tomorrow?',
+        buttons: [
+          { id: 'attn:tomorrow:start', title: 'Coming Tomorrow' },
+          { id: 'attn:tomorrow:absent', title: 'Not Coming Tomorrow' },
+        ],
+      });
+    }
+    return { handled: true, success: true, reason: 'day_end_preview_sent' };
+  }
+
+  // Tomorrow is a weekly-off day — nothing to confirm, so auto-schedule the
+  // next-working-day reminder instead of asking. A fixed "9AM tomorrow" slot
+  // would land 30+ hours after this message on a weekly-off gap, well
+  // outside Meta's 24h free-messaging window — so fire this one 5 minutes
+  // before that window (measured from right now, this being the employee's
+  // most recent inbound message) closes, which lands sometime on the off day
+  // itself, still safely inside the window.
+  const offDayName = WEEKDAY_NAMES[tomorrow.getUTCDay()] || 'tomorrow';
+  const forDate = nextWorkingDateOnly(tomorrow, weeklyOffDays);
+  const forDateName = WEEKDAY_NAMES[forDate.getUTCDay()] || 'the next working day';
+  const fireAt = new Date(Date.now() + 23 * 60 * 60 * 1000 + 55 * 60 * 1000);
+
+  if (sendText) {
+    await sendText({
+      to: payload.from,
+      body: `${offDayName} is your weekly off. We'll check in with you before ${forDateName}.`,
+    });
+  }
+
+  await AttendanceReminder.findOneAndUpdate(
+    { employeeUuid: employee.User_uuid, forDate },
+    {
+      $set: {
+        phone: normalizePhoneForLookup(payload.from),
+        employeeName: name,
+        fireAt,
+        status: 'pending',
+        sentAt: null,
+        error: '',
+      },
+    },
+    { upsert: true }
+  );
+
+  return { handled: true, success: true, reason: 'day_end_offday_reminder_scheduled' };
+}
+
+// ── "Coming Tomorrow" / "Not Coming Tomorrow" button taps ──────────────────
+
+async function handleTomorrowComingTap({ employee, payload, sendText }) {
+  if (sendText) {
+    await sendText({ to: payload.from, body: "Noted — see you tomorrow! We'll check in with you in the morning." });
+  }
+
+  const forDate = addDaysToDateOnly(computeIstDateOnly(), 1);
+  const fireAt = computeTomorrow9AmIst();
+
+  await AttendanceReminder.findOneAndUpdate(
+    { employeeUuid: employee.User_uuid, forDate },
+    {
+      $set: {
+        phone: normalizePhoneForLookup(payload.from),
+        employeeName: employee.name || employee.User_name || '',
+        fireAt,
+        status: 'pending',
+        sentAt: null,
+        error: '',
+      },
+    },
+    { upsert: true }
+  );
+
+  return { handled: true, success: true, reason: 'tomorrow_reminder_scheduled' };
+}
+
+async function handleTomorrowAbsentTap({ employee, payload, sendText }) {
+  const forDate = addDaysToDateOnly(computeIstDateOnly(), 1);
+
+  await setAttendancePending(payload.from, {
+    action: 'attendanceAbsence',
+    step: 'awaiting_reason',
+    orderUuid: '',
+    data: {
+      employeeUuid: employee.User_uuid,
+      employeeName: employee.name || employee.User_name || '',
+      forDate,
+    },
+  });
+
+  if (sendText) {
+    await sendText({ to: payload.from, body: "Please share a short reason you won't be in tomorrow." });
+  }
+
+  return { handled: true, success: true, reason: 'absence_reason_prompted' };
+}
+
+async function notifyManagersOfAbsence({ employeeName, forDate, reason }) {
+  const body = `${employeeName || 'An employee'} won't be in on ${forDate.toLocaleDateString('en-IN')}.\nReason: ${reason}`;
+  const recipients = new Set();
+
+  const ownerMobile = normalizePhoneForLookup(process.env.OWNER_WHATSAPP_NUMBER);
+  if (ownerMobile) recipients.add(ownerMobile);
+
+  const users = await User.find({}).lean();
+  for (const u of users) {
+    if (tierFor(u.User_group) >= 3) {
+      const mobile = normalizePhoneForLookup(u.Mobile_number);
+      if (mobile) recipients.add(mobile);
+    }
+  }
+
+  for (const mobile of recipients) {
+    try {
+      await sendWhatsAppText({ to: mobile, body, source: 'ATTENDANCE_ABSENCE', activity: 'ATTENDANCE' });
+    } catch (err) {
+      logger.error(`[attendance] Failed to notify ${mobile} of absence:`, err.message);
+    }
+  }
+}
+
+async function handleAbsenceReasonReply({ pending, payload, sendText, rawText }) {
+  const reason = String(rawText || '').trim().slice(0, 300);
+  if (!reason) {
+    if (sendText) {
+      await sendText({ to: payload.from, body: 'Please send a short text reason.' });
+    }
+    return { handled: true, success: false, reason: 'empty_reason' };
+  }
+
+  await clearAttendancePending(payload.from);
+
+  const employeeName = pending.data?.employeeName || '';
+  const forDate = pending.data?.forDate ? new Date(pending.data.forDate) : addDaysToDateOnly(computeIstDateOnly(), 1);
+
+  await AttendanceAbsence.create({
+    Employee_uuid: pending.data?.employeeUuid || '',
+    Employee_name: employeeName,
+    phone: normalizePhoneForLookup(payload.from),
+    forDate,
+    reason,
+  });
+
+  if (sendText) {
+    await sendText({
+      to: payload.from,
+      body: `Thanks — noted that you won't be in on ${forDate.toLocaleDateString('en-IN')}. The team has been informed.`,
+    });
+  }
+
+  // Fire-and-forget: pure side-channel notify, must not block the employee's ack.
+  notifyManagersOfAbsence({ employeeName, forDate, reason }).catch((err) => {
+    logger.error('[attendance] Failed to notify managers of absence:', err);
+  });
+
+  return { handled: true, success: true, reason: 'absence_captured' };
+}
+
+// ── Mark-and-reply, shared by the typed-keyword and button-tap paths ───────
+
+async function executeAttendanceCommand({ config, command, employee, payload, sendText, sendButtons, sendList, sourceLabel }) {
   const eventTime = getIstDate(new Date());
   const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
   let attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate });
@@ -240,13 +533,11 @@ async function executeAttendanceCommand({ config, command, employee, payload, se
     });
   }
 
-  if (attendanceType === 'In' && sendText) {
-    await rolloverPendingOrders();
-    const taskResult = await getPendingOrdersForUser(employee);
-    await sendText({
-      to: payload.from,
-      body: buildTaskSummaryMessage({ employee, orders: taskResult.orders }),
-    });
+  if (attendanceType === 'Out') {
+    await sendDayEndTomorrowPreview({ config, employee, payload, sendText, sendButtons, sendList });
+  } else if (sendText) {
+    // In / Lunch Out / Lunch In all now get the interactive task list.
+    await sendPendingTaskList({ employee, payload, sendText, sendList });
   }
 
   return { handled: true, success: true, attendanceType, employee, attendance };
@@ -280,7 +571,7 @@ async function sendApplicableAttendanceButtons({ config, employee, payload, send
   return { handled: true, success: true, reason: 'menu_sent' };
 }
 
-async function sendAttendanceUpdate({ config, employee, payload, sendText, sendButtons }) {
+async function sendAttendanceUpdate({ config, employee, payload, sendText, sendButtons, sendList }) {
   const eventTime = getIstDate(new Date());
   const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
   const attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate }).lean();
@@ -289,27 +580,37 @@ async function sendAttendanceUpdate({ config, employee, payload, sendText, sendB
     ? attendance.User.map((entry) => `${entry.Type}: ${entry.Time}`).join('\n')
     : 'No attendance marked yet today.';
 
-  await rolloverPendingOrders();
-  const taskResult = await getPendingOrdersForUser(employee);
-  const taskSummary = buildTaskSummaryMessage({ employee, orders: taskResult.orders });
-
-  if (sendText) {
-    await sendText({
-      to: payload.from,
-      body: `Today's attendance:\n${statusLines}\n\n${taskSummary}`,
-    });
-  }
+  // Status is merged into the task list's intro text (rather than sent as its
+  // own message first) so an Update tap stays at 2 outbound messages total
+  // (status+list, then buttons), same as before task lists were added here.
+  await sendPendingTaskList({
+    employee,
+    payload,
+    sendText,
+    sendList,
+    introText: `Today's attendance:\n${statusLines}`,
+  });
 
   return sendApplicableAttendanceButtons({ config, employee, payload, sendText, sendButtons });
 }
 
-async function processWhatsAppAttendanceCommand({ payload, sendText, sendButtons }) {
+async function processWhatsAppAttendanceCommand({ payload, sendText, sendButtons, sendList }) {
   const config = await getAttendanceConfig();
   if (!config.enabled) return { handled: false };
 
-  const incomingText = String(payload?.message || payload?.text || '').trim().toLowerCase();
-  if (!incomingText) return { handled: false };
+  const rawText = String(payload?.message || payload?.text || '').trim();
+  if (!rawText) return { handled: false };
 
+  // Must run before alias matching and before any early `handled:false`
+  // return — an unclaimed pending absence-reason doc would otherwise be
+  // silently wiped by handleWhatsAppOrderCommand's own pending-cleanup
+  // fallthrough once this function falls through to it.
+  const absencePending = await getAttendanceAbsencePending(payload?.from);
+  if (absencePending) {
+    return handleAbsenceReasonReply({ pending: absencePending, payload, sendText, rawText });
+  }
+
+  const incomingText = rawText.toLowerCase();
   const command = (config.commands || []).find((entry) => entry.enabled && entry.aliases.includes(incomingText));
   if (!command) return { handled: false };
 
@@ -328,10 +629,10 @@ async function processWhatsAppAttendanceCommand({ payload, sendText, sendButtons
     return sendApplicableAttendanceButtons({ config, employee, payload, sendText, sendButtons });
   }
 
-  return executeAttendanceCommand({ config, command, employee, payload, sendText, sourceLabel: incomingText });
+  return executeAttendanceCommand({ config, command, employee, payload, sendText, sendButtons, sendList, sourceLabel: incomingText });
 }
 
-async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButtons }) {
+async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButtons, sendList }) {
   const replyId = String(payload?.replyId || '');
   if (!replyId.startsWith('attn:')) return { handled: false };
 
@@ -354,7 +655,13 @@ async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButto
   const [, action, arg] = replyId.split(':');
 
   if (action === 'update') {
-    return sendAttendanceUpdate({ config, employee, payload, sendText, sendButtons });
+    return sendAttendanceUpdate({ config, employee, payload, sendText, sendButtons, sendList });
+  }
+
+  if (action === 'tomorrow') {
+    if (arg === 'start') return handleTomorrowComingTap({ employee, payload, sendText });
+    if (arg === 'absent') return handleTomorrowAbsentTap({ employee, payload, sendText });
+    return { handled: false };
   }
 
   if (action === 'mark') {
@@ -367,7 +674,12 @@ async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButto
       return { handled: true, success: false, reason: 'unknown_command' };
     }
 
-    await executeAttendanceCommand({ config, command, employee, payload, sendText, sourceLabel: `button:${command.key}` });
+    const result = await executeAttendanceCommand({ config, command, employee, payload, sendText, sendButtons, sendList, sourceLabel: `button:${command.key}` });
+    if (result.success && result.attendanceType === 'Out') {
+      // sendDayEndTomorrowPreview already sent the list + follow-up inside
+      // executeAttendanceCommand — don't also re-show the (now-empty) menu.
+      return result;
+    }
     // Always re-show the current buttons, whether the mark succeeded, hit a
     // duplicate, or was rejected as an invalid transition — this is a
     // button-driven menu, so a stale/double tap should never dead-end it.
@@ -383,4 +695,7 @@ module.exports = {
   processWhatsAppAttendanceCommand,
   processWhatsAppAttendanceButtonTap,
   findEmployeeByWhatsAppNumber,
+  getCurrentAttendanceType,
+  getIstDate,
+  sendApplicableAttendanceButtons,
 };

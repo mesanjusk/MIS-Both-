@@ -72,7 +72,8 @@ const PurchaseOrder = require("./routes/PurchaseOrder");
 const Scheduler = require("./routes/Scheduler");
 const Stock = require("./routes/Stock");
 const { initScheduler, initTaskDigestScheduler, initAutoPOScheduler } = require("./services/messageScheduler");
-const { getAnalytics } = require("./controllers/whatsappController");
+const { initAttendanceReminderScheduler } = require("./services/attendanceReminderScheduler");
+const { getAnalytics, dispatchTextMessage, dispatchInteractiveButtons } = require("./controllers/whatsappController");
 const { initSocket } = require("./socket");
 const BaileysRouter = require("./routes/Baileys");
 const DiaryDraft = require("./routes/DiaryDraft");
@@ -185,6 +186,7 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   initScheduler();
   initTaskDigestScheduler();
   initAutoPOScheduler();
+  initAttendanceReminderScheduler({ sendText: dispatchTextMessage, sendButtons: dispatchInteractiveButtons });
 
   // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
   try {

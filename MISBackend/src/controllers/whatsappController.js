@@ -319,12 +319,14 @@ const handleWhatsAppAttendanceInteraction = async (payload) => {
         payload,
         sendText: dispatchTextMessage,
         sendButtons: dispatchInteractiveButtons,
+        sendList: dispatchInteractiveList,
       });
     }
     return await processWhatsAppAttendanceCommand({
       payload,
       sendText: dispatchTextMessage,
       sendButtons: dispatchInteractiveButtons,
+      sendList: dispatchInteractiveList,
     });
   } catch (error) {
     logger.error('[whatsapp] Failed to process attendance command:', error);
@@ -1916,6 +1918,8 @@ const getAnalytics = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
+  dispatchTextMessage,
+  dispatchInteractiveButtons,
   exchangeMetaToken: asyncHandler(async (_req, _res) => { /* stub */ }),
   manualConnect: asyncHandler(async (_req, _res) => { /* stub */ }),
   listAccounts: asyncHandler(async (_req, res) => {

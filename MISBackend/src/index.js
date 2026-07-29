@@ -75,7 +75,6 @@ const { initScheduler, initTaskDigestScheduler, initAutoPOScheduler } = require(
 const { initAttendanceReminderScheduler } = require("./services/attendanceReminderScheduler");
 const { getAnalytics, dispatchTextMessage, dispatchInteractiveButtons } = require("./controllers/whatsappController");
 const { initSocket } = require("./socket");
-const BaileysRouter = require("./routes/Baileys");
 const DiaryDraft = require("./routes/DiaryDraft");
 const BankStatement = require("./routes/BankStatement");
 const Gmail = require("./routes/Gmail");
@@ -162,9 +161,6 @@ app.use("/api/design-files", DesignFiles);
 app.use("/api/drive-folder-report", DriveFolderReport);
 app.use("/api", Chat);
 
-// ---------- Baileys (unofficial WhatsApp Web / QR-based) ----------
-app.use("/api/baileys", BaileysRouter);
-
 // ---------- WhatsApp webhook (no auth — Meta calls this directly) ----------
 app.use("/webhook", webhookRouter);
 app.get("/analytics", requireAuth, getAnalytics);
@@ -221,15 +217,6 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   seedUserGroups().catch((err) =>
     logger.error({ err: err.message }, '[sop] User group seed failed')
   );
-
-  // ── Baileys auto-connect ──────────────────────────────────────────────────
-  // If saved WhatsApp Web credentials exist in MongoDB, reconnect automatically
-  // on every server boot — no manual QR scan needed after a restart.
-  const { autoConnectIfCredentialsExist } = require('./services/baileysService');
-  autoConnectIfCredentialsExist().catch((err) =>
-    logger.error({ err: err.message }, '[baileys] Auto-connect failed on boot')
-  );
-  // ─────────────────────────────────────────────────────────────────────────
 })();
 
 // ---------- Error handling ----------

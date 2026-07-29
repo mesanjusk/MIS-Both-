@@ -221,30 +221,6 @@ export default function InvoiceModal({
     onWhatsApp?.(pdfUrl);
   };
 
-  const handleSendBaileysText = async () => {
-    const mobile = customerMobile;
-    if (!mobile) { toast.error("No customer mobile number"); return; }
-    const text = buildWhatsAppText({
-      store: profile.name,
-      addressLines,
-      phone: profile.phone,
-      orderNumber,
-      dateStr,
-      partyName,
-      items: normalizedItems,
-      extraCharges,
-      grandTotal,
-      shareUrl,
-      upiId: profile.upiId,
-    });
-    try {
-      await axios.post("/api/baileys/send-text", { to: mobile, text, contactName: partyName });
-      toast.success("Message sent via Baileys!");
-    } catch (err) {
-      toast.error(err?.response?.data?.message || "Baileys send failed");
-    }
-  };
-
   const handleShareLink = () => {
     if (!shareUrl) return;
     const whatsappUrl = `https://wa.me/${customerMobile?.replace(/\D/g, "")}?text=${encodeURIComponent(`🧾 Invoice #${orderNumber} — ${partyName}\n${shareUrl}`)}`;
@@ -313,13 +289,6 @@ export default function InvoiceModal({
           </button>
 
           {/* Row 2 */}
-          <button
-            onClick={handleSendBaileysText}
-            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700"
-          >
-            💬 Baileys Text
-          </button>
-
           <button
             onClick={handleCopyLink}
             disabled={!shareUrl}

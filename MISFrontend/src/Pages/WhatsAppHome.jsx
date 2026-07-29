@@ -37,7 +37,7 @@ const quickCards = [
     description: 'Send campaign messages to multiple recipients from the WhatsApp broadcast screen.',
     icon: <GroupsRoundedIcon color="primary" />,
     actionLabel: 'Open Broadcast',
-    actionPath: ROUTES.WHATSAPP_BULK,
+    actionPath: ROUTES.WHATSAPP_BROADCAST,
   },
   {
     title: 'Auto Reply Rules',

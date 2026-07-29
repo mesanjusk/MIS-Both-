@@ -72,14 +72,10 @@ const UpiCollectPublic = lazy(() => import('./Pages/UpiCollectPublic'));
 const PublicInvoice = lazy(() => import('./Pages/PublicInvoice'));
 const InvoicesList = lazy(() => import('./Pages/InvoicesList'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
-const SendMessageAll = lazy(() => import('./Pages/SendMessageAll'));
 const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
-const WhatsAppAdminPanel = lazy(() => import('./Pages/WhatsAppAdminPanel'));
 const WhatsAppBroadcastPage = lazy(() => import('./Pages/WhatsAppBroadcastPage'));
 const WhatsAppHome = lazy(() => import('./Pages/WhatsAppHome'));
-const WhatsAppLogin = lazy(() => import('./Pages/WhatsAppLogin'));
 const WhatsAppSendPage = lazy(() => import('./Pages/WhatsAppSendPage'));
-const WhatsAppSession = lazy(() => import('./Pages/WhatsAppSession'));
 const AddCustomergroup = lazy(() => import('./Pages/addCustomergroup'));
 const AddPriority = lazy(() => import('./Pages/addPriority'));
 const AllBills = lazy(() => import('./Reports/allBills'));
@@ -200,16 +196,9 @@ export default function App() {
             <Route path={ROUTES.WHATSAPP} element={withSuspense(<WhatsAppCloudDashboard />)} />
             <Route path={ROUTES.WHATSAPP_CLOUD} element={withSuspense(<WhatsAppCloudDashboard />)} />
             <Route path={ROUTES.WHATSAPP_SEND} element={withSuspense(<WhatsAppSendPage />)} />
-            <Route path={ROUTES.WHATSAPP_BULK} element={withSuspense(<SendMessageAll />)} />
             <Route path={ROUTES.WHATSAPP_BROADCAST} element={withSuspense(<WhatsAppBroadcastPage />)} />
             <Route path={ROUTES.WHATSAPP_LEGACY_HOME} element={withSuspense(<WhatsAppHome />)} />
-            <Route path={ROUTES.WHATSAPP_LOGIN_PAGE} element={withSuspense(<WhatsAppLogin />)} />
-            <Route path={ROUTES.WHATSAPP_SESSION_PAGE} element={withSuspense(<WhatsAppSession />)} />
-            <Route path={ROUTES.WHATSAPP_ADMIN_PANEL} element={withSuspense(<WhatsAppAdminPanel />)} />
             <Route path={ROUTE_ALIASES.WHATSAPP_HOME} element={withSuspense(<WhatsAppHome />)} />
-            <Route path={ROUTE_ALIASES.WHATSAPP_LOGIN} element={withSuspense(<WhatsAppLogin />)} />
-            <Route path={ROUTE_ALIASES.WHATSAPP_SESSION} element={withSuspense(<WhatsAppSession />)} />
-            <Route path={ROUTE_ALIASES.WHATSAPP_ADMIN} element={withSuspense(<WhatsAppAdminPanel />)} />
             <Route path={ROUTE_ALIASES.WHATSAPP_BROADCAST_PAGE} element={<Navigate to={ROUTES.WHATSAPP_BROADCAST} replace />} />
             <Route path={ROUTE_ALIASES.WHATSAPP_SEND_PAGE} element={<Navigate to={ROUTES.WHATSAPP_SEND} replace />} />
             <Route path="/SendMessage" element={withSuspense(<SendMessage />)} />

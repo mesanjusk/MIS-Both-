@@ -23,7 +23,7 @@ const {
 } = require('../services/whatsappHealthService');
 const Flow = require('../repositories/Flow');
 const WhatsAppGateSession = require('../repositories/WhatsAppGateSession');
-const { processWhatsAppAttendanceCommand } = require('../services/whatsappAttendanceService');
+const { processWhatsAppAttendanceCommand, processWhatsAppAttendanceButtonTap } = require('../services/whatsappAttendanceService');
 const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
 const { handleWhatsAppCustomerOrderCommand } = require('../services/whatsappCustomerCommandService');
 const AutoReply = require('../repositories/AutoReply');
@@ -312,11 +312,19 @@ const upsertCustomerAndEnquiryFromIncomingMessage = async (payload, { allowCreat
   };
 };
 
-const markWhatsAppStartAttendance = async (payload) => {
+const handleWhatsAppAttendanceInteraction = async (payload) => {
   try {
+    if (String(payload?.replyId || '').startsWith('attn:')) {
+      return await processWhatsAppAttendanceButtonTap({
+        payload,
+        sendText: dispatchTextMessage,
+        sendButtons: dispatchInteractiveButtons,
+      });
+    }
     return await processWhatsAppAttendanceCommand({
       payload,
       sendText: dispatchTextMessage,
+      sendButtons: dispatchInteractiveButtons,
     });
   } catch (error) {
     logger.error('[whatsapp] Failed to process attendance command:', error);
@@ -1704,7 +1712,7 @@ const processIncomingWhatsAppPayload = async (payload) => {
         const userMessage = gate.handlerText;
         logger.debug('Incoming message', { from: payload?.from });
 
-        const attendanceTriggerResult = await markWhatsAppStartAttendance({ ...payload, message: userMessage, text: userMessage });
+        const attendanceTriggerResult = await handleWhatsAppAttendanceInteraction({ ...payload, message: userMessage, text: userMessage });
         if (attendanceTriggerResult.handled) {
           return;
         }

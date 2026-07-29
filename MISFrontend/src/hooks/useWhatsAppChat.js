@@ -94,14 +94,6 @@ export const useWhatsAppChat = () => {
   useEffect(() => {
     if (!socket) return undefined;
 
-    const handleReady = () => {
-      setStatus('Connected');
-      setStatusState('connected');
-      setStatusError('');
-      setIsReady(true);
-      setLastStatusCheckedAt(new Date());
-    };
-
     const handleIncomingMessage = async (data) => {
       const normalizedMessage = buildMessageObject(data);
       const senderNumber = normalizeWhatsAppNumber(
@@ -145,14 +137,10 @@ export const useWhatsAppChat = () => {
       setLastStatusCheckedAt(new Date());
     };
 
-    socket.on('ready', handleReady);
-    socket.on('message', handleIncomingMessage);
     socket.on('new_message', handleIncomingMessage);
     socket.on('disconnect', handleDisconnected);
 
     return () => {
-      socket.off('ready', handleReady);
-      socket.off('message', handleIncomingMessage);
       socket.off('new_message', handleIncomingMessage);
       socket.off('disconnect', handleDisconnected);
       socket.disconnect();

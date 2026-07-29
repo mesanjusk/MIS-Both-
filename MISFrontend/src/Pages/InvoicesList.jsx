@@ -8,7 +8,6 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
-import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import axios from '../apiClient.js';
@@ -113,18 +112,6 @@ export default function InvoicesList() {
   const openWhatsApp = (inv) => {
     const url = `https://wa.me/?text=${encodeURIComponent(`🧾 Invoice #${inv.orderNumber} — ${inv.partyName}\n${shareUrl(inv)}`)}`;
     window.open(url, '_blank');
-  };
-
-  const sendBaileysText = async (inv) => {
-    const mobile = inv.customerMobile;
-    if (!mobile) { toast.error('No mobile number stored with this invoice'); return; }
-    const text = buildWhatsAppText(inv);
-    try {
-      await axios.post('/api/baileys/send-text', { to: mobile, text, contactName: inv.partyName });
-      toast.success('Sent via Baileys!');
-    } catch (err) {
-      toast.error(err?.response?.data?.message || 'Baileys send failed');
-    }
   };
 
   const shortDate = (iso) => {
@@ -255,11 +242,6 @@ export default function InvoicesList() {
                             <ShareRoundedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Send formatted text via Baileys">
-                          <IconButton size="small" color="info" onClick={() => sendBaileysText(inv)}>
-                            <SendRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
                         {inv.cloudinaryUrl && (
                           <Tooltip title="Open PDF">
                             <IconButton
@@ -350,13 +332,6 @@ export default function InvoicesList() {
                   onClick={() => openWhatsApp(preview)}
                 >
                   Share on WhatsApp
-                </Button>
-                <Button
-                  fullWidth variant="outlined" startIcon={<SendRoundedIcon />}
-                  sx={{ borderRadius: 2 }}
-                  onClick={() => sendBaileysText(preview)}
-                >
-                  Send via Baileys (Text)
                 </Button>
                 {preview.cloudinaryUrl && (
                   <Button

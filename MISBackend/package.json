@@ -12,7 +12,6 @@
   "license": "ISC",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "and": "^0.0.3",
     "axios": "^1.6.8",
     "cloudinary": "^2.8.0",
@@ -31,7 +30,6 @@
     "pdf-parse": "^1.1.1",
     "pino": "^9.4.0",
     "pino-pretty": "^11.3.0",
-    "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"

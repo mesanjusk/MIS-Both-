@@ -125,13 +125,8 @@ export const SIDEBAR_GROUPS = [
       { label: 'WhatsApp Cloud', path: ROUTES.WHATSAPP, icon: <ChatRoundedIcon fontSize="small" />, roles: ['all'] },
       { label: 'WhatsApp Home', path: ROUTES.WHATSAPP_LEGACY_HOME, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Send Message', path: ROUTES.WHATSAPP_SEND, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Bulk Message', path: ROUTES.WHATSAPP_BULK, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Broadcast Page', path: ROUTES.WHATSAPP_BROADCAST, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Admin Panel', path: ROUTES.WHATSAPP_ADMIN_PANEL, icon: <TuneRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Session', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'Login', path: ROUTES.WHATSAPP_LOGIN_PAGE, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Flow Builder', path: ROUTES.FLOW_BUILDER, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, adminOnly: true },
-      { label: '📱 WA Web (Baileys)', path: ROUTES.WHATSAPP_SESSION_PAGE, icon: <QrCodeScannerRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
     ],
   },
   {

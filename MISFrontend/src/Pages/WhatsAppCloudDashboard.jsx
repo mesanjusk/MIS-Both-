@@ -19,9 +19,6 @@ import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
 import { parseApiError } from '../utils/parseApiError';
 import { ErrorState, FilterToolbar, LoadingSkeleton, SectionCard } from '../Components/ui';
-import BaileysWhatsAppWeb from '../Components/whatsappCloud/BaileysWhatsAppWeb';
-import WhatsAppProviderSwitcher from '../Components/whatsappCloud/WhatsAppProviderSwitcher';
-import WhatsAppActivityRouting from '../Components/whatsappCloud/WhatsAppActivityRouting';
 import WhatsAppProjectHub from '../Components/whatsappCloud/WhatsAppProjectHub';
 import { useAuth } from '../context/AuthContext';
 
@@ -39,12 +36,9 @@ const navItems = [
   { key: 'autoReply',   label: 'Auto Reply' },
   { key: 'analytics',   label: 'Analytics' },
   { key: 'settings',    label: 'Settings' },
-  { key: 'baileys_web',  label: '📱 WA Web (Baileys)' },
 ];
 
 const adminNavItems = [
-  { key: 'provider',        label: '⚙ API Provider' },
-  { key: 'activityRouting', label: '🔀 Activity Routing' },
   { key: 'projectHub',      label: '🗂 Project Hub' },
 ];
 
@@ -113,9 +107,6 @@ export default function WhatsAppCloudDashboard() {
     if (activeTab === 'campaigns')     return <BulkSender />;
     if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
     if (activeTab === 'analytics')     return <AnalyticsDashboard />;
-    if (activeTab === 'baileys_web') return <BaileysWhatsAppWeb />;
-    if (activeTab === 'provider' && isSuperAdmin)        return <WhatsAppProviderSwitcher />;
-    if (activeTab === 'activityRouting' && isSuperAdmin) return <WhatsAppActivityRouting />;
     if (activeTab === 'projectHub' && isSuperAdmin)      return <WhatsAppProjectHub />;
     // ─────────────────────────────────────────────────────────────────────────
     return <WhatsAppAttendanceSettings />;

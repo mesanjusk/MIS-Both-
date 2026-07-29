@@ -1,11 +1,5 @@
 import axios from '../apiClient.js';
 
-export const fetchSessions = () => axios.get('/api/whatsapp/sessions');
-export const sendTestMessage = (payload) => axios.post('/api/whatsapp/send-test', payload);
-export const resetSession = (sessionId) => axios.post('/api/whatsapp/reset-session', { sessionId });
-export const startSession = (sessionId) => axios.post('/api/whatsapp/start-session', { sessionId });
-export const fetchSessionQr = (sessionId) => axios.get(`/whatsapp/session/${sessionId}/qr`);
-
 // Chat operations
 export const fetchWhatsAppStatus = () => axios.get('/api/whatsapp/accounts');
 export const fetchChatList = () => axios.get('/api/chatlist');

@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
+const { sendWhatsAppText } = require('./unifiedWhatsAppService');
+const { tierFor } = require('../utils/roleHierarchy');
+const logger = require('../utils/logger');
 
 const CLOSED_STAGES = new Set(['ready', 'delivered', 'paid']);
 const DESIGN_STAGE_KEYS = new Set(['enquiry', 'approved', 'design']);
@@ -76,6 +79,88 @@ async function getPendingOrdersForUser(userOrName) {
   };
 }
 
+function normalizeMobile(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+// ── Admin-facing "who has what, at which stage" overview ───────────────────
+
+async function getPendingTasksOverview() {
+  const now = new Date();
+  const rows = await Orders.find({ stage: { $nin: Array.from(CLOSED_STAGES) } })
+    .sort({ dueDate: 1, createdAt: 1 })
+    .lean();
+
+  const tasks = rows.map((row) => {
+    const decorated = decorateOrder(row, now);
+    const assigned = decorated.latestStatusTask?.Assigned;
+    return {
+      orderId: String(row._id),
+      orderNumber: row.Order_Number,
+      stage: row.stage,
+      task: decorated.latestStatusTask?.Task || row.stage || 'Task',
+      assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+      dueDate: row.dueDate,
+      overdue: decorated.overdue,
+    };
+  });
+
+  const byUserMap = new Map();
+  for (const task of tasks) {
+    if (!byUserMap.has(task.assignedTo)) {
+      byUserMap.set(task.assignedTo, { userName: task.assignedTo, count: 0, overdueCount: 0, tasks: [] });
+    }
+    const group = byUserMap.get(task.assignedTo);
+    group.count += 1;
+    if (task.overdue) group.overdueCount += 1;
+    group.tasks.push(task);
+  }
+
+  return {
+    tasks,
+    byUser: Array.from(byUserMap.values()).sort((a, b) => b.count - a.count),
+    totalCount: tasks.length,
+    overdueCount: tasks.filter((task) => task.overdue).length,
+    unassignedCount: tasks.filter((task) => task.assignedTo === 'Unassigned').length,
+  };
+}
+
+function buildPendingOverviewMessage(overview) {
+  if (!overview.totalCount) return 'Pending tasks overview: all clear, no open orders right now.';
+  const lines = overview.byUser.map(
+    (group) => `${group.userName}: ${group.count} task${group.count === 1 ? '' : 's'}${group.overdueCount ? ` (${group.overdueCount} overdue)` : ''}`
+  );
+  return `Pending tasks overview (${overview.totalCount} total, ${overview.overdueCount} overdue):\n${lines.join('\n')}`;
+}
+
+// ── WhatsApp side-effects on assignment, both fire-and-forget so they
+// never block the assign response ──────────────────────────────────────────
+
+async function notifyUserOfAssignment({ order, user, assignedBy }) {
+  const mobile = normalizeMobile(user?.Mobile_number);
+  if (!mobile) return;
+  const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
+  const dueText = order?.dueDate ? new Date(order.dueDate).toLocaleString('en-IN') : 'today, 8:00 PM';
+  const body = `Hi ${user.User_name || user.name || 'there'}, you've been assigned Order #${order.Order_Number} (${latest?.Task || order.stage || 'Task'}) by ${assignedBy || 'System'}. Due: ${dueText}.`;
+  await sendWhatsAppText({ to: mobile, body });
+}
+
+async function notifyAdminsOfPendingOverview() {
+  const overview = await getPendingTasksOverview();
+  const body = buildPendingOverviewMessage(overview);
+  const users = await Users.find({}).lean();
+  for (const u of users) {
+    if (tierFor(u.User_group) < 4) continue; // Admin/Owner tier only
+    const mobile = normalizeMobile(u.Mobile_number);
+    if (!mobile) continue;
+    try {
+      await sendWhatsAppText({ to: mobile, body });
+    } catch (err) {
+      logger.error(`[orderTask] Failed to notify admin ${mobile} of pending overview:`, err.message);
+    }
+  }
+}
+
 async function getUnassignedOrders() {
   const rows = await Orders.find({
     $and: [
@@ -125,6 +210,17 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   await order.save();
 
   const plain = order.toObject ? order.toObject() : order;
+
+  // Fire-and-forget: the assignee gets pinged on WhatsApp, and admins get the
+  // refreshed full pending-tasks overview, but neither should block the
+  // assign response.
+  notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+    logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
+  });
+  notifyAdminsOfPendingOverview().catch((err) => {
+    logger.error('[orderTask] Failed to notify admins of pending overview:', err.message);
+  });
+
   return {
     ...decorateOrder(plain),
     assignmentMeta: {
@@ -172,7 +268,9 @@ module.exports = {
   getTomorrowDueDate,
   getPendingOrdersForUser,
   getUnassignedOrders,
+  getPendingTasksOverview,
   assignOrderToUser,
   rolloverPendingOrders,
   buildTaskSummaryMessage,
+  buildPendingOverviewMessage,
 };

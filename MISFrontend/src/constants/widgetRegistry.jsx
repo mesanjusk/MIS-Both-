@@ -5,6 +5,7 @@ import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 
 export const WIDGET_REGISTRY = [
   {
@@ -77,12 +78,22 @@ export const WIDGET_REGISTRY = [
     adminOnly: false,
     description: 'Full order board & activity stream',
   },
+  {
+    id: 'pendingOverview',
+    label: 'Team Pending Tasks',
+    icon: FactCheckRoundedIcon,
+    color: '#be123c',
+    bg: '#ffe4e6',
+    defaultPanel: 'right',
+    adminOnly: true,
+    description: 'Every pending task, its stage, and who is handling it',
+  },
 ];
 
-export const LAYOUT_KEY = (user) => `mis_home_layout_v6_${user}`;
+export const LAYOUT_KEY = (user) => `mis_home_layout_v7_${user}`;
 
 export const DEFAULT_LAYOUT = {
-  left: ['myTasks'],
+  left: ['myTasks', 'pendingTasks'],
   center: ['designFiles'],
   right: [],
 };

@@ -7,8 +7,10 @@ const {
   assignOrderToUser,
   getPendingOrdersForUser,
   getUnassignedOrders,
+  getPendingTasksOverview,
   buildTaskSummaryMessage,
 } = require("../../services/orderTaskService");
+const { tierFor } = require("../../utils/roleHierarchy");
 const logger = require("../../utils/logger");
 const { idToFilter, parseStatusPayload } = require("../../utils/orderHelpers");
 const { pushStatusOnly } = require("./_shared");
@@ -36,6 +38,19 @@ router.get("/tasks/queue", async (_req, res) => {
   } catch (error) {
     logger.error("tasks/queue error:", error);
     return res.status(500).json({ success: false, message: error.message || "Failed to fetch order queue" });
+  }
+});
+
+router.get("/tasks/overview", async (req, res) => {
+  try {
+    if (tierFor(req.user?.userGroup) < 4) {
+      return res.status(403).json({ success: false, message: "Admin access required" });
+    }
+    const overview = await getPendingTasksOverview();
+    return res.json({ success: true, ...overview });
+  } catch (error) {
+    logger.error("tasks/overview error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Failed to fetch pending tasks overview" });
   }
 });
 

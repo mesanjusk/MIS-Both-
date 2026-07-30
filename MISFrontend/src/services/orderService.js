@@ -56,4 +56,5 @@ export const updateBillStatus = (orderId, billStatus, meta = {}) => {
 
 export const fetchMyOrderTasks = (userName) => axios.get('/api/orders/tasks/mine', { params: { userName } });
 export const fetchOrderQueue = () => axios.get('/api/orders/tasks/queue');
+export const fetchPendingTasksOverview = () => axios.get('/api/orders/tasks/overview');
 export const assignOrderToUser = (orderId, payload) => axios.patch(`/order/${orderId}/assign`, payload);

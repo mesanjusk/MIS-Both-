@@ -39,6 +39,7 @@ import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
 import { ROUTES } from '../constants/routes';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
+import PendingOverviewWidget from '../Components/dashboard/PendingOverviewWidget';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
@@ -56,7 +57,10 @@ function ColoredName({ name }) {
   );
 }
 
-const getDefaultLayout = () => DEFAULT_LAYOUT;
+const getDefaultLayout = (isAdmin) => {
+  if (!isAdmin) return DEFAULT_LAYOUT;
+  return { ...DEFAULT_LAYOUT, right: [...(DEFAULT_LAYOUT.right || []), 'pendingOverview'] };
+};
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -509,7 +513,7 @@ export default function Home() {
       const saved = localStorage.getItem(LAYOUT_KEY(user));
       if (saved) { setLayout(JSON.parse(saved)); return; }
     } catch {}
-    setLayout(getDefaultLayout());
+    setLayout(getDefaultLayout(isAdmin));
   }, [userName, isAdmin]);
 
   /* Persist layout */
@@ -631,7 +635,7 @@ export default function Home() {
   }, []);
 
   const handleResetLayout = useCallback(() => {
-    setLayout(getDefaultLayout());
+    setLayout(getDefaultLayout(isAdmin));
     toast.success('Layout reset to defaults');
   }, [isAdmin]);
 
@@ -658,6 +662,8 @@ export default function Home() {
         return <AllOrder />;
       case 'designFiles':
         return <DesignFilesWidget />;
+      case 'pendingOverview':
+        return isAdmin ? <PendingOverviewWidget /> : null;
       default:
         return (
           <Typography variant="caption" color="text.disabled">Unknown widget</Typography>

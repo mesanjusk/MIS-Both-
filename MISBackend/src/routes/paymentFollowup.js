@@ -120,6 +120,7 @@ router.post('/send-overdue-reminders', requireInternalKey, async (req, res) => {
     const { minDaysOverdue = 3 } = req.body || {};
     const Customers = require('../repositories/customer');
     const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
+    const { renderTemplate } = require('../services/whatsappTemplateService');
     const cutoffDate = new Date(Date.now() - Number(minDaysOverdue || 3) * 24 * 60 * 60 * 1000);
     const overdueFollowups = await PaymentFollowup.find({
       status: 'pending',
@@ -144,15 +145,10 @@ router.post('/send-overdue-reminders', requireInternalKey, async (req, res) => {
           continue;
         }
         const amountStr = `₹${Number(followup.amount || 0).toLocaleString('en-IN')}`;
-        const msg = [
-          `Dear ${followup.customer_name || 'Customer'},`,
-          '',
-          `This is a payment reminder for ${amountStr} pending against your order/account.`,
-          '',
-          'Kindly arrange payment at the earliest.',
-          '',
-          'Thank you.',
-        ].join('\n');
+        const { body: msg } = await renderTemplate('followup.overdue_reminder', {
+          customerName: followup.customer_name || 'Customer',
+          amount: amountStr,
+        });
 
         await sendWhatsAppText({
           to: mobile,

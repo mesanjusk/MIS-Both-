@@ -11,7 +11,10 @@ import InvoicePreview from "../Components/InvoicePreview";
 
 // ✅ NEW: open UpdateDelivery inside modal
 import UpdateDelivery from "./updateDelivery";
-import { STATUS_TASK_STAGES } from "../constants/orderStages";
+import { ORDER_STAGES, STAGE_LABELS } from "../constants/orderStages";
+import { assignOrderToUser } from "../services/orderService";
+import { fetchUsers } from "../services/userService";
+import { useAuth } from "../context/AuthContext";
 
 function toYmd(v) {
   if (!v) return "";
@@ -31,15 +34,16 @@ const isEnquiryTask = (task) => {
   return t === "enquiry" || t === "enquiries" || t === "inquiry" || t === "lead";
 };
 
-const WORKFLOW_STAGES = STATUS_TASK_STAGES;
-
 export default function OrderUpdate({
   order = {},
   onClose = () => {},
   onOrderPatched = () => {},
   onOrderReplaced = () => {},
 }) {
+  const { userName: currentUserName } = useAuth();
   const [notes, setNotes] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [assigning, setAssigning] = useState(false);
   const [taskGroups, setTaskGroups] = useState([]);
   const [selectedTaskGroups, setSelectedTaskGroups] = useState([]);
   const [taskOptions, setTaskOptions] = useState([]);
@@ -180,6 +184,59 @@ export default function OrderUpdate({
       mounted = false;
     };
   }, [values.Order_uuid]);
+
+  /* ---------------- Users for the Assigned-To reassign control ---------------- */
+  useEffect(() => {
+    let mounted = true;
+    fetchUsers()
+      .then((res) => {
+        if (!mounted) return;
+        setUsers(res?.data?.result || []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setUsers([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Same field the "Team pending tasks" home widget reads (Status[].Assigned),
+  // so both screens show/act on the identical assignment.
+  const currentAssignee = useMemo(() => {
+    const list = Array.isArray(values.Status) ? values.Status : [];
+    const latest = list.length ? list[list.length - 1] : null;
+    const name = latest?.Assigned;
+    return name && name !== "None" ? name : "Unassigned";
+  }, [values.Status]);
+
+  const handleReassign = async (event) => {
+    const choice = event.target.value;
+    event.target.value = "";
+    if (!choice || !values?.id || assigning) return;
+    setAssigning(true);
+    try {
+      const res = await assignOrderToUser(values.id, {
+        assignedTo: choice,
+        assignedBy: currentUserName,
+      });
+      const updated = res?.data?.order;
+      if (updated) {
+        setValues((v) => ({
+          ...v,
+          Status: Array.isArray(updated.Status) ? updated.Status : v.Status,
+          stage: updated.stage || v.stage,
+        }));
+        onOrderReplaced(updated);
+      }
+      toast.success("Assignment updated.");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to update assignment.");
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   /* ---------------- Item Remarks just below the name ---------------- */
   const itemRemarks = useMemo(() => {
@@ -339,25 +396,21 @@ export default function OrderUpdate({
     }
   };
 
+  // Writes to the canonical `stage` enum via the same endpoint the "Team
+  // pending tasks" home widget's stage column reads (order.stage), rather
+  // than the separate free-text Status[].Task log below.
   const handleStagePatch = async (stage) => {
-    if (!stage || !values?.id) return;
+    if (!stage || !values?.id || stage === values.stage) return;
     try {
-      await axios.patch(`/orders/${values.id}/stage`, { stage });
-      const nextStatus = {
-        Task: stage,
-        CreatedAt: new Date().toISOString(),
-      };
+      const res = await axios.patch(`/orders/${values.id}/stage`, { stage });
+      const updated = res?.data?.result;
       setValues((prev) => ({
         ...prev,
-        Task: stage,
-        Status: [...(prev?.Status || []), nextStatus],
+        stage: updated?.stage || stage,
       }));
       onOrderPatched(values?.Order_uuid || values?.id, {
-        highestStatusTask: {
-          ...(values?.highestStatusTask || {}),
-          Task: stage,
-          CreatedAt: nextStatus.CreatedAt,
-        },
+        stage: updated?.stage || stage,
+        stageHistory: updated?.stageHistory,
       });
       toast.success("Stage updated.");
     } catch (error) {
@@ -508,14 +561,32 @@ export default function OrderUpdate({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Current Stage</label>
               <select
-                value={values?.Task || ""}
+                value={values?.stage || ""}
                 onChange={(event) => handleStagePatch(event.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 <option value="">Select Stage</option>
-                {WORKFLOW_STAGES.map((stage) => (
-                  <option key={stage} value={stage}>{stage}</option>
+                {ORDER_STAGES.map((stage) => (
+                  <option key={stage} value={stage}>{STAGE_LABELS[stage] || stage}</option>
                 ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
+              <select
+                defaultValue=""
+                onChange={handleReassign}
+                disabled={assigning}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+              >
+                <option value="">
+                  {assigning ? "Updating…" : `Currently: ${currentAssignee} (tap to change)`}
+                </option>
+                {users.map((user) => (
+                  <option key={user._id} value={user._id}>{user.User_name}</option>
+                ))}
+                <option value="Customer">Waiting on Customer</option>
               </select>
             </div>
 

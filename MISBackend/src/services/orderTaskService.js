@@ -107,6 +107,16 @@ function normalizeMobile(value) {
   return normalizeWhatsAppNumber(value);
 }
 
+// order.dueDate is a single Date field — the assignment card shows it as two
+// lines ("Due Date" / "Due Time"), so split it here rather than storing both.
+function formatDueDateParts(dueDate) {
+  if (!dueDate) return { dueDateText: 'Today', dueTimeText: '8:00 PM' };
+  const d = new Date(dueDate);
+  const dueDateText = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const dueTimeText = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+  return { dueDateText, dueTimeText };
+}
+
 // ── Admin-facing "who has what, at which stage" overview ───────────────────
 
 async function getPendingTasksOverview() {
@@ -171,19 +181,50 @@ async function buildPendingOverviewMessage(overview) {
 // ── WhatsApp side-effects on assignment, both fire-and-forget so they
 // never block the assign response ──────────────────────────────────────────
 
+async function getCustomerName(customerUuid) {
+  if (!customerUuid) return '';
+  const customer = await Customers.findOne({ Customer_uuid: customerUuid }, { Customer_name: 1 }).lean();
+  return customer?.Customer_name || '';
+}
+
 async function notifyUserOfAssignment({ order, user, assignedBy }) {
   const mobile = normalizeMobile(user?.Mobile_number);
   if (!mobile) return;
-  const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
-  const dueText = order?.dueDate ? new Date(order.dueDate).toLocaleString('en-IN') : 'today, 8:00 PM';
+  const customerName = await getCustomerName(order?.Customer_uuid);
+  const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
   const { body } = await renderTemplate('task.assignment_notify', {
     userName: user.User_name || user.name || 'there',
     orderNumber: order.Order_Number,
-    taskName: latest?.Task || order.stage || 'Task',
+    customerName: customerName || '—',
     assignedBy: assignedBy || 'System',
-    dueDate: dueText,
+    dueDate: dueDateText,
+    dueTime: dueTimeText,
   });
   await sendWhatsAppText({ to: mobile, body });
+}
+
+async function notifyAdminsOfAssignment({ order, user, assignedBy }) {
+  const customerName = await getCustomerName(order?.Customer_uuid);
+  const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
+  const { body } = await renderTemplate('task.admin_assignment_notify', {
+    userName: user?.User_name || CUSTOMER_ASSIGNEE_LABEL,
+    orderNumber: order.Order_Number,
+    customerName: customerName || '—',
+    assignedBy: assignedBy || 'System',
+    dueDate: dueDateText,
+    dueTime: dueTimeText,
+  });
+  const admins = await Users.find({}).lean();
+  for (const u of admins) {
+    if (tierFor(u.User_group) < 4) continue; // Admin/Owner tier only
+    const mobile = normalizeMobile(u.Mobile_number);
+    if (!mobile) continue;
+    try {
+      await sendWhatsAppText({ to: mobile, body });
+    } catch (err) {
+      logger.error(`[orderTask] Failed to notify admin ${mobile} of order assignment:`, err.message);
+    }
+  }
 }
 
 async function notifyAdminsOfPendingOverview() {
@@ -266,15 +307,19 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
 
   const plain = order.toObject ? order.toObject() : order;
 
-  // Fire-and-forget: the assignee gets pinged on WhatsApp, and admins get the
-  // refreshed full pending-tasks overview, but neither should block the
-  // assign response. Nothing to ping when the task is just waiting on the
-  // customer, so notifyUserOfAssignment is skipped in that case.
+  // Fire-and-forget: the assignee gets pinged on WhatsApp with the new-order
+  // card, admins get the same card plus the refreshed full pending-tasks
+  // overview, but none of these should block the assign response. Nothing to
+  // ping when the task is just waiting on the customer, so notifyUserOfAssignment
+  // is skipped in that case.
   if (!isCustomerAssignment) {
     notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
       logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
     });
   }
+  notifyAdminsOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+    logger.error('[orderTask] Failed to notify admins of order assignment:', err.message);
+  });
   notifyAdminsOfPendingOverview().catch((err) => {
     logger.error('[orderTask] Failed to notify admins of pending overview:', err.message);
   });

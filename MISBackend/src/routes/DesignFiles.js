@@ -761,9 +761,10 @@ router.post('/assign', async (req, res) => {
           const { body } = await renderTemplate('task.assignment_notify', {
             userName: user.User_name,
             orderNumber: '—',
-            taskName: fileName || 'Design file',
+            customerName: fileName ? `File: ${fileName}` : 'Design file',
             assignedBy: resolvedAssignedBy,
-            dueDate: 'today, 8:00 PM',
+            dueDate: 'Today',
+            dueTime: '8:00 PM',
           });
           await sendWhatsAppText({ to: mobile, body });
         }

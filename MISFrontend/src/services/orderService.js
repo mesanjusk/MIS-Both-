@@ -64,3 +64,9 @@ export const assignOrderToUser = (orderId, payload = {}) => {
   const assignedTo = payload.assignedTo ?? payload.userId ?? payload.userName ?? '';
   return axios.patch(`/order/${orderId}/assign`, { assignedTo, assignedBy: payload.assignedBy });
 };
+
+// Moves an order to a different pipeline stage (Design/Print/Post Print/
+// Ready & Archive column, or any specific stage within one). The backend
+// normalizes any pre-migration legacy stage value it finds on the order
+// first, so this also "fixes" an old stuck order the moment it's moved.
+export const moveOrderStage = (orderId, stage) => axios.patch(`/order/${orderId}/stage`, { stage });

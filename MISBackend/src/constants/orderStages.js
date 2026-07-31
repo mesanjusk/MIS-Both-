@@ -40,10 +40,31 @@ const DESIGN_LOOP_STAGES = new Set([
   'ready_to_print',
 ]);
 
+// Coarse stage values used before the design/production pipeline was split
+// into the granular list above. A handful of older orders never got
+// migrated off these and would otherwise get permanently stuck — every
+// stage-mutating path (assign, move-to-stage) normalizes through this map
+// first instead of rejecting them outright, so an old order self-heals the
+// moment someone assigns or moves it rather than needing a one-off bulk
+// migration script run against production.
+const LEGACY_STAGE_ALIASES = {
+  design: 'new_design',
+  printing: 'print',
+  post_printing: 'fitting',
+  finishing: 'bind_packing',
+};
+
 const stageIndex = new Map(ORDER_STAGES.map((stage, index) => [stage, index]));
 
 function isValidStage(stage) {
   return stageIndex.has(stage);
+}
+
+// Maps a legacy stage value to its modern equivalent; passes through
+// anything already valid (or entirely unrecognized — callers still need to
+// validate the result themselves).
+function normalizeLegacyStage(stage) {
+  return LEGACY_STAGE_ALIASES[stage] || stage;
 }
 
 function isClosedStage(stage) {
@@ -68,8 +89,10 @@ module.exports = {
   CLOSED_STAGES,
   PRE_WORK_STAGES,
   DESIGN_LOOP_STAGES,
+  LEGACY_STAGE_ALIASES,
   stageIndex,
   isValidStage,
   isClosedStage,
   isForwardMove,
+  normalizeLegacyStage,
 };

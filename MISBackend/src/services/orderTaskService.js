@@ -6,7 +6,7 @@ const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
 const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
-const { CLOSED_STAGES } = require('../constants/orderStages');
+const { CLOSED_STAGES, isValidStage, normalizeLegacyStage } = require('../constants/orderStages');
 const normalizeWhatsAppNumber = require('../utils/normalizeNumber');
 
 const DESIGN_STAGE_KEYS = new Set([
@@ -291,6 +291,15 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   order.dueDate = order.dueDate || buildDefaultDueDate();
   if (!order.stage || order.stage === 'enquiry') {
     order.stage = 'new_design';
+  } else if (!isValidStage(order.stage)) {
+    // Older orders can still carry a pre-migration stage value (e.g. the
+    // coarse 'design'/'printing' stages) that isn't in the current enum —
+    // order.save() below validates the whole document, so this would
+    // otherwise fail on a field nothing here even touched. Normalize it the
+    // moment the order is assigned instead of requiring a separate bulk
+    // migration first.
+    order.stage = normalizeLegacyStage(order.stage);
+    if (!isValidStage(order.stage)) order.stage = 'new_design';
   }
 
   if (!Array.isArray(order.Status) || order.Status.length === 0) {
@@ -311,6 +320,14 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   }
 
   order.stageHistory = Array.isArray(order.stageHistory) ? order.stageHistory : [];
+  // Same legacy-value problem can live in older history entries — the whole
+  // array is validated on save, so a stale entry here would fail the save
+  // just as much as a stale top-level order.stage would.
+  order.stageHistory.forEach((entry) => {
+    if (entry?.stage && !isValidStage(entry.stage)) {
+      entry.stage = isValidStage(normalizeLegacyStage(entry.stage)) ? normalizeLegacyStage(entry.stage) : 'new_design';
+    }
+  });
   order.stageHistory.push({ stage: order.stage, timestamp: new Date() });
   await order.save();
 

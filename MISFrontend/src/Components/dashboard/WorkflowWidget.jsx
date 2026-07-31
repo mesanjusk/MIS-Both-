@@ -15,7 +15,7 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
-import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser } from '../../services/orderService';
+import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
 import { fetchUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 import { WORKFLOW_SECTIONS } from '../../constants/orderStages';
@@ -65,6 +65,7 @@ export default function WorkflowWidget() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState('');
+  const [movingId, setMovingId] = useState('');
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -99,6 +100,23 @@ export default function WorkflowWidget() {
       setError(err?.response?.data?.message || 'Failed to update assignment.');
     } finally {
       setAssigningId('');
+    }
+  };
+
+  // Lets a card be moved to a different pipeline column directly from the
+  // widget. The backend normalizes any pre-migration legacy stage value it
+  // finds on the order before validating the move, so this also "fixes" an
+  // old stuck order (e.g. one still holding the old 'design' value) the
+  // moment it's moved — no separate data migration needed.
+  const handleMoveStage = async (orderId, stage) => {
+    setMovingId(orderId);
+    try {
+      await moveOrderStage(orderId, stage);
+      await load();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Failed to move order.');
+    } finally {
+      setMovingId('');
     }
   };
 
@@ -179,6 +197,8 @@ export default function WorkflowWidget() {
                     users={users}
                     assigningId={assigningId}
                     onAssign={handleAssign}
+                    movingId={movingId}
+                    onMoveStage={handleMoveStage}
                     emptyMessage="Nothing here."
                   />
 

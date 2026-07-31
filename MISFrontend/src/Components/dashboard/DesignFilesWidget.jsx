@@ -21,6 +21,8 @@ import {
   IconButton,
   InputAdornment,
   LinearProgress,
+  Menu,
+  MenuItem,
   Snackbar,
   Stack,
   Table,
@@ -60,7 +62,9 @@ import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
+import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import axios from '../../apiClient';
+import { useAuth } from '../../context/AuthContext';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
@@ -96,6 +100,17 @@ function buildCSV(files) {
   return [header, ...rows]
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
     .join('\n');
+}
+
+// ─── Users cache (for the Assign menu — shared across every file row) ────────
+let _usersPromise = null;
+function loadUsersCached() {
+  if (!_usersPromise) {
+    _usersPromise = axios.get('/api/users/GetUserList')
+      .then((res) => res.data?.result || [])
+      .catch(() => { _usersPromise = null; return []; });
+  }
+  return _usersPromise;
 }
 
 function triggerDownload(content, filename, mime) {
@@ -162,14 +177,24 @@ function StatusBadges({ file }) {
           sx={{ fontSize: 9, height: 16, bgcolor: 'success.50', color: 'success.700', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
         />
       )}
+      {file.assignedToName && (
+        <Chip
+          label={file.assignedToName} size="small"
+          icon={<PersonAddAltRoundedIcon sx={{ fontSize: '10px !important' }} />}
+          sx={{ fontSize: 9, height: 16, bgcolor: 'secondary.50', color: 'secondary.800', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
+        />
+      )}
     </Stack>
   );
 }
 
 // ─── Inline action buttons ────────────────────────────────────────────────────
-function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
+function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, viewOnly }) {
   const [renaming, setRenaming] = useState(false);
   const [creatingPJ, setCreatingPJ] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [assignAnchor, setAssignAnchor] = useState(null);
+  const [assignUsers, setAssignUsers] = useState(null);
   if (viewOnly) return null;
 
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
@@ -186,6 +211,23 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
     if (!onCreatePrintJob || creatingPJ) return;
     setCreatingPJ(true);
     try { await onCreatePrintJob(file); } finally { setCreatingPJ(false); }
+  };
+
+  const openAssignMenu = (e) => {
+    e.stopPropagation();
+    setAssignAnchor(e.currentTarget);
+    if (assignUsers === null) loadUsersCached().then(setAssignUsers);
+  };
+  const closeAssignMenu = (e) => {
+    e?.stopPropagation();
+    setAssignAnchor(null);
+  };
+  const handlePickAssignee = async (e, user) => {
+    e.stopPropagation();
+    closeAssignMenu();
+    if (!onAssign || assigning) return;
+    setAssigning(true);
+    try { await onAssign(file, user); } finally { setAssigning(false); }
   };
 
   return (
@@ -225,6 +267,22 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
           </IconButton>
         </Tooltip>
       )}
+      {onAssign && (
+        <>
+          <Tooltip title={file.assignedToName ? `Reassign (currently ${file.assignedToName})` : 'Assign to team member'}>
+            <IconButton size="small" onClick={openAssignMenu} disabled={assigning} sx={{ color: 'secondary.main' }}>
+              {assigning ? <CircularProgress size={11} /> : <PersonAddAltRoundedIcon sx={{ fontSize: 15 }} />}
+            </IconButton>
+          </Tooltip>
+          <Menu anchorEl={assignAnchor} open={!!assignAnchor} onClose={closeAssignMenu} onClick={(e) => e.stopPropagation()}>
+            {assignUsers === null && <MenuItem disabled>Loading users…</MenuItem>}
+            {assignUsers?.length === 0 && <MenuItem disabled>No users found</MenuItem>}
+            {assignUsers?.map((u) => (
+              <MenuItem key={u._id} onClick={(e) => handlePickAssignee(e, u)}>{u.User_name}</MenuItem>
+            ))}
+          </Menu>
+        </>
+      )}
     </Stack>
   );
 }
@@ -243,7 +301,7 @@ function rowColors(file, checked) {
   return              { bg: 'transparent',        bgHover: 'action.hover',  border: 'divider'       };
 }
 
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover, border } = rowColors(file, checked);
 
@@ -304,14 +362,14 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
       <Stack direction="row" spacing={0.4} alignItems="center" sx={{ flexShrink: 0 }}>
         {file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
         <StatusBadges file={file} />
-        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} viewOnly={viewOnly} />
+        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} viewOnly={viewOnly} />
       </Stack>
     </Stack>
   );
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, viewOnly }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, viewOnly }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, border } = rowColors(file, checked);
 
@@ -381,7 +439,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
 
       {!viewOnly && (
         <CardActions sx={{ pt: 0, pb: 0.5, px: 0.75, justifyContent: 'flex-end', borderTop: '1px solid', borderColor: 'divider' }}>
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} viewOnly={viewOnly} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} viewOnly={viewOnly} />
         </CardActions>
       )}
     </Card>
@@ -1150,7 +1208,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, viewMode }) {
+function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 8 || section.stageNumber === 9;
@@ -1182,6 +1240,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                   onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                   onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
                   onRelink={isActionable ? onRelink : undefined}
+                  onAssign={isActionable ? onAssign : undefined}
                 />
               </Grid>
             ))}
@@ -1199,6 +1258,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                 onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                 onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
                 onRelink={isActionable ? onRelink : undefined}
+                onAssign={isActionable ? onAssign : undefined}
               />
             ))}
           </Stack>
@@ -1208,7 +1268,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, viewMode }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -1232,7 +1292,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
           {dateGroup.sections.map((section, i) => (
             <ArchiveDateSection key={i} section={section}
               onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
-              selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink} viewMode={viewMode}
+              selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink} onAssign={onAssign} viewMode={viewMode}
             />
           ))}
         </Stack>
@@ -1242,7 +1302,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // "By Type" view — flat rows per type, grouped by date
-function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, stageNumber, viewMode }) {
+function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, stageNumber, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   const totalFiles = filesByDate.reduce((s, d) => s + d.files.length, 0);
   if (!totalFiles) return null;
@@ -1279,6 +1339,7 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                         onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                         onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
                         onRelink={onRelink}
+                        onAssign={onAssign}
                       />
                     </Grid>
                   ))}
@@ -1296,6 +1357,7 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                       onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                       onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
                       onRelink={onRelink}
+                      onAssign={onAssign}
                     />
                   ))}
                 </Stack>
@@ -1309,6 +1371,7 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
 }
 
 function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
+  const { userName } = useAuth();
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1371,6 +1434,20 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   const handleSinglePrintJob = useCallback((file) => {
     openPrintJobDialog([file]);
   }, [openPrintJobDialog]);
+
+  const handleAssign = useCallback(async (file, user) => {
+    try {
+      const res = await axios.post('/api/design-files/assign', {
+        fileId: file.fileId, fileName: file.fileName,
+        orderUuid: file.orderUuid || null, orderNumber: file.orderNumber || null,
+        userId: user._id, assignedBy: userName,
+      });
+      setArchiveToast({ message: `Assigned to ${res.data?.assignedToName || user.User_name}`, severity: 'success' });
+      loadArchive();
+    } catch (err) {
+      setArchiveToast({ message: err?.response?.data?.message || err.message || 'Failed to assign', severity: 'error' });
+    }
+  }, [loadArchive, userName]);
 
   const selectedFiles = Object.values(selectedMap);
   const selectedIds = new Set(Object.keys(selectedMap));
@@ -1504,6 +1581,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
                 selectedIds={selectedIds}
                 onToggle={toggleSelect}
                 onRelink={(file) => setRelinkFile(file)}
+                onAssign={handleAssign}
                 viewMode={viewMode}
               />
             ))}
@@ -1521,6 +1599,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
               selectedIds={selectedIds}
               onToggle={toggleSelect}
               onRelink={(file) => setRelinkFile(file)}
+              onAssign={handleAssign}
               viewMode={viewMode}
             />
             <ArchiveTypeSection
@@ -1533,6 +1612,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
               selectedIds={selectedIds}
               onToggle={toggleSelect}
               onRelink={(file) => setRelinkFile(file)}
+              onAssign={handleAssign}
               viewMode={viewMode}
             />
           </Stack>
@@ -1620,8 +1700,62 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   );
 }
 
+// ─── Create new design file dialog (the "+" button) ───────────────────────────
+function CreateFileDialog({ open, onClose, onSuccess }) {
+  const [fileName, setFileName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!open) { setFileName(''); setError(''); } }, [open]);
+
+  const handleSubmit = async () => {
+    if (!fileName.trim() || submitting) return;
+    setSubmitting(true); setError('');
+    try {
+      const res = await axios.post('/api/design-files/create-file', { fileName: fileName.trim() });
+      onSuccess(`Created "${res.data?.file?.name}" in New Design`, 'success');
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed to create file');
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Typography fontWeight={700}>New Design File</Typography>
+          <IconButton size="small" onClick={onClose} disabled={submitting}><CloseRoundedIcon fontSize="small" /></IconButton>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 1 }}>
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: 12 }}>
+          Copies the design template into the "1 - New Design" Drive folder under the name you type — it'll sync down to the local folder like any other file.
+        </Typography>
+        <TextField
+          autoFocus fullWidth size="small" label="File name"
+          value={fileName} onChange={(e) => setFileName(e.target.value)}
+          disabled={submitting}
+          placeholder="e.g. Rahul Visiting Card"
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }}
+        />
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button variant="contained" onClick={handleSubmit} disabled={!fileName.trim() || submitting}
+          startIcon={submitting ? <CircularProgress size={14} /> : <AddRoundedIcon />}
+        >
+          Create
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // ─── Main widget ──────────────────────────────────────────────────────────────
 export default function DesignFilesWidget() {
+  const { userName } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1638,6 +1772,7 @@ export default function DesignFilesWidget() {
   const [relinkFile, setRelinkFile] = useState(null);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [createFileOpen, setCreateFileOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
 
@@ -1719,6 +1854,20 @@ export default function DesignFilesWidget() {
       setToast({ message: err?.response?.data?.message || err.message || 'Rename failed', severity: 'error' });
     }
   }, [load]);
+
+  const handleAssign = useCallback(async (file, user) => {
+    try {
+      const res = await axios.post('/api/design-files/assign', {
+        fileId: file.fileId, fileName: file.fileName,
+        orderUuid: file.orderUuid || null, orderNumber: file.orderNumber || null,
+        userId: user._id, assignedBy: userName,
+      });
+      setToast({ message: `Assigned to ${res.data?.assignedToName || user.User_name}`, severity: 'success' });
+      load();
+    } catch (err) {
+      setToast({ message: err?.response?.data?.message || err.message || 'Failed to assign', severity: 'error' });
+    }
+  }, [load, userName]);
 
   if (configMissing) {
     return (
@@ -1864,6 +2013,13 @@ export default function DesignFilesWidget() {
           </Tooltip>
         </Stack>
 
+        {/* New design file */}
+        <Tooltip title="New design file">
+          <IconButton size="small" onClick={() => setCreateFileOpen(true)} sx={{ p: 0.4 }}>
+            <AddRoundedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+
         {/* Refresh */}
         <Tooltip title="Refresh">
           <IconButton size="small" onClick={load} disabled={loading} sx={{ p: 0.4 }}>
@@ -1913,6 +2069,7 @@ export default function DesignFilesWidget() {
                       onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                       onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
                       onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
+                      onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                     />
                   </Grid>
                 ))}
@@ -1931,6 +2088,7 @@ export default function DesignFilesWidget() {
                     onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                     onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
                     onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
+                    onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                   />
                 ))}
               </Stack>
@@ -2020,6 +2178,11 @@ export default function DesignFilesWidget() {
         open={printDialogOpen} selectedFiles={selectedFiles}
         onClose={() => setPrintDialogOpen(false)}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSelectedIds(new Set()); load(); }}
+      />
+      <CreateFileDialog
+        open={createFileOpen}
+        onClose={() => setCreateFileOpen(false)}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setCreateFileOpen(false); load(); }}
       />
       <Snackbar
         open={!!toast}

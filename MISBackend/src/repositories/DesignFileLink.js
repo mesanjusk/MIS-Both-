@@ -87,6 +87,26 @@ const DesignFileLinkSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    // Assignment — set when a team member is assigned to this file, whether
+    // or not it has a real order yet (draft files can be assigned too).
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Users',
+      default: null,
+    },
+    assignedToName: {
+      type: String,
+      default: null,
+    },
+    assignedBy: {
+      type: String,
+      default: null,
+    },
+    assignedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

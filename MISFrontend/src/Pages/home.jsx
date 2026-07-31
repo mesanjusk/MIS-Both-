@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Tooltip, Stack, Paper,
-  Button, Drawer, LinearProgress, Dialog, DialogContent,
+  Button, Drawer, LinearProgress,
   Chip, Grid, useMediaQuery,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -11,10 +11,7 @@ import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
 
 import AllOrder from '../Reports/allOrder';
-import UserTask from './userTask';
-import PendingTasks from './PendingTasks';
 import AllAttandance from './AllAttandance';
-import TaskUpdate from './taskUpdate';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { useDashboardCustomize } from './Layout';
@@ -28,7 +25,7 @@ import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
-import PendingOverviewWidget from '../Components/dashboard/PendingOverviewWidget';
+import TasksWidget from '../Components/dashboard/TasksWidget';
 import OrderStatsCards from '../Components/dashboard/OrderStatsCards';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
@@ -47,10 +44,9 @@ function ColoredName({ name }) {
   );
 }
 
-const getDefaultLayout = (isAdmin) => {
-  if (!isAdmin) return DEFAULT_LAYOUT;
-  return { ...DEFAULT_LAYOUT, right: [...(DEFAULT_LAYOUT.right || []), 'pendingOverview'] };
-};
+// The merged 'tasks' widget adapts to admin/non-admin internally, so the
+// default layout no longer needs an admin-only widget appended here.
+const getDefaultLayout = () => DEFAULT_LAYOUT;
 
 /* ─── Quick Links Widget ─────────────────────────────────────────── */
 function QuickLinksWidget({ userGroup, isAdmin }) {
@@ -291,7 +287,7 @@ function DashboardPanel({
 }) {
   const [panelOver, setPanelOver] = useState(false);
   const isEmpty = widgetIds.length === 0;
-  const panelLabels = { left: 'Left Panel', center: 'Center Panel', right: 'Right Panel' };
+  const panelLabels = { left: 'Left Panel', right: 'Right Panel' };
 
   return (
     <Box
@@ -449,9 +445,6 @@ export default function Home() {
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [attendanceData, setAttendanceData] = useState([]);
-  const [task, setTask] = useState([]);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [showTaskModal, setShowTaskModal] = useState(false);
 
   const [layout, setLayout] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -465,7 +458,7 @@ export default function Home() {
   }, []);
   useEffect(() => {
     if (!layout || expandedWidget) return;
-    const first = (layout.left || [])[0] || (layout.center || [])[0] || (layout.right || [])[0];
+    const first = (layout.left || [])[0] || (layout.right || [])[0];
     if (first) setExpandedWidget(first);
   }, [layout, expandedWidget]);
 
@@ -486,7 +479,6 @@ export default function Home() {
     const user = location.state?.id || localStorage.getItem('User_name') || userName;
     if (!user) { navigate('/'); return; }
     setLoggedInUser(user);
-    fetchData();
     fetchAttendance(user);
     const timer = setTimeout(() => setIsLoading(false), 1500);
     return () => clearTimeout(timer);
@@ -522,13 +514,6 @@ export default function Home() {
     window.addEventListener('mis_widget_layout_changed', handler);
     return () => window.removeEventListener('mis_widget_layout_changed', handler);
   }, [userName]);
-
-  const fetchData = async () => {
-    try {
-      const res = await axios.get('/api/usertasks/GetUsertaskList');
-      setTask(res.data.success ? res.data.result : []);
-    } catch { toast.error('Failed to load tasks'); }
-  };
 
   const fetchAttendance = async (currentUser) => {
     try {
@@ -573,7 +558,6 @@ export default function Home() {
     setLayout((prev) => {
       const next = {
         left: [...(prev.left || [])],
-        center: [...(prev.center || [])],
         right: [...(prev.right || [])],
       };
       next[fromPanel] = next[fromPanel].filter((id) => id !== widgetId);
@@ -592,7 +576,6 @@ export default function Home() {
     setLayout((prev) => {
       const next = {
         left: [...(prev.left || [])],
-        center: [...(prev.center || [])],
         right: [...(prev.right || [])],
       };
       next[fromPanel] = next[fromPanel].filter((id) => id !== widgetId);
@@ -606,19 +589,18 @@ export default function Home() {
   const handleRemoveWidget = useCallback((widgetId) => {
     setLayout((prev) => ({
       left: (prev.left || []).filter((id) => id !== widgetId),
-      center: (prev.center || []).filter((id) => id !== widgetId),
       right: (prev.right || []).filter((id) => id !== widgetId),
     }));
   }, []);
 
   const handleAddWidget = useCallback((widgetId) => {
     setLayout((prev) => {
-      const all = [...(prev.left || []), ...(prev.center || []), ...(prev.right || [])];
+      const all = [...(prev.left || []), ...(prev.right || [])];
       if (all.includes(widgetId)) return prev;
-      return { ...prev, center: [...(prev.center || []), widgetId] };
+      return { ...prev, right: [...(prev.right || []), widgetId] };
     });
     setShowLibrary(false);
-    toast.success('Widget added to center panel');
+    toast.success('Widget added to right panel');
   }, []);
 
   const handleResetLayout = useCallback(() => {
@@ -633,24 +615,14 @@ export default function Home() {
         return <QuickLinksWidget userGroup={userGroup} isAdmin={isAdmin} />;
       case 'attendance':
         return isAdmin ? <AllAttandance /> : null;
-      case 'myTasks':
-        return <UserTask />;
+      case 'tasks':
+        return <TasksWidget />;
       case 'recentAttendance':
         return <RecentAttendanceWidget attendanceData={attendanceData} />;
-      case 'pendingTasks':
-        return (
-          <PendingTasks
-            tasks={isAdmin ? task : task.filter((t) => t.User === loggedInUser)}
-            isLoading={isLoading}
-            onTaskClick={(t) => { setSelectedTaskId(t); setShowTaskModal(true); }}
-          />
-        );
       case 'ordersBoard':
         return <AllOrder />;
       case 'designFiles':
         return <DesignFilesWidget />;
-      case 'pendingOverview':
-        return isAdmin ? <PendingOverviewWidget /> : null;
       default:
         return (
           <Typography variant="caption" color="text.disabled">Unknown widget</Typography>
@@ -660,7 +632,7 @@ export default function Home() {
 
   if (!layout) return <LinearProgress sx={{ borderRadius: 1, mt: 2, bgcolor: '#dcfce7' }} />;
 
-  const layoutIds = [...(layout.left || []), ...(layout.center || []), ...(layout.right || [])];
+  const layoutIds = [...(layout.left || []), ...(layout.right || [])];
   const unusedWidgets = WIDGET_REGISTRY.filter((w) => !layoutIds.includes(w.id));
   const hasLeft = (layout.left || []).length > 0 || editMode;
   const hasRight = (layout.right || []).length > 0 || editMode;
@@ -690,7 +662,7 @@ export default function Home() {
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}
 
-      {/* ── 3-Panel Grid ── */}
+      {/* ── 2-Panel Grid ── */}
       <Box
         sx={{
           flex: 1,
@@ -698,7 +670,7 @@ export default function Home() {
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            md: [hasLeft ? 'minmax(0,1fr)' : '', 'minmax(0,2fr)', hasRight ? 'minmax(0,1fr)' : ''].filter(Boolean).join(' '),
+            md: hasLeft && hasRight ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr',
           },
           gap: 1.5,
           alignItems: 'stretch',
@@ -727,25 +699,6 @@ export default function Home() {
             />
           </Box>
         )}
-
-        {/* Center Panel */}
-        <Box sx={{ overflow: 'auto', minHeight: 0, height: '100%' }}>
-          <DashboardPanel
-            panelId="center"
-            widgetIds={layout.center || []}
-            editMode={editMode}
-            isDragging={isDragging}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDropAt={handleDropAt}
-            onDropOnPanel={handleDropOnPanel}
-            onRemoveWidget={handleRemoveWidget}
-            renderWidget={renderWidget}
-            collapsible={isMobile && !editMode}
-            expandedWidgetId={expandedWidget}
-            onToggleWidget={handleToggleWidget}
-          />
-        </Box>
 
         {/* Right Panel */}
         {hasRight && (
@@ -778,23 +731,6 @@ export default function Home() {
         permissions={permissions}
         onAdd={handleAddWidget}
       />
-
-      {/* ── Task update dialog ────────────────────────────────── */}
-      <Dialog
-        open={showTaskModal}
-        onClose={() => { setShowTaskModal(false); setSelectedTaskId(null); }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogContent sx={{ p: 0.5 }}>
-          {selectedTaskId && (
-            <TaskUpdate
-              task={selectedTaskId}
-              onClose={() => { setShowTaskModal(false); setSelectedTaskId(null); }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </Box>
   );
 }

@@ -692,13 +692,26 @@ router.post('/create-file', async (req, res) => {
     const safeName = sanitize(fileName);
     const finalName = /\.[a-zA-Z0-9]{2,5}$/.test(safeName) ? safeName : `${safeName}.cdr`;
 
-    const response = await drive.files.copy({
-      fileId: templateFileId,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-      requestBody: { name: finalName, parents: [newDesignFolder.id] },
-      fields: 'id,name,parents,webViewLink',
-    });
+    let response;
+    try {
+      response = await drive.files.copy({
+        fileId: templateFileId,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        requestBody: { name: finalName, parents: [newDesignFolder.id] },
+        fields: 'id,name,parents,webViewLink',
+      });
+    } catch (copyErr) {
+      const driveMsg = copyErr?.errors?.[0]?.message || copyErr?.message || '';
+      if (/not found/i.test(driveMsg)) {
+        logger.error({ copyErr, templateFileId }, 'design-files/create-file: template file not found');
+        return res.status(404).json({
+          success: false,
+          message: `Design template not found in Google Drive (id: ${templateFileId}). It may have been deleted, moved to Trash, or unshared from the connected Google account — check DRIVE_TEMPLATE_FILE_ID.`,
+        });
+      }
+      throw copyErr;
+    }
 
     return res.json({ success: true, file: response.data });
   } catch (err) {

@@ -25,8 +25,9 @@ import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
-import TasksWidget from '../Components/dashboard/TasksWidget';
+import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
 import OrderStatsCards from '../Components/dashboard/OrderStatsCards';
+import AttendanceQuickAction from '../Components/dashboard/AttendanceQuickAction';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
@@ -44,7 +45,7 @@ function ColoredName({ name }) {
   );
 }
 
-// The merged 'tasks' widget adapts to admin/non-admin internally, so the
+// The merged 'workflow' widget adapts to admin/non-admin internally, so the
 // default layout no longer needs an admin-only widget appended here.
 const getDefaultLayout = () => DEFAULT_LAYOUT;
 
@@ -615,8 +616,8 @@ export default function Home() {
         return <QuickLinksWidget userGroup={userGroup} isAdmin={isAdmin} />;
       case 'attendance':
         return isAdmin ? <AllAttandance /> : null;
-      case 'tasks':
-        return <TasksWidget />;
+      case 'workflow':
+        return <WorkflowWidget />;
       case 'recentAttendance':
         return <RecentAttendanceWidget attendanceData={attendanceData} />;
       case 'ordersBoard':
@@ -641,7 +642,7 @@ export default function Home() {
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
 
       {/* ── Hero ── */}
-      <Box sx={{ textAlign: 'center', pt: { xs: 2, md: 3 }, pb: 1.5, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, pt: { xs: 2, md: 3 }, pb: 1.5, flexShrink: 0, flexWrap: 'wrap' }}>
         <Typography
           variant="h2"
           sx={{
@@ -654,6 +655,7 @@ export default function Home() {
         >
           <ColoredName name={(loggedInUser || userName || 'User').split(' ')[0]} />
         </Typography>
+        <AttendanceQuickAction userName={loggedInUser || userName} />
       </Box>
 
       <OrderStatsCards />

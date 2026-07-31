@@ -9,19 +9,29 @@ import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 
+// GROUPS.keys are matched against normalize(order.stage) below (which strips
+// '_'/'-'/spaces), so keys here must already be in that stripped form —
+// e.g. 'ready_to_print' -> 'readytoprint' — or the column silently never
+// matches any order (this was already true, silently, for 'post_printing'
+// before this stage list was expanded).
 const GROUPS = [
   { title: 'New Orders',    keys: ['enquiry', 'quoted', 'approved'], color: '#6366f1' },
-  { title: 'In Design',     keys: ['design'],                        color: '#0ea5e9' },
-  { title: 'Printing',      keys: ['printing'],                      color: '#f59e0b' },
-  { title: 'Post Printing', keys: ['post_printing', 'finishing'],    color: '#8b5cf6' },
+  { title: 'In Design',     keys: ['newdesign', 'olddesign', 'approval', 'hold', 'customer', 'readytoprint'], color: '#0ea5e9' },
+  { title: 'Printing',      keys: ['print'],                         color: '#f59e0b' },
+  { title: 'Post Printing', keys: ['fitting', 'bindpacking'],        color: '#8b5cf6' },
   { title: 'Ready',         keys: ['ready'],                         color: '#10b981' },
   { title: 'Delivered',     keys: ['delivered', 'paid'],             color: '#22c55e' },
 ];
 
+// Keys are normalized (to match the normalize(stage) lookup below), but
+// values are sent straight to PATCH /orders/:id/stage and must stay exact
+// real stage values (with underscores) or the API rejects them as invalid.
 const NEXT_STAGE = {
-  enquiry: 'design', quoted: 'approved', approved: 'design',
-  design: 'printing', printing: 'post_printing',
-  post_printing: 'finishing', finishing: 'ready',
+  enquiry: 'new_design', quoted: 'approved', approved: 'new_design',
+  newdesign: 'approval', olddesign: 'approval',
+  approval: 'ready_to_print', hold: 'new_design', customer: 'ready_to_print',
+  readytoprint: 'print', print: 'fitting',
+  fitting: 'bind_packing', bindpacking: 'ready',
   ready: 'delivered', delivered: 'paid',
 };
 

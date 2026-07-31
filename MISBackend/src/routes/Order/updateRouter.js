@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 const Orders = require("../../repositories/order");
 const ProductionJob = require("../../repositories/productionJob");
 const VendorLedger = require("../../repositories/vendorLedger");
-const { buildDefaultDueDate } = require("../../services/orderTaskService");
+const { assignOrderToUser } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
 const { norm, toDate, idToFilter, normalizeItems, normalizeSteps } = require("../../utils/orderHelpers");
 const {
@@ -90,19 +90,33 @@ router.put("/updateOrder/:id", async (req, res) => {
 
     Object.assign(order, otherFields);
 
-    if (assignedTo || assignToUserId || assignToUserUuid) {
-      const assignedUser = await resolveOfficeAssignee(assignedTo || assignToUserId || assignToUserUuid);
-      if (assignedUser) {
-        order.assignedTo = assignedUser._id;
-        if (Array.isArray(order.Status) && order.Status.length) {
-          const last = order.Status[order.Status.length - 1];
-          last.Assigned = assignedUser.User_name;
-          last.Delivery_Date = order.dueDate || buildDefaultDueDate();
-        }
-      }
-    }
+    const requestedAssignee = assignedTo || assignToUserId || assignToUserUuid;
+    // Resolved here (not inside assignOrderToUser) so the "Office User group
+    // only" restriction for generic order-save reassignment is preserved.
+    const assignedUser = requestedAssignee ? await resolveOfficeAssignee(requestedAssignee) : null;
+    const previousAssigneeId = order.assignedTo ? String(order.assignedTo) : null;
 
     const saved = await order.save();
+
+    // Every edit-and-save from the order form resends the current assignee,
+    // so only route through assignOrderToUser (and its WhatsApp notify) when
+    // the assignee actually changed — otherwise every unrelated edit would
+    // re-notify the same person.
+    if (assignedUser && String(assignedUser._id) !== previousAssigneeId) {
+      // Routed through the same service the dedicated /:id/assign endpoint
+      // uses, so this write path also notifies the assignee + admins on
+      // WhatsApp instead of silently changing assignedTo.
+      try {
+        await assignOrderToUser({
+          orderId: saved._id,
+          userId: assignedUser._id,
+          assignedBy: req.body?.assignedBy || req.user?.userName || "System",
+          via: "app",
+        });
+      } catch (assignErr) {
+        logger.error("updateOrder assignment error:", assignErr);
+      }
+    }
 
     // Update createdAt directly — Mongoose timestamps option must be bypassed
     if (rawCreatedAt) {

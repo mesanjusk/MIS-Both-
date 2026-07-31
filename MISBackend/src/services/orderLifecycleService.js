@@ -253,11 +253,11 @@ const updateOrderStage = async ({ orderId, stage, statusEntry = null }) => {
   const updatedOrder = await Orders.findById(order._id);
   const mergedOrder = { ...order, ...(updatedOrder.toObject?.() || {}) };
 
-  if (normalizedStage === 'design') {
+  if (normalizedStage === 'new_design' || normalizedStage === 'old_design') {
     await autoCreateDesignerTask(mergedOrder);
   }
 
-  if (normalizedStage === 'post_printing') {
+  if (normalizedStage === 'fitting') {
     await autoCreatePostDesignTask(mergedOrder);
   }
 

@@ -45,7 +45,7 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function normalizeStage(stage, fallback = 'design') {
+function normalizeStage(stage, fallback = 'new_design') {
   const normalized = cleanString(stage).toLowerCase();
   return isValidStage(normalized) ? normalized : fallback;
 }
@@ -251,7 +251,7 @@ async function createQuickOrderWorkflow(payload = {}) {
   const lastOrder = await Orders.findOne({}, { Order_Number: 1 }).sort({ Order_Number: -1 }).lean();
   const orderNumber = await nextCounterValue('order_number', Number(lastOrder?.Order_Number || 0));
   const dueDate = payload.dueDate ? new Date(payload.dueDate) : buildDefaultDueDate();
-  const initialStage = normalizeStage(payload.stage, 'design');
+  const initialStage = normalizeStage(payload.stage, 'new_design');
   const assigned = cleanString(payload.assignedToName || payload.assignedTo || 'None');
 
   const order = await Orders.create({
@@ -305,7 +305,7 @@ async function moveOrderStage({ orderUuid, stage, assignedTo = '', note = '', cr
     throw error;
   }
 
-  const normalizedStage = normalizeStage(stage, order.stage || 'design');
+  const normalizedStage = normalizeStage(stage, order.stage || 'new_design');
   const { Status_number: _ignored, ...baseEntry } = makeStatusEntry({ task: normalizedStage, assigned: assignedTo || createdBy || 'System', order });
   const taskLabel = note ? `${normalizedStage} - ${note}` : normalizedStage;
 
@@ -369,7 +369,7 @@ async function receiveOrderPayment({ orderUuid, amount, paymentMode = 'Cash', re
 
   const paymentAmount = money(amount);
   const hasInvoice = await Transaction.exists({ Order_uuid: order.Order_uuid, Source: `${BUSINESS_SOURCES.CUSTOMER_INVOICE}:${order.Order_uuid}` });
-  const isAfterInvoice = hasInvoice || ['delivered', 'paid'].includes(normalizeStage(order.stage, 'design'));
+  const isAfterInvoice = hasInvoice || ['delivered', 'paid'].includes(normalizeStage(order.stage, 'new_design'));
   const poster = isAfterInvoice ? postCustomerReceipt : postCustomerAdvance;
 
   const posting = await poster({
@@ -452,8 +452,8 @@ async function assignVendorToOrder({ orderUuid, vendorId, vendorName, amount = 0
   await order.save();
 
   const currentStage = normalizeStage(order.stage, 'enquiry');
-  if (stageIndex.get(currentStage) < stageIndex.get('printing')) {
-    await updateOrderStage({ orderId: order._id, stage: 'printing' });
+  if (stageIndex.get(currentStage) < stageIndex.get('print')) {
+    await updateOrderStage({ orderId: order._id, stage: 'print' });
   }
 
   const { job: productionJob, accountingPosting: vendorBillPosting } = await upsertVendorJob({
@@ -624,7 +624,7 @@ async function getBusinessControlSummary() {
   const allOrders = await Orders.find({}).sort({ createdAt: -1 }).limit(800).lean();
   const decorated = await decorateOrders(allOrders);
 
-  const openRows = decorated.filter((order) => !CLOSED_STAGES.has(normalizeStage(order.stage || order.latestTask, 'design')));
+  const openRows = decorated.filter((order) => !CLOSED_STAGES.has(normalizeStage(order.stage || order.latestTask, 'new_design')));
   const unassignedRows = openRows.filter((order) => !order.assignedTo && (!order.responsiblePerson || ['none', 'unassigned'].includes(cleanString(order.responsiblePerson).toLowerCase())));
   const readyRows = decorated.filter((order) => normalizeStage(order.stage || order.latestTask, '') === 'ready' || cleanString(order.latestTask).toLowerCase().includes('ready'));
   const readyNotDeliveredRows = readyRows.filter((order) => !['delivered', 'paid'].includes(normalizeStage(order.stage, '')));

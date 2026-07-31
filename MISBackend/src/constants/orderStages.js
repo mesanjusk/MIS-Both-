@@ -5,10 +5,15 @@ const ORDER_STAGES = [
   'enquiry',
   'quoted',
   'approved',
-  'design',
-  'printing',
-  'post_printing',
-  'finishing',
+  'new_design',
+  'old_design',
+  'approval',
+  'hold',
+  'customer',
+  'ready_to_print',
+  'print',
+  'fitting',
+  'bind_packing',
   'ready',
   'delivered',
   'paid',
@@ -23,6 +28,18 @@ const CLOSED_STAGES = new Set(['delivered', 'paid', 'lost', 'cancelled']);
 // before we started work" from "cancelled after work started").
 const PRE_WORK_STAGES = new Set(['enquiry', 'quoted']);
 
+// Design-review stages loop rather than move strictly forward — an order can
+// bounce between 'approval' and 'old_design' (revision requested) more than
+// once before it's finalized, unlike production stages which are one-way.
+const DESIGN_LOOP_STAGES = new Set([
+  'new_design',
+  'old_design',
+  'approval',
+  'hold',
+  'customer',
+  'ready_to_print',
+]);
+
 const stageIndex = new Map(ORDER_STAGES.map((stage, index) => [stage, index]));
 
 function isValidStage(stage) {
@@ -36,9 +53,13 @@ function isClosedStage(stage) {
 // 'lost' and 'cancelled' are listed last, so a plain index comparison
 // already treats them as reachable exits from any earlier (open) stage,
 // while blocking a move back out of them once set — which is the
-// behavior we want for terminal stages.
+// behavior we want for terminal stages. Design-loop stages are exempted
+// from the forward-only rule in both directions, so a revision request can
+// send an order from 'approval' back to 'old_design' without special-casing
+// every caller of updateOrderStage.
 function isForwardMove(fromStage, toStage) {
   if (!isValidStage(fromStage) || !isValidStage(toStage)) return false;
+  if (DESIGN_LOOP_STAGES.has(fromStage) && DESIGN_LOOP_STAGES.has(toStage)) return true;
   return stageIndex.get(toStage) >= stageIndex.get(fromStage);
 }
 
@@ -46,6 +67,7 @@ module.exports = {
   ORDER_STAGES,
   CLOSED_STAGES,
   PRE_WORK_STAGES,
+  DESIGN_LOOP_STAGES,
   stageIndex,
   isValidStage,
   isClosedStage,

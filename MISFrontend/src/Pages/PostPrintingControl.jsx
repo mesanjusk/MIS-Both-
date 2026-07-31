@@ -47,7 +47,7 @@ import { fetchPayments } from '../services/paymentService';
 import { fetchVendorMasters, fetchPostPrintOrderSummary } from '../services/vendorService';
 import { ROUTES } from '../constants/routes';
 
-const POST_PRINT_STAGES = ['post_printing', 'finishing'];
+const POST_PRINT_STAGES = ['fitting', 'bind_packing'];
 
 function money(value) {
   const amount = Number(value || 0);
@@ -216,8 +216,8 @@ export default function PostPrintingControl() {
   };
 
   const kpis = [
-    { title: 'Post Printing', value: postPrintOrders.filter((o) => o.stage === 'post_printing').length, icon: <PrintRoundedIcon fontSize="small" />, tone: '#16a34a' },
-    { title: 'Finishing', value: postPrintOrders.filter((o) => o.stage === 'finishing').length, icon: <CheckCircleRoundedIcon fontSize="small" />, tone: '#0f766e' },
+    { title: 'Fitting', value: postPrintOrders.filter((o) => o.stage === 'fitting').length, icon: <PrintRoundedIcon fontSize="small" />, tone: '#16a34a' },
+    { title: 'Bind & Packing', value: postPrintOrders.filter((o) => o.stage === 'bind_packing').length, icon: <CheckCircleRoundedIcon fontSize="small" />, tone: '#0f766e' },
     { title: 'Needs Assignment', value: needsAssignment.length, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#b45309' },
     { title: 'Contractor Payable', value: vendorPayable.length, amount: vendorPayable.reduce((s, r) => s + Number(r.balance || 0), 0), icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#dc2626' },
   ];

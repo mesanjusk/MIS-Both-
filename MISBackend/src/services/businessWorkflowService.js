@@ -8,15 +8,14 @@ const Customers = require('../repositories/customer');
 const Users = require('../repositories/users');
 const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
-const ProductionJob = require('../repositories/productionJob');
 const PaymentFollowup = require('../repositories/paymentFollowup');
+const { upsertVendorJob } = require('./vendorJobService');
 const {
   BUSINESS_SOURCES,
   money,
   postCustomerAdvance,
   postCustomerInvoice,
   postCustomerReceipt,
-  postVendorBill,
   postVendorPayment,
 } = require('./accountingPostingService');
 const { buildDefaultDueDate } = require('./orderTaskService');
@@ -388,16 +387,6 @@ async function receiveOrderPayment({ orderUuid, amount, paymentMode = 'Cash', re
   return { order: updatedOrder, posting };
 }
 
-function mapJobType(workType = '') {
-  const lower = cleanString(workType).toLowerCase();
-  if (lower.includes('print')) return 'printing';
-  if (lower.includes('laminat')) return 'lamination';
-  if (lower.includes('cut')) return 'cutting';
-  if (lower.includes('pack')) return 'packing';
-  if (lower.includes('purchase')) return 'purchase';
-  return 'other';
-}
-
 async function ensureVendor(payload = {}) {
   const vendorId = cleanString(payload.vendorId || payload.vendorUuid || payload.vendor_uuid || payload.Vendor_uuid);
   const vendorName = cleanString(payload.vendorName || payload.vendor_name || payload.Vendor_name || payload.name);
@@ -467,61 +456,23 @@ async function assignVendorToOrder({ orderUuid, vendorId, vendorName, amount = 0
     await updateOrderStage({ orderId: order._id, stage: 'printing' });
   }
 
-  const jobNumber = await nextCounterValue('production_job_number', 0);
-  const productionJob = await ProductionJob.create({
-    job_uuid: uuid(),
-    job_number: jobNumber,
-    job_type: mapJobType(workType),
-    job_mode: assignment.jobMode,
-    vendor_uuid: vendor.Vendor_uuid,
-    vendor_name: vendor.Vendor_name,
-    job_date: assignment.dueDate || new Date(),
+  const { job: productionJob, accountingPosting: vendorBillPosting } = await upsertVendorJob({
+    jobCategory: 'post_printing',
+    orderUuid: order.Order_uuid,
+    orderNumber: order.Order_Number,
+    orderItemLineId: assignmentId,
+    vendorUuid: vendor.Vendor_uuid,
+    vendorName: vendor.Vendor_name,
+    workType,
+    jobMode: assignment.jobMode,
+    amount: cleanAmount,
+    dueDate: assignment.dueDate,
     status: 'draft',
-    linkedOrders: [{
-      orderUuid: order.Order_uuid,
-      orderNumber: order.Order_Number,
-      orderItemLineId: assignmentId,
-      quantity: 0,
-      outputQuantity: 0,
-      costShareAmount: cleanAmount,
-      allocationBasis: 'manual',
-    }],
-    jobValue: cleanAmount,
-    materialValue: assignment.jobMode === 'vendor_with_material' ? cleanAmount : 0,
     notes: assignment.note,
     createdBy,
+    postAccountingBill: true,
+    referenceType: 'business_control_vendor',
   });
-
-  let vendorBillPosting = null;
-  if (cleanAmount > 0) {
-    await VendorLedger.findOneAndUpdate(
-      { vendor_uuid: vendor.Vendor_uuid, order_uuid: order.Order_uuid, reference_type: 'business_control_vendor_bill', reference_id: assignmentId },
-      {
-        $set: {
-          vendor_name: vendor.Vendor_name,
-          date: new Date(),
-          entry_type: assignment.jobMode === 'vendor_with_material' ? 'material_bill' : 'job_bill',
-          job_uuid: productionJob.job_uuid,
-          order_number: order.Order_Number,
-          amount: cleanAmount,
-          dr_cr: 'cr',
-          narration: assignment.note || `Vendor job for order #${order.Order_Number}`,
-          transaction_uuid: '',
-        },
-      },
-      { upsert: true, new: true }
-    );
-
-    vendorBillPosting = await postVendorBill({
-      amount: cleanAmount,
-      orderUuid: order.Order_uuid,
-      orderNumber: order.Order_Number,
-      createdBy,
-      partyName: vendor.Vendor_name,
-      narration: assignment.note || workType,
-      sourceSuffix: assignmentId,
-    });
-  }
 
   await createTaskForOrder({ order, taskName: `Vendor: ${assignment.workType}`, assignedTo: vendor.Vendor_name, dueDate: assignment.dueDate, taskGroup: 'Vendor' });
 

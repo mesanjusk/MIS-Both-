@@ -34,7 +34,7 @@ const productionJobSchema = new mongoose.Schema(
     job_number: { type: Number, unique: true, sparse: true },
     job_category: {
       type: String,
-      enum: ['general', 'post_printing'],
+      enum: ['general', 'post_printing', 'printing'],
       default: 'general',
       index: true,
     },
@@ -60,7 +60,12 @@ const productionJobSchema = new mongoose.Schema(
     expected_completion: { type: Date, default: null },
     order_uuid: { type: String, default: '', index: true },
     order_number: { type: Number, default: null },
-    status: { type: String, enum: ['draft', 'in_progress', 'completed', 'cancelled'], default: 'draft', index: true },
+    status: { type: String, enum: ['draft', 'sent', 'in_progress', 'completed', 'cancelled'], default: 'draft', index: true },
+    // Denormalized from VendorLedger balance for this job (see vendorJobService.recomputePaymentStatus) —
+    // avoids a ledger round-trip just to render a paid/partial/pending badge.
+    paymentStatus: { type: String, enum: ['pending', 'partial', 'paid'], default: 'pending' },
+    // Back-reference for jobs created from the Google Drive design-files flow (was VendorWork.work_uuid before consolidation).
+    driveFileId: { type: String, default: '', index: true },
     inputItems: { type: [qtyItemSchema], default: [] },
     outputItems: { type: [qtyItemSchema], default: [] },
     linkedOrders: { type: [linkedOrderSchema], default: [] },

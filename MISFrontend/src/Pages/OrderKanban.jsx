@@ -10,8 +10,12 @@ import { toast } from "../Components";
 import { useOrdersData } from "../hooks/useOrdersData";
 import { useOrderDnD } from "../hooks/useOrderDnD";
 import OrderBoard from "../Components/orders/OrderBoard";
+import { STATUS_TASK_STAGES } from "../constants/orderStages";
 
-const STAGES = ["Enquiry", "Design", "Printing", "Post Printing", "Finishing", "Ready", "Delivered"];
+// Includes 'Lost'/'Cancelled' as real columns (not just the forward
+// pipeline) so an order marked either doesn't silently fall back into
+// the "Enquiry" bucket below when its task doesn't match any column.
+const STAGES = STATUS_TASK_STAGES;
 
 const normalize  = (value = "") => String(value).trim().toLowerCase();
 const toDateInput = (value) => {

@@ -40,7 +40,15 @@ function parseStatusPayload(req) {
   let task = dndTask;
   if (!task && typeof oldNewStatus === "string") task = oldNewStatus;
   if (!task && oldNewStatus && typeof oldNewStatus === "object") task = oldNewStatus.Task;
-  return { id: id ? String(id).trim() : "", task: task ? String(task).trim() : "" };
+  const assigned = (oldNewStatus && typeof oldNewStatus === "object" && oldNewStatus.Assigned) || req.body?.Assigned || "";
+  const deliveryDateRaw = (oldNewStatus && typeof oldNewStatus === "object" && oldNewStatus.Delivery_Date) || req.body?.Delivery_Date || "";
+  const deliveryDate = deliveryDateRaw ? new Date(deliveryDateRaw) : null;
+  return {
+    id: id ? String(id).trim() : "",
+    task: task ? String(task).trim() : "",
+    assigned: assigned ? String(assigned).trim() : "",
+    deliveryDate: deliveryDate && !Number.isNaN(deliveryDate.getTime()) ? deliveryDate : null,
+  };
 }
 
 function normalizeItems(items) {

@@ -94,21 +94,27 @@ export default function BillUpdate({ order, onClose }) {
       return;
     }
 
-    axios.post('/api/vendors/addVendor', {
+    axios.post('/api/orders/addStatus', {
       orderId: values.id,
-      Order_Number: values.Order_Number,
-      Order_uuid: values.Order_uuid,
-      Item_uuid: values.Item
+      newStatus: {
+        Task: values.Task,
+        Assigned: values.Assigned,
+        Delivery_Date: values.Delivery_Date,
+        CreatedAt: new Date().toISOString(),
+      },
     })
       .then(res => {
         if (res.data.success) {
-          toast.success('Vendor saved successfully!');
-          onClose(); 
-          navigate("/allOrder");  
+          toast.success('Order updated successfully!');
+          onClose();
+          navigate("/allOrder");
+        } else {
+          toast.error('Update failed.');
         }
       })
       .catch(err => {
-        console.error('Error updating vendor:', err);
+        console.error('Error updating order:', err);
+        toast.error('Error updating order.');
       });
   };
 

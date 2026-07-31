@@ -12,11 +12,10 @@ const {
   createQuickOrderWorkflow,
   getOrderTotal,
   getReceivedAmountForOrder,
-  VALID_STAGES,
 } = require('./businessWorkflowService');
 const { resolveStaffFromWhatsApp, buildCustomerPhoneQuery } = require('./whatsappIdentityService');
+const { ORDER_STAGES, CLOSED_STAGES } = require('../constants/orderStages');
 
-const CLOSED_STAGES = new Set(['delivered', 'paid']);
 const LIST_LIMIT = 10;
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const PAY_MODE_LABELS = { cash: 'Cash', upi: 'UPI', bank: 'Bank' };
@@ -82,9 +81,16 @@ async function buildOrderListSections(orders) {
 }
 
 function nextStageFor(order) {
-  const idx = VALID_STAGES.indexOf(order.stage);
-  if (idx === -1 || idx >= VALID_STAGES.length - 1) return null;
-  return VALID_STAGES[idx + 1];
+  if (CLOSED_STAGES.has(order.stage)) return null;
+  const idx = ORDER_STAGES.indexOf(order.stage);
+  if (idx === -1) return null;
+  // 'lost'/'cancelled' are explicit exits a user must choose deliberately,
+  // never an automatic "next" suggestion in the normal forward sequence.
+  for (let i = idx + 1; i < ORDER_STAGES.length; i += 1) {
+    if (ORDER_STAGES[i] === 'lost' || ORDER_STAGES[i] === 'cancelled') continue;
+    return ORDER_STAGES[i];
+  }
+  return null;
 }
 
 async function findOrderByUuid(orderUuid) {

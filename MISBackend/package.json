@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "verify:order-lifecycle": "node scripts/verify-order-lifecycle.js",
+    "verify:inventory-and-vendor": "node scripts/verify-inventory-and-vendor.js"
   },
   "author": "",
   "license": "ISC",
@@ -33,5 +35,8 @@
     "socket.io": "^4.8.1",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
   }
 }

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
+const { ORDER_STAGES } = require("../constants/orderStages");
 
 const statusSchema = new mongoose.Schema(
   {
@@ -79,6 +80,22 @@ const itemSchema = new mongoose.Schema(
     Remark: { type: String, default: "" },
   },
   { _id: true }
+);
+
+const approvalRoundSchema = new mongoose.Schema(
+  {
+    roundNumber: { type: Number, required: true, min: 1 },
+    sentAt: { type: Date, default: Date.now },
+    decision: {
+      type: String,
+      enum: ["pending", "approved", "needs_update"],
+      default: "pending",
+    },
+    feedback: { type: String, default: "" },
+    decidedAt: { type: Date, default: null },
+    decidedBy: { type: String, default: "" },
+  },
+  { _id: false }
 );
 
 const vendorAssignmentSchema = new mongoose.Schema(
@@ -192,14 +209,15 @@ const OrdersSchema = new mongoose.Schema(
     deliveryNotifiedAt: { type: Date, default: null },
     stage: {
       type: String,
-      enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"],
+      enum: ORDER_STAGES,
       default: "enquiry",
       index: true,
     },
     stageHistory: {
-      type: [new mongoose.Schema({ stage: { type: String, enum: ["enquiry", "quoted", "approved", "design", "printing", "post_printing", "finishing", "ready", "delivered", "paid"], required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
+      type: [new mongoose.Schema({ stage: { type: String, enum: ORDER_STAGES, required: true }, timestamp: { type: Date, default: Date.now } }, { _id: false })],
       default: () => [{ stage: "enquiry", timestamp: new Date() }],
     },
+    approvalRounds: { type: [approvalRoundSchema], default: [] },
     priority: { type: String, enum: ["low", "medium", "high"], default: "medium", index: true },
     dueDate: { type: Date, default: null, index: true },
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "Users", default: null, index: true },

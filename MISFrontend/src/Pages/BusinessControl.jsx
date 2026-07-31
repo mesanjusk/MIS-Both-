@@ -54,8 +54,10 @@ import {
 import { fetchPayments } from '../services/paymentService';
 import { fetchUsers } from '../services/userService';
 import { fetchVendorMasters } from '../services/vendorService';
+import { ORDER_STAGES } from '../constants/orderStages';
 
-const STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered'];
+// 'paid' is excluded: it's set automatically on full payment, not a manual move.
+const STAGES = ORDER_STAGES.filter((stage) => stage !== 'paid');
 const DEFAULT_SUMMARY = {
   openOrders: { count: 0, rows: [] },
   unassignedOrders: { count: 0, rows: [] },

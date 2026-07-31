@@ -2,14 +2,13 @@ const { requireAuth } = require('../middleware/auth');
 const express = require('express');
 const router = express.Router();
 const { v4: uuid } = require('uuid');
-const VendorsLegacy = require('../repositories/vendor');
 const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
 const ProductionJob = require('../repositories/productionJob');
 const StockMovement = require('../repositories/stockMovement');
+const VendorWork = require('../repositories/vendorWork');
 const Orders = require('../repositories/order');
 const Counter = require('../repositories/counter');
-const Items = require('../repositories/items');
 const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
 const logger = require('../utils/logger');
@@ -89,36 +88,17 @@ async function ensureVendorMaster(vendorPayload = {}) {
 router.use(requireAuth);
 
 router.post('/addVendor', async (req, res) => {
-  const { Order_Number, Order_uuid, Item_uuid } = req.body;
-
   try {
-    if (req.body?.Vendor_name || req.body?.vendor_name) {
-      const vendor = await ensureVendorMaster({
-        vendor_name: req.body.Vendor_name || req.body.vendor_name,
-        mobile_number: req.body.Mobile_number || req.body.mobile_number || req.body.phone,
-        vendor_type: req.body.Vendor_type || req.body.vendor_type || 'jobwork',
-        notes: req.body.Notes || req.body.notes || '',
-      });
-      return res.json({ success: true, result: vendor });
+    if (!req.body?.Vendor_name && !req.body?.vendor_name) {
+      return res.status(400).json({ success: false, message: 'Vendor_name is required' });
     }
-
-    const check = await VendorsLegacy.findOne({ Order_Number: Order_Number });
-    if (check) return res.status(409).json({ success: false, message: "Vendor assignment already exists for this order" });
-
-    const matchedItem = await Items.findOne({ $or: [{ Item_name: Item_uuid }, { Item_uuid: Item_uuid }] });
-    if (!matchedItem) {
-      return res.status(400).json({ message: 'Item not found' });
-    }
-
-    const newVendor = new VendorsLegacy({
-      Order_Number,
-      Order_uuid,
-      Item_uuid: matchedItem.Item_uuid,
-      Date: new Date().toISOString().split('T')[0],
-      Vendor_uuid: uuid(),
+    const vendor = await ensureVendorMaster({
+      vendor_name: req.body.Vendor_name || req.body.vendor_name,
+      mobile_number: req.body.Mobile_number || req.body.mobile_number || req.body.phone,
+      vendor_type: req.body.Vendor_type || req.body.vendor_type || 'jobwork',
+      notes: req.body.Notes || req.body.notes || '',
     });
-    await newVendor.save();
-    res.status(201).json({ success: true, result: newVendor });
+    return res.json({ success: true, result: vendor });
   } catch (e) {
     logger.error('Error saving vendor:', e);
     res.status(500).json({ success: false, message: e.message || "Server error" });
@@ -127,16 +107,8 @@ router.post('/addVendor', async (req, res) => {
 
 router.get('/GetVendorList', async (_req, res) => {
   try {
-    const [legacy, masters] = await Promise.all([
-      VendorsLegacy.find({}).lean(),
-      VendorMaster.find({}).sort({ Vendor_name: 1 }).lean(),
-    ]);
-
-    res.json({
-      success: true,
-      result: legacy.filter((a) => a.Order_Number),
-      masters,
-    });
+    const masters = await VendorMaster.find({}).sort({ Vendor_name: 1 }).lean();
+    res.json({ success: true, result: [], masters });
   } catch (err) {
     logger.error('Error fetching vendors:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -147,10 +119,11 @@ router.get('/GetVendorList', async (_req, res) => {
 
 router.get('/masters/summary', async (_req, res) => {
   try {
-    const [vendors, orders, ledgerEntries] = await Promise.all([
+    const [vendors, orders, ledgerEntries, printJobs] = await Promise.all([
       VendorMaster.find({}).sort({ Vendor_name: 1 }).lean(),
       Orders.find({ 'vendorAssignments.0': { $exists: true } }, { Order_Number: 1, Order_uuid: 1, createdAt: 1, vendorAssignments: 1 }).lean(),
       VendorLedger.find({}).lean(),
+      VendorWork.find({}, { Vendor_uuid: 1, Amount: 1 }).lean(),
     ]);
 
     const ledgerByVendor = ledgerEntries.reduce((acc, entry) => {
@@ -172,6 +145,18 @@ router.get('/masters/summary', async (_req, res) => {
       });
       return acc;
     }, {});
+
+    // Print jobs (VendorWork, created by the Google-Drive auto-print-job flow)
+    // are a separate collection from vendorAssignments/ProductionJob — fold
+    // them into the same per-vendor totals so a vendor whose only work is
+    // printing doesn't show 0 assigned work despite having a real ledger balance.
+    for (const job of printJobs) {
+      const key = job.Vendor_uuid;
+      if (!key) continue;
+      if (!assignedByVendor[key]) assignedByVendor[key] = { totalAssigned: 0, count: 0 };
+      assignedByVendor[key].totalAssigned += Number(job.Amount || 0);
+      assignedByVendor[key].count += 1;
+    }
 
     const result = vendors.map((vendor) => {
       const ledger = ledgerByVendor[vendor.Vendor_uuid] || { debit: 0, credit: 0 };
@@ -195,12 +180,15 @@ router.get('/masters/summary', async (_req, res) => {
 router.get('/masters/:vendorUuid/order-ledger', async (req, res) => {
   try {
     const vendorUuid = String(req.params.vendorUuid || '').trim();
-    const orders = await Orders.find({
-      $or: [
-        { 'vendorAssignments.vendorUuid': vendorUuid },
-        { 'vendorAssignments.vendorCustomerUuid': vendorUuid },
-      ],
-    }).sort({ createdAt: -1 }).lean();
+    const [orders, printJobs] = await Promise.all([
+      Orders.find({
+        $or: [
+          { 'vendorAssignments.vendorUuid': vendorUuid },
+          { 'vendorAssignments.vendorCustomerUuid': vendorUuid },
+        ],
+      }).sort({ createdAt: -1 }).lean(),
+      VendorWork.find({ Vendor_uuid: vendorUuid }).sort({ Date: -1 }).lean(),
+    ]);
 
     const result = [];
     orders.forEach((order) => {
@@ -221,6 +209,27 @@ router.get('/masters/:vendorUuid/order-ledger', async (req, res) => {
           });
         });
     });
+
+    // Print jobs recorded via VendorWork (Google-Drive auto-print-job flow)
+    // were previously absent from this drill-down even though their money is
+    // posted to the same VendorLedger — merge them in so the per-order view
+    // is complete regardless of which path assigned the work.
+    printJobs.forEach((job) => {
+      const amount = Number(job.Amount || 0);
+      const paid = Number(job.Paid_Amount || 0);
+      result.push({
+        orderUuid: job.Order_uuid || '',
+        orderNumber: job.Order_Number || null,
+        date: job.Date,
+        workType: job.Process || 'printing',
+        amount,
+        paid,
+        balance: Math.max(0, amount - paid),
+        status: job.Status || 'pending',
+      });
+    });
+
+    result.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
     res.json({ success: true, result });
   } catch (error) {
@@ -687,21 +696,6 @@ router.get('/reports/summary', async (_req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-router.get('/:id', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const vendor = await VendorsLegacy.findById(id);
-    if (!vendor) {
-      return res.status(404).json({ success: false, message: 'Vendor not found' });
-    }
-    res.status(200).json({ success: true, result: vendor });
-  } catch (error) {
-    logger.error('Error fetching vendor:', error);
-    res.status(500).json({ success: false, message: 'Error fetching vendor', error: error.message });
   }
 });
 

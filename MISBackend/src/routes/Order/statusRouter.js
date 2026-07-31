@@ -109,11 +109,11 @@ router.put("/updateStatus/:id", async (req, res) => {
 });
 
 router.post("/addStatus", async (req, res) => {
-  const { id, task } = parseStatusPayload(req);
+  const { id, task, assigned, deliveryDate } = parseStatusPayload(req);
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
   const filter = idToFilter(id);
   if (!filter) return res.status(400).json({ success: false, message: "Invalid Order id" });
-  const out = await pushStatusOnly(filter, task, "API");
+  const out = await pushStatusOnly(filter, task, "API", { assigned, deliveryDate });
   if (!out.ok) return res.status(out.code || 500).json({ success: false, message: out.msg });
   return res.json({ success: true, message: "Status added" });
 });

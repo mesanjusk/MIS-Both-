@@ -529,7 +529,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
           File: <strong>{file?.fileName}</strong>
         </Typography>
         <Stack spacing={2}>
-          <Stack direction="row" spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <Autocomplete
               sx={{ flex: 1 }}
               options={filteredCustomers} value={customer}
@@ -546,7 +546,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
             />
             <TextField label="Mobile Number" value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
-              size="small" disabled={submitting} sx={{ width: 160 }}
+              size="small" disabled={submitting} sx={{ width: { xs: '100%', sm: 160 } }}
             />
           </Stack>
 
@@ -1090,7 +1090,8 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
             />
           </Stack>
 
-          <Table size="small">
+          <Box sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <Table size="small" sx={{ minWidth: 480 }}>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 130 }}>File</TableCell>
@@ -1152,6 +1153,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
               </TableRow>
             </TableBody>
           </Table>
+          </Box>
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -1796,10 +1798,10 @@ export default function DesignFilesWidget() {
   const handlePrint = () => openPrintWindow(filteredFiles, activeTabDef.label);
 
   return (
-    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', minHeight: 480 }}>
+    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', flexDirection: { xs: 'column', md: 'row' }, minHeight: { xs: 'auto', md: 480 } }}>
 
       {/* ── Left sidebar ── */}
-      <Box sx={{ width: 200, flexShrink: 0, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', bgcolor: 'grey.50' }}>
+      <Box sx={{ width: { xs: '100%', md: 200 }, flexShrink: 0, borderRight: { xs: 'none', md: '1px solid' }, borderBottom: { xs: '1px solid', md: 'none' }, borderColor: 'divider', display: 'flex', flexDirection: 'column', bgcolor: 'grey.50' }}>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
           <FolderOpenRoundedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
           <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: 12, flex: 1 }}>Design Files</Typography>
@@ -1810,7 +1812,17 @@ export default function DesignFilesWidget() {
           </Tooltip>
         </Stack>
 
-        <Stack sx={{ flex: 1, overflowY: 'auto', py: 0.5 }}>
+        <Stack
+          direction={{ xs: 'row', md: 'column' }}
+          sx={{
+            flex: 1,
+            overflowX: { xs: 'auto', md: 'visible' },
+            overflowY: { xs: 'hidden', md: 'auto' },
+            py: 0.5,
+            maxHeight: { xs: 120, md: 'none' },
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const count = tab.key !== 'archive' ? tabCount(tab) : null;
@@ -1823,8 +1835,12 @@ export default function DesignFilesWidget() {
                 onClick={() => { setActiveTab(tab.key); setSelectedIds(new Set()); }}
                 sx={{
                   px: 1.5, py: 0.85, cursor: 'pointer',
-                  borderLeft: '3px solid',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  borderLeft: { xs: 'none', md: '3px solid' },
+                  borderBottom: { xs: '3px solid', md: 'none' },
                   borderLeftColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
+                  borderBottomColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
                   bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'transparent',
                   '&:hover': { bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'action.hover' },
                   transition: 'background 0.1s',
@@ -1845,7 +1861,7 @@ export default function DesignFilesWidget() {
         </Stack>
 
         {summary && (
-          <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid', borderColor: 'divider', display: { xs: 'none', md: 'block' } }}>
             <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
               {summary.total} total · {summary.matched} matched · {summary.unmatched} pending
             </Typography>
@@ -1854,13 +1870,13 @@ export default function DesignFilesWidget() {
       </Box>
 
       {/* ── Right panel ── */}
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
 
         {/* Panel header */}
         <Stack direction="row" alignItems="center" spacing={0.75}
-          sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}
+          sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5 }}
         >
-          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1, fontSize: 13 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1, fontSize: 13, minWidth: { xs: '100%', sm: 'auto' } }}>
             {activeTabDef.label}
             {activeTab !== 'archive' && filteredFiles.length > 0 && (
               <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>

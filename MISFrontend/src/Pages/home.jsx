@@ -3,13 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Tooltip, Stack, Paper,
   Button, Drawer, LinearProgress, Dialog, DialogContent,
-  Chip, Grid, Divider, useMediaQuery,
+  Chip, Grid, useMediaQuery,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
-import ClickAwayListener from '@mui/material/ClickAwayListener';
 
 import AllOrder from '../Reports/allOrder';
 import UserTask from './userTask';
@@ -26,18 +25,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
-import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
-import Brightness3RoundedIcon from '@mui/icons-material/Brightness3Rounded';
-import WbTwilightRoundedIcon from '@mui/icons-material/WbTwilightRounded';
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
-import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
-import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
-import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
-import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
-import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
 
-import { ROUTES } from '../constants/routes';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
 import PendingOverviewWidget from '../Components/dashboard/PendingOverviewWidget';
@@ -63,13 +51,6 @@ const getDefaultLayout = (isAdmin) => {
   if (!isAdmin) return DEFAULT_LAYOUT;
   return { ...DEFAULT_LAYOUT, right: [...(DEFAULT_LAYOUT.right || []), 'pendingOverview'] };
 };
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return { text: 'Good morning', icon: WbSunnyRoundedIcon };
-  if (h < 17) return { text: 'Good afternoon', icon: WbTwilightRoundedIcon };
-  return { text: 'Good evening', icon: Brightness3RoundedIcon };
-}
 
 /* ─── Quick Links Widget ─────────────────────────────────────────── */
 function QuickLinksWidget({ userGroup, isAdmin }) {
@@ -500,33 +481,6 @@ export default function Home() {
     }
   }, [search]);
 
-  /* Plus dropdown */
-  const [plusOpen, setPlusOpen] = useState(false);
-  const plusAnchorRef = useRef(null);
-
-  /* Search */
-  const [searchQuery, setSearchQuery] = useState('');
-  const handleSearch = () => {
-    const q = searchQuery.trim();
-    if (!q) return;
-    navigate(`${ROUTES.REPORTS_ORDERS_LIST}?q=${encodeURIComponent(q)}`);
-    setSearchQuery('');
-  };
-
-  const PLUS_SECTIONS = [
-    {
-      label: '⚡ Quick Add',
-      items: [
-        { label: 'New Order', icon: <AddShoppingCartRoundedIcon fontSize="small" />, onClick: () => navigate(ROUTES.ORDERS_NEW) },
-        { label: 'Receipt', icon: <ReceiptLongRoundedIcon fontSize="small" />, path: ROUTES.RECEIPT },
-        { label: 'Payment', icon: <PaymentsRoundedIcon fontSize="small" />, path: ROUTES.PAYMENT },
-        { label: 'Followup', icon: <NotificationsActiveRoundedIcon fontSize="small" />, path: ROUTES.FOLLOWUPS },
-        { label: 'New Task', icon: <AddTaskRoundedIcon fontSize="small" />, path: ROUTES.TASKS_NEW },
-        { label: 'Add UPI', icon: <AddCardRoundedIcon fontSize="small" />, onClick: () => dashCtx?.openUpi?.() },
-      ],
-    },
-  ];
-
   /* Init user */
   useEffect(() => {
     const user = location.state?.id || localStorage.getItem('User_name') || userName;
@@ -711,9 +665,6 @@ export default function Home() {
   const hasLeft = (layout.left || []).length > 0 || editMode;
   const hasRight = (layout.right || []).length > 0 || editMode;
 
-  const greeting = getGreeting();
-  const GreetIcon = greeting.icon;
-
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
 
@@ -726,114 +677,11 @@ export default function Home() {
             fontWeight: 900,
             fontSize: { xs: '2.4rem', md: '3.2rem' },
             lineHeight: 1,
-            mb: 0.5,
             userSelect: 'none',
           }}
         >
           <ColoredName name={(loggedInUser || userName || 'User').split(' ')[0]} />
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          <Box component="span" sx={{ color: '#FBBC05' }}>
-            <GreetIcon sx={{ fontSize: 12, mr: 0.4, mb: '-2px' }} />
-          </Box>
-          {greeting.text} · {userGroup || 'User'} · {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </Typography>
-
-        {/* Search with + button */}
-        <ClickAwayListener onClickAway={() => setPlusOpen(false)}>
-          <Box sx={{ position: 'relative', display: 'inline-flex', maxWidth: 560, width: '90%' }}>
-            <Box
-              ref={plusAnchorRef}
-              sx={{
-                display: 'flex', alignItems: 'center',
-                bgcolor: 'white', border: '1.5px solid', borderColor: alpha('#16a34a', 0.25),
-                borderRadius: '28px', width: '100%',
-                boxShadow: '0 4px 20px rgba(22,163,74,.1)',
-                '&:focus-within': { borderColor: '#16a34a', boxShadow: '0 4px 20px rgba(22,163,74,.18)' },
-              }}
-            >
-              <Tooltip title="Quick Add & Navigate">
-                <Box
-                  component="button"
-                  onClick={() => setPlusOpen((p) => !p)}
-                  sx={{
-                    width: 44, height: 44, bgcolor: '#16a34a', border: 'none', cursor: 'pointer',
-                    borderRadius: '26px 0 0 26px', color: 'white', fontSize: '1.4rem', fontWeight: 300,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    borderRight: '1.5px solid', borderRightColor: alpha('#16a34a', 0.25),
-                    '&:hover': { bgcolor: '#15803d' },
-                  }}
-                >
-                  +
-                </Box>
-              </Tooltip>
-              <Box
-                component="input"
-                placeholder="Search order #, customer name, item, vendor, or amount…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-                sx={{
-                  flex: 1, border: 'none', outline: 'none', px: 2, py: 1.25,
-                  fontSize: '0.85rem', color: '#334155', bgcolor: 'transparent',
-                  '&::placeholder': { color: '#94a3b8' },
-                }}
-              />
-              <Stack direction="row" spacing={0.25} sx={{ pr: 1 }}>
-                <Tooltip title="Search">
-                  <IconButton size="small" sx={{ color: searchQuery ? '#16a34a' : 'text.disabled' }} onClick={handleSearch}>
-                    <SearchRoundedIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            </Box>
-
-            {/* Plus dropdown - Google style */}
-            {plusOpen && (
-              <Paper
-                elevation={4}
-                sx={{
-                  position: 'absolute', top: 52, left: 0,
-                  minWidth: 240, borderRadius: 2.5,
-                  border: '1px solid', borderColor: 'divider',
-                  zIndex: 1400, py: 0.5, overflow: 'hidden',
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                }}
-              >
-                {PLUS_SECTIONS.map((section, si) => (
-                  <Box key={section.label}>
-                    {si > 0 && <Divider sx={{ my: 0.5 }} />}
-                    <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.8, px: 2, pt: 0.75, pb: 0.25 }}>
-                      {section.label}
-                    </Typography>
-                    {section.items.map((item) => (
-                      <Box
-                        key={item.label}
-                        component="button"
-                        onClick={() => {
-                          setPlusOpen(false);
-                          if (item.onClick) item.onClick();
-                          else if (item.path) navigate(item.path);
-                        }}
-                        sx={{
-                          display: 'flex', alignItems: 'center', gap: 1.25,
-                          width: '100%', px: 2, py: 0.85, border: 'none', cursor: 'pointer',
-                          bgcolor: 'transparent', textAlign: 'left',
-                          fontSize: '0.82rem', color: '#334155', fontWeight: 500,
-                          '&:hover': { bgcolor: '#f0fdf4', color: '#16a34a' },
-                        }}
-                      >
-                        <Box sx={{ color: 'text.secondary', display: 'flex' }}>{item.icon || <SearchRoundedIcon sx={{ fontSize: 16 }} />}</Box>
-                        {item.label}
-                      </Box>
-                    ))}
-                  </Box>
-                ))}
-              </Paper>
-            )}
-          </Box>
-        </ClickAwayListener>
-
       </Box>
 
       <OrderStatsCards />

@@ -66,17 +66,17 @@ export default function OrderStatsCards() {
     <Box sx={{ px: { xs: 1, md: 1.5 }, pb: 1.5, flexShrink: 0 }}>
       <Stack
         direction="row"
-        spacing={1}
+        spacing={{ xs: 0.75, md: 1 }}
         sx={{
-          overflowX: 'auto',
-          flexWrap: { xs: 'nowrap', md: 'wrap' },
+          overflowX: { xs: 'auto', md: 'hidden' },
+          flexWrap: 'nowrap',
           WebkitOverflowScrolling: 'touch',
           pb: 0.5,
           '&::-webkit-scrollbar': { height: 6 },
         }}
       >
         {cards.map((card) => (
-          <Box key={card.id} sx={{ minWidth: { xs: 128, md: 150 }, flexShrink: 0 }}>
+          <Box key={card.id} sx={{ minWidth: { xs: 92, md: 0 }, flex: { xs: '0 0 auto', md: '1 1 0' } }}>
             <SummaryCard
               title={card.title}
               value={card.value}

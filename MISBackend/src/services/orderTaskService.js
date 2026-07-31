@@ -187,14 +187,14 @@ async function getCustomerName(customerUuid) {
   return customer?.Customer_name || '';
 }
 
-async function notifyUserOfAssignment({ order, user, assignedBy }) {
+async function notifyUserOfAssignment({ order, user, assignedBy, customerNameOverride }) {
   const mobile = normalizeMobile(user?.Mobile_number);
   if (!mobile) return;
-  const customerName = await getCustomerName(order?.Customer_uuid);
+  const customerName = customerNameOverride ?? await getCustomerName(order?.Customer_uuid);
   const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
   const { body } = await renderTemplate('task.assignment_notify', {
     userName: user.User_name || user.name || 'there',
-    orderNumber: order.Order_Number,
+    orderNumber: order?.Order_Number || '—',
     customerName: customerName || '—',
     assignedBy: assignedBy || 'System',
     dueDate: dueDateText,
@@ -203,12 +203,12 @@ async function notifyUserOfAssignment({ order, user, assignedBy }) {
   await sendWhatsAppText({ to: mobile, body });
 }
 
-async function notifyAdminsOfAssignment({ order, user, assignedBy }) {
-  const customerName = await getCustomerName(order?.Customer_uuid);
+async function notifyAdminsOfAssignment({ order, user, assignedBy, customerNameOverride }) {
+  const customerName = customerNameOverride ?? await getCustomerName(order?.Customer_uuid);
   const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
   const { body } = await renderTemplate('task.admin_assignment_notify', {
     userName: user?.User_name || CUSTOMER_ASSIGNEE_LABEL,
-    orderNumber: order.Order_Number,
+    orderNumber: order?.Order_Number || '—',
     customerName: customerName || '—',
     assignedBy: assignedBy || 'System',
     dueDate: dueDateText,
@@ -379,4 +379,6 @@ module.exports = {
   rolloverPendingOrders,
   buildTaskSummaryMessage,
   buildPendingOverviewMessage,
+  notifyUserOfAssignment,
+  notifyAdminsOfAssignment,
 };

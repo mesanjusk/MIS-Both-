@@ -35,10 +35,7 @@ const Counter = require('../repositories/counter');
 const Users = require('../repositories/users');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
 const { upsertVendorJob } = require('../services/vendorJobService');
-const { assignOrderToUser } = require('../services/orderTaskService');
-const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
-const { renderTemplate } = require('../services/whatsappTemplateService');
-const normalizeWhatsAppNumber = require('../utils/normalizeNumber');
+const { assignOrderToUser, notifyUserOfAssignment, notifyAdminsOfAssignment } = require('../services/orderTaskService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -229,6 +226,7 @@ async function applyLinks(enriched) {
       orderNumber: order.Order_Number,
       orderStage: order.stage,
       orderAmount: order.Amount,
+      customerName: link.customerName || null,
       linkStatus: link.linkStatus || 'confirmed',
       linkedViaManual: true,
       printJobId: link.printJobId || null,
@@ -319,11 +317,23 @@ router.get('/scan', async (_req, res) => {
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
-          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1, isTemporary: 1 }
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1, isTemporary: 1, Customer_uuid: 1 }
         ).lean()
       : [];
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
+
+    // Customer names for the assign menu / row badges — orders only carry
+    // Customer_uuid, so resolve display names once per batch here.
+    const customerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const customerNameByUuid = {};
+    if (customerUuids.length) {
+      const customerDocs = await Customers.find(
+        { Customer_uuid: { $in: customerUuids } },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean();
+      customerDocs.forEach((c) => { customerNameByUuid[c.Customer_uuid] = c.Customer_name; });
+    }
 
     // 4. Enrich files with matched order data (filename-based matching)
     let enriched = allFiles.map((file) => {
@@ -336,6 +346,7 @@ router.get('/scan', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
+        customerName: order ? customerNameByUuid[order.Customer_uuid] || null : null,
         linkedViaManual: false,
       };
     });
@@ -754,22 +765,21 @@ router.post('/assign', async (req, res) => {
         logger.warn('design-files/assign: order-level assign failed — %s', orderErr.message);
       }
     } else {
-      // Standalone file (no order yet) — notify the assignee directly.
+      // Standalone file (no order yet) — no order/customer to look up, so use
+      // the same assignee + admin notification model as order-level assigns
+      // (assignOrderToUser), just with a synthetic "order" and the file name
+      // standing in for the customer field.
+      const orderLike = { Order_Number: null, Customer_uuid: null, dueDate: null };
+      const customerNameOverride = fileName ? `File: ${fileName}` : 'Design file';
       try {
-        const mobile = normalizeWhatsAppNumber(user.Mobile_number);
-        if (mobile) {
-          const { body } = await renderTemplate('task.assignment_notify', {
-            userName: user.User_name,
-            orderNumber: '—',
-            customerName: fileName ? `File: ${fileName}` : 'Design file',
-            assignedBy: resolvedAssignedBy,
-            dueDate: 'Today',
-            dueTime: '8:00 PM',
-          });
-          await sendWhatsAppText({ to: mobile, body });
-        }
+        await notifyUserOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
       } catch (notifyErr) {
-        logger.warn('design-files/assign: WhatsApp notify failed — %s', notifyErr.message);
+        logger.warn('design-files/assign: assignee WhatsApp notify failed — %s', notifyErr.message);
+      }
+      try {
+        await notifyAdminsOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
+      } catch (notifyErr) {
+        logger.warn('design-files/assign: admin WhatsApp notify failed — %s', notifyErr.message);
       }
     }
 
@@ -1408,11 +1418,21 @@ router.get('/scan-archive', async (_req, res) => {
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
-          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, isTemporary: 1 }
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, isTemporary: 1, Customer_uuid: 1 }
         ).lean()
       : [];
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
+
+    const archiveCustomerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const archiveCustomerNameByUuid = {};
+    if (archiveCustomerUuids.length) {
+      const customerDocs = await Customers.find(
+        { Customer_uuid: { $in: archiveCustomerUuids } },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean();
+      customerDocs.forEach((c) => { archiveCustomerNameByUuid[c.Customer_uuid] = c.Customer_name; });
+    }
 
     function enrichFile(file) {
       const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
@@ -1424,6 +1444,7 @@ router.get('/scan-archive', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
+        customerName: order ? archiveCustomerNameByUuid[order.Customer_uuid] || null : null,
       };
     }
 

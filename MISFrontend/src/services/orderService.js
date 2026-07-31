@@ -57,4 +57,10 @@ export const updateBillStatus = (orderId, billStatus, meta = {}) => {
 export const fetchMyOrderTasks = (userName) => axios.get('/api/orders/tasks/mine', { params: { userName } });
 export const fetchOrderQueue = () => axios.get('/api/orders/tasks/queue');
 export const fetchPendingTasksOverview = () => axios.get('/api/orders/tasks/overview');
-export const assignOrderToUser = (orderId, payload) => axios.patch(`/order/${orderId}/assign`, payload);
+// Backend route reads `assignedTo` (either a Mongo user id or the "Customer"
+// sentinel) off the body — accept either shape here so existing callers that
+// pass `userId`/`userName` keep working alongside newer `assignedTo` callers.
+export const assignOrderToUser = (orderId, payload = {}) => {
+  const assignedTo = payload.assignedTo ?? payload.userId ?? payload.userName ?? '';
+  return axios.patch(`/order/${orderId}/assign`, { assignedTo, assignedBy: payload.assignedBy });
+};

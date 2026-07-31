@@ -188,18 +188,30 @@ async function getUnassignedOrders() {
   return rows.map((row) => decorateOrder(row)).filter(isDesignAssignmentPending);
 }
 
+// Sentinel used in place of a real user when the ball is in the customer's
+// court (e.g. sent for approval) rather than any team member's — the one
+// other place a pending task can legitimately sit, per the order flow.
+const CUSTOMER_ASSIGNEE_LABEL = 'Customer';
+
 async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'System', via = 'app' }) {
   const filter = mongoose.isValidObjectId(orderId) ? { _id: orderId } : { Order_uuid: orderId };
   const order = await Orders.findOne(filter);
   if (!order) throw new Error('Order not found');
 
-  const user = userId
-    ? await Users.findById(userId)
-    : await Users.findOne({ $or: [{ User_name: String(userName || '').trim() }, { User_uuid: String(userName || '').trim() }] });
+  const isCustomerAssignment = !userId && String(userName || '').trim().toLowerCase() === 'customer';
 
-  if (!user) throw new Error('Assignee user not found');
+  let user = null;
+  if (!isCustomerAssignment) {
+    user = userId
+      ? await Users.findById(userId)
+      : await Users.findOne({ $or: [{ User_name: String(userName || '').trim() }, { User_uuid: String(userName || '').trim() }] });
 
-  order.assignedTo = user._id;
+    if (!user) throw new Error('Assignee user not found');
+  }
+
+  const assigneeLabel = isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
+
+  order.assignedTo = isCustomerAssignment ? null : user._id;
   order.dueDate = order.dueDate || buildDefaultDueDate();
   if (!order.stage || order.stage === 'enquiry') {
     order.stage = 'design';
@@ -208,14 +220,14 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   if (!Array.isArray(order.Status) || order.Status.length === 0) {
     order.Status = [{
       Task: 'Design',
-      Assigned: user.User_name,
+      Assigned: assigneeLabel,
       Delivery_Date: order.dueDate,
       Status_number: 1,
       CreatedAt: new Date(),
     }];
   } else {
     const last = order.Status[order.Status.length - 1];
-    last.Assigned = user.User_name;
+    last.Assigned = assigneeLabel;
     last.Delivery_Date = order.dueDate;
     last.CreatedAt = new Date();
   }
@@ -228,10 +240,13 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
 
   // Fire-and-forget: the assignee gets pinged on WhatsApp, and admins get the
   // refreshed full pending-tasks overview, but neither should block the
-  // assign response.
-  notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
-    logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
-  });
+  // assign response. Nothing to ping when the task is just waiting on the
+  // customer, so notifyUserOfAssignment is skipped in that case.
+  if (!isCustomerAssignment) {
+    notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+      logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
+    });
+  }
   notifyAdminsOfPendingOverview().catch((err) => {
     logger.error('[orderTask] Failed to notify admins of pending overview:', err.message);
   });

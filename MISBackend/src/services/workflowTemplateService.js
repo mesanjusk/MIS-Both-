@@ -6,8 +6,7 @@ const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
 const VendorMaster = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
-
-const VALID_STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered', 'paid'];
+const { ORDER_STAGES } = require('../constants/orderStages');
 
 function normalizeItemName(name) {
   return String(name || '').trim().toLowerCase();
@@ -146,8 +145,8 @@ async function applyWorkflowToOrder(orderIdOrUuid, itemNames = []) {
 
     // Auto-advance order stage if step defines one and it's ahead of current
     if (firstPending.stage) {
-      const currentIdx = VALID_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
-      const stepIdx = VALID_STAGES.indexOf(firstPending.stage);
+      const currentIdx = ORDER_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
+      const stepIdx = ORDER_STAGES.indexOf(firstPending.stage);
       if (stepIdx > currentIdx) {
         order.stage = firstPending.stage;
         order.stageHistory = order.stageHistory || [];
@@ -208,8 +207,8 @@ async function completeWorkflowStep(orderIdOrUuid, stepId) {
 
     // Auto-advance stage
     if (nextStep.stage) {
-      const currentIdx = VALID_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
-      const stepStageIdx = VALID_STAGES.indexOf(nextStep.stage);
+      const currentIdx = ORDER_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
+      const stepStageIdx = ORDER_STAGES.indexOf(nextStep.stage);
       if (stepStageIdx > currentIdx) {
         order.stage = nextStep.stage;
         order.stageHistory = order.stageHistory || [];

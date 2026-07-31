@@ -20,9 +20,8 @@ const {
   postVendorPayment,
 } = require('./accountingPostingService');
 const { buildDefaultDueDate } = require('./orderTaskService');
-
-const VALID_STAGES = ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered', 'paid'];
-const CLOSED_STAGES = new Set(['delivered', 'paid', 'cancelled', 'cancel']);
+const { updateOrderStage } = require('./orderLifecycleService');
+const { ORDER_STAGES, CLOSED_STAGES, stageIndex, isValidStage } = require('../constants/orderStages');
 
 function nowIstDayBounds(base = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -49,7 +48,7 @@ function toNumber(value, fallback = 0) {
 
 function normalizeStage(stage, fallback = 'design') {
   const normalized = cleanString(stage).toLowerCase();
-  return VALID_STAGES.includes(normalized) ? normalized : fallback;
+  return isValidStage(normalized) ? normalized : fallback;
 }
 
 function buildOrderFilter(orderUuidOrNumber) {
@@ -300,7 +299,7 @@ async function moveOrderStage({ orderUuid, stage, assignedTo = '', note = '', cr
     throw error;
   }
 
-  const order = await Orders.findOne(filter);
+  const order = await Orders.findOne(filter).lean();
   if (!order) {
     const error = new Error('Order not found');
     error.statusCode = 404;
@@ -311,22 +310,18 @@ async function moveOrderStage({ orderUuid, stage, assignedTo = '', note = '', cr
   const { Status_number: _ignored, ...baseEntry } = makeStatusEntry({ task: normalizedStage, assigned: assignedTo || createdBy || 'System', order });
   const taskLabel = note ? `${normalizedStage} - ${note}` : normalizedStage;
 
-  // Single aggregation-pipeline update so Status_number, stage, stageHistory, and
-  // Status array are all written atomically — no stale-snapshot race condition.
-  const setPayload = {
+  // Mutation goes through the one canonical stage-writer (orderLifecycleService)
+  // so the no-rollback rule and stageHistory/Status bookkeeping live in a
+  // single place instead of being re-implemented here.
+  await updateOrderStage({
+    orderId: order._id,
     stage: normalizedStage,
-    stageHistory: { $concatArrays: [
-      { $ifNull: ['$stageHistory', []] },
-      [{ stage: normalizedStage, timestamp: new Date() }],
-    ] },
-    Status: { $concatArrays: [
-      { $ifNull: ['$Status', []] },
-      [{ ...baseEntry, Task: taskLabel, Status_number: { $add: [{ $size: { $ifNull: ['$Status', []] } }, 1] } }],
-    ] },
-  };
-  if (assignedTo && mongoose.isValidObjectId(assignedTo)) setPayload.assignedTo = assignedTo;
+    statusEntry: { ...baseEntry, Task: taskLabel },
+  });
 
-  await Orders.findOneAndUpdate({ _id: order._id }, [{ $set: setPayload }], { runValidators: false });
+  if (assignedTo && mongoose.isValidObjectId(assignedTo)) {
+    await Orders.updateOne({ _id: order._id }, { $set: { assignedTo } }, { runValidators: false });
+  }
 
   return Orders.findById(order._id).lean();
 }
@@ -465,14 +460,12 @@ async function assignVendorToOrder({ orderUuid, vendorId, vendorName, amount = 0
 
   order.vendorAssignments = Array.isArray(order.vendorAssignments) ? order.vendorAssignments : [];
   order.vendorAssignments.push(assignment);
-  const currentStageIdx = VALID_STAGES.indexOf(normalizeStage(order.stage, 'enquiry'));
-  const printingIdx = VALID_STAGES.indexOf('printing');
-  if (currentStageIdx < printingIdx) {
-    order.stage = 'printing';
-    order.stageHistory = Array.isArray(order.stageHistory) ? order.stageHistory : [];
-    order.stageHistory.push({ stage: 'printing', timestamp: new Date() });
-  }
   await order.save();
+
+  const currentStage = normalizeStage(order.stage, 'enquiry');
+  if (stageIndex.get(currentStage) < stageIndex.get('printing')) {
+    await updateOrderStage({ orderId: order._id, stage: 'printing' });
+  }
 
   const jobNumber = await nextCounterValue('production_job_number', 0);
   const productionJob = await ProductionJob.create({
@@ -725,7 +718,7 @@ async function getBusinessControlSummary() {
 }
 
 module.exports = {
-  VALID_STAGES,
+  ORDER_STAGES,
   getOrderTotal,
   getReceivedAmountForOrder,
   refreshOrderPaymentStatus,

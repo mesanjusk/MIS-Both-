@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
+import { ORDER_STAGES } from '../constants/orderStages';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -10,7 +11,7 @@ const fmtDate = (d) => {
 };
 const fmtAmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
-const STAGES = ['enquiry','quoted','approved','design','printing','post_printing','finishing','ready','delivered','paid'];
+const STAGES = ORDER_STAGES;
 const STAGE_COLOR = {
   enquiry:       'bg-gray-100 text-gray-700',
   quoted:        'bg-yellow-100 text-yellow-800',
@@ -22,6 +23,8 @@ const STAGE_COLOR = {
   ready:         'bg-orange-100 text-orange-800',
   delivered:     'bg-green-100 text-green-800',
   paid:          'bg-emerald-100 text-emerald-800',
+  lost:          'bg-red-100 text-red-700',
+  cancelled:     'bg-rose-100 text-rose-700',
 };
 const BILL_COLOR = {
   paid:   'bg-green-100 text-green-700 border-green-300',

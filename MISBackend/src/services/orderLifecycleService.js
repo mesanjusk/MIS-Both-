@@ -9,6 +9,7 @@ const Usertasks = require('../repositories/usertask');
 const Counter = require('../repositories/counter');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const logger = require('../utils/logger');
+const { ORDER_STAGES, isValidStage, isForwardMove } = require('../constants/orderStages');
 
 const nextUsertaskNumber = async () => {
   const doc = await Counter.findByIdAndUpdate(
@@ -18,21 +19,6 @@ const nextUsertaskNumber = async () => {
   ).lean();
   return Number(doc?.seq || 1);
 };
-
-const VALID_STAGES = [
-  'enquiry',
-  'quoted',
-  'approved',
-  'design',
-  'printing',
-  'post_printing',
-  'finishing',
-  'ready',
-  'delivered',
-  'paid',
-];
-
-const stageIndex = new Map(VALID_STAGES.map((value, index) => [value, index]));
 
 const resolveOrderFilter = (rawId) => {
   const id = String(rawId || '').trim();
@@ -190,14 +176,22 @@ const notifyDeliveredOrder = async (order) => {
 };
 
 const assertValidStage = (stage) => {
-  if (!stageIndex.has(stage)) {
-    const error = new Error(`Invalid stage. Allowed stages: ${VALID_STAGES.join(', ')}`);
+  if (!isValidStage(stage)) {
+    const error = new Error(`Invalid stage. Allowed stages: ${ORDER_STAGES.join(', ')}`);
     error.statusCode = 400;
     throw error;
   }
 };
 
-const updateOrderStage = async ({ orderId, stage }) => {
+// The one writer for order.stage. Every other service (businessWorkflowService,
+// workflowTemplateService's step-driven auto-advance, WhatsApp commands) should
+// route stage changes through this function rather than mutating stage/
+// stageHistory directly, so the rollback rule and side effects apply uniformly.
+//
+// `statusEntry`, if passed, is appended to the free-text Status[] log in the
+// same atomic update as the stage change (Status_number computed from the
+// array's current size server-side, avoiding a stale-read race).
+const updateOrderStage = async ({ orderId, stage, statusEntry = null }) => {
   const normalizedStage = normalizeStage(stage);
   assertValidStage(normalizedStage);
 
@@ -218,26 +212,37 @@ const updateOrderStage = async ({ orderId, stage }) => {
   const currentStage = normalizeStage(order.stage || 'enquiry');
   assertValidStage(currentStage);
 
-  if (stageIndex.get(normalizedStage) < stageIndex.get(currentStage)) {
+  if (!isForwardMove(currentStage, normalizedStage)) {
     const error = new Error(`Stage rollback not allowed from ${currentStage} to ${normalizedStage}`);
     error.statusCode = 400;
     throw error;
   }
 
-  if (currentStage === normalizedStage) {
+  if (currentStage === normalizedStage && !statusEntry) {
     return await Orders.findById(order._id);
   }
 
-  const updatePayload = {
-    $set: { stage: normalizedStage },
-    $push: { stageHistory: { stage: normalizedStage, timestamp: new Date() } },
+  const setPayload = {
+    stage: normalizedStage,
+    stageHistory: { $concatArrays: [
+      { $ifNull: ['$stageHistory', []] },
+      [{ stage: normalizedStage, timestamp: new Date() }],
+    ] },
   };
 
   if (normalizedStage === 'delivered') {
-    updatePayload.$set.deliveryNotifiedAt = new Date();
+    setPayload.deliveryNotifiedAt = new Date();
   }
 
-  await Orders.updateOne({ _id: order._id }, updatePayload);
+  if (statusEntry) {
+    const { Status_number: _ignored, ...baseEntry } = statusEntry;
+    setPayload.Status = { $concatArrays: [
+      { $ifNull: ['$Status', []] },
+      [{ ...baseEntry, Status_number: { $add: [{ $size: { $ifNull: ['$Status', []] } }, 1] } }],
+    ] };
+  }
+
+  await Orders.findOneAndUpdate({ _id: order._id }, [{ $set: setPayload }], { runValidators: false });
 
   const updatedOrder = await Orders.findById(order._id);
   const mergedOrder = { ...order, ...(updatedOrder.toObject?.() || {}) };
@@ -276,7 +281,7 @@ const getOrderTasks = async (orderId) => {
 };
 
 module.exports = {
-  VALID_STAGES,
+  ORDER_STAGES,
   updateOrderStage,
   getOrderTasks,
   autoCreateDesignerTask,

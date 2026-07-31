@@ -4,8 +4,8 @@ const Users = require('../repositories/users');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
 const logger = require('../utils/logger');
+const { CLOSED_STAGES } = require('../constants/orderStages');
 
-const CLOSED_STAGES = new Set(['ready', 'delivered', 'paid']);
 const DESIGN_STAGE_KEYS = new Set(['enquiry', 'approved', 'design']);
 
 function getIstDateParts(date = new Date()) {

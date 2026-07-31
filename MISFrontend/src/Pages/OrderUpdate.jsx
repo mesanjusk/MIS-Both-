@@ -11,6 +11,7 @@ import InvoicePreview from "../Components/InvoicePreview";
 
 // ✅ NEW: open UpdateDelivery inside modal
 import UpdateDelivery from "./updateDelivery";
+import { STATUS_TASK_STAGES } from "../constants/orderStages";
 
 function toYmd(v) {
   if (!v) return "";
@@ -30,7 +31,7 @@ const isEnquiryTask = (task) => {
   return t === "enquiry" || t === "enquiries" || t === "inquiry" || t === "lead";
 };
 
-const WORKFLOW_STAGES = ["Enquiry", "Design", "Printing", "Finishing", "Ready", "Delivered"];
+const WORKFLOW_STAGES = STATUS_TASK_STAGES;
 
 export default function OrderUpdate({
   order = {},

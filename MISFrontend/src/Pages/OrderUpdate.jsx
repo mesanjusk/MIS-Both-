@@ -67,10 +67,38 @@ export default function OrderUpdate({
     Steps: Array.isArray(order?.Steps) ? order.Steps : [],
     Items: Array.isArray(order?.Items) ? order.Items : [],
     workflowSteps: Array.isArray(order?.workflowSteps) ? order.workflowSteps : [],
+    workRows: Array.isArray(order?.workRows) ? order.workRows : [],
     stage: order?.stage || "",
   });
 
   const [busyWorkflowStep, setBusyWorkflowStep] = useState({});
+  const [busyWorkRow, setBusyWorkRow] = useState({});
+
+  const markWorkRowConsumed = async (workRow) => {
+    const orderUuid = values.Order_uuid;
+    const remaining = Number(workRow.requiredQty || 0) - Number(workRow.consumedQty || 0);
+    if (!orderUuid || !workRow.workRowId || remaining <= 0) return;
+    setBusyWorkRow((b) => ({ ...b, [workRow.workRowId]: true }));
+    try {
+      const res = await axios.patch(
+        `/api/orders/orders/${orderUuid}/workrows/${workRow.workRowId}/consume`,
+        { qty: remaining }
+      );
+      const updated = res?.data?.result;
+      if (updated) {
+        setValues((v) => ({
+          ...v,
+          workRows: Array.isArray(updated.workRows) ? updated.workRows : v.workRows,
+        }));
+        onOrderPatched(updated);
+      }
+      toast.success("Marked consumed");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to mark consumed");
+    } finally {
+      setBusyWorkRow((b) => ({ ...b, [workRow.workRowId]: false }));
+    }
+  };
 
   const markWorkflowStepDone = async (stepId) => {
     const orderUuid = values.Order_uuid;
@@ -515,6 +543,40 @@ export default function OrderUpdate({
                             className="shrink-0 text-xs bg-violet-600 text-white px-2 py-0.5 rounded hover:bg-violet-700 disabled:opacity-50"
                           >
                             {busy ? "…" : "Done"}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {(values.workRows || []).length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-800 mb-2">Materials</p>
+                <ul className="space-y-2">
+                  {values.workRows.map((row) => {
+                    const remaining = Number(row.requiredQty || 0) - Number(row.consumedQty || 0);
+                    const isDone = row.status === "done" || remaining <= 0;
+                    const busy = !!busyWorkRow[row.workRowId];
+                    return (
+                      <li key={row.workRowId} className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs ${isDone ? "bg-green-100 text-green-700" : "text-slate-600"}`}>
+                        <span className="flex items-center gap-1.5">
+                          <span>{isDone ? "✓" : "○"}</span>
+                          <span>{row.itemName}</span>
+                          <span className="text-slate-400">
+                            {row.consumedQty || 0}/{row.requiredQty} {row.unit}
+                          </span>
+                          {row.note && <span className="opacity-60 ml-1">({row.note})</span>}
+                        </span>
+                        {!isDone && (
+                          <button
+                            onClick={() => markWorkRowConsumed(row)}
+                            disabled={busy}
+                            className="shrink-0 text-xs bg-amber-600 text-white px-2 py-0.5 rounded hover:bg-amber-700 disabled:opacity-50"
+                          >
+                            {busy ? "…" : "Consumed"}
                           </button>
                         )}
                       </li>

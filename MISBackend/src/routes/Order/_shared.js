@@ -9,6 +9,7 @@ const Counter = require("../../repositories/counter");
 const ProductionJob = require("../../repositories/productionJob");
 const VendorLedger = require("../../repositories/vendorLedger");
 const { isDriveAutomationEnabled } = require("../../services/googleDriveOAuthService");
+const { getAvailableQtyMap } = require("../../services/inventoryService");
 const logger = require("../../utils/logger");
 const {
   norm, normLower, toDate, toBool, toSafeNumber, escapeRegex,
@@ -113,7 +114,7 @@ async function normalizeVendorAssignments(assignments) {
   return rows.sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
 }
 
-async function pushStatusOnly(filter, task, assignedHint = "System") {
+async function pushStatusOnly(filter, task, assignedHint = "System", overrides = {}) {
   try {
     const doc = await Orders.findOne(filter, { Status: { $slice: -1 }, _id: 1 }).lean();
     if (!doc) return { ok: false, code: 404, msg: "Order not found" };
@@ -122,9 +123,9 @@ async function pushStatusOnly(filter, task, assignedHint = "System") {
     const now = new Date();
     const entry = {
       Task: String(task || "").trim() || "Other",
-      Assigned: String(last?.Assigned || assignedHint || "System"),
+      Assigned: String(overrides.assigned || last?.Assigned || assignedHint || "System"),
       Status_number: Number.isFinite(nextNo) ? nextNo : 1,
-      Delivery_Date: now,
+      Delivery_Date: overrides.deliveryDate instanceof Date ? overrides.deliveryDate : now,
       CreatedAt: now,
     };
     if (!entry.Task) return { ok: false, code: 400, msg: "Task is empty" };
@@ -397,6 +398,32 @@ async function enrichOrderItemsAndBuildWorkRows(lineItems = [], inheritedDueDate
 
     return enriched;
   });
+
+  // Reserve against real current stock instead of leaving reservedQty at 0
+  // (write-once, never-checked) as before — a shortfall is now visible on
+  // the order immediately rather than silently assumed fine.
+  const stockRowItemUuids = workRows
+    .filter((row) => row.executionMode === "stock" && row.itemUuid)
+    .map((row) => row.itemUuid);
+  if (stockRowItemUuids.length) {
+    const availableByItem = await getAvailableQtyMap(stockRowItemUuids);
+    for (const row of workRows) {
+      if (row.executionMode !== "stock" || !row.itemUuid || !availableByItem.has(row.itemUuid)) continue;
+      const available = availableByItem.get(row.itemUuid);
+      const reserved = Math.max(0, Math.min(row.requiredQty, available));
+      row.reservedQty = reserved;
+      if (reserved < row.requiredQty) {
+        row.note = [row.note, `Stock shortfall: only ${reserved} of ${row.requiredQty} ${row.unit} available.`]
+          .filter(Boolean)
+          .join(" ");
+      } else {
+        row.status = "assigned";
+      }
+      // Decrement the running balance so multiple work rows needing the same
+      // item within one order don't each reserve against the full amount.
+      availableByItem.set(row.itemUuid, available - reserved);
+    }
+  }
 
   return { enrichedItems, workRows };
 }

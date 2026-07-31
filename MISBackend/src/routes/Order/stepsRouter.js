@@ -8,6 +8,7 @@ const Transaction = require("../../repositories/transaction");
 const VendorLedger = require("../../repositories/vendorLedger");
 const logger = require("../../utils/logger");
 const { norm, normLower, escapeRegex } = require("../../utils/orderHelpers");
+const { consumeWorkRow } = require("../../services/inventoryService");
 
 /* ------------------ CREATE STEP ------------------ */
 router.post("/orders/:orderId/steps", async (req, res) => {
@@ -228,6 +229,26 @@ router.post("/steps/toggle", async (req, res) => {
   } catch (e) {
     logger.error("/order/steps/toggle error", e);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+/* ------------------ CONSUME WORK ROW MATERIAL ------------------ */
+router.patch("/orders/:orderId/workrows/:workRowId/consume", async (req, res) => {
+  const { orderId, workRowId } = req.params;
+  const { qty, consumedBy } = req.body || {};
+  try {
+    const order = await consumeWorkRow({
+      orderId,
+      workRowId,
+      qty,
+      consumedBy: consumedBy || req.user?.userName || req.user?.User_name || "system",
+    });
+    return res.json({ success: true, result: order });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to consume work row",
+    });
   }
 });
 

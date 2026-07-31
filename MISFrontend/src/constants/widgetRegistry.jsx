@@ -7,24 +7,24 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 
 export const WIDGET_REGISTRY = [
   {
-    id: 'tasks',
-    label: 'Tasks',
+    id: 'workflow',
+    label: 'Workflow',
     icon: AssignmentRoundedIcon,
     color: '#d97706',
     bg: '#fef3c7',
     defaultPanel: 'left',
     adminOnly: false,
-    description: 'Attendance, SOPs, your pending tasks, then the team’s',
+    description: 'SOPs, your pending tasks, the team’s pending tasks grouped by stage, and design files',
   },
   {
     id: 'designFiles',
-    label: 'Design Files',
+    label: 'Design Files (standalone)',
     icon: FolderOpenRoundedIcon,
     color: '#0891b2',
     bg: '#cffafe',
     defaultPanel: 'right',
     adminOnly: false,
-    description: 'Design files and order attachments — Pending tab first',
+    description: 'Full-height design files view — also embedded inside Workflow',
   },
   {
     id: 'quickLinks',
@@ -68,12 +68,14 @@ export const WIDGET_REGISTRY = [
   },
 ];
 
-// v8: collapsed the 3-column (left/center/right) layout to 2 columns
-// (left/right) and merged the old myTasks + pendingTasks + pendingOverview
-// widgets into a single 'tasks' widget.
-export const LAYOUT_KEY = (user) => `mis_home_layout_v8_${user}`;
+// v9: merged 'tasks' + 'designFiles' into a single 'workflow' widget (pending
+// tasks grouped by stage, with design files embedded as a collapsible
+// section) — the punch-in/out action moved out of the widget grid entirely,
+// next to the user's name in the header, so 'recentAttendance' is no longer
+// a default widget either.
+export const LAYOUT_KEY = (user) => `mis_home_layout_v9_${user}`;
 
 export const DEFAULT_LAYOUT = {
-  left: ['tasks'],
-  right: ['designFiles'],
+  left: ['workflow'],
+  right: ['quickLinks'],
 };

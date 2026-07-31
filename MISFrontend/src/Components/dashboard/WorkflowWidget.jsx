@@ -4,6 +4,7 @@ import {
   Box,
   Chip,
   CircularProgress,
+  Collapse,
   Divider,
   IconButton,
   Stack,
@@ -15,13 +16,16 @@ import {
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
+import DesignFilesWidget from './DesignFilesWidget';
 import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser } from '../../services/orderService';
 import { fetchUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 
-const VIEW_KEY = 'mis_tasks_widget_view';
+const VIEW_KEY = 'mis_workflow_widget_view';
 
 function normalizeMyOrder(order) {
   const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
@@ -39,11 +43,25 @@ function normalizeMyOrder(order) {
   };
 }
 
-// Replaces the previous My Tasks / Pending Task Queue / Team Pending Tasks
-// trio of widgets. One data source (the admin overview when available,
-// falling back to the caller's own queue) drives both sections, so "mine"
-// and "everyone else's" are always the same schema, just filtered.
-export default function TasksWidget() {
+// Groups "pending with the rest of the team" by its current workflow/stage
+// name (Status.Task — New Design, Approval, Hold, Print, Fitting, etc.) so
+// the widget answers "what stage is stuck, and with whom" at a glance,
+// instead of one flat list.
+function groupByStage(tasks) {
+  const groups = new Map();
+  for (const task of tasks) {
+    const key = task.task || 'Other';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(task);
+  }
+  return Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
+}
+
+// Replaces the previous separate "Tasks" and "Design Files" home-screen
+// widgets — one card, so a stuck order's current stage, its owner, and the
+// design file behind it are all in one place instead of split across two
+// widgets that didn't reference each other.
+export default function WorkflowWidget() {
   const { userName, isAdmin } = useAuth();
   const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'table');
   const [overview, setOverview] = useState(null);
@@ -52,6 +70,8 @@ export default function TasksWidget() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState('');
+  const [collapsedStages, setCollapsedStages] = useState({});
+  const [designFilesOpen, setDesignFilesOpen] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -106,6 +126,12 @@ export default function TasksWidget() {
     return { mine: myOrders.map(normalizeMyOrder), others: [] };
   }, [isAdmin, overview, myOrders, userName]);
 
+  const stageGroups = useMemo(() => groupByStage(others), [others]);
+
+  const toggleStage = (stage) => {
+    setCollapsedStages((prev) => ({ ...prev, [stage]: !prev[stage] }));
+  };
+
   return (
     <Box>
       <UserTask />
@@ -113,7 +139,7 @@ export default function TasksWidget() {
       <Divider sx={{ my: 1.5 }} />
 
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="subtitle1" fontWeight={700}>Pending tasks</Typography>
+        <Typography variant="subtitle1" fontWeight={700}>Workflow</Typography>
         <Stack direction="row" spacing={0.5} alignItems="center">
           <ToggleButtonGroup size="small" exclusive value={view} onChange={handleViewChange}>
             <ToggleButton value="table" sx={{ py: 0.25, px: 0.75 }}>
@@ -158,23 +184,76 @@ export default function TasksWidget() {
             <Box>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.75 }}>
                 <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                  Pending with the rest of the team
+                  Pending, by stage
                 </Typography>
                 {others.length > 0 && <Chip size="small" label={others.length} />}
                 {overview?.unassignedCount > 0 && (
                   <Chip size="small" color="warning" label={`${overview.unassignedCount} unassigned`} />
                 )}
               </Stack>
-              <OrderTaskList
-                tasks={others}
-                view={view}
-                users={users}
-                assigningId={assigningId}
-                onAssign={handleAssign}
-                emptyMessage="Nothing pending elsewhere."
-              />
+              {stageGroups.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                  Nothing pending elsewhere.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {stageGroups.map(([stage, tasks]) => {
+                    const isOpen = !collapsedStages[stage];
+                    return (
+                      <Box key={stage} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={1}
+                          onClick={() => toggleStage(stage)}
+                          sx={{ px: 1.25, py: 0.75, bgcolor: 'rgba(240,253,244,0.6)', cursor: 'pointer' }}
+                        >
+                          <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>{stage}</Typography>
+                          <Chip size="small" label={tasks.length} />
+                          <ExpandMoreRoundedIcon
+                            sx={{ fontSize: 18, color: 'text.disabled', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+                          />
+                        </Stack>
+                        <Collapse in={isOpen}>
+                          <Box sx={{ p: 1 }}>
+                            <OrderTaskList
+                              tasks={tasks}
+                              view={view}
+                              users={users}
+                              assigningId={assigningId}
+                              onAssign={handleAssign}
+                              emptyMessage="Nothing here."
+                            />
+                          </Box>
+                        </Collapse>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              )}
             </Box>
           )}
+
+          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              onClick={() => setDesignFilesOpen((v) => !v)}
+              sx={{ px: 1.25, py: 0.75, bgcolor: 'rgba(207,250,254,0.5)', cursor: 'pointer' }}
+            >
+              <FolderOpenRoundedIcon sx={{ fontSize: 17, color: '#0891b2' }} />
+              <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>Design Files</Typography>
+              <ExpandMoreRoundedIcon
+                sx={{ fontSize: 18, color: 'text.disabled', transform: designFilesOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}
+              />
+            </Stack>
+            <Collapse in={designFilesOpen} unmountOnExit>
+              <Box sx={{ p: 1 }}>
+                <DesignFilesWidget />
+              </Box>
+            </Collapse>
+          </Box>
         </Stack>
       )}
     </Box>

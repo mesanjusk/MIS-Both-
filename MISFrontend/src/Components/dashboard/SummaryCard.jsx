@@ -46,19 +46,19 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
         };
       }}
     >
-      <Box sx={{ p: { xs: 1.5, md: 1.75 }, pt: { xs: 1.75, md: 2 } }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+      <Box sx={{ p: { xs: 1, md: 1.1 }, pt: { xs: 1.25, md: 1.35 } }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.5}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
               component="span"
               sx={{
                 display: 'block',
-                fontSize: '0.62rem',
+                fontSize: '0.56rem',
                 textTransform: 'uppercase',
-                letterSpacing: 0.9,
+                letterSpacing: 0.6,
                 fontWeight: 700,
                 color: 'text.secondary',
-                mb: 0.5,
+                mb: 0.3,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -68,7 +68,7 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
             </Typography>
             <Typography
               variant="h5"
-              sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.2, fontSize: { xs: '1rem', md: '1.1rem' } }}
+              sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.2, fontSize: { xs: '0.95rem', md: '1rem' } }}
               noWrap
             >
               {value}
@@ -84,9 +84,9 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
               sx={(theme) => {
                 const cfg = (variantConfig[variant] || variantConfig.primary)(theme);
                 return {
-                  width: 38,
-                  height: 38,
-                  borderRadius: 2.5,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 2,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -96,7 +96,7 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
                 };
               }}
             >
-              <Icon sx={{ fontSize: 19 }} />
+              <Icon sx={{ fontSize: 14 }} />
             </Box>
           ) : null}
         </Stack>

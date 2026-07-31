@@ -48,6 +48,36 @@ export const STAGE_LABELS = {
 
 export const CLOSED_STAGES = new Set(['delivered', 'paid', 'lost', 'cancelled']);
 
+// Home-screen Workflow widget column grouping. Mirrors the physical
+// production pipeline the team actually works off: New/Old Design +
+// Approval/Hold/Customer sit together as "Design", Ready to Print and
+// Print share a "Print" column, Fitting and Bind & Packing share "Post
+// Print", and Ready is the final "Ready & Archive" column. Any stage not
+// listed here (enquiry/quoted/approved — pre-assignment) falls back to
+// Design since that's the earliest working stage.
+export const WORKFLOW_SECTIONS = [
+  {
+    key: 'design',
+    label: 'Design',
+    stages: ['enquiry', 'quoted', 'approved', 'new_design', 'old_design', 'approval', 'hold', 'customer'],
+  },
+  {
+    key: 'print',
+    label: 'Print',
+    stages: ['ready_to_print', 'print'],
+  },
+  {
+    key: 'postPrint',
+    label: 'Post Print',
+    stages: ['fitting', 'bind_packing'],
+  },
+  {
+    key: 'ready',
+    label: 'Ready & Archive',
+    stages: ['ready', 'delivered', 'paid'],
+  },
+];
+
 // Design-review stages loop rather than move strictly forward (see the
 // backend constants file for the matching isForwardMove exception).
 export const DESIGN_LOOP_STAGES = new Set([

@@ -115,17 +115,18 @@ export default function OrderTaskList({
       '—'
     );
 
-  if (view === 'card') {
+  if (view === 'card' || view === 'stack') {
+    const gridSx = view === 'stack'
+      ? { display: 'flex', flexDirection: 'column', gap: 0.75 }
+      : {
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(8, minmax(110px, 1fr))' },
+          gap: 1,
+          overflowX: 'auto',
+        };
     return (
       <Box>
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(8, minmax(110px, 1fr))' },
-            gap: 1,
-            overflowX: 'auto',
-          }}
-        >
+        <Box sx={gridSx}>
           {tasks.map((task) => {
             const isUnassigned = task.assignedTo === 'Unassigned';
             return (

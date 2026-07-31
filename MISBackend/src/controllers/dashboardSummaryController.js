@@ -57,6 +57,7 @@ const buildOrderTaskRow = (order, userName = '') => {
       latestStatusTask?.Assigned ||
       userName ||
       '',
+    assignedBy: latestStatusTask?.AssignedBy || '',
     status: latestStatusTask?.Task || order?.stage || 'pending',
     dueDate: normalizedDueDate,
     overdue: Boolean(normalizedDueDate && normalizedDueDate.getTime() < Date.now()),
@@ -73,6 +74,7 @@ const buildUsertaskRow = (task, resolvedUserName = '') => ({
   subtitle: task?.Remark || '',
   taskName: task?.Usertask_name || 'Task',
   assignedTo: resolvedUserName || String(task?.User || task?.AssignedTo || task?.Assigned || '').trim(),
+  assignedBy: task?.AssignedBy || '',
   status: task?.Status || task?.TaskStatus || 'Pending',
   dueDate: normalizeDateValue(task?.Deadline),
   overdue: Boolean(normalizeDateValue(task?.Deadline) && normalizeDateValue(task?.Deadline).getTime() < Date.now()),

@@ -33,6 +33,7 @@ function OrderTaskCard({ order, users, canAssign, currentUserName, onAssign }) {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Assigned: {latest.Assigned || 'None'}
+            {latest.AssignedBy ? ` (by ${latest.AssignedBy})` : ''}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Due: {order?.dueDate ? new Date(order.dueDate).toLocaleString() : 'Today 8:00 PM'}

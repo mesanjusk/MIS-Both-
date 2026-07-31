@@ -142,6 +142,11 @@ export default function OrderTaskList({
                         label={isUnassigned ? 'Unassigned' : task.assignedTo}
                         color={isUnassigned ? 'warning' : 'default'}
                       />
+                      {!isUnassigned && task.assignedBy && (
+                        <Typography variant="caption" color="text.secondary">
+                          by {task.assignedBy}
+                        </Typography>
+                      )}
                       {dueCell(task)}
                     </Stack>
                   </CardContent>
@@ -180,6 +185,7 @@ export default function OrderTaskList({
                   {task.assignedTo !== 'Unassigned' && (
                     <Typography variant="caption" color="primary.main" noWrap sx={{ fontWeight: 600 }}>
                       → {task.assignedTo}
+                      {task.assignedBy ? ` (by ${task.assignedBy})` : ''}
                     </Typography>
                   )}
                 </Stack>

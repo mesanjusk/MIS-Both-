@@ -1,7 +1,7 @@
 const User = require('../repositories/users');
 const Attendance = require('../repositories/attendance');
 const { AppSetting } = require('../repositories/appSetting');
-const { markAttendance } = require('./attendanceService');
+const { markAttendance, isTransitionAllowed } = require('./attendanceService');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
 const WhatsAppPendingInput = require('../repositories/WhatsAppPendingInput');
 const AttendanceAbsence = require('../repositories/AttendanceAbsence');
@@ -178,20 +178,6 @@ function formatMessage(template, values) {
 
 function getCurrentAttendanceType(attendance) {
   return attendance?.User?.length ? attendance.User[attendance.User.length - 1]?.Type : null;
-}
-
-const TRANSITION_MAP = {
-  In: ['Lunch Out', 'Out'],
-  'Lunch Out': ['Lunch In'],
-  'Lunch In': ['Out'],
-  Out: [],
-};
-
-function isTransitionAllowed({ hasAttendance, currentType, attendanceType }) {
-  if (!hasAttendance) return attendanceType === 'In';
-  if (currentType === attendanceType) return false;
-  if (!currentType) return attendanceType === 'In';
-  return (TRANSITION_MAP[currentType] || []).includes(attendanceType);
 }
 
 function getApplicableCommands({ config, attendance }) {

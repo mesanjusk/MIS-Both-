@@ -457,7 +457,7 @@ router.get('/post-print/payables', async (req, res) => {
 
 router.get('/post-print/order-summary', async (req, res) => {
   try {
-    const POST_PRINT_STAGES = ['post_printing', 'finishing'];
+    const POST_PRINT_STAGES = ['fitting', 'bind_packing'];
     const Customers = require('../repositories/customer');
 
     const [orders, allJobs] = await Promise.all([

@@ -9,7 +9,16 @@ const logger = require('../utils/logger');
 const { CLOSED_STAGES } = require('../constants/orderStages');
 const normalizeWhatsAppNumber = require('../utils/normalizeNumber');
 
-const DESIGN_STAGE_KEYS = new Set(['enquiry', 'approved', 'design']);
+const DESIGN_STAGE_KEYS = new Set([
+  'enquiry',
+  'approved',
+  'new_design',
+  'old_design',
+  'approval',
+  'hold',
+  'customer',
+  'ready_to_print',
+]);
 
 function getIstDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -281,7 +290,7 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   order.assignedTo = isCustomerAssignment ? null : user._id;
   order.dueDate = order.dueDate || buildDefaultDueDate();
   if (!order.stage || order.stage === 'enquiry') {
-    order.stage = 'design';
+    order.stage = 'new_design';
   }
 
   if (!Array.isArray(order.Status) || order.Status.length === 0) {

@@ -41,22 +41,18 @@ import {
   deleteWorkflowTemplate,
 } from '../services/workflowTemplateService';
 import { fetchVendorMasters } from '../services/vendorService';
+import { ORDER_STAGES, STAGE_LABELS } from '../constants/orderStages';
 
-const STAGES = [
-  { value: 'design', label: 'Design' },
-  { value: 'printing', label: 'Printing' },
-  { value: 'post_printing', label: 'Post Printing' },
-  { value: 'finishing', label: 'Finishing' },
-  { value: 'ready', label: 'Ready' },
-  { value: 'delivered', label: 'Delivered' },
-];
+// Template steps never target the terminal 'lost'/'cancelled' exits.
+const STAGES = ORDER_STAGES.filter((s) => s !== 'lost' && s !== 'cancelled')
+  .map((value) => ({ value, label: STAGE_LABELS[value] || value }));
 
 const ASSIGN_GROUPS = ['Designer', 'PostDesign', 'Delivery', 'Accounts', 'Office'];
 
 const BLANK_STEP = {
   order: 1,
   label: '',
-  stage: 'design',
+  stage: 'new_design',
   autoAssignGroup: '',
   requiresVendor: false,
   vendorWorkType: '',

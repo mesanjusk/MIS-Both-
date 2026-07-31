@@ -856,8 +856,8 @@ router.post('/auto-temp-orders', async (req, res) => {
         Customer_uuid: tempCustomer.Customer_uuid,
         orderNote: `[TEMP] ${file.fileName || file.fileId}`,
         orderMode: 'note',
-        stage: 'design',
-        stageHistory: [{ stage: 'design', timestamp: new Date() }],
+        stage: 'new_design',
+        stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
         priority: 'medium',
         isTemporary: true,
         driveFile: { status: 'skipped' },
@@ -1021,9 +1021,9 @@ router.post('/confirm-final', async (req, res) => {
       orderNote: noteText,
       orderMode: isDetailed ? 'items' : 'note',
       Remark: noteText,
-      stage: 'design',
+      stage: 'new_design',
       priority: 'medium',
-      stageHistory: [{ stage: 'design', timestamp: new Date() }],
+      stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
       driveFile: { status: 'skipped' },
     };
     if (isDetailed) {

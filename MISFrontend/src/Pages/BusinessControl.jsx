@@ -175,7 +175,7 @@ export default function BusinessControl() {
   const [paymentModes, setPaymentModes] = useState(['Cash', 'Bank', 'UPI']);
   const [paymentForm, setPaymentForm] = useState({ amount: '', paymentMode: 'UPI', reference: '', narration: '' });
   const [vendorForm, setVendorForm] = useState({ vendorId: '', vendorName: '', amount: '', dueDate: '', workType: 'Job Work', jobMode: 'jobwork_only', note: '' });
-  const [stageForm, setStageForm] = useState({ nextStage: 'printing', assignedTo: '', note: '' });
+  const [stageForm, setStageForm] = useState({ nextStage: 'print', assignedTo: '', note: '' });
   const [vendorPayForm, setVendorPayForm] = useState({ amount: '', paymentMode: 'UPI', reference: '', narration: '' });
 
   // Business Profile
@@ -338,13 +338,13 @@ export default function BusinessControl() {
 
   const openStage = (row) => {
     setSelected(row);
-    setStageForm({ nextStage: 'printing', assignedTo: '', note: '' });
+    setStageForm({ nextStage: 'print', assignedTo: '', note: '' });
     setDialog('stage');
   };
 
   const openBulkStage = () => {
     setSelected(null);
-    setStageForm({ nextStage: 'printing', assignedTo: '', note: '' });
+    setStageForm({ nextStage: 'print', assignedTo: '', note: '' });
     setDialog('bulkStage');
   };
 

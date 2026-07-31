@@ -62,48 +62,50 @@ export default function PendingOverviewWidget() {
             <Chip size="small" label={`${overview.unassignedCount} unassigned`} color={overview.unassignedCount ? 'warning' : 'default'} />
           </Stack>
 
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Order</TableCell>
-                <TableCell>Stage / Task</TableCell>
-                <TableCell>Assigned to</TableCell>
-                <TableCell>Due</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {overview.tasks.length === 0 && (
+          <Box sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <Table size="small" sx={{ minWidth: 480 }}>
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={4}>
-                    <Typography variant="body2" color="text.secondary">No pending tasks right now.</Typography>
-                  </TableCell>
+                  <TableCell>Order</TableCell>
+                  <TableCell>Stage / Task</TableCell>
+                  <TableCell>Assigned to</TableCell>
+                  <TableCell>Due</TableCell>
                 </TableRow>
-              )}
-              {overview.tasks.map((task) => (
-                <TableRow key={task.orderId}>
-                  <TableCell>#{task.orderNumber}</TableCell>
-                  <TableCell>{task.task}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={task.assignedTo}
-                      color={task.assignedTo === 'Unassigned' ? 'warning' : 'default'}
-                      variant={task.assignedTo === 'Unassigned' ? 'filled' : 'outlined'}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {task.overdue ? (
-                      <Chip size="small" color="error" label="Overdue" />
-                    ) : task.dueDate ? (
-                      new Date(task.dueDate).toLocaleDateString()
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {overview.tasks.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4}>
+                      <Typography variant="body2" color="text.secondary">No pending tasks right now.</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {overview.tasks.map((task) => (
+                  <TableRow key={task.orderId}>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>#{task.orderNumber}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{task.task}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      <Chip
+                        size="small"
+                        label={task.assignedTo}
+                        color={task.assignedTo === 'Unassigned' ? 'warning' : 'default'}
+                        variant={task.assignedTo === 'Unassigned' ? 'filled' : 'outlined'}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      {task.overdue ? (
+                        <Chip size="small" color="error" label="Overdue" />
+                      ) : task.dueDate ? (
+                        new Date(task.dueDate).toLocaleDateString()
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
         </Stack>
       ) : null}
     </Box>

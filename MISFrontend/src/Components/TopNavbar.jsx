@@ -31,6 +31,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
+import AttendanceStatus from './dashboard/AttendanceStatus';
 
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -269,6 +270,11 @@ export default function TopNavbar() {
             </Button>
           ))}
         </Stack>
+
+        {/* Attendance — start/end day, next to the user's name */}
+        <Box sx={{ display: { xs: 'none', sm: 'flex' }, mr: 0.5 }}>
+          <AttendanceStatus />
+        </Box>
 
         {/* Notification bell */}
         <IconButton

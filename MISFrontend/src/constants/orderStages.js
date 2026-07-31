@@ -48,6 +48,19 @@ export const STAGE_LABELS = {
 
 export const CLOSED_STAGES = new Set(['delivered', 'paid', 'lost', 'cancelled']);
 
+// Cosmetic-only: a handful of older orders still carry a pre-migration
+// coarse stage value (e.g. plain 'design') that predates the granular list
+// above — display-only label so they read as "Design" instead of the raw
+// enum-less string, while WORKFLOW_SECTIONS below still buckets them into
+// the right column via its Design fallback. Moving one of these orders (see
+// the widget's "Move to stage" action) writes a real, current stage value.
+export const LEGACY_STAGE_LABELS = {
+  design: 'Design',
+  printing: 'Print',
+  post_printing: 'Fitting',
+  finishing: 'Bind & Packing',
+};
+
 // Home-screen Workflow widget column grouping. Mirrors the physical
 // production pipeline the team actually works off: New/Old Design +
 // Approval/Hold/Customer sit together as "Design", Ready to Print and

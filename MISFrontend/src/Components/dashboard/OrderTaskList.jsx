@@ -21,8 +21,22 @@ import {
 } from '@mui/material';
 import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
-import { STAGE_LABELS } from '../../constants/orderStages';
+import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+
+// Stages a task can be manually moved to from the Workflow widget — one
+// representative (usually the entry stage) per pipeline column, so "Move
+// to stage" reads as "move to Design/Print/Post Print/Ready" rather than
+// listing all 17 raw enum values.
+const MOVABLE_STAGES = [
+  { stage: 'new_design', label: 'Design' },
+  { stage: 'ready_to_print', label: 'Ready to Print' },
+  { stage: 'print', label: 'Print' },
+  { stage: 'fitting', label: 'Fitting' },
+  { stage: 'bind_packing', label: 'Bind & Packing' },
+  { stage: 'ready', label: 'Ready' },
+];
 
 // Shared presentational list for order-based pending tasks — used for both
 // the "your tasks" and "team pending tasks" sections so the row shape,
@@ -34,12 +48,17 @@ export default function OrderTaskList({
   users = [],
   assigningId = '',
   onAssign,
+  movingId = '',
+  onMoveStage,
   emptyMessage = 'No pending tasks.',
 }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
+  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
+  const [moveTask, setMoveTask] = useState(null);
 
   const canAssign = typeof onAssign === 'function';
+  const canMove = typeof onMoveStage === 'function';
 
   const openAssignMenu = (event, task) => {
     if (!canAssign) return;
@@ -56,6 +75,23 @@ export default function OrderTaskList({
     const task = activeTask;
     closeAssignMenu();
     if (task) onAssign(task.orderId, assignedTo);
+  };
+
+  const openMoveMenu = (event, task) => {
+    if (!canMove) return;
+    setMoveMenuAnchor(event.currentTarget);
+    setMoveTask(task);
+  };
+
+  const closeMoveMenu = () => {
+    setMoveMenuAnchor(null);
+    setMoveTask(null);
+  };
+
+  const handlePickStage = (stage) => {
+    const task = moveTask;
+    closeMoveMenu();
+    if (task) onMoveStage(task.orderId, stage);
   };
 
   if (!tasks.length) {
@@ -91,6 +127,25 @@ export default function OrderTaskList({
     );
   };
 
+  const MoveIcon = ({ task }) => {
+    if (!canMove) return null;
+    const isBusy = movingId === task.orderId;
+    return (
+      <Tooltip title="Move to another stage/column">
+        <span>
+          <IconButton
+            size="small"
+            disabled={isBusy}
+            onClick={(event) => openMoveMenu(event, task)}
+            sx={{ color: 'info.main' }}
+          >
+            {isBusy ? <CircularProgress size={16} /> : <TrendingFlatRoundedIcon fontSize="small" />}
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+  };
+
   const assignMenu = canAssign && (
     <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeAssignMenu}>
       {users.length === 0 && <MenuItem disabled>No users found</MenuItem>}
@@ -103,6 +158,17 @@ export default function OrderTaskList({
         <ListItemIcon><SupportAgentRoundedIcon fontSize="small" /></ListItemIcon>
         <ListItemText>Waiting on customer</ListItemText>
       </MenuItem>
+    </Menu>
+  );
+
+  const moveMenu = canMove && (
+    <Menu anchorEl={moveMenuAnchor} open={Boolean(moveMenuAnchor)} onClose={closeMoveMenu}>
+      {MOVABLE_STAGES.map(({ stage, label }) => (
+        <MenuItem key={stage} disabled={moveTask?.stage === stage} onClick={() => handlePickStage(stage)}>
+          <ListItemIcon><TrendingFlatRoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>{label}</ListItemText>
+        </MenuItem>
+      ))}
     </Menu>
   );
 
@@ -132,8 +198,9 @@ export default function OrderTaskList({
             return (
               <Card variant="outlined" key={task.orderId}>
                 <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                  <Stack direction="row" alignItems="center" spacing={0.25}>
                     <AssignIcon task={task} />
+                    <MoveIcon task={task} />
                     <Typography variant="body2" fontWeight={700}>#{task.orderNumber}</Typography>
                   </Stack>
                   {task.customerName && (
@@ -142,7 +209,11 @@ export default function OrderTaskList({
                     </Typography>
                   )}
                   <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                    <Chip size="small" label={STAGE_LABELS[task.stage] || task.task} variant="outlined" />
+                    <Chip
+                      size="small"
+                      label={STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task}
+                      variant="outlined"
+                    />
                     <Chip
                       size="small"
                       label={isUnassigned ? 'Unassigned' : task.assignedTo}
@@ -161,6 +232,7 @@ export default function OrderTaskList({
           })}
         </Box>
         {assignMenu}
+        {moveMenu}
       </Box>
     );
   }
@@ -179,8 +251,9 @@ export default function OrderTaskList({
           {tasks.map((task) => (
             <TableRow key={task.orderId}>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                <Stack direction="row" spacing={0.5} alignItems="center">
+                <Stack direction="row" spacing={0.25} alignItems="center">
                   <AssignIcon task={task} />
+                  <MoveIcon task={task} />
                   <Typography variant="body2" fontWeight={600}>#{task.orderNumber}</Typography>
                   {task.customerName && (
                     <Typography variant="caption" color="text.secondary" noWrap>
@@ -202,6 +275,7 @@ export default function OrderTaskList({
         </TableBody>
       </Table>
       {assignMenu}
+      {moveMenu}
     </Box>
   );
 }

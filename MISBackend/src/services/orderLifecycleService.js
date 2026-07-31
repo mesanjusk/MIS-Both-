@@ -10,7 +10,7 @@ const Counter = require('../repositories/counter');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
-const { ORDER_STAGES, isValidStage, isForwardMove } = require('../constants/orderStages');
+const { ORDER_STAGES, isValidStage, isForwardMove, normalizeLegacyStage } = require('../constants/orderStages');
 
 const nextUsertaskNumber = async () => {
   const doc = await Counter.findByIdAndUpdate(
@@ -215,7 +215,11 @@ const updateOrderStage = async ({ orderId, stage, statusEntry = null }) => {
     throw error;
   }
 
-  const currentStage = normalizeStage(order.stage || 'enquiry');
+  // Orders created before the granular stage list (e.g. the old coarse
+  // 'design'/'printing' values) never got a bulk migration — normalize them
+  // here instead of rejecting the move, so moving/assigning an old order
+  // self-heals its stage rather than getting permanently stuck.
+  const currentStage = normalizeLegacyStage(normalizeStage(order.stage || 'enquiry'));
   assertValidStage(currentStage);
 
   if (!isForwardMove(currentStage, normalizedStage)) {
@@ -224,7 +228,11 @@ const updateOrderStage = async ({ orderId, stage, statusEntry = null }) => {
     throw error;
   }
 
-  if (currentStage === normalizedStage && !statusEntry) {
+  // Compare against the raw stored value (not the legacy-normalized one) —
+  // otherwise an order still holding an old alias like 'design' would look
+  // like a same-stage no-op once normalized to 'new_design' and skip the
+  // write entirely, leaving the invalid value stored forever.
+  if (normalizeStage(order.stage) === normalizedStage && !statusEntry) {
     return await Orders.findById(order._id);
   }
 

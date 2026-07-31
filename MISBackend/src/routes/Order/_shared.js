@@ -6,14 +6,13 @@ const VendorMaster = require("../../repositories/vendorMaster");
 const Orders = require("../../repositories/order");
 const ItemsRepo = require("../../repositories/items");
 const Counter = require("../../repositories/counter");
-const ProductionJob = require("../../repositories/productionJob");
-const VendorLedger = require("../../repositories/vendorLedger");
 const { isDriveAutomationEnabled } = require("../../services/googleDriveOAuthService");
 const { getAvailableQtyMap } = require("../../services/inventoryService");
+const { upsertVendorJob, deleteStaleVendorJobs } = require("../../services/vendorJobService");
 const logger = require("../../utils/logger");
 const {
   norm, normLower, toDate, toBool, toSafeNumber, escapeRegex,
-  normalizeSteps, mapVendorJobType,
+  normalizeSteps,
 } = require("../../utils/orderHelpers");
 
 const DEFAULT_ORDER_ASSIGNEE = process.env.DEFAULT_ORDER_ASSIGNEE || "Sai";
@@ -152,166 +151,38 @@ async function nextCounterValue(id, seed = 0) {
 
 async function syncVendorJobsForOrder(order, assignments = [], actor = "system") {
   if (!order?.Order_uuid) return [];
-  const existingJobs = await ProductionJob.find({ "linkedOrders.orderUuid": order.Order_uuid }).lean();
-  const existingByAssignmentId = new Map(
-    existingJobs
-      .map((job) => {
-        const linked = Array.isArray(job.linkedOrders)
-          ? job.linkedOrders.find((entry) => String(entry?.orderUuid || "") === String(order.Order_uuid))
-          : null;
-        return [String(linked?.orderItemLineId || ""), job];
-      })
-      .filter(([key]) => key)
-  );
   const touchedJobIds = [];
   const createdOrUpdated = [];
   for (const row of assignments) {
     const assignmentId = String(row.assignmentId || "").trim();
     if (!assignmentId) continue;
-    const linkedOrders = [{
+    const jobStatus = row.status === "completed" ? "completed" : row.status === "in_progress" ? "in_progress" : "draft";
+    const { job } = await upsertVendorJob({
+      jobCategory: "post_printing",
       orderUuid: order.Order_uuid,
       orderNumber: order.Order_Number,
       orderItemLineId: assignmentId,
-      quantity: Number(row.qty || 0),
-      outputQuantity: Number(row.qty || 0),
-      costShareAmount: Number(row.amount || 0),
-      allocationBasis: "manual",
-    }];
-    const inputItems = row.inputItem ? [{ itemName: row.inputItem, itemType: "raw", quantity: Number(row.qty || 0), amount: 0 }] : [];
-    const outputItems = row.outputItem ? [{ itemName: row.outputItem, itemType: "semi_finished", quantity: Number(row.qty || 0), amount: 0 }] : [];
-    let job = existingByAssignmentId.get(assignmentId);
-    let savedJob;
-    const jobStatus = row.status === "completed" ? "completed" : row.status === "in_progress" ? "in_progress" : "draft";
-    if (job) {
-      savedJob = await ProductionJob.findByIdAndUpdate(job._id, {
-        $set: {
-          vendor_uuid: row.vendorUuid || row.vendorCustomerUuid,
-          vendor_name: row.vendorName,
-          job_type: mapVendorJobType(row.workType),
-          job_mode: row.jobMode || "jobwork_only",
-          job_date: row.dueDate || order.dueDate || new Date(),
-          status: jobStatus,
-          inputItems, outputItems,
-          advanceAmount: Number(row.advanceAmount || 0),
-          jobValue: Number(row.amount || 0),
-          materialValue: row.jobMode === "vendor_with_material" ? Number(row.amount || 0) : 0,
-          notes: row.note || "",
-          linkedOrders,
-          createdBy: actor,
-        },
-      }, { new: true }).lean();
-    } else {
-      const jobNumber = await nextCounterValue("production_job_number", 0);
-      const created = await ProductionJob.create({
-        job_uuid: uuid(),
-        job_number: jobNumber,
-        job_type: mapVendorJobType(row.workType),
-        job_mode: row.jobMode || "jobwork_only",
-        vendor_uuid: row.vendorUuid || row.vendorCustomerUuid,
-        vendor_name: row.vendorName,
-        job_date: row.dueDate || order.dueDate || new Date(),
-        status: jobStatus,
-        inputItems, outputItems, linkedOrders,
-        advanceAmount: Number(row.advanceAmount || 0),
-        jobValue: Number(row.amount || 0),
-        materialValue: row.jobMode === "vendor_with_material" ? Number(row.amount || 0) : 0,
-        otherCharges: 0,
-        notes: row.note || "",
-        createdBy: actor,
-      });
-      savedJob = created.toObject ? created.toObject() : created;
-    }
-    touchedJobIds.push(String(savedJob._id));
-    createdOrUpdated.push(savedJob);
-
-    const vendorUuid = row.vendorUuid || row.vendorCustomerUuid;
-    await VendorLedger.findOneAndUpdate(
-      {
-        vendor_uuid: vendorUuid,
-        order_uuid: order.Order_uuid,
-        reference_type: "vendor_assignment_bill",
-        reference_id: assignmentId,
-      },
-      {
-        $set: {
-          vendor_name: row.vendorName,
-          date: row.dueDate || order.dueDate || new Date(),
-          entry_type: row.jobMode === "vendor_with_material" ? "material_bill" : "job_bill",
-          job_uuid: savedJob?.job_uuid || "",
-          order_number: order.Order_Number,
-          amount: Number(row.amount || 0),
-          dr_cr: "cr",
-          narration: `Stage ${row.sequence || ""} - ${row.workType || "Vendor job"} for order #${order.Order_Number}`.trim(),
-          transaction_uuid: "",
-        },
-        $setOnInsert: {
-          reference_type: "vendor_assignment_bill",
-          reference_id: assignmentId,
-        },
-      },
-      { upsert: true, new: true }
-    );
-
-    if (Number(row.advanceAmount || 0) > 0) {
-      await VendorLedger.findOneAndUpdate(
-        {
-          vendor_uuid: vendorUuid,
-          order_uuid: order.Order_uuid,
-          reference_type: "vendor_assignment_advance",
-          reference_id: assignmentId,
-        },
-        {
-          $set: {
-            vendor_name: row.vendorName,
-            date: new Date(),
-            entry_type: "advance_paid",
-            job_uuid: savedJob?.job_uuid || "",
-            order_number: order.Order_Number,
-            amount: Number(row.advanceAmount || 0),
-            dr_cr: "dr",
-            narration: `Advance paid for ${row.workType || "vendor job"} on order #${order.Order_Number}`,
-            transaction_uuid: "",
-          },
-          $setOnInsert: {
-            reference_type: "vendor_assignment_advance",
-            reference_id: assignmentId,
-          },
-        },
-        { upsert: true, new: true }
-      );
-    } else {
-      await VendorLedger.deleteMany({
-        vendor_uuid: vendorUuid,
-        order_uuid: order.Order_uuid,
-        reference_type: "vendor_assignment_advance",
-        reference_id: assignmentId,
-      });
-    }
+      vendorUuid: row.vendorUuid || row.vendorCustomerUuid,
+      vendorName: row.vendorName,
+      workType: row.workType,
+      jobMode: row.jobMode || "jobwork_only",
+      qty: row.qty,
+      amount: row.amount,
+      advanceAmount: row.advanceAmount,
+      inputItem: row.inputItem,
+      outputItem: row.outputItem,
+      dueDate: row.dueDate || order.dueDate || new Date(),
+      status: jobStatus,
+      notes: row.note || "",
+      createdBy: actor,
+      postAccountingBill: false,
+      referenceType: "vendor_job",
+    });
+    touchedJobIds.push(String(job._id));
+    createdOrUpdated.push(job);
   }
 
-  if (touchedJobIds.length) {
-    const touchedSet = new Set(touchedJobIds);
-    const staleJobs = existingJobs.filter((job) => !touchedSet.has(String(job._id)));
-    if (staleJobs.length) {
-      await ProductionJob.deleteMany({ _id: { $in: staleJobs.map((j) => j._id) } });
-      const staleAssignmentIds = staleJobs
-        .map((job) => {
-          const linked = Array.isArray(job.linkedOrders)
-            ? job.linkedOrders.find((entry) => String(entry?.orderUuid || "") === String(order.Order_uuid))
-            : null;
-          return String(linked?.orderItemLineId || "");
-        })
-        .filter(Boolean);
-      if (staleAssignmentIds.length) {
-        await VendorLedger.deleteMany({
-          order_uuid: order.Order_uuid,
-          reference_type: { $in: ["vendor_assignment", "vendor_assignment_bill", "vendor_assignment_advance"] },
-          reference_id: { $in: staleAssignmentIds },
-        });
-      }
-    }
-  }
-
+  await deleteStaleVendorJobs(order.Order_uuid, touchedJobIds);
   return createdOrUpdated;
 }
 

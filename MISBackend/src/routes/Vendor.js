@@ -6,21 +6,11 @@ const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
 const ProductionJob = require('../repositories/productionJob');
 const StockMovement = require('../repositories/stockMovement');
-const VendorWork = require('../repositories/vendorWork');
 const Orders = require('../repositories/order');
-const Counter = require('../repositories/counter');
 const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
+const { upsertVendorJob } = require('../services/vendorJobService');
 const logger = require('../utils/logger');
-
-async function nextCounter(id, seed = 0) {
-  const current = await Counter.findById(id).lean();
-  if (!current?.seq) {
-    await Counter.updateOne({ _id: id }, { $max: { seq: seed } }, { upsert: true });
-  }
-  const updated = await Counter.findByIdAndUpdate(id, { $inc: { seq: 1 } }, { new: true, upsert: true }).lean();
-  return Number(updated?.seq || 1);
-}
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -123,7 +113,7 @@ router.get('/masters/summary', async (_req, res) => {
       VendorMaster.find({}).sort({ Vendor_name: 1 }).lean(),
       Orders.find({ 'vendorAssignments.0': { $exists: true } }, { Order_Number: 1, Order_uuid: 1, createdAt: 1, vendorAssignments: 1 }).lean(),
       VendorLedger.find({}).lean(),
-      VendorWork.find({}, { Vendor_uuid: 1, Amount: 1 }).lean(),
+      ProductionJob.find({ job_category: 'printing' }, { vendor_uuid: 1, jobValue: 1 }).lean(),
     ]);
 
     const ledgerByVendor = ledgerEntries.reduce((acc, entry) => {
@@ -146,15 +136,15 @@ router.get('/masters/summary', async (_req, res) => {
       return acc;
     }, {});
 
-    // Print jobs (VendorWork, created by the Google-Drive auto-print-job flow)
-    // are a separate collection from vendorAssignments/ProductionJob — fold
-    // them into the same per-vendor totals so a vendor whose only work is
-    // printing doesn't show 0 assigned work despite having a real ledger balance.
+    // Print jobs live in ProductionJob (job_category: 'printing') alongside
+    // every post-print job — fold them into the same per-vendor totals so a
+    // vendor whose only work is printing doesn't show 0 assigned work despite
+    // having a real ledger balance.
     for (const job of printJobs) {
-      const key = job.Vendor_uuid;
+      const key = job.vendor_uuid;
       if (!key) continue;
       if (!assignedByVendor[key]) assignedByVendor[key] = { totalAssigned: 0, count: 0 };
-      assignedByVendor[key].totalAssigned += Number(job.Amount || 0);
+      assignedByVendor[key].totalAssigned += Number(job.jobValue || 0);
       assignedByVendor[key].count += 1;
     }
 
@@ -187,7 +177,7 @@ router.get('/masters/:vendorUuid/order-ledger', async (req, res) => {
           { 'vendorAssignments.vendorCustomerUuid': vendorUuid },
         ],
       }).sort({ createdAt: -1 }).lean(),
-      VendorWork.find({ Vendor_uuid: vendorUuid }).sort({ Date: -1 }).lean(),
+      ProductionJob.find({ vendor_uuid: vendorUuid, job_category: 'printing' }).sort({ job_date: -1 }).lean(),
     ]);
 
     const result = [];
@@ -210,22 +200,20 @@ router.get('/masters/:vendorUuid/order-ledger', async (req, res) => {
         });
     });
 
-    // Print jobs recorded via VendorWork (Google-Drive auto-print-job flow)
-    // were previously absent from this drill-down even though their money is
-    // posted to the same VendorLedger — merge them in so the per-order view
-    // is complete regardless of which path assigned the work.
+    // Print jobs (ProductionJob, job_category: 'printing') merged in here so
+    // the per-order view is complete regardless of which path assigned the
+    // work — "paid" is tracked on VendorLedger, not denormalized on the job.
     printJobs.forEach((job) => {
-      const amount = Number(job.Amount || 0);
-      const paid = Number(job.Paid_Amount || 0);
+      const amount = Number(job.jobValue || 0);
       result.push({
-        orderUuid: job.Order_uuid || '',
-        orderNumber: job.Order_Number || null,
-        date: job.Date,
-        workType: job.Process || 'printing',
+        orderUuid: job.order_uuid || '',
+        orderNumber: job.order_number || null,
+        date: job.job_date,
+        workType: job.job_type || 'printing',
         amount,
-        paid,
-        balance: Math.max(0, amount - paid),
-        status: job.Status || 'pending',
+        paid: 0,
+        balance: amount,
+        status: job.status || 'draft',
       });
     });
 
@@ -520,10 +508,6 @@ router.get('/production-jobs', async (req, res) => {
 
 router.post('/production-jobs', async (req, res) => {
   try {
-    const vendor = req.body.vendor_name || req.body.vendor_uuid
-      ? await ensureVendorMaster({ vendor_uuid: req.body.vendor_uuid, vendor_name: req.body.vendor_name })
-      : null;
-    const jobNumber = await nextCounter('production_job_number', 0);
     const linkedOrders = Array.isArray(req.body.linkedOrders)
       ? req.body.linkedOrders.map((entry) => ({
           orderUuid: entry.orderUuid || entry.order_uuid || '',
@@ -536,61 +520,29 @@ router.post('/production-jobs', async (req, res) => {
         }))
       : [];
 
-    const primaryOrderUuid = linkedOrders[0]?.orderUuid || String(req.body.order_uuid || '');
-    const primaryOrderNumber = linkedOrders[0]?.orderNumber || toNumber(req.body.order_number, 0) || null;
-
-    const created = await ProductionJob.create({
-      job_uuid: uuid(),
-      job_number: jobNumber,
-      job_category: req.body.job_category || 'general',
-      job_type: req.body.job_type || 'manual',
-      job_mode: req.body.job_mode || 'jobwork_only',
-      vendor_uuid: vendor?.Vendor_uuid || req.body.vendor_uuid || '',
-      vendor_name: vendor?.Vendor_name || req.body.vendor_name || '',
-      job_date: req.body.job_date || new Date(),
-      expected_completion: req.body.expected_completion || null,
-      order_uuid: primaryOrderUuid,
-      order_number: primaryOrderNumber,
+    const { job: created } = await upsertVendorJob({
+      jobCategory: req.body.job_category || 'post_printing',
+      jobType: req.body.job_type,
+      jobMode: req.body.job_mode || 'jobwork_only',
+      vendorUuid: req.body.vendor_uuid,
+      vendorName: req.body.vendor_name,
+      orderUuid: !linkedOrders.length ? String(req.body.order_uuid || '') : undefined,
+      orderNumber: !linkedOrders.length ? toNumber(req.body.order_number, 0) || null : undefined,
+      linkedOrders,
+      dueDate: req.body.job_date,
+      expectedCompletion: req.body.expected_completion || null,
       status: req.body.status || 'draft',
       inputItems: Array.isArray(req.body.inputItems) ? req.body.inputItems : [],
       outputItems: Array.isArray(req.body.outputItems) ? req.body.outputItems : [],
-      linkedOrders,
       advanceAmount: toNumber(req.body.advanceAmount, 0),
-      jobValue: toNumber(req.body.jobValue, 0),
+      amount: toNumber(req.body.jobValue, 0),
       materialValue: toNumber(req.body.materialValue, 0),
       otherCharges: toNumber(req.body.otherCharges, 0),
       notes: String(req.body.notes || ''),
       createdBy: String(req.body.createdBy || ''),
+      postAccountingBill: false,
+      referenceType: 'production_job',
     });
-
-    const ledgerEntries = [];
-    if (created.advanceAmount > 0 && created.vendor_uuid) {
-      ledgerEntries.push({
-        vendor_uuid: created.vendor_uuid,
-        vendor_name: created.vendor_name,
-        entry_type: 'advance_paid',
-        amount: created.advanceAmount,
-        dr_cr: 'dr',
-        narration: `Advance for job #${created.job_number}`,
-        job_uuid: created.job_uuid,
-        order_uuid: linkedOrders[0]?.orderUuid || '',
-        order_number: linkedOrders[0]?.orderNumber || null,
-      });
-    }
-    if (created.jobValue > 0 && created.vendor_uuid) {
-      ledgerEntries.push({
-        vendor_uuid: created.vendor_uuid,
-        vendor_name: created.vendor_name,
-        entry_type: created.job_mode === 'vendor_with_material' ? 'material_bill' : 'job_bill',
-        amount: created.jobValue,
-        dr_cr: 'cr',
-        narration: `Bill for job #${created.job_number}`,
-        job_uuid: created.job_uuid,
-        order_uuid: linkedOrders[0]?.orderUuid || '',
-        order_number: linkedOrders[0]?.orderNumber || null,
-      });
-    }
-    if (ledgerEntries.length) await VendorLedger.insertMany(ledgerEntries);
 
     const stockEntries = [];
     for (const item of created.inputItems || []) {
@@ -606,8 +558,8 @@ router.post('/production-jobs', async (req, res) => {
           value: Number(item.amount || 0),
           vendor_uuid: created.vendor_uuid,
           vendor_name: created.vendor_name,
-          order_uuid: linkedOrders[0]?.orderUuid || '',
-          order_number: linkedOrders[0]?.orderNumber || null,
+          order_uuid: created.order_uuid || '',
+          order_number: created.order_number || null,
           job_uuid: created.job_uuid,
           reference_type: 'production_job',
           reference_id: created.job_uuid,
@@ -628,8 +580,8 @@ router.post('/production-jobs', async (req, res) => {
           value: Number(item.amount || 0),
           vendor_uuid: created.vendor_uuid,
           vendor_name: created.vendor_name,
-          order_uuid: linkedOrders[0]?.orderUuid || '',
-          order_number: linkedOrders[0]?.orderNumber || null,
+          order_uuid: created.order_uuid || '',
+          order_number: created.order_number || null,
           job_uuid: created.job_uuid,
           reference_type: 'production_job',
           reference_id: created.job_uuid,

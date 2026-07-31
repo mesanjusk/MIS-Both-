@@ -8,7 +8,8 @@
     "dev": "node --watch src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "verify:order-lifecycle": "node scripts/verify-order-lifecycle.js",
-    "verify:inventory-and-vendor": "node scripts/verify-inventory-and-vendor.js"
+    "verify:inventory-and-vendor": "node scripts/verify-inventory-and-vendor.js",
+    "migrate:vendorwork-to-productionjob": "node scripts/migrate-vendorwork-to-productionjob.js"
   },
   "author": "",
   "license": "ISC",

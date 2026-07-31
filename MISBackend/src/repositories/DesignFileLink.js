@@ -28,7 +28,7 @@ const DesignFileLinkSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Stage when last seen (stageNumber = subfolder leading digit 1-9)
+    // Stage when last seen (stageNumber = subfolder leading digit 1-6)
     stageNumber: {
       type: Number,
       default: null,

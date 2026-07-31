@@ -5,9 +5,8 @@
  * Subfolders identified by leading numeric prefix (1, 2, 3 …)
  *
  * Folder map (your actual structure):
- *   1 → New Design      2 → Old Design    3 → Approval
- *   4 → Ready2Print     5 → Hold          6 → Cancel
- *   7 → Other           8 → Final         9 → Printing
+ *   1 → New Design      2 → Old Design    3 → Hold
+ *   4 → Ready2Print     5 → Final         6 → Printing
  *
  * AUTO-MATCH: Files named "153 - CustomerName - Details - Mobile"
  * Leading number = MIS Order_Number → auto-matched, zero manual work.
@@ -42,20 +41,16 @@ router.use(requireAuth);
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 const STAGE_LABELS = {
-  1: 'New Design', 2: 'Old Design', 3: 'Approval',
-  4: 'Ready2Print', 5: 'Hold', 6: 'Cancel',
-  7: 'Other', 8: 'Final', 9: 'Printing',
+  1: 'New Design', 2: 'Old Design', 3: 'Hold',
+  4: 'Ready2Print', 5: 'Final', 6: 'Printing',
 };
 const STAGE_COLORS = {
   1: { bg: '#E3F2FD', color: '#0D47A1' },
   2: { bg: '#F3E5F5', color: '#4A148C' },
-  3: { bg: '#FFF8E1', color: '#E65100' },
+  3: { bg: '#FBE9E7', color: '#BF360C' },
   4: { bg: '#E8F5E9', color: '#1B5E20' },
-  5: { bg: '#FBE9E7', color: '#BF360C' },
-  6: { bg: '#FFEBEE', color: '#B71C1C' },
-  7: { bg: '#ECEFF1', color: '#37474F' },
-  8: { bg: '#E0F2F1', color: '#004D40' },
-  9: { bg: '#FCE4EC', color: '#880E4F' },
+  5: { bg: '#E0F2F1', color: '#004D40' },
+  6: { bg: '#FCE4EC', color: '#880E4F' },
 };
 function stageLabel(n) { return STAGE_LABELS[n] || `Stage ${n}`; }
 function stageColor(n) { return STAGE_COLORS[n] || { bg: '#F5F5F5', color: '#424242' }; }
@@ -941,7 +936,7 @@ router.post('/auto-scan-link', async (req, res) => {
     }
 
     // Only process stages 1–7
-    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 7);
+    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 4);
     if (!eligible.length) {
       return res.json({ success: true, created: 0 });
     }
@@ -988,7 +983,7 @@ router.post('/auto-scan-link', async (req, res) => {
 
 // ─── POST /api/design-files/confirm-final ────────────────────────────────────
 /**
- * Confirms a Final (stage 8) file as a real MIS order.
+ * Confirms a Final (stage 5) file as a real MIS order.
  * Creates the order and renames the Drive file.
  *
  * Body: { fileId, fileName, customerUuid, itemDetails, mobileNumber }
@@ -1125,7 +1120,7 @@ router.post('/confirm-final', async (req, res) => {
 
 // ─── POST /api/design-files/auto-print-job ───────────────────────────────────
 /**
- * Auto-creates purchase orders for Printing (stage 9) files that don't have a
+ * Auto-creates purchase orders for Printing (stage 6) files that don't have a
  * print job yet.
  *
  * Body: { files: [{ fileId, fileName, orderUuid, orderNumber, stageNumber }] }
@@ -1301,8 +1296,8 @@ router.post('/rename-print-file', async (req, res) => {
 /** Identify section type from archive subfolder name (Final / Printing) */
 function archiveSectionStage(name = '') {
   const lower = name.toLowerCase();
-  if (lower.includes('final')) return 8;
-  if (lower.includes('print')) return 9;
+  if (lower.includes('final')) return 5;
+  if (lower.includes('print')) return 6;
   return null;
 }
 
@@ -1505,7 +1500,7 @@ router.post('/create-print-job', async (req, res) => {
     if (!orderUuid) {
       return res.status(422).json({ success: false, message: 'An order must be linked to create a print bill', code: 'ORDER_REQUIRED' });
     }
-    const confirmedFinal = await DesignFileLink.findOne({ orderUuid, stageNumber: 8, linkStatus: 'confirmed' }).lean();
+    const confirmedFinal = await DesignFileLink.findOne({ orderUuid, stageNumber: 5, linkStatus: 'confirmed' }).lean();
     if (!confirmedFinal) {
       const orderDoc = await Orders.findOne({ Order_uuid: orderUuid }, { Order_Number: 1 }).lean();
       return res.status(422).json({
@@ -1569,7 +1564,7 @@ router.post('/validate-print-jobs', async (req, res) => {
         if (!f.orderUuid) return { fileId: f.fileId, valid: false, reason: 'No order linked' };
         const confirmed = await DesignFileLink.findOne({
           orderUuid: f.orderUuid,
-          stageNumber: 8,
+          stageNumber: 5,
           linkStatus: 'confirmed',
         }).lean();
         return {

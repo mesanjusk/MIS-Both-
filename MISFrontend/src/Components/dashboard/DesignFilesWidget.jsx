@@ -239,21 +239,21 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 
   return (
     <Stack direction="row" spacing={0.25} alignItems="center">
-      {file.stageNumber === 8 && onConfirm && (
+      {file.stageNumber === 5 && onConfirm && (
         <Tooltip title="Confirm as real MIS order">
           <IconButton size="small" onClick={(e) => { e.stopPropagation(); onConfirm(file); }} sx={{ color: 'success.600' }}>
             <AssignmentTurnedInRoundedIcon sx={{ fontSize: 15 }} />
           </IconButton>
         </Tooltip>
       )}
-      {file.stageNumber === 9 && file.printJobNumber != null && onEditPrintJob && (
+      {file.stageNumber === 6 && file.printJobNumber != null && onEditPrintJob && (
         <Tooltip title="Update print job vendor & amount">
           <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEditPrintJob(file); }} sx={{ color: 'text.secondary' }}>
             <EditNoteRoundedIcon sx={{ fontSize: 15 }} />
           </IconButton>
         </Tooltip>
       )}
-      {file.stageNumber === 9 && file.printJobNumber == null && onCreatePrintJob && (
+      {file.stageNumber === 6 && file.printJobNumber == null && onCreatePrintJob && (
         <Tooltip title="Create print job">
           <IconButton size="small" onClick={handleCreatePJ} disabled={creatingPJ} sx={{ color: 'warning.600' }}>
             {creatingPJ ? <CircularProgress size={11} /> : <ReceiptLongRoundedIcon sx={{ fontSize: 15 }} />}
@@ -349,9 +349,9 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
       )}
 
       <Box sx={{ flexShrink: 0 }}>
-        {file.stageNumber === 9
+        {file.stageNumber === 6
           ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
-          : file.stageNumber === 8
+          : file.stageNumber === 5
           ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
           : isUnmatched
           ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
@@ -421,9 +421,9 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
 
         <Stack direction="row" spacing={0.5} alignItems="flex-start">
           <Box sx={{ flexShrink: 0, mt: 0.1 }}>
-            {file.stageNumber === 9
+            {file.stageNumber === 6
               ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
-              : file.stageNumber === 8
+              : file.stageNumber === 5
               ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
               : isUnmatched
               ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
@@ -1271,7 +1271,7 @@ function DeliverDialog({ open, file, onClose, onSuccess }) {
 function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
-  const isActionable = section.stageNumber === 8 || section.stageNumber === 9;
+  const isActionable = section.stageNumber === 5 || section.stageNumber === 6;
 
   return (
     <Box>
@@ -1296,9 +1296,9 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                   viewOnly={!isActionable}
                   checked={isActionable && selectedIds?.has(file.fileId)}
                   onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
-                  onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
-                  onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                  onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                  onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
+                  onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                  onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                   onRelink={isActionable ? onRelink : undefined}
                   onAssign={isActionable ? onAssign : undefined}
                   onDeliver={onDeliver}
@@ -1315,9 +1315,9 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                 viewOnly={!isActionable}
                 checked={isActionable && selectedIds?.has(file.fileId)}
                 onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
-                onConfirm={section.stageNumber === 8 ? onConfirm : undefined}
-                onCreatePrintJob={section.stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                onEditPrintJob={section.stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
+                onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                 onRelink={isActionable ? onRelink : undefined}
                 onAssign={isActionable ? onAssign : undefined}
                 onDeliver={onDeliver}
@@ -1397,9 +1397,9 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                         viewOnly={false}
                         checked={selectedIds?.has(file.fileId)}
                         onToggle={onToggle ? () => onToggle(file) : undefined}
-                        onConfirm={stageNumber === 8 ? onConfirm : undefined}
-                        onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                        onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                        onConfirm={stageNumber === 5 ? onConfirm : undefined}
+                        onCreatePrintJob={stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                        onEditPrintJob={stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                         onRelink={onRelink}
                         onAssign={onAssign}
                         onDeliver={onDeliver}
@@ -1416,9 +1416,9 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                       viewOnly={false}
                       checked={selectedIds?.has(file.fileId)}
                       onToggle={onToggle ? () => onToggle(file) : undefined}
-                      onConfirm={stageNumber === 8 ? onConfirm : undefined}
-                      onCreatePrintJob={stageNumber === 9 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                      onEditPrintJob={stageNumber === 9 && file.printJobId ? onEditPrintJob : undefined}
+                      onConfirm={stageNumber === 5 ? onConfirm : undefined}
+                      onCreatePrintJob={stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                      onEditPrintJob={stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                       onRelink={onRelink}
                       onAssign={onAssign}
                       onDeliver={onDeliver}
@@ -1532,12 +1532,12 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
     const pbd = dates.map((d) => ({
       dateName: d.dateName,
       dateFolderId: d.dateFolderId,
-      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 9)),
+      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 6)),
     })).filter((d) => d.files.length > 0);
     const fbd = dates.map((d) => ({
       dateName: d.dateName,
       dateFolderId: d.dateFolderId,
-      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 8)),
+      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 5)),
     })).filter((d) => d.files.length > 0);
     return { printingByDate: pbd, finalByDate: fbd };
   })();
@@ -1703,12 +1703,12 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
               onClick={() => setArchiveLinkOpen(true)}
               sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
             >Link to Order</Button>
-            {selectedFiles.some((f) => f.stageNumber === 9) && (
+            {selectedFiles.some((f) => f.stageNumber === 6) && (
               <Button size="small" variant="outlined" color="error"
                 startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
-                onClick={() => openPrintJobDialog(selectedFiles.filter((f) => f.stageNumber === 9))}
+                onClick={() => openPrintJobDialog(selectedFiles.filter((f) => f.stageNumber === 6))}
                 sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-              >Bulk Create Print Bill ({selectedFiles.filter((f) => f.stageNumber === 9).length})</Button>
+              >Bulk Create Print Bill ({selectedFiles.filter((f) => f.stageNumber === 6).length})</Button>
             )}
             <Tooltip title="Export selected to CSV">
               <IconButton size="small" onClick={() => exportArchiveCSV(true)} sx={{ p: 0.35, color: 'primary.main' }}>
@@ -1866,13 +1866,13 @@ export default function DesignFilesWidget() {
       setSelectedIds(new Set());
 
       const allFiles = res.data?.files || [];
-      const stage1to7 = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 7);
-      if (stage1to7.length) {
+      const stage1to4 = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 4);
+      if (stage1to4.length) {
         axios.post('/api/design-files/auto-scan-link', {
-          files: stage1to7.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+          files: stage1to4.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
         }).catch(() => {});
       }
-      const printingWithoutJob = allFiles.filter((f) => f.stageNumber === 9 && !f.printJobId);
+      const printingWithoutJob = allFiles.filter((f) => f.stageNumber === 6 && !f.printJobId);
       if (printingWithoutJob.length) {
         axios.post('/api/design-files/auto-print-job', {
           files: printingWithoutJob.map((f) => ({ fileId: f.fileId, fileName: f.fileName, orderUuid: f.orderUuid || null, orderNumber: f.orderNumber || null, stageNumber: f.stageNumber })),
@@ -2139,9 +2139,9 @@ export default function DesignFilesWidget() {
                       onToggle={canSelect ? (id) => setSelectedIds((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }) : undefined}
                       viewOnly={activeTabDef.viewOnly}
                       onRename={handleRename}
-                      onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
-                      onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
-                      onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
+                      onConfirm={file.stageNumber === 5 ? setConfirmFile : undefined}
+                      onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
+                      onEditPrintJob={file.stageNumber === 6 && file.printJobId ? setEditPrintJobFile : undefined}
                       onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                       onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                       onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
@@ -2159,9 +2159,9 @@ export default function DesignFilesWidget() {
                     onToggle={canSelect ? (id) => setSelectedIds((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; }) : undefined}
                     viewOnly={activeTabDef.viewOnly}
                     onRename={handleRename}
-                    onConfirm={file.stageNumber === 8 ? setConfirmFile : undefined}
-                    onCreatePrintJob={file.stageNumber === 9 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
-                    onEditPrintJob={file.stageNumber === 9 && file.printJobId ? setEditPrintJobFile : undefined}
+                    onConfirm={file.stageNumber === 5 ? setConfirmFile : undefined}
+                    onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
+                    onEditPrintJob={file.stageNumber === 6 && file.printJobId ? setEditPrintJobFile : undefined}
                     onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                     onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                     onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
@@ -2193,7 +2193,7 @@ export default function DesignFilesWidget() {
               </Button>
 
               {/* Create Print Bill — shown when any selected file is in the Printing stage */}
-              {selectedFiles.some((f) => f.stageNumber === 9) && (
+              {selectedFiles.some((f) => f.stageNumber === 6) && (
                 <Button size="small" variant="outlined" color="error"
                   startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
                   onClick={() => setPrintDialogOpen(true)}

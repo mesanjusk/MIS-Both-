@@ -3,9 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Tooltip, Stack, Paper,
   Button, Drawer, LinearProgress, Dialog, DialogContent,
-  Chip, Grid, Divider,
+  Chip, Grid, Divider, useMediaQuery,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
@@ -24,6 +24,7 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import Brightness3RoundedIcon from '@mui/icons-material/Brightness3Rounded';
@@ -40,6 +41,7 @@ import { ROUTES } from '../constants/routes';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
 import PendingOverviewWidget from '../Components/dashboard/PendingOverviewWidget';
+import OrderStatsCards from '../Components/dashboard/OrderStatsCards';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
@@ -212,9 +214,10 @@ function DropZoneGap({ panelId, index, isDragging, onDropAt }) {
 }
 
 /* ─── Widget Card Wrapper ──────────────────────────────────────── */
-function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDragStart, onDragEnd }) {
+function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDragStart, onDragEnd, collapsible, isExpanded, onToggleExpand }) {
   const wdef = WIDGET_REGISTRY.find((w) => w.id === widgetId);
   const Icon = wdef?.icon;
+  const expanded = !collapsible || isExpanded;
 
   return (
     <Paper
@@ -241,12 +244,14 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         direction="row"
         alignItems="center"
         spacing={0.75}
+        onClick={collapsible ? () => onToggleExpand(widgetId) : undefined}
         sx={{
           px: 1.5,
           py: 0.9,
           borderBottom: '1px solid',
           borderColor: 'divider',
           bgcolor: editMode ? alpha('#16a34a', 0.03) : 'rgba(240,253,244,0.5)',
+          cursor: collapsible ? 'pointer' : editMode ? 'grab' : 'default',
         }}
       >
         {editMode && (
@@ -260,11 +265,22 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         <Typography variant="caption" fontWeight={700} sx={{ flex: 1, color: 'text.secondary', fontSize: '0.72rem' }}>
           {wdef?.label || widgetId}
         </Typography>
+        {collapsible && (
+          <ExpandMoreRoundedIcon
+            sx={{
+              fontSize: 18,
+              color: 'text.disabled',
+              flexShrink: 0,
+              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s',
+            }}
+          />
+        )}
         {/* Close button — always visible on hover */}
         <Tooltip title="Remove widget">
           <IconButton
             size="small"
-            onClick={() => onRemove(widgetId)}
+            onClick={(e) => { e.stopPropagation(); onRemove(widgetId); }}
             sx={{
               p: 0.25,
               opacity: editMode ? 1 : 0,
@@ -278,7 +294,7 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
           </IconButton>
         </Tooltip>
       </Stack>
-      <Box sx={{ p: 1.25, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+      <Box sx={{ display: expanded ? 'block' : 'none', p: 1.25, overflowY: 'auto', flex: 1, minHeight: 0 }}>
         {children}
       </Box>
     </Paper>
@@ -290,6 +306,7 @@ function DashboardPanel({
   panelId, widgetIds, editMode, isDragging,
   onDragStart, onDragEnd, onDropAt, onDropOnPanel,
   onRemoveWidget, renderWidget,
+  collapsible, expandedWidgetId, onToggleWidget,
 }) {
   const [panelOver, setPanelOver] = useState(false);
   const isEmpty = widgetIds.length === 0;
@@ -332,6 +349,9 @@ function DashboardPanel({
               panelId={panelId}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
+              collapsible={collapsible}
+              isExpanded={expandedWidgetId === id}
+              onToggleExpand={onToggleWidget}
             >
               {renderWidget(id)}
             </WidgetWrapper>
@@ -442,6 +462,8 @@ export default function Home() {
   const location = useLocation();
   const { search } = useLocation();
   const { userName, userGroup, isAdmin, permissions } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -454,6 +476,17 @@ export default function Home() {
   const [editMode, setEditMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragPayload = useRef(null);
+
+  /* Accordion widgets on mobile — only one open at a time */
+  const [expandedWidget, setExpandedWidget] = useState(null);
+  const handleToggleWidget = useCallback((id) => {
+    setExpandedWidget((prev) => (prev === id ? null : id));
+  }, []);
+  useEffect(() => {
+    if (!layout || expandedWidget) return;
+    const first = (layout.left || [])[0] || (layout.center || [])[0] || (layout.right || [])[0];
+    if (first) setExpandedWidget(first);
+  }, [layout, expandedWidget]);
 
   /* Widget library via context */
   const dashCtx = useDashboardCustomize();
@@ -803,6 +836,8 @@ export default function Home() {
 
       </Box>
 
+      <OrderStatsCards />
+
       {isLoading && (
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}
@@ -838,6 +873,9 @@ export default function Home() {
               onDropOnPanel={handleDropOnPanel}
               onRemoveWidget={handleRemoveWidget}
               renderWidget={renderWidget}
+              collapsible={isMobile && !editMode}
+              expandedWidgetId={expandedWidget}
+              onToggleWidget={handleToggleWidget}
             />
           </Box>
         )}
@@ -855,6 +893,9 @@ export default function Home() {
             onDropOnPanel={handleDropOnPanel}
             onRemoveWidget={handleRemoveWidget}
             renderWidget={renderWidget}
+            collapsible={isMobile && !editMode}
+            expandedWidgetId={expandedWidget}
+            onToggleWidget={handleToggleWidget}
           />
         </Box>
 
@@ -872,6 +913,9 @@ export default function Home() {
               onDropOnPanel={handleDropOnPanel}
               onRemoveWidget={handleRemoveWidget}
               renderWidget={renderWidget}
+              collapsible={isMobile && !editMode}
+              expandedWidgetId={expandedWidget}
+              onToggleWidget={handleToggleWidget}
             />
           </Box>
         )}

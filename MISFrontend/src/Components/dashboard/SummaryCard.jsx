@@ -9,10 +9,14 @@ const variantConfig = {
   danger:  (theme) => ({ color: theme.palette.error.main }),
 };
 
-export default function SummaryCard({ title, value, icon: Icon, variant = 'primary', trend, sx }) {
+export default function SummaryCard({ title, value, icon: Icon, variant = 'primary', trend, onClick, sx }) {
   return (
     <Card
       elevation={0}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(e); } } : undefined}
       sx={(theme) => {
         const cfg = (variantConfig[variant] || variantConfig.primary)(theme);
         return {
@@ -22,6 +26,7 @@ export default function SummaryCard({ title, value, icon: Icon, variant = 'prima
           bgcolor: 'background.paper',
           border: `1px solid ${theme.palette.divider}`,
           borderRadius: 3,
+          cursor: onClick ? 'pointer' : 'default',
           transition: 'transform 0.2s ease, box-shadow 0.2s ease',
           '&:hover': {
             transform: 'translateY(-2px)',
@@ -106,5 +111,6 @@ SummaryCard.propTypes = {
   icon: PropTypes.elementType,
   variant: PropTypes.oneOf(['primary', 'success', 'warning', 'danger']),
   trend: PropTypes.string,
+  onClick: PropTypes.func,
   sx: PropTypes.object,
 };

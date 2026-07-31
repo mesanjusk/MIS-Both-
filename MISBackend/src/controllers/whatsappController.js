@@ -22,7 +22,6 @@ const {
   validateWhatsAppConfig,
 } = require('../services/whatsappHealthService');
 const Flow = require('../repositories/Flow');
-const WhatsAppGateSession = require('../repositories/WhatsAppGateSession');
 const { processWhatsAppAttendanceCommand, processWhatsAppAttendanceButtonTap } = require('../services/whatsappAttendanceService');
 const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
 const { handleWhatsAppCustomerOrderCommand } = require('../services/whatsappCustomerCommandService');
@@ -1603,75 +1602,13 @@ const receiveWebhook = (req, res) => {
   }
 };
 
-// ── Keyword gate ─────────────────────────────────────────────────────────────
-// The WhatsApp number is shared with other projects through the Metabsp hub.
-// MIS responds ONLY when (1) a message starts with its own entry keyword, or
-// (2) the sender has an active MIS session. Sessions are opened only by the
-// entry keyword, expire after 30 minutes of inactivity, and close on EXIT.
-// There is deliberately no "sender exists in my customers" fallback.
-const GATE_ENTRY_KEYWORD = 'MIS';
-const GATE_EXIT_KEYWORD = 'EXIT';
-const GATE_SESSION_TTL_MS = 30 * 60 * 1000;
-
-// Returns the text after the entry keyword ('' for the bare keyword) or null.
-const matchGateEntryKeyword = (text) => {
-  const trimmed = String(text || '').trim();
-  const upper = trimmed.toUpperCase();
-  if (upper === GATE_ENTRY_KEYWORD) return '';
-  if (upper.startsWith(`${GATE_ENTRY_KEYWORD} `)) return trimmed.slice(GATE_ENTRY_KEYWORD.length).trim();
-  return null;
-};
-
-const resolveKeywordGate = async (payload) => {
-  const phone = normalizePhone(payload?.from);
-  const text = String(payload?.text || payload?.message || '').trim();
-  // Interactive/button replies never carry the entry keyword; they are only
-  // ours while the sender's session is alive.
-  const keywordRemainder = payload?.type === 'text' ? matchGateEntryKeyword(text) : null;
-
-  let sessionActive = false;
-  if (phone) {
-    const session = await WhatsAppGateSession.findOne({ phone }).lean();
-    sessionActive = Boolean(
-      session?.gateOpenedAt && Date.now() - new Date(session.gateOpenedAt).getTime() < GATE_SESSION_TTL_MS
-    );
-  }
-
-  const allowed = keywordRemainder !== null || sessionActive;
-  const exitRequested = allowed && text.toUpperCase() === GATE_EXIT_KEYWORD;
-  // "MIS start" behaves as if "start" was typed in-session; bare "MIS" keeps
-  // the original text so the auto-reply fallback acknowledges the opener.
-  const handlerText = keywordRemainder ? keywordRemainder : text;
-
-  return { phone, allowed, exitRequested, handlerText };
-};
-
-const openOrRefreshGateSession = async (phone) => {
-  if (!phone) return;
-  await WhatsAppGateSession.updateOne(
-    { phone },
-    { $set: { gateOpenedAt: new Date() } },
-    { upsert: true }
-  );
-};
-
-const closeGateSession = async (phone) => {
-  if (!phone) return;
-  await WhatsAppGateSession.updateOne({ phone }, { $set: { gateOpenedAt: null } });
-};
-
 const processIncomingWhatsAppPayload = async (payload) => {
   try {
     upsertContactFromIncomingMessage(payload).catch((contactError) => {
       logger.error('[whatsapp] Failed to upsert contact:', contactError);
     });
 
-    const gate = await resolveKeywordGate(payload).catch((gateError) => {
-      logger.error('[whatsapp] Keyword gate check failed:', gateError);
-      return { phone: normalizePhone(payload?.from), allowed: false, exitRequested: false, handlerText: '' };
-    });
-
-    const customerSync = await upsertCustomerAndEnquiryFromIncomingMessage(payload, { allowCreate: gate.allowed }).catch(
+    const customerSync = await upsertCustomerAndEnquiryFromIncomingMessage(payload, { allowCreate: true }).catch(
       (customerError) => {
         logger.error('[whatsapp] Failed to sync customer/enquiry:', customerError);
         return null;
@@ -1695,23 +1632,8 @@ const processIncomingWhatsAppPayload = async (payload) => {
     }
 
     if (!isDuplicate && ['text', 'button', 'interactive'].includes(payload.type)) {
-      // Not our conversation — stay silent so the project that owns the
-      // keyword (or the sender's active session) can respond instead.
-      if (!gate.allowed) return;
-
-      if (gate.exitRequested) {
-        await closeGateSession(gate.phone);
-        await dispatchTextMessage({
-          to: payload.from,
-          body: `You've exited MIS. Send ${GATE_ENTRY_KEYWORD} anytime to start again.`,
-        });
-        return;
-      }
-
-      await openOrRefreshGateSession(gate.phone);
-
       try {
-        const userMessage = gate.handlerText;
+        const userMessage = String(payload?.text || payload?.message || '').trim();
         logger.debug('Incoming message', { from: payload?.from });
 
         const attendanceTriggerResult = await handleWhatsAppAttendanceInteraction({ ...payload, message: userMessage, text: userMessage });

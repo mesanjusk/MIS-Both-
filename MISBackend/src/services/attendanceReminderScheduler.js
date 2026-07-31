@@ -5,6 +5,7 @@ const {
   getCurrentAttendanceType,
   getIstDate,
 } = require('./whatsappAttendanceService');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 
 // Daily "Good morning, are you coming in today?" broadcast — sent to every
@@ -31,14 +32,8 @@ async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
       }).lean();
       if (getCurrentAttendanceType(attendance) !== null) continue;
 
-      await sendButtons({
-        to: phone,
-        bodyText: `Good morning ${user.User_name || ''}! Are you coming in today?`,
-        buttons: [
-          { id: 'attn:mark:start', title: 'Start' },
-          { id: 'attn:today:absent', title: 'Not Coming Today' },
-        ],
-      });
+      const { body, buttons } = await renderTemplate('attendance.checkin_prompt', { name: user.User_name || '' });
+      await sendButtons({ to: phone, bodyText: body, buttons });
     } catch (err) {
       logger.error(`[attendance-checkin] Failed to send to ${user.User_name}:`, err.message);
     }

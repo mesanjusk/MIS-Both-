@@ -14,6 +14,7 @@ const {
   getReceivedAmountForOrder,
 } = require('./businessWorkflowService');
 const { resolveStaffFromWhatsApp, buildCustomerPhoneQuery } = require('./whatsappIdentityService');
+const { renderTemplate } = require('./whatsappTemplateService');
 const { ORDER_STAGES, CLOSED_STAGES } = require('../constants/orderStages');
 
 const LIST_LIMIT = 10;
@@ -109,24 +110,35 @@ function isOrderInScope(order, user, permissions) {
 async function buildOrderDetailMessage(order, permissions) {
   const next = nextStageFor(order);
   const outstanding = await getOutstandingForOrder(order);
-  const bodyLines = [
-    `Order #${order.Order_Number}`,
-    `Stage: ${order.stage}`,
-    `Due: ${formatDate(order.dueDate)}`,
-    `Amount: ₹${formatAmount(order)}`,
-  ];
-  if (outstanding > 0) bodyLines.push(`Outstanding: ₹${outstanding}`);
+  const header = await renderTemplate('order.detail_header', {
+    orderNumber: order.Order_Number,
+    stage: order.stage,
+    due: formatDate(order.dueDate),
+    amount: formatAmount(order),
+  });
+  const bodyLines = [header.body];
+  if (outstanding > 0) {
+    const outstandingLine = await renderTemplate('order.detail_outstanding_line', { outstanding });
+    bodyLines.push(outstandingLine.body);
+  }
 
   const buttons = [];
   if (next && permissions.advanceOrderStage) {
-    const label = next === 'ready' ? 'Mark ready' : next === 'delivered' ? 'Mark delivered' : `Move to ${next}`;
+    const labelKey = next === 'ready'
+      ? 'order.detail_button_ready'
+      : next === 'delivered'
+        ? 'order.detail_button_delivered'
+        : 'order.detail_button_move';
+    const { body: label } = await renderTemplate(labelKey, { stage: next });
     buttons.push({ id: `act:next:${order.Order_uuid}`, title: truncate(label, 20) });
   }
   if (!order.assignedTo && permissions.assignOrders) {
-    buttons.push({ id: `act:assign:${order.Order_uuid}`, title: 'Assign to me' });
+    const { body: label } = await renderTemplate('order.detail_button_assign');
+    buttons.push({ id: `act:assign:${order.Order_uuid}`, title: label });
   }
   if (outstanding > 0 && permissions.receivePayments) {
-    buttons.push({ id: `act:pay:${order.Order_uuid}`, title: 'Receive payment' });
+    const { body: label } = await renderTemplate('order.detail_button_pay');
+    buttons.push({ id: `act:pay:${order.Order_uuid}`, title: label });
   }
 
   return { bodyText: bodyLines.join('\n'), buttons: buttons.slice(0, 3) };
@@ -165,66 +177,61 @@ async function clearPending(phone) {
 async function startPaymentFlow({ orderUuid, phone, user, permissions, sendText }) {
   if (!permissions.receivePayments) {
     await logAction({ phone, user, action: 'pay', order: { Order_uuid: orderUuid }, result: 'denied' });
-    await sendText({ to: phone, body: 'Your role cannot record payments from WhatsApp.' });
+    const { body } = await renderTemplate('order.pay_denied');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   const order = await findOrderByUuid(orderUuid);
   if (!order || !isOrderInScope(order, user, permissions)) {
-    await sendText({ to: phone, body: 'That order no longer exists.' });
+    const { body } = await renderTemplate('order.not_found');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   const outstanding = await getOutstandingForOrder(order);
   if (outstanding <= 0) {
-    await sendText({ to: phone, body: `Order #${order.Order_Number} has no outstanding balance.` });
+    const { body } = await renderTemplate('order.no_outstanding', { orderNumber: order.Order_Number });
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   await setPending(phone, { action: 'pay', step: 'awaiting_amount', orderUuid: order.Order_uuid, data: {} });
-  await sendText({
-    to: phone,
-    body: `Order #${order.Order_Number} outstanding: ₹${outstanding}. Reply with the amount received (numbers only), or CANCEL.`,
-  });
+  const { body } = await renderTemplate('order.pay_ask_amount', { orderNumber: order.Order_Number, outstanding });
+  await sendText({ to: phone, body });
   return { handled: true };
 }
 
 async function handlePaymentTextStep({ pending, rawText, phone, sendText, sendButtons }) {
   if (pending.step !== 'awaiting_amount') {
-    await sendText({ to: phone, body: 'Please use the buttons above, or reply CANCEL.' });
+    const { body } = await renderTemplate('order.pay_use_buttons');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   const amount = parseAmountFromText(rawText);
   if (amount === null) {
-    await sendText({ to: phone, body: 'Please send a valid amount (e.g. 500), or CANCEL.' });
+    const { body } = await renderTemplate('order.pay_invalid_amount');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   const order = await findOrderByUuid(pending.orderUuid);
   if (!order) {
-    await sendText({ to: phone, body: 'That order no longer exists.' });
+    const { body } = await renderTemplate('order.not_found');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
   const outstanding = await getOutstandingForOrder(order);
   if (amount > outstanding) {
-    await sendText({
-      to: phone,
-      body: `That's more than the outstanding balance of ₹${outstanding}. Please send an amount up to ₹${outstanding}, or CANCEL.`,
-    });
+    const { body } = await renderTemplate('order.pay_amount_too_high', { outstanding });
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   await setPending(phone, { action: 'pay', step: 'awaiting_mode', orderUuid: pending.orderUuid, data: { amount } });
-  await sendButtons({
-    to: phone,
-    bodyText: `Amount: ₹${amount}. How was it received?`,
-    buttons: [
-      { id: `paymode:cash:${pending.orderUuid}`, title: 'Cash' },
-      { id: `paymode:upi:${pending.orderUuid}`, title: 'UPI' },
-      { id: `paymode:bank:${pending.orderUuid}`, title: 'Bank' },
-    ],
-  });
+  const { body, buttons } = await renderTemplate('order.pay_mode_prompt', { amount, orderUuid: pending.orderUuid });
+  await sendButtons({ to: phone, bodyText: body, buttons });
   return { handled: true };
 }
 
@@ -232,25 +239,31 @@ async function handlePayModeReply({ replyId, phone, sendText, sendButtons }) {
   const parts = replyId.split(':');
   const mode = parts[1];
   const orderUuid = parts.slice(2).join(':');
-  const label = PAY_MODE_LABELS[mode] || mode;
 
   const pending = await WhatsAppPendingInput.findOne({ phone: normalizePhone(phone) }).lean();
   if (!pending || pending.action !== 'pay' || pending.step !== 'awaiting_mode' || pending.orderUuid !== orderUuid) {
-    await sendText({ to: phone, body: "That payment step has expired. Start again from the order's Receive payment button." });
+    const { body } = await renderTemplate('order.pay_step_expired');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
+
+  // Re-render the mode-prompt template to read back whichever label the admin
+  // has configured for the tapped button, so the confirm text always matches
+  // what the user actually saw and tapped.
+  const modePrompt = await renderTemplate('order.pay_mode_prompt', { amount: pending.data.amount, orderUuid });
+  const tappedButton = modePrompt.buttons.find((btn) => btn.id === replyId);
+  const label = tappedButton?.title || PAY_MODE_LABELS[mode] || mode;
 
   await setPending(phone, { action: 'pay', step: 'confirm', orderUuid, data: { ...pending.data, paymentMode: label } });
 
   const order = await findOrderByUuid(orderUuid);
-  await sendButtons({
-    to: phone,
-    bodyText: `Receive ₹${pending.data.amount} via ${label} for Order #${order?.Order_Number ?? ''}?`,
-    buttons: [
-      { id: `ok:pay:${orderUuid}`, title: 'Confirm' },
-      { id: `no:pay:${orderUuid}`, title: 'Cancel' },
-    ],
+  const { body, buttons } = await renderTemplate('order.pay_confirm', {
+    amount: pending.data.amount,
+    mode: label,
+    orderNumber: order?.Order_Number ?? '',
+    orderUuid,
   });
+  await sendButtons({ to: phone, bodyText: body, buttons });
   return { handled: true };
 }
 
@@ -258,12 +271,14 @@ async function handlePayModeReply({ replyId, phone, sendText, sendButtons }) {
 async function startCreateOrderFlow({ phone, user, permissions, sendText }) {
   if (!permissions.createOrders) {
     await logAction({ phone, user, action: 'createOrder', order: null, result: 'denied' });
-    await sendText({ to: phone, body: 'Your role cannot create orders from WhatsApp.' });
+    const { body } = await renderTemplate('order.create_denied');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   await setPending(phone, { action: 'createOrder', step: 'awaiting_customer_phone', orderUuid: '', data: {} });
-  await sendText({ to: phone, body: "New order — send the customer's 10-digit mobile number, or CANCEL." });
+  const { body } = await renderTemplate('order.create_ask_phone');
+  await sendText({ to: phone, body });
   return { handled: true };
 }
 
@@ -271,7 +286,8 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
   if (pending.step === 'awaiting_customer_phone') {
     const last10 = rawText.replace(/\D/g, '').slice(-10);
     if (last10.length !== 10) {
-      await sendText({ to: phone, body: 'Please send a valid 10-digit mobile number, or CANCEL.' });
+      const { body } = await renderTemplate('order.create_invalid_phone');
+      await sendText({ to: phone, body });
       return { handled: true };
     }
 
@@ -282,7 +298,8 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
         step: 'awaiting_description',
         data: { customerUuid: customer.Customer_uuid, customerName: customer.Customer_name },
       });
-      await sendText({ to: phone, body: `Customer: ${customer.Customer_name}. Now send a short order description (e.g. "500 visiting cards").` });
+      const { body } = await renderTemplate('order.create_customer_found', { customerName: customer.Customer_name });
+      await sendText({ to: phone, body });
       return { handled: true };
     }
 
@@ -291,14 +308,16 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
       step: 'awaiting_new_customer_name',
       data: { newCustomerMobile: last10 },
     });
-    await sendText({ to: phone, body: "No customer found for that number. Send the customer's name to create a new customer record, or CANCEL." });
+    const { body } = await renderTemplate('order.create_ask_new_name');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   if (pending.step === 'awaiting_new_customer_name') {
     const name = rawText.trim().slice(0, 120);
     if (!name) {
-      await sendText({ to: phone, body: 'Please send a valid name, or CANCEL.' });
+      const { body } = await renderTemplate('order.create_invalid_name');
+      await sendText({ to: phone, body });
       return { handled: true };
     }
 
@@ -316,42 +335,45 @@ async function handleCreateOrderTextStep({ pending, rawText, phone, sendText, se
       step: 'awaiting_description',
       data: { customerUuid: created.Customer_uuid, customerName: created.Customer_name },
     });
-    await sendText({ to: phone, body: `Created new customer ${created.Customer_name}. Now send a short order description.` });
+    const { body } = await renderTemplate('order.create_customer_created', { customerName: created.Customer_name });
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   if (pending.step === 'awaiting_description') {
     const note = rawText.trim().slice(0, 300);
     if (!note) {
-      await sendText({ to: phone, body: 'Please send a short description, or CANCEL.' });
+      const { body } = await renderTemplate('order.create_invalid_description');
+      await sendText({ to: phone, body });
       return { handled: true };
     }
 
     await setPending(phone, { action: 'createOrder', step: 'awaiting_amount', data: { ...pending.data, orderNote: note } });
-    await sendText({ to: phone, body: 'Enter the order amount (₹, numbers only).' });
+    const { body } = await renderTemplate('order.create_ask_amount');
+    await sendText({ to: phone, body });
     return { handled: true };
   }
 
   if (pending.step === 'awaiting_amount') {
     const amount = parseAmountFromText(rawText);
     if (amount === null) {
-      await sendText({ to: phone, body: 'Please send a valid amount (e.g. 1500), or CANCEL.' });
+      const { body } = await renderTemplate('order.create_invalid_amount');
+      await sendText({ to: phone, body });
       return { handled: true };
     }
 
     await setPending(phone, { action: 'createOrder', step: 'confirm', data: { ...pending.data, amount } });
-    await sendButtons({
-      to: phone,
-      bodyText: `Create order for ${pending.data.customerName}: "${pending.data.orderNote}" — ₹${amount}. Confirm?`,
-      buttons: [
-        { id: 'ok:createOrder:new', title: 'Confirm' },
-        { id: 'no:createOrder:new', title: 'Cancel' },
-      ],
+    const { body, buttons } = await renderTemplate('order.create_confirm', {
+      customerName: pending.data.customerName,
+      note: pending.data.orderNote,
+      amount,
     });
+    await sendButtons({ to: phone, bodyText: body, buttons });
     return { handled: true };
   }
 
-  await sendText({ to: phone, body: 'Please use the Confirm/Cancel buttons above, or reply CANCEL.' });
+  const { body } = await renderTemplate('order.create_use_buttons');
+  await sendText({ to: phone, body });
   return { handled: true };
 }
 
@@ -365,12 +387,14 @@ async function executeCreateOrder({ phone, user, permissions }) {
     step: 'confirm',
   }).lean();
   if (!pending) {
-    return { ok: false, message: 'That order draft has expired. Start again with "new order".' };
+    const { body } = await renderTemplate('order.create_draft_expired');
+    return { ok: false, message: body };
   }
 
   if (!permissions.createOrders) {
     await logAction({ phone, user, action: 'createOrder', order: null, result: 'denied' });
-    return { ok: false, message: 'Your role cannot create orders from WhatsApp.' };
+    const { body } = await renderTemplate('order.create_denied');
+    return { ok: false, message: body };
   }
 
   try {
@@ -381,10 +405,16 @@ async function executeCreateOrder({ phone, user, permissions }) {
       createdBy: user.User_name || 'whatsapp',
     });
     await logAction({ phone, user, action: 'createOrder', order: createdOrder, result: 'success', detail: `₹${pending.data.amount}` });
-    return { ok: true, message: `Order #${createdOrder.Order_Number} created for ${pending.data.customerName} — ₹${pending.data.amount}.` };
+    const { body } = await renderTemplate('order.create_success', {
+      orderNumber: createdOrder.Order_Number,
+      customerName: pending.data.customerName,
+      amount: pending.data.amount,
+    });
+    return { ok: true, message: body };
   } catch (error) {
     await logAction({ phone, user, action: 'createOrder', order: null, result: 'error', detail: error.message });
-    return { ok: false, message: 'Could not create that order — please use the app.' };
+    const { body } = await renderTemplate('order.create_error');
+    return { ok: false, message: body };
   }
 }
 
@@ -396,23 +426,27 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
 
   const order = await findOrderByUuid(orderUuid);
   if (!order) {
-    return { ok: false, message: 'That order no longer exists.' };
+    const { body } = await renderTemplate('order.not_found');
+    return { ok: false, message: body };
   }
 
   if ((action === 'next' || action === 'pay') && !isOrderInScope(order, user, permissions)) {
     await logAction({ phone, user, action, order, result: 'denied' });
-    return { ok: false, message: 'That order no longer exists.' };
+    const { body } = await renderTemplate('order.not_found');
+    return { ok: false, message: body };
   }
 
   if (action === 'next') {
     if (!permissions.advanceOrderStage) {
       await logAction({ phone, user, action, order, result: 'denied' });
-      return { ok: false, message: 'Your role cannot change order stages from WhatsApp.' };
+      const { body } = await renderTemplate('order.stage_denied');
+      return { ok: false, message: body };
     }
 
     const next = nextStageFor(order);
     if (!next) {
-      return { ok: false, message: `Order #${order.Order_Number} is already at its final stage.` };
+      const { body } = await renderTemplate('order.stage_final', { orderNumber: order.Order_Number });
+      return { ok: false, message: body };
     }
 
     const createdBy = user.User_name || 'whatsapp';
@@ -425,28 +459,33 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
     }
 
     await logAction({ phone, user, action, order, result: 'success', detail: `-> ${next}` });
-    return { ok: true, message: `Order #${order.Order_Number} moved to "${next}".` };
+    const { body } = await renderTemplate('order.stage_moved', { orderNumber: order.Order_Number, stage: next });
+    return { ok: true, message: body };
   }
 
   if (action === 'assign') {
     if (!permissions.assignOrders) {
       await logAction({ phone, user, action, order, result: 'denied' });
-      return { ok: false, message: 'Your role cannot self-assign orders from WhatsApp.' };
+      const { body } = await renderTemplate('order.assign_denied');
+      return { ok: false, message: body };
     }
 
     if (order.assignedTo) {
-      return { ok: false, message: `Order #${order.Order_Number} is already assigned.` };
+      const { body } = await renderTemplate('order.assign_already', { orderNumber: order.Order_Number });
+      return { ok: false, message: body };
     }
 
     try {
       await assignOrderToUser({ orderId: order._id, userId: user._id, assignedBy: user.User_name || 'whatsapp', via: 'whatsapp' });
     } catch (error) {
       await logAction({ phone, user, action, order, result: 'error', detail: error.message });
-      return { ok: false, message: 'Could not assign that order — please use the app.' };
+      const { body } = await renderTemplate('order.assign_error');
+      return { ok: false, message: body };
     }
 
     await logAction({ phone, user, action, order, result: 'success' });
-    return { ok: true, message: `Order #${order.Order_Number} assigned to you.` };
+    const { body } = await renderTemplate('order.assign_success', { orderNumber: order.Order_Number });
+    return { ok: true, message: body };
   }
 
   if (action === 'pay') {
@@ -460,12 +499,14 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
       orderUuid: order.Order_uuid,
     }).lean();
     if (!pending) {
-      return { ok: false, message: "That payment step has expired. Start again from the order's Receive payment button." };
+      const { body } = await renderTemplate('order.pay_step_expired');
+      return { ok: false, message: body };
     }
 
     if (!permissions.receivePayments) {
       await logAction({ phone, user, action, order, result: 'denied' });
-      return { ok: false, message: 'Your role cannot record payments from WhatsApp.' };
+      const { body } = await renderTemplate('order.pay_denied');
+      return { ok: false, message: body };
     }
 
     const amount = Number(pending.data.amount);
@@ -481,17 +522,22 @@ async function executeOrderAction({ action, orderUuid, phone, user, permissions 
       });
       await logAction({ phone, user, action, order, result: 'success', detail: `₹${amount} via ${paymentMode}` });
       const outstanding = await getOutstandingForOrder(updatedOrder || order);
-      return {
-        ok: true,
-        message: `Recorded ₹${amount} (${paymentMode}) for Order #${order.Order_Number}. Outstanding: ₹${outstanding}.`,
-      };
+      const { body } = await renderTemplate('order.pay_recorded', {
+        amount,
+        mode: paymentMode,
+        orderNumber: order.Order_Number,
+        outstanding,
+      });
+      return { ok: true, message: body };
     } catch (error) {
       await logAction({ phone, user, action, order, result: 'error', detail: error.message });
-      return { ok: false, message: 'Could not record that payment — please use the app.' };
+      const { body } = await renderTemplate('order.pay_error');
+      return { ok: false, message: body };
     }
   }
 
-  return { ok: false, message: 'Unknown action.' };
+  const { body } = await renderTemplate('order.unknown_action');
+  return { ok: false, message: body };
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────
@@ -537,7 +583,8 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
   if (pending) {
     if (CANCEL_COMMAND.test(rawText)) {
       await clearPending(payload.from);
-      await sendText({ to: payload.from, body: 'Cancelled — no changes made.' });
+      const { body } = await renderTemplate('order.cancelled');
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
     if (pending.action === 'pay') {
@@ -552,13 +599,18 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
   if (isOrdersList) {
     const orders = await findOrdersForStaff({ user, permissions });
     if (!orders.length) {
-      await sendText({ to: payload.from, body: 'No open orders right now.' });
+      const { body } = await renderTemplate('order.list_empty');
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
+    const { body, listButtonLabel } = await renderTemplate('order.list_intro', {
+      count: orders.length,
+      plural: orders.length === 1 ? '' : 's',
+    });
     await sendList({
       to: payload.from,
-      bodyText: `${orders.length} open order${orders.length === 1 ? '' : 's'} for you:`,
-      buttonLabel: 'View orders',
+      bodyText: body,
+      buttonLabel: listButtonLabel,
       sections: await buildOrderListSections(orders),
     });
     return { handled: true };
@@ -576,7 +628,8 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
   if (orderNumberMatch) {
     const order = await Orders.findOne({ Order_Number: Number(orderNumberMatch[1]) }).select('Order_uuid').lean();
     if (!order) {
-      await sendText({ to: payload.from, body: `Order #${orderNumberMatch[1]} not found.` });
+      const { body } = await renderTemplate('order.number_not_found', { orderNumber: orderNumberMatch[1] });
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
     orderUuid = order.Order_uuid;
@@ -587,7 +640,8 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
   if (isOrderDetailReply || orderNumberMatch) {
     const order = await findOrderByUuid(orderUuid);
     if (!order || !isOrderInScope(order, user, permissions)) {
-      await sendText({ to: payload.from, body: 'That order no longer exists.' });
+      const { body } = await renderTemplate('order.not_found');
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
     const detail = await buildOrderDetailMessage(order, permissions);
@@ -606,14 +660,8 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
       return startPaymentFlow({ orderUuid, phone: payload.from, user, permissions, sendText });
     }
 
-    await sendButtons({
-      to: payload.from,
-      bodyText: 'Please confirm this action.',
-      buttons: [
-        { id: `ok:${action}:${orderUuid}`, title: 'Confirm' },
-        { id: `no:${action}:${orderUuid}`, title: 'Cancel' },
-      ],
-    });
+    const { body, buttons } = await renderTemplate('order.action_confirm_generic', { action, orderUuid });
+    await sendButtons({ to: payload.from, bodyText: body, buttons });
     return { handled: true };
   }
 
@@ -622,7 +670,8 @@ async function handleWhatsAppOrderCommand({ payload, sendText, sendButtons, send
     if (action === 'pay' || action === 'createOrder') {
       await clearPending(payload.from);
     }
-    await sendText({ to: payload.from, body: 'Cancelled — no changes made.' });
+    const { body } = await renderTemplate('order.cancelled');
+    await sendText({ to: payload.from, body });
     return { handled: true };
   }
 

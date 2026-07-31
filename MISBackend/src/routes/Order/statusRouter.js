@@ -23,7 +23,7 @@ router.get("/tasks/mine", async (req, res) => {
     return res.json({
       success: true,
       orders: rows.orders,
-      summary: buildTaskSummaryMessage({ employee: userName, orders: rows.orders }),
+      summary: await buildTaskSummaryMessage({ employee: userName, orders: rows.orders }),
     });
   } catch (error) {
     logger.error("tasks/mine error:", error);

@@ -28,14 +28,16 @@ const BulkSender = lazy(() => import('../Components/whatsappCloud/BulkSender'));
 const AutoReplyManagementPanel = lazy(() => import('../Components/whatsappCloud/AutoReplyManagementPanel'));
 const AnalyticsDashboard = lazy(() => import('../Components/whatsappCloud/AnalyticsDashboard'));
 const WhatsAppAttendanceSettings = lazy(() => import('../Components/whatsappCloud/WhatsAppAttendanceSettings'));
+const WhatsAppMessageTemplates = lazy(() => import('../Components/whatsappCloud/WhatsAppMessageTemplates'));
 
 const navItems = [
-  { key: 'inbox',       label: 'Chats' },
-  { key: 'templates',   label: 'Templates' },
-  { key: 'campaigns',   label: 'Broadcast' },
-  { key: 'autoReply',   label: 'Auto Reply' },
-  { key: 'analytics',   label: 'Analytics' },
-  { key: 'settings',    label: 'Settings' },
+  { key: 'inbox',            label: 'Chats' },
+  { key: 'templates',        label: 'Templates' },
+  { key: 'campaigns',        label: 'Broadcast' },
+  { key: 'autoReply',        label: 'Auto Reply' },
+  { key: 'analytics',        label: 'Analytics' },
+  { key: 'messageTemplates', label: 'Message Text' },
+  { key: 'settings',         label: 'Settings' },
 ];
 
 const adminNavItems = [
@@ -107,6 +109,7 @@ export default function WhatsAppCloudDashboard() {
     if (activeTab === 'campaigns')     return <BulkSender />;
     if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
     if (activeTab === 'analytics')     return <AnalyticsDashboard />;
+    if (activeTab === 'messageTemplates') return <WhatsAppMessageTemplates />;
     if (activeTab === 'projectHub' && isSuperAdmin)      return <WhatsAppProjectHub />;
     // ─────────────────────────────────────────────────────────────────────────
     return <WhatsAppAttendanceSettings />;

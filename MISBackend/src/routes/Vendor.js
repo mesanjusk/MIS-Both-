@@ -9,6 +9,7 @@ const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
+const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const logger = require('../utils/logger');
 
@@ -320,6 +321,24 @@ router.put('/settings/whatsapp-attendance', async (req, res) => {
   try {
     const config = await saveAttendanceConfig(req.body || {});
     res.json({ success: true, result: config });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.get('/settings/whatsapp-templates', async (_req, res) => {
+  try {
+    const templates = await getTemplates();
+    res.json({ success: true, result: templates });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put('/settings/whatsapp-templates', async (req, res) => {
+  try {
+    const templates = await saveTemplates(req.body?.templates || req.body || []);
+    res.json({ success: true, result: templates });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

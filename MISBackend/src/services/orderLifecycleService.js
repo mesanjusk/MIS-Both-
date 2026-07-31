@@ -8,6 +8,7 @@ const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
 const Counter = require('../repositories/counter');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 const { ORDER_STAGES, isValidStage, isForwardMove } = require('../constants/orderStages');
 
@@ -137,7 +138,12 @@ const notifyDeliveredOrder = async (order) => {
     if (mobile) {
       const amount = Number(order.Amount || order.saleSubtotal || order.Total_Amount || 0);
       const businessName = process.env.BUSINESS_NAME || process.env.APP_NAME || 'MIS System';
-      const body = `Dear ${customerName}, your order #${order.Order_Number} is ready for delivery.\n\nAmount due: Rs ${amount}.\n\nPlease arrange payment. Thank you! - ${businessName}`;
+      const { body } = await renderTemplate('lifecycle.delivered_notify', {
+        customerName,
+        orderNumber: order.Order_Number,
+        amount,
+        businessName,
+      });
       await sendWhatsAppText({ to: mobile, body, source: 'ORDER_DELIVERED', contactName: customerName, activity: 'ORDER_UPDATES' });
       logger.info(`WhatsApp notification sent for delivered order #${order.Order_Number}`);
     }

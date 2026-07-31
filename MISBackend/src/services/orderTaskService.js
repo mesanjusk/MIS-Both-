@@ -3,6 +3,7 @@ const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 const { CLOSED_STAGES } = require('../constants/orderStages');
 
@@ -125,12 +126,20 @@ async function getPendingTasksOverview() {
   };
 }
 
-function buildPendingOverviewMessage(overview) {
-  if (!overview.totalCount) return 'Pending tasks overview: all clear, no open orders right now.';
+async function buildPendingOverviewMessage(overview) {
+  if (!overview.totalCount) {
+    const { body } = await renderTemplate('task.pending_overview_empty');
+    return body;
+  }
   const lines = overview.byUser.map(
     (group) => `${group.userName}: ${group.count} task${group.count === 1 ? '' : 's'}${group.overdueCount ? ` (${group.overdueCount} overdue)` : ''}`
   );
-  return `Pending tasks overview (${overview.totalCount} total, ${overview.overdueCount} overdue):\n${lines.join('\n')}`;
+  const { body } = await renderTemplate('task.pending_overview', {
+    total: overview.totalCount,
+    overdue: overview.overdueCount,
+    lines: lines.join('\n'),
+  });
+  return body;
 }
 
 // ── WhatsApp side-effects on assignment, both fire-and-forget so they
@@ -141,13 +150,19 @@ async function notifyUserOfAssignment({ order, user, assignedBy }) {
   if (!mobile) return;
   const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
   const dueText = order?.dueDate ? new Date(order.dueDate).toLocaleString('en-IN') : 'today, 8:00 PM';
-  const body = `Hi ${user.User_name || user.name || 'there'}, you've been assigned Order #${order.Order_Number} (${latest?.Task || order.stage || 'Task'}) by ${assignedBy || 'System'}. Due: ${dueText}.`;
+  const { body } = await renderTemplate('task.assignment_notify', {
+    userName: user.User_name || user.name || 'there',
+    orderNumber: order.Order_Number,
+    taskName: latest?.Task || order.stage || 'Task',
+    assignedBy: assignedBy || 'System',
+    dueDate: dueText,
+  });
   await sendWhatsAppText({ to: mobile, body });
 }
 
 async function notifyAdminsOfPendingOverview() {
   const overview = await getPendingTasksOverview();
-  const body = buildPendingOverviewMessage(overview);
+  const body = await buildPendingOverviewMessage(overview);
   const users = await Users.find({}).lean();
   for (const u of users) {
     if (tierFor(u.User_group) < 4) continue; // Admin/Owner tier only
@@ -250,9 +265,11 @@ async function rolloverPendingOrders() {
   return { touched };
 }
 
-function buildTaskSummaryMessage({ employee, orders = [] }) {
+async function buildTaskSummaryMessage({ employee, orders = [] }) {
+  const name = employee?.User_name || 'team';
   if (!orders.length) {
-    return `Hi ${employee?.User_name || 'team'}, no pending order tasks are assigned to you right now.`;
+    const { body } = await renderTemplate('task.summary_none', { name });
+    return body;
   }
 
   const list = orders.slice(0, 8).map((order, index) => {
@@ -260,7 +277,8 @@ function buildTaskSummaryMessage({ employee, orders = [] }) {
     return `${index + 1}. Order #${order.Order_Number} - ${latest?.Task || order.stage || 'Task'}${order.overdue ? ' (overdue)' : ''}`;
   }).join('\n');
 
-  return `Hi ${employee?.User_name || 'team'}, here are your pending order tasks for today till 8:00 PM:\n${list}`;
+  const { body } = await renderTemplate('task.summary_intro', { name, list });
+  return body;
 }
 
 module.exports = {

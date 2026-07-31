@@ -27,14 +27,13 @@ const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
 const Orders = require('../repositories/order');
-const VendorWork = require('../repositories/vendorWork');
-const VendorLedger = require('../repositories/vendorLedger');
 const VendorMaster = require('../repositories/vendorMaster');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
-const { postVendorBill, postCustomerInvoice } = require('../services/accountingPostingService');
+const { postCustomerInvoice } = require('../services/accountingPostingService');
+const { upsertVendorJob } = require('../services/vendorJobService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -175,15 +174,6 @@ async function getOrCreateSuspenseVendor() {
     Vendor_type: 'mixed',
     Active: true,
   });
-}
-
-async function nextPrintJobNumber() {
-  const updated = await Counter.findByIdAndUpdate(
-    'print_job_number',
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  ).lean();
-  return Number(updated?.seq || 1);
 }
 
 function sanitize(v) {
@@ -964,31 +954,22 @@ router.post('/auto-print-job', async (req, res) => {
     const results = [];
 
     for (const file of toProcess) {
-      const jobNum = await nextPrintJobNumber();
-      const workUuid = uuidv4();
-      const fileOrderUuid = file.orderUuid || null;
+      const fileOrderUuid = file.orderUuid || '';
       const fileOrderNumber = file.orderNumber || null;
 
-      await VendorWork.create({
-        work_uuid: workUuid,
-        Vendor_uuid: suspenseVendor.Vendor_uuid,
-        Vendor_name: suspenseVendor.Vendor_name,
-        Order_uuid: fileOrderUuid,
-        Order_Number: fileOrderNumber,
-        Process: 'printing',
-        Amount: 1,
-        Status: 'draft',
-        Notes: file.fileName || file.fileId,
-      });
-
-      await VendorLedger.create({
-        vendor_uuid: suspenseVendor.Vendor_uuid,
-        vendor_name: suspenseVendor.Vendor_name,
-        entry_type: 'job_bill',
-        dr_cr: 'cr',
+      const { job } = await upsertVendorJob({
+        jobCategory: 'printing',
+        vendorUuid: suspenseVendor.Vendor_uuid,
+        vendorName: suspenseVendor.Vendor_name,
+        orderUuid: fileOrderUuid,
+        orderNumber: fileOrderNumber,
+        jobType: 'printing',
         amount: 1,
-        job_uuid: workUuid,
-        narration: `Print job PJ-${jobNum} — ${file.fileName || file.fileId}`,
+        status: 'draft',
+        notes: file.fileName || file.fileId,
+        driveFileId: file.fileId,
+        postAccountingBill: false,
+        referenceType: 'print_job',
       });
 
       await DesignFileLink.updateOne(
@@ -996,14 +977,14 @@ router.post('/auto-print-job', async (req, res) => {
         {
           $set: {
             linkStatus: 'printing',
-            printJobId: workUuid,
-            printJobNumber: jobNum,
+            printJobId: job.job_uuid,
+            printJobNumber: job.job_number,
           },
         },
         { upsert: true }
       );
 
-      results.push({ fileId: file.fileId, printJobNumber: jobNum, workUuid });
+      results.push({ fileId: file.fileId, printJobNumber: job.job_number, workUuid: job.job_uuid });
     }
 
     return res.json({ success: true, created: results.length, jobs: results });
@@ -1032,30 +1013,17 @@ router.post('/update-print-job', async (req, res) => {
 
     const resolvedAmount = Number(amount);
 
-    await VendorWork.updateOne(
-      { work_uuid: printJobId },
-      {
-        $set: {
-          Vendor_uuid: vendor.Vendor_uuid,
-          Vendor_name: vendor.Vendor_name,
-          Amount: resolvedAmount,
-          Notes: notes || undefined,
-          Status: 'draft',
-        },
-      }
-    );
-
-    await VendorLedger.updateOne(
-      { job_uuid: printJobId },
-      {
-        $set: {
-          vendor_uuid: vendor.Vendor_uuid,
-          vendor_name: vendor.Vendor_name,
-          amount: resolvedAmount,
-        },
-      },
-      { upsert: true }
-    );
+    await upsertVendorJob({
+      jobCategory: 'printing',
+      jobUuid: printJobId,
+      vendorUuid: vendor.Vendor_uuid,
+      vendorName: vendor.Vendor_name,
+      amount: resolvedAmount,
+      notes: notes || undefined,
+      status: 'draft',
+      postAccountingBill: false,
+      referenceType: 'print_job',
+    });
 
     return res.json({ success: true });
   } catch (err) {
@@ -1315,7 +1283,7 @@ router.get('/scan-archive', async (_req, res) => {
 // ─── POST /api/design-files/create-print-job ─────────────────────────────────
 router.post('/create-print-job', async (req, res) => {
   try {
-    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes, hasPostPrint } = req.body || {};
+    const { orderUuid, vendorUuid, vendorName, items = [], totalAmount, notes } = req.body || {};
 
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'vendorUuid required' });
     if (!items.length) return res.status(400).json({ success: false, message: 'items required' });
@@ -1349,57 +1317,29 @@ router.post('/create-print-job', async (req, res) => {
 
     const resolvedVendorName = vendorDoc.Vendor_name || vendorName || '';
     const resolvedTotal = Number(totalAmount) || items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
-    const workUuid = uuidv4();
 
-    const work = await VendorWork.create({
-      work_uuid: workUuid,
-      Vendor_uuid: vendorDoc.Vendor_uuid,
-      Vendor_name: resolvedVendorName,
-      ...(order ? { Order_uuid: order.Order_uuid, Order_Number: order.Order_Number } : {}),
-      Process: 'printing',
-      Amount: resolvedTotal,
-      Status: 'draft',
-      HasPostPrint: Boolean(hasPostPrint),
-      Notes: notes || JSON.stringify(items.map((i) => ({
+    const { job } = await upsertVendorJob({
+      jobCategory: 'printing',
+      vendorUuid: vendorDoc.Vendor_uuid,
+      vendorName: resolvedVendorName,
+      orderUuid: order?.Order_uuid || '',
+      orderNumber: order?.Order_Number ?? null,
+      jobType: 'printing',
+      amount: resolvedTotal,
+      status: 'draft',
+      notes: notes || JSON.stringify(items.map((i) => ({
         file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
       }))),
+      postAccountingBill: true,
+      referenceType: 'print_job',
     });
-
-    const ledger = await VendorLedger.create({
-      vendor_uuid: vendorDoc.Vendor_uuid,
-      vendor_name: resolvedVendorName,
-      entry_type: 'job_bill',
-      dr_cr: 'cr',
-      amount: resolvedTotal,
-      job_uuid: workUuid,
-      ...(order ? { order_uuid: order.Order_uuid, order_number: order.Order_Number } : {}),
-      narration: `Print job - ${items.length} file${items.length !== 1 ? 's' : ''}${order ? ` for order #${order.Order_Number}` : ''}`,
-      reference_type: 'print_job',
-      reference_id: workUuid,
-    });
-
-    if (resolvedTotal > 0) {
-      try {
-        await postVendorBill({
-          amount: resolvedTotal,
-          orderUuid: order?.Order_uuid || null,
-          orderNumber: order?.Order_Number || null,
-          description: `Print job bill - ${resolvedVendorName}${order ? ` - Order #${order.Order_Number}` : ''}`,
-          sourceSuffix: workUuid,
-          allowDuplicate: false,
-        });
-      } catch (acctErr) {
-        logger.warn({ acctErr }, 'print-job accounting post failed (non-fatal)');
-      }
-    }
 
     return res.json({
       success: true,
-      workId: work._id,
-      ledgerEntryId: ledger._id,
+      workId: job._id,
+      printJobUuid: job.job_uuid,
       totalAmount: resolvedTotal,
       orderNumber: order?.Order_Number ?? null,
-      hasPostPrint: Boolean(hasPostPrint),
     });
   } catch (err) {
     logger.error({ err }, 'design-files/create-print-job error');

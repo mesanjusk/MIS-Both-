@@ -42,8 +42,24 @@ function getTomorrowDueDate(baseDate = new Date()) {
   return due;
 }
 
+// The Status[].Task free-text log (pushed by drag-drop / the dashboard move
+// actions) is tracked separately from the canonical `stage` enum, so an
+// order can read "Delivered" there while `stage` never caught up. Every
+// pending/unassigned view needs to treat that as closed too, or a delivered
+// order sits on the home screen forever just because `stage` is stale.
+const CLOSED_TASK_LABELS = new Set(['delivered', 'cancel', 'cancelled']);
+
+function getLatestStatusTask(order) {
+  return Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
+}
+
+function isLatestTaskClosed(order) {
+  const task = getLatestStatusTask(order)?.Task;
+  return CLOSED_TASK_LABELS.has(String(task || '').trim().toLowerCase());
+}
+
 function isPendingOrder(order) {
-  return !CLOSED_STAGES.has(String(order?.stage || '').toLowerCase());
+  return !CLOSED_STAGES.has(String(order?.stage || '').toLowerCase()) && !isLatestTaskClosed(order);
 }
 
 function isDesignAssignmentPending(order) {
@@ -130,9 +146,9 @@ function formatDueDateParts(dueDate) {
 
 async function getPendingTasksOverview() {
   const now = new Date();
-  const rows = await Orders.find({ stage: { $nin: Array.from(CLOSED_STAGES) } })
+  const rows = (await Orders.find({ stage: { $nin: Array.from(CLOSED_STAGES) } })
     .sort({ dueDate: 1, createdAt: 1 })
-    .lean();
+    .lean()).filter((row) => !isLatestTaskClosed(row));
 
   const customerNames = await buildCustomerNameMap(rows);
   const tasks = rows.map((row) => {

@@ -33,7 +33,16 @@ const API_ENDPOINTS = {
 const CLOSED_TASKS = new Set([
   TASK_TYPES.DELIVERED.toLowerCase(),
   TASK_TYPES.CANCEL.toLowerCase(),
+  "cancelled",
 ]);
+
+// An order can be pushed to a closed task (Delivered/Cancel) via the stage
+// move actions without its canonical `stage` enum being touched — this is
+// the one place both the dashboard cards and the "pending, by stage" list
+// check before showing an order, so a delivered order can't linger on the
+// home screen just because `stage` never caught up.
+export const isOrderTaskClosed = (order) =>
+  CLOSED_TASKS.has(String(order?.highestStatusTask?.Task || "").trim().toLowerCase());
 
 const MIN_LOAD_MS = 800;
 
@@ -199,6 +208,7 @@ export function useOrdersData() {
   const baseGroupedOrders = useMemo(
     () =>
       orderList.reduce((acc, order) => {
+        if (isOrderTaskClosed(order)) return acc;
         const task = String(
           order?.highestStatusTask?.Task || TASK_TYPES.OTHER
         ).trim();
@@ -243,6 +253,16 @@ export function useOrdersData() {
     );
   }, []);
 
+  // Used when an order moves to a closed task (Delivered/Cancel) — GetOrderList
+  // itself never returns those, so dropping the order locally keeps counts in
+  // sync without waiting on a full refetch.
+  const removeOrder = useCallback((orderId) => {
+    if (!orderId) return;
+    setOrderList((prev) =>
+      prev.filter((order) => (order.Order_uuid || order._id || order.Order_id) !== orderId)
+    );
+  }, []);
+
   useEffect(() => {
     setOrderMap(
       orderList.reduce((acc, order) => {
@@ -280,6 +300,7 @@ export function useOrdersData() {
     },
     replaceOrder,
     patchOrder,
+    removeOrder,
     computeAgeDays,
   };
 }

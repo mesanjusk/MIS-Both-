@@ -11,10 +11,14 @@ import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRound
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SummaryCard from './SummaryCard';
-import { useOrdersData, statusApi } from '../../hooks/useOrdersData';
+import { useOrdersData, statusApi, isOrderTaskClosed } from '../../hooks/useOrdersData';
 
 const orderKey = (order) => order?.Order_uuid || order?._id || order?.Order_id;
+
+const DELIVERED_LABEL = 'Delivered';
+const CLOSED_TARGET_LABELS = new Set(['delivered', 'cancel', 'cancelled']);
 
 const isTodayDate = (value) => {
   if (!value) return false;
@@ -31,7 +35,7 @@ const formatDate = (value) => {
 const STAGE_VARIANTS = ['primary', 'success', 'warning', 'danger'];
 
 export default function OrderStatsCards() {
-  const { orderList, baseGroupedOrders, tasksMeta, isOrdersLoading, patchOrder } = useOrdersData();
+  const { orderList, baseGroupedOrders, tasksMeta, isOrdersLoading, patchOrder, removeOrder } = useOrdersData();
   const [selected, setSelected] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkTarget, setBulkTarget] = useState('');
@@ -64,8 +68,16 @@ export default function OrderStatsCards() {
     setIsMoving(true);
     try {
       await Promise.all(ids.map((id) => statusApi.updateStatus(id, targetStage)));
-      const movedAt = new Date().toISOString();
-      ids.forEach((id) => patchOrder(id, { highestStatusTask: { Task: targetStage, CreatedAt: movedAt } }));
+      const isClosedTarget = CLOSED_TARGET_LABELS.has(targetStage.trim().toLowerCase());
+      if (isClosedTarget) {
+        // GetOrderList never returns delivered/cancelled orders, so drop it
+        // locally rather than patching — patching would leave it sitting in
+        // "Old Pending" (or whichever stage it came from) until next refresh.
+        ids.forEach((id) => removeOrder(id));
+      } else {
+        const movedAt = new Date().toISOString();
+        ids.forEach((id) => patchOrder(id, { highestStatusTask: { Task: targetStage, CreatedAt: movedAt } }));
+      }
       setSelected((prev) => prev && ({
         ...prev,
         orders: prev.orders.filter((o) => !ids.includes(orderKey(o))),
@@ -89,13 +101,17 @@ export default function OrderStatsCards() {
     if (order) moveOrders([orderKey(order)], stage);
   };
 
+  // "Today's New" is about when the order itself was first created
+  // (order.createdAt), not when its stage was last touched — an old order
+  // that simply moved stage today is still an old order, not a new one.
+  const openOrders = useMemo(() => orderList.filter((o) => !isOrderTaskClosed(o)), [orderList]);
   const newOrders = useMemo(
-    () => orderList.filter((o) => isTodayDate(o?.highestStatusTask?.CreatedAt)),
-    [orderList]
+    () => openOrders.filter((o) => isTodayDate(o?.createdAt)),
+    [openOrders]
   );
   const oldOrders = useMemo(
-    () => orderList.filter((o) => !isTodayDate(o?.highestStatusTask?.CreatedAt)),
-    [orderList]
+    () => openOrders.filter((o) => !isTodayDate(o?.createdAt)),
+    [openOrders]
   );
 
   const cards = useMemo(() => {
@@ -158,7 +174,7 @@ export default function OrderStatsCards() {
           </IconButton>
         </DialogTitle>
 
-        {selected?.orders?.length > 0 && stageOptions.length > 0 && (
+        {selected?.orders?.length > 0 && (
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
             spacing={1}
@@ -183,20 +199,28 @@ export default function OrderStatsCards() {
               value={bulkTarget}
               onChange={(e) => setBulkTarget(e.target.value)}
               disabled={selectedIds.length === 0 || isMoving}
-              sx={{ minWidth: 160 }}
+              sx={{ minWidth: 170 }}
             >
               {stageOptions.map((name) => (
                 <MenuItem key={name} value={name}>{name}</MenuItem>
               ))}
+              {stageOptions.length > 0 && <Divider />}
+              <MenuItem value={DELIVERED_LABEL} sx={{ color: 'success.main', fontWeight: 700 }}>
+                <ListItemIcon sx={{ minWidth: 28 }}>
+                  <LocalShippingRoundedIcon fontSize="small" color="success" />
+                </ListItemIcon>
+                Delivered
+              </MenuItem>
             </TextField>
             <Button
               size="small"
               variant="contained"
+              color={bulkTarget === DELIVERED_LABEL ? 'success' : 'primary'}
               disabled={selectedIds.length === 0 || !bulkTarget || isMoving}
               onClick={() => moveOrders(selectedIds, bulkTarget)}
-              startIcon={isMoving ? <CircularProgress size={14} color="inherit" /> : <SwapHorizRoundedIcon fontSize="small" />}
+              startIcon={isMoving ? <CircularProgress size={14} color="inherit" /> : bulkTarget === DELIVERED_LABEL ? <LocalShippingRoundedIcon fontSize="small" /> : <SwapHorizRoundedIcon fontSize="small" />}
             >
-              Move
+              {bulkTarget === DELIVERED_LABEL ? 'Deliver' : 'Move'}
             </Button>
           </Stack>
         )}
@@ -213,17 +237,31 @@ export default function OrderStatsCards() {
                     key={id}
                     divider
                     secondaryAction={
-                      <Tooltip title="Move this order to another stage">
-                        <span>
-                          <IconButton
-                            size="small"
-                            disabled={isMoving || stageOptions.length === 0}
-                            onClick={(e) => openRowMenu(e, order)}
-                          >
-                            <SwapHorizRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <Stack direction="row" spacing={0.25}>
+                        <Tooltip title="Mark delivered">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="success"
+                              disabled={isMoving}
+                              onClick={() => moveOrders([id], DELIVERED_LABEL)}
+                            >
+                              <LocalShippingRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Move this order to another stage">
+                          <span>
+                            <IconButton
+                              size="small"
+                              disabled={isMoving}
+                              onClick={(e) => openRowMenu(e, order)}
+                            >
+                              <SwapHorizRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
                     }
                   >
                     <ListItemIcon sx={{ minWidth: 36 }}>
@@ -234,7 +272,7 @@ export default function OrderStatsCards() {
                       secondary={`Stage: ${order?.highestStatusTask?.Task || '—'} · ${formatDate(order?.highestStatusTask?.CreatedAt)}`}
                     />
                     {order?.highestStatusTask?.Task && (
-                      <Chip size="small" label={order.highestStatusTask.Task} sx={{ ml: 1, mr: 4, fontSize: 11 }} />
+                      <Chip size="small" label={order.highestStatusTask.Task} sx={{ ml: 1, mr: 9, fontSize: 11 }} />
                     )}
                   </ListItem>
                 );

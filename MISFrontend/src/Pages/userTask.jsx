@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions,
   DialogContent, DialogTitle, Stack, Tooltip, Typography,
@@ -25,7 +25,6 @@ const TIME_LABEL = {
 
 export default function UserTask() {
   const { userName, userGroup } = useAuth();
-  const [tasks, setTasks] = useState([]);
   const [attendanceFlow, setAttendanceFlow] = useState([]);
   const [error, setError] = useState('');
   const [pendingAssignments, setPendingAssignments] = useState([]);
@@ -58,13 +57,8 @@ export default function UserTask() {
     if (!userName) return;
     try {
       setError('');
-      const [summaryRes, attendanceRes] = await Promise.all([
-        axios.get('/api/dashboard/summary', { params: { userName, isAdmin: false } }),
-        axios.get(`/api/attendance/getTodayAttendance/${userName}`),
-      ]);
-      const myTasks = summaryRes?.data?.result?.myAssignedTasks || [];
+      const attendanceRes = await axios.get(`/api/attendance/getTodayAttendance/${userName}`);
       const pending = attendanceRes?.data?.pendingAssignments || [];
-      setTasks(myTasks);
       setAttendanceFlow(attendanceRes?.data?.flow || []);
       setPendingAssignments(pending);
     } catch (err) {
@@ -127,11 +121,6 @@ export default function UserTask() {
       setSopAction(false);
     }
   };
-
-  const taskSummary = useMemo(() => {
-    const overdue = tasks.filter((t) => t.overdue).length;
-    return overdue ? `${tasks.length} tasks · ${overdue} overdue` : `${tasks.length} tasks`;
-  }, [tasks]);
 
   const endDayButton = (() => {
     if (!hasStarted || hasEnded) return null;
@@ -297,51 +286,6 @@ export default function UserTask() {
           </Stack>
         </Box>
       )}
-
-      {/* ── Assigned tasks ── */}
-      <Box>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.6 }}>
-          <Typography variant="caption" fontWeight={800} color="text.disabled"
-            sx={{ textTransform: 'uppercase', letterSpacing: 0.8, fontSize: '0.6rem' }}>
-            Assigned Tasks
-          </Typography>
-          {tasks.length > 0 && (
-            <Chip label={taskSummary} color="primary" size="small" sx={{ height: 18, fontSize: '0.6rem' }} />
-          )}
-        </Stack>
-        <Stack spacing={0.4}>
-          {tasks.map((task) => (
-            <Stack
-              key={`${task.source}-${task.id}`}
-              direction="row" alignItems="center" spacing={0.75}
-              sx={{
-                py: 0.6, px: 0.75, borderRadius: 1.5,
-                bgcolor: task.overdue ? '#fff5f5' : 'rgba(0,0,0,0.02)',
-                border: '1px solid',
-                borderColor: task.overdue ? '#fecaca' : 'divider',
-              }}
-            >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="caption" fontWeight={700} noWrap sx={{ display: 'block' }}>
-                  {task.title}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', fontSize: '0.63rem' }}>
-                  {task.taskName} · {task.source}
-                </Typography>
-              </Box>
-              {task.overdue && (
-                <Chip size="small" color="error" label="Overdue" sx={{ height: 16, fontSize: '0.6rem', flexShrink: 0 }} />
-              )}
-            </Stack>
-          ))}
-          {!tasks.length && (
-            <Typography variant="caption" color="text.disabled"
-              sx={{ py: 1.5, textAlign: 'center', display: 'block' }}>
-              No tasks assigned yet
-            </Typography>
-          )}
-        </Stack>
-      </Box>
     </Stack>
   );
 }

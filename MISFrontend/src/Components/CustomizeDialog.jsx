@@ -136,23 +136,21 @@ export default function CustomizeDialog({ open, onClose }) {
     });
 
   /* ── widget toggles ── */
-  const allWidgetIds = [...(widgetLayout.left || []), ...(widgetLayout.center || []), ...(widgetLayout.right || [])];
+  const allWidgetIds = [...(widgetLayout.left || []), ...(widgetLayout.right || [])];
 
   const getPanel = (id) => {
-    if ((widgetLayout.left   || []).includes(id)) return 'Left';
-    if ((widgetLayout.center || []).includes(id)) return 'Center';
-    if ((widgetLayout.right  || []).includes(id)) return 'Right';
+    if ((widgetLayout.left  || []).includes(id)) return 'Left';
+    if ((widgetLayout.right || []).includes(id)) return 'Right';
     return null;
   };
 
   const addWidget = (id) =>
-    setWidgetLayout((prev) => ({ ...prev, center: [...(prev.center || []), id] }));
+    setWidgetLayout((prev) => ({ ...prev, right: [...(prev.right || []), id] }));
 
   const removeWidget = (id) =>
     setWidgetLayout((prev) => ({
-      left:   (prev.left   || []).filter((i) => i !== id),
-      center: (prev.center || []).filter((i) => i !== id),
-      right:  (prev.right  || []).filter((i) => i !== id),
+      left:  (prev.left  || []).filter((i) => i !== id),
+      right: (prev.right || []).filter((i) => i !== id),
     }));
 
   /* ── save / cancel / reset ── */
@@ -294,7 +292,7 @@ export default function CustomizeDialog({ open, onClose }) {
         {tab === 3 && (
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Toggle widgets on/off for your home page. Enabled widgets appear in the center panel.
+              Toggle widgets on/off for your home page. Enabled widgets appear in the right panel.
             </Typography>
             {WIDGET_REGISTRY.map((w) => {
               const active = allWidgetIds.includes(w.id);

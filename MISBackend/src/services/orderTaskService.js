@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
+const Customers = require('../repositories/customer');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
 const { renderTemplate } = require('./whatsappTemplateService');
@@ -52,6 +53,19 @@ function decorateOrder(order, now = new Date()) {
   };
 }
 
+// Order documents only carry Customer_uuid — every screen that lists orders
+// by task/assignment needs the customer's display name, so resolve it once
+// per batch here rather than each caller re-joining Customers itself.
+async function buildCustomerNameMap(orders) {
+  const uuids = [...new Set((orders || []).map((o) => o?.Customer_uuid).filter(Boolean))];
+  if (!uuids.length) return new Map();
+  const customers = await Customers.find(
+    { Customer_uuid: { $in: uuids } },
+    { Customer_uuid: 1, Customer_name: 1 }
+  ).lean();
+  return new Map(customers.map((c) => [c.Customer_uuid, c.Customer_name]));
+}
+
 async function getPendingOrdersForUser(userOrName) {
   const user = typeof userOrName === 'string'
     ? await Users.findOne({ User_name: userOrName })
@@ -66,7 +80,11 @@ async function getPendingOrdersForUser(userOrName) {
     ],
   }).sort({ dueDate: 1, createdAt: 1 }).lean();
 
-  const orders = rows.map((row) => decorateOrder(row)).filter(isDesignAssignmentPending);
+  const customerNames = await buildCustomerNameMap(rows);
+  const orders = rows
+    .map((row) => decorateOrder(row))
+    .filter(isDesignAssignmentPending)
+    .map((order) => ({ ...order, customerName: customerNames.get(order.Customer_uuid) || '' }));
   return {
     user: {
       id: String(user._id),
@@ -92,12 +110,14 @@ async function getPendingTasksOverview() {
     .sort({ dueDate: 1, createdAt: 1 })
     .lean();
 
+  const customerNames = await buildCustomerNameMap(rows);
   const tasks = rows.map((row) => {
     const decorated = decorateOrder(row, now);
     const assigned = decorated.latestStatusTask?.Assigned;
     return {
       orderId: String(row._id),
       orderNumber: row.Order_Number,
+      customerName: customerNames.get(row.Customer_uuid) || '',
       stage: row.stage,
       task: decorated.latestStatusTask?.Task || row.stage || 'Task',
       assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',

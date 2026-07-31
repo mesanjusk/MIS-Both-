@@ -40,13 +40,27 @@ const STAGE_TO_SECTION = new Map(
   WORKFLOW_SECTIONS.flatMap((section) => section.stages.map((stage) => [stage, section.key]))
 );
 
+// Many older orders never got a granular `stage` (they still carry the old
+// coarse 'design' value, or none at all) but their real progress is tracked
+// as free-text in Status.Task — "Printing", "Fitting", "Post Printing" etc.
+// Without this, every one of those orders falls back to the Design column
+// regardless of where the order actually is. Checked in this order because
+// "Ready to Print" contains both "ready" and "print" — print wins there.
+function guessSectionFromLabel(label) {
+  const text = String(label || '').toLowerCase();
+  if (text.includes('print')) return 'print';
+  if (/(fitting|bind|pack|post)/.test(text)) return 'postPrint';
+  if (/(ready|deliver)/.test(text)) return 'ready';
+  return 'design';
+}
+
 // Buckets tasks into the four production-pipeline columns (Design, Print,
 // Post Print, Ready & Archive) instead of the previous flat "by stage name"
 // grouping — matches how the team actually walks an order through the shop.
 function groupBySection(tasks) {
   const buckets = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, []]));
   for (const task of tasks) {
-    const key = STAGE_TO_SECTION.get(task.stage) || 'design';
+    const key = STAGE_TO_SECTION.get(task.stage) || guessSectionFromLabel(task.task || task.stage);
     buckets.get(key).push(task);
   }
   return buckets;

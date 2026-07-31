@@ -5,6 +5,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Divider,
   IconButton,
   ListItemIcon,
   ListItemText,
@@ -22,6 +23,7 @@ import {
 import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
 
@@ -37,6 +39,10 @@ const MOVABLE_STAGES = [
   { stage: 'bind_packing', label: 'Bind & Packing' },
   { stage: 'ready', label: 'Ready' },
 ];
+
+// Delivered is listed separately (and last) — it's a terminal move, not
+// another pipeline column, so it's visually split from the rest.
+const DELIVERED_STAGE = { stage: 'delivered', label: 'Delivered' };
 
 // Shared presentational list for order-based pending tasks — used for both
 // the "your tasks" and "team pending tasks" sections so the row shape,
@@ -169,6 +175,15 @@ export default function OrderTaskList({
           <ListItemText>{label}</ListItemText>
         </MenuItem>
       ))}
+      <Divider />
+      <MenuItem
+        disabled={moveTask?.stage === DELIVERED_STAGE.stage}
+        onClick={() => handlePickStage(DELIVERED_STAGE.stage)}
+        sx={{ color: 'success.main', fontWeight: 700 }}
+      >
+        <ListItemIcon><LocalShippingRoundedIcon fontSize="small" color="success" /></ListItemIcon>
+        <ListItemText>{DELIVERED_STAGE.label}</ListItemText>
+      </MenuItem>
     </Menu>
   );
 

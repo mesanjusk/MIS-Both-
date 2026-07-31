@@ -9,6 +9,7 @@ const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
+const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const logger = require('../utils/logger');
 
@@ -325,6 +326,24 @@ router.put('/settings/whatsapp-attendance', async (req, res) => {
   }
 });
 
+router.get('/settings/whatsapp-templates', async (_req, res) => {
+  try {
+    const templates = await getTemplates();
+    res.json({ success: true, result: templates });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put('/settings/whatsapp-templates', async (req, res) => {
+  try {
+    const templates = await saveTemplates(req.body?.templates || req.body || []);
+    res.json({ success: true, result: templates });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get('/ledger/:vendorUuid', async (req, res) => {
   try {
     const entries = await VendorLedger.find({ vendor_uuid: req.params.vendorUuid }).sort({ date: 1, createdAt: 1 }).lean();
@@ -438,7 +457,7 @@ router.get('/post-print/payables', async (req, res) => {
 
 router.get('/post-print/order-summary', async (req, res) => {
   try {
-    const POST_PRINT_STAGES = ['post_printing', 'finishing'];
+    const POST_PRINT_STAGES = ['fitting', 'bind_packing'];
     const Customers = require('../repositories/customer');
 
     const [orders, allJobs] = await Promise.all([

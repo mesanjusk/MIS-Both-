@@ -1,12 +1,13 @@
 const User = require('../repositories/users');
 const Attendance = require('../repositories/attendance');
 const { AppSetting } = require('../repositories/appSetting');
-const { markAttendance } = require('./attendanceService');
+const { markAttendance, isTransitionAllowed } = require('./attendanceService');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
 const WhatsAppPendingInput = require('../repositories/WhatsAppPendingInput');
 const AttendanceAbsence = require('../repositories/AttendanceAbsence');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 // buildOrderListSections is lazy-required inside sendPendingTaskList() —
 // whatsappOrderCommandService.js -> whatsappIdentityService.js already
@@ -179,20 +180,6 @@ function getCurrentAttendanceType(attendance) {
   return attendance?.User?.length ? attendance.User[attendance.User.length - 1]?.Type : null;
 }
 
-const TRANSITION_MAP = {
-  In: ['Lunch Out', 'Out'],
-  'Lunch Out': ['Lunch In'],
-  'Lunch In': ['Out'],
-  Out: [],
-};
-
-function isTransitionAllowed({ hasAttendance, currentType, attendanceType }) {
-  if (!hasAttendance) return attendanceType === 'In';
-  if (currentType === attendanceType) return false;
-  if (!currentType) return attendanceType === 'In';
-  return (TRANSITION_MAP[currentType] || []).includes(attendanceType);
-}
-
 function getApplicableCommands({ config, attendance }) {
   const hasAttendance = Boolean(attendance);
   const currentType = getCurrentAttendanceType(attendance);
@@ -242,10 +229,11 @@ async function sendPendingTaskList({ employee, payload, sendText, sendList, intr
 
   if (!orders.length) {
     if (sendText) {
-      await sendText({
-        to: payload.from,
-        body: introText || `Hi ${name}, no pending order tasks are assigned to you right now.`,
-      });
+      let body = introText;
+      if (!body) {
+        ({ body } = await renderTemplate('task.summary_none', { name }));
+      }
+      await sendText({ to: payload.from, body });
     }
     return;
   }
@@ -254,17 +242,26 @@ async function sendPendingTaskList({ employee, payload, sendText, sendList, intr
     // Lazy require — see the top-of-file note on the circular-require hazard.
     const { buildOrderListSections } = require('./whatsappOrderCommandService');
     const sections = await buildOrderListSections(orders.slice(0, 10));
+    let bodyText = introText;
+    let listButtonLabel = 'View tasks';
+    if (!bodyText) {
+      ({ body: bodyText, listButtonLabel } = await renderTemplate('task.list_intro', {
+        name,
+        count: orders.length,
+        plural: orders.length === 1 ? '' : 's',
+      }));
+    }
     await sendList({
       to: payload.from,
-      bodyText: introText || `Hi ${name}, you have ${orders.length} pending task${orders.length === 1 ? '' : 's'}:`,
-      buttonLabel: 'View tasks',
+      bodyText,
+      buttonLabel: listButtonLabel,
       sections,
     });
     return;
   }
 
   if (sendText) {
-    await sendText({ to: payload.from, body: buildTaskSummaryMessage({ employee, orders }) });
+    await sendText({ to: payload.from, body: await buildTaskSummaryMessage({ employee, orders }) });
   }
 }
 
@@ -285,14 +282,19 @@ async function handleNotComingTodayTap({ employee, payload, sendText }) {
   });
 
   if (sendText) {
-    await sendText({ to: payload.from, body: "Please share a short reason you won't be in today." });
+    const { body } = await renderTemplate('attendance.absence_reason_prompt');
+    await sendText({ to: payload.from, body });
   }
 
   return { handled: true, success: true, reason: 'absence_reason_prompted' };
 }
 
 async function notifyOfficeUsersOfAbsence({ employeeUuid, employeeName, forDate, reason }) {
-  const body = `${employeeName || 'An employee'} won't be in today (${forDate.toLocaleDateString('en-IN')}).\nReason: ${reason}`;
+  const { body } = await renderTemplate('attendance.office_absence_notify', {
+    employeeName: employeeName || 'An employee',
+    date: forDate.toLocaleDateString('en-IN'),
+    reason,
+  });
   const recipients = new Set();
 
   const ownerMobile = normalizePhoneForLookup(process.env.OWNER_WHATSAPP_NUMBER);
@@ -320,7 +322,8 @@ async function handleAbsenceReasonReply({ pending, payload, sendText, rawText })
   const reason = String(rawText || '').trim().slice(0, 300);
   if (!reason) {
     if (sendText) {
-      await sendText({ to: payload.from, body: 'Please send a short text reason.' });
+      const { body } = await renderTemplate('attendance.absence_empty_reason');
+      await sendText({ to: payload.from, body });
     }
     return { handled: true, success: false, reason: 'empty_reason' };
   }
@@ -340,10 +343,8 @@ async function handleAbsenceReasonReply({ pending, payload, sendText, rawText })
   });
 
   if (sendText) {
-    await sendText({
-      to: payload.from,
-      body: `Thanks — noted that you won't be in today. The team has been informed.`,
-    });
+    const { body } = await renderTemplate('attendance.absence_ack');
+    await sendText({ to: payload.from, body });
   }
 
   // Fire-and-forget: pure side-channel notify, must not block the employee's ack.
@@ -433,14 +434,15 @@ async function sendApplicableAttendanceButtons({ config, employee, payload, send
     id: `attn:mark:${cmd.key}`,
     title: String(cmd.label || cmd.key).slice(0, 20),
   }));
-  buttons.push({ id: 'attn:update', title: 'Update' });
+  const { body: updateButtonLabel } = await renderTemplate('attendance.update_button');
+  buttons.push({ id: 'attn:update', title: updateButtonLabel });
 
   const name = employee.name || employee.User_name || 'there';
-  const bodyText =
-    introText ||
-    (applicable.length
-      ? `Hi ${name}, what would you like to do?`
-      : `Hi ${name}, your attendance for today is complete.`);
+  let bodyText = introText;
+  if (!bodyText) {
+    const { body } = await renderTemplate(applicable.length ? 'attendance.menu_active' : 'attendance.menu_complete', { name });
+    bodyText = body;
+  }
 
   if (sendButtons) {
     await sendButtons({ to: payload.from, bodyText, buttons });
@@ -456,9 +458,14 @@ async function sendAttendanceUpdate({ config, employee, payload, sendText, sendB
   const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
   const attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate }).lean();
 
-  const statusLines = attendance?.User?.length
-    ? attendance.User.map((entry) => `${entry.Type}: ${entry.Time}`).join('\n')
-    : 'No attendance marked yet today.';
+  let statusLines;
+  if (attendance?.User?.length) {
+    statusLines = attendance.User.map((entry) => `${entry.Type}: ${entry.Time}`).join('\n');
+  } else {
+    ({ body: statusLines } = await renderTemplate('attendance.no_marks_yet'));
+  }
+
+  const { body: introText } = await renderTemplate('attendance.today_summary', { statusLines });
 
   // Status is merged into the task list's intro text (rather than sent as its
   // own message first) so an Update tap stays at 2 outbound messages total
@@ -468,7 +475,7 @@ async function sendAttendanceUpdate({ config, employee, payload, sendText, sendB
     payload,
     sendText,
     sendList,
-    introText: `Today's attendance:\n${statusLines}`,
+    introText,
   });
 
   return sendApplicableAttendanceButtons({ config, employee, payload, sendText, sendButtons });
@@ -519,7 +526,8 @@ async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButto
   const config = await getAttendanceConfig();
   if (!config.enabled) {
     if (sendText) {
-      await sendText({ to: payload.from, body: 'Attendance via WhatsApp is currently unavailable.' });
+      const { body } = await renderTemplate('attendance.disabled_reply');
+      await sendText({ to: payload.from, body });
     }
     return { handled: true, success: false, reason: 'disabled' };
   }

@@ -13,6 +13,7 @@ router.use(requireAuth);
 
 router.post("/addUsertask", async (req, res) => {
   const { Usertask_name, User, Deadline, Remark } = req.body;
+  const assignedBy = req.user?.userName || req.user?.User_name || 'Admin';
 
   try {
     const data = await Usertasks.findOne({ Usertask_name });
@@ -30,6 +31,7 @@ router.post("/addUsertask", async (req, res) => {
     const newTask = new Usertasks({
       Usertask_name,
       User,
+      AssignedBy: assignedBy,
       Usertask_Number: newTaskNumber,
       Date: new Date().toISOString().split("T")[0],
       Time: new Date().toLocaleTimeString("en-US", { hour12: false }),
@@ -45,7 +47,7 @@ router.post("/addUsertask", async (req, res) => {
         const formattedNumber = normalizeWhatsAppNumber(User);
         await sendWhatsAppText({
           to: formattedNumber,
-          body: `Hello! Your task "${Usertask_name}" has been created and is pending. Deadline: ${Deadline || "N/A"}`,
+          body: `Hello! Your task "${Usertask_name}" has been created and is pending. Deadline: ${Deadline || "N/A"}. Assigned by: ${assignedBy}`,
           source: 'TASK_ASSIGNED',
           activity: 'TASK_NOTIFICATIONS',
           contactName: User || '',

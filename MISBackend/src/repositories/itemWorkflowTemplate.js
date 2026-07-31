@@ -1,4 +1,9 @@
 const mongoose = require('mongoose');
+const { ORDER_STAGES } = require('../constants/orderStages');
+
+// Template steps never target the terminal 'lost'/'cancelled' exits, so
+// exclude them rather than duplicating the stage list by hand.
+const TEMPLATE_TARGET_STAGES = ORDER_STAGES.filter((s) => s !== 'lost' && s !== 'cancelled');
 
 const templateStepSchema = new mongoose.Schema(
   {
@@ -6,7 +11,7 @@ const templateStepSchema = new mongoose.Schema(
     label: { type: String, required: true },
     stage: {
       type: String,
-      enum: ['enquiry', 'quoted', 'approved', 'design', 'printing', 'post_printing', 'finishing', 'ready', 'delivered', 'paid'],
+      enum: TEMPLATE_TARGET_STAGES,
       required: true,
     },
     autoAssignGroup: { type: String, default: null },

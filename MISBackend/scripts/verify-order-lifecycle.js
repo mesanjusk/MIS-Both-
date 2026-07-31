@@ -46,9 +46,9 @@ async function main() {
   assert(order.stage === 'enquiry', 'new order defaults to enquiry stage');
   assert(Array.isArray(order.approvalRounds) && order.approvalRounds.length === 0, 'approvalRounds defaults to empty array');
 
-  await updateOrderStage({ orderId: order._id, stage: 'design' });
+  await updateOrderStage({ orderId: order._id, stage: 'new_design' });
   order = await Orders.findById(order._id);
-  assert(order.stage === 'design', 'stage advanced to design');
+  assert(order.stage === 'new_design', 'stage advanced to new_design');
   assert(order.stageHistory.length === 2, 'stageHistory recorded the move');
 
   let rollbackRejected = false;
@@ -58,13 +58,30 @@ async function main() {
     rollbackRejected = true;
     assert(e.statusCode === 400, 'rollback rejection is a 400');
   }
-  assert(rollbackRejected, 'rollback from design back to enquiry is rejected');
+  assert(rollbackRejected, 'rollback from new_design back to enquiry is rejected');
 
-  await moveOrderStage({ orderUuid: order.Order_uuid, stage: 'printing', assignedTo: 'Test User', note: 'sent to printer' });
+  // Design-loop exception: a revision request should be able to send an
+  // order from 'approval' back to 'old_design', unlike a normal rollback.
+  await updateOrderStage({ orderId: order._id, stage: 'approval' });
+  await updateOrderStage({ orderId: order._id, stage: 'old_design' });
   order = await Orders.findById(order._id);
-  assert(order.stage === 'printing', 'businessWorkflowService.moveOrderStage advanced stage to printing');
+  assert(order.stage === 'old_design', 'approval -> old_design (revision loop) is allowed');
+
+  let outOfLoopRollbackRejected = false;
+  try {
+    await updateOrderStage({ orderId: order._id, stage: 'approved' });
+  } catch (e) {
+    outOfLoopRollbackRejected = true;
+  }
+  assert(outOfLoopRollbackRejected, 'moving backward out of the design loop into approved is still rejected');
+
+  await updateOrderStage({ orderId: order._id, stage: 'approval' });
+
+  await moveOrderStage({ orderUuid: order.Order_uuid, stage: 'print', assignedTo: 'Test User', note: 'sent to printer' });
+  order = await Orders.findById(order._id);
+  assert(order.stage === 'print', 'businessWorkflowService.moveOrderStage advanced stage to print');
   assert(order.Status.length === 1, 'moveOrderStage appended a Status[] entry');
-  assert(order.Status[0].Task === 'printing - sent to printer', 'Status entry carries the note as task label');
+  assert(order.Status[0].Task === 'print - sent to printer', 'Status entry carries the note as task label');
 
   let order2 = await Orders.create({
     Order_uuid: uuid(),
@@ -79,7 +96,7 @@ async function main() {
 
   let terminalRejected = false;
   try {
-    await updateOrderStage({ orderId: order2._id, stage: 'design' });
+    await updateOrderStage({ orderId: order2._id, stage: 'new_design' });
   } catch (e) {
     terminalRejected = true;
   }
@@ -90,12 +107,12 @@ async function main() {
     Order_Number: 1003,
     Customer_uuid: 'cust-3',
     Items: [{ Item: 'Brochures', Quantity: 50, Rate: 10, Amount: 500 }],
-    stage: 'design',
-    stageHistory: [{ stage: 'enquiry' }, { stage: 'design' }],
+    stage: 'new_design',
+    stageHistory: [{ stage: 'enquiry' }, { stage: 'new_design' }],
   });
   await assignVendorToOrder({ orderUuid: order3.Order_uuid, vendorName: 'Acme Printers', amount: 300, workType: 'Printing' });
   order3 = await Orders.findById(order3._id);
-  assert(order3.stage === 'printing', 'assigning a vendor mid-flow jumps stage forward to printing');
+  assert(order3.stage === 'print', 'assigning a vendor mid-flow jumps stage forward to print');
   assert(order3.vendorAssignments.length === 1, 'vendor assignment recorded on the order');
 
   await mongoose.disconnect();

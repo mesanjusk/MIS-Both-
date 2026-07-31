@@ -36,9 +36,8 @@ const DEFAULT_PERMISSIONS = {
 const HOME_WIDGETS = [
   { id: 'quickLinks',       label: 'Quick Links',          desc: 'Navigate to all tools & pages',       color: '#16a34a', bg: '#dcfce7' },
   { id: 'attendance',       label: 'Attendance Snapshot',  desc: 'Live team attendance (admin only)',    color: '#2563eb', bg: '#dbeafe', adminOnly: true },
-  { id: 'myTasks',          label: 'My Tasks',             desc: 'Current task assignments for user',   color: '#d97706', bg: '#fef3c7' },
+  { id: 'workflow',         label: 'Workflow',             desc: 'SOPs, pending tasks by stage, and design files', color: '#d97706', bg: '#fef3c7' },
   { id: 'recentAttendance', label: 'My Attendance',        desc: 'Recent personal check-in/out logs',   color: '#7c3aed', bg: '#ede9fe' },
-  { id: 'pendingTasks',     label: 'Pending Task Queue',   desc: 'Click any task to update progress',   color: '#dc2626', bg: '#fee2e2' },
   { id: 'ordersBoard',      label: 'Orders Pipeline',      desc: 'Full order board & activity stream',  color: '#0891b2', bg: '#cffafe' },
 ];
 

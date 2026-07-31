@@ -3,6 +3,7 @@ const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const Users = require('../repositories/users');
 const Orders = require('../repositories/order');
 const Usertasks = require('../repositories/usertask');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 
 async function processScheduledMessages() {
@@ -94,12 +95,30 @@ async function buildDigestForUser(user, mode = 'morning') {
   const taskLines = tasks.map((task) => `${task.Usertask_name} - Due ${task.Deadline ? new Date(task.Deadline).toLocaleDateString('en-IN') : '-'}`);
   const total = orders.length + tasks.length;
 
+  const businessName = process.env.BUSINESS_NAME || process.env.APP_NAME || 'MIS System';
+
   if (mode === 'evening') {
-    return `Hi ${user.User_name}, ${total} items are overdue:\n${[...orderLines, ...taskLines].join('\n')}\nPlease update status or contact manager.`;
+    const { body } = await renderTemplate('digest.evening', {
+      userName: user.User_name,
+      total,
+      lines: [...orderLines, ...taskLines].join('\n'),
+    });
+    return body;
   }
 
-  if (!total) return `Good morning ${user.User_name}! No pending tasks today.`;
-  return `Good Morning ${user.User_name}! Your tasks for today:\n\nORDERS:\n${orderLines.join('\n') || '-'}\n\nTASKS:\n${taskLines.join('\n') || '-'}\n\nTotal pending: ${total}\nHave a productive day! - MIS System`;
+  if (!total) {
+    const { body } = await renderTemplate('digest.morning_empty', { userName: user.User_name });
+    return body;
+  }
+
+  const { body } = await renderTemplate('digest.morning', {
+    userName: user.User_name,
+    orderLines: orderLines.join('\n') || '-',
+    taskLines: taskLines.join('\n') || '-',
+    total,
+    businessName,
+  });
+  return body;
 }
 
 async function sendDigestToAllUsers(mode = 'morning') {
@@ -154,16 +173,12 @@ async function sendOwnerDailySummary() {
       if (total > paid) totalOutstanding += (total - paid);
     }
 
-    const summary = [
-      '📊 *Daily Business Summary*',
-      `${now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`,
-      '',
-      `📋 Active Orders: ${pendingOrders.length}`,
-      `🚚 Ready to Dispatch: ${readyOrders.length}`,
-      `💰 Total Outstanding: ₹${totalOutstanding.toLocaleString('en-IN')}`,
-      '',
-      'Login to dashboard for full details.',
-    ].join('\n');
+    const { body: summary } = await renderTemplate('digest.owner_summary', {
+      date: now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
+      activeOrders: pendingOrders.length,
+      readyOrders: readyOrders.length,
+      outstanding: totalOutstanding.toLocaleString('en-IN'),
+    });
 
     await sendWhatsAppText({
       to: normalizeNumber(ownerMobile),

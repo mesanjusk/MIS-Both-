@@ -163,7 +163,7 @@ export default function PostPrintingJob() {
       if (vendorRes.status === 'fulfilled') setVendors(Array.isArray(vendorRes.value) ? vendorRes.value : []);
       if (orderRes.status === 'fulfilled') {
         const rows = orderRes.value?.data?.result ?? [];
-        setOrders(Array.isArray(rows) ? rows.filter((o) => ['post_printing', 'finishing'].includes(o.stage)) : []);
+        setOrders(Array.isArray(rows) ? rows.filter((o) => ['fitting', 'bind_packing'].includes(o.stage)) : []);
       }
       if (pmRes.status === 'fulfilled') {
         const modes = pmRes.value?.data?.result || pmRes.value?.data || [];

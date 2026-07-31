@@ -6,6 +6,7 @@ const statusSchema = new mongoose.Schema(
   {
     Task: { type: String, required: true },
     Assigned: { type: String, required: true },
+    AssignedBy: { type: String, default: '' },
     Delivery_Date: { type: Date, required: true },
     Status_number: { type: Number, required: true },
     CreatedAt: { type: Date, required: true },

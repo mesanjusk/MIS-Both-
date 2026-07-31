@@ -141,9 +141,9 @@ router.post("/addOrder", async (req, res) => {
       Steps: flatSteps,
       Items: enrichedItems,
       workRows,
-      stage: String(stage || (isEnquiryOnly ? "enquiry" : "design")).toLowerCase(),
+      stage: String(stage || (isEnquiryOnly ? "enquiry" : "new_design")).toLowerCase(),
       stageHistory: [
-        { stage: String(stage || (isEnquiryOnly ? "enquiry" : "design")).toLowerCase(), timestamp: new Date() },
+        { stage: String(stage || (isEnquiryOnly ? "enquiry" : "new_design")).toLowerCase(), timestamp: new Date() },
       ],
       priority: ["low", "medium", "high"].includes(String(priority || "").toLowerCase())
         ? String(priority).toLowerCase()
@@ -155,7 +155,7 @@ router.post("/addOrder", async (req, res) => {
 
     await newOrder.save();
 
-    if (String(newOrder.stage || "").toLowerCase() === "design") {
+    if (["new_design", "old_design"].includes(String(newOrder.stage || "").toLowerCase())) {
       await autoCreateDesignerTask(newOrder);
     }
 

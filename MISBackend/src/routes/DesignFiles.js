@@ -31,8 +31,10 @@ const PurchaseOrder = require('../repositories/purchaseOrder');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
+const Users = require('../repositories/users');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
 const { upsertVendorJob } = require('../services/vendorJobService');
+const { assignOrderToUser, notifyUserOfAssignment, notifyAdminsOfAssignment } = require('../services/orderTaskService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -219,10 +221,42 @@ async function applyLinks(enriched) {
       orderNumber: order.Order_Number,
       orderStage: order.stage,
       orderAmount: order.Amount,
+      customerName: link.customerName || null,
       linkStatus: link.linkStatus || 'confirmed',
       linkedViaManual: true,
       printJobId: link.printJobId || null,
       printJobNumber: link.printJobNumber || null,
+    };
+  });
+}
+
+/**
+ * Merges assignedTo/assignedToName onto every file that has an active
+ * DesignFileLink assignment, regardless of whether the file is matched to a
+ * real order — assignment is independent of the order-matching lifecycle.
+ */
+async function applyAssignments(enriched) {
+  const ids = enriched.map((f) => f.fileId);
+  if (!ids.length) return enriched;
+
+  const links = await DesignFileLink.find(
+    { driveFileId: { $in: ids }, assignedTo: { $ne: null } },
+    { driveFileId: 1, assignedTo: 1, assignedToName: 1, assignedBy: 1, assignedAt: 1 }
+  ).lean();
+  if (!links.length) return enriched;
+
+  const map = {};
+  links.forEach((l) => { map[l.driveFileId] = l; });
+
+  return enriched.map((file) => {
+    const link = map[file.fileId];
+    if (!link) return file;
+    return {
+      ...file,
+      assignedTo: String(link.assignedTo),
+      assignedToName: link.assignedToName,
+      assignedBy: link.assignedBy,
+      assignedAt: link.assignedAt,
     };
   });
 }
@@ -278,11 +312,23 @@ router.get('/scan', async (_req, res) => {
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
-          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1, isTemporary: 1 }
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, orderNote: 1, isTemporary: 1, Customer_uuid: 1 }
         ).lean()
       : [];
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
+
+    // Customer names for the assign menu / row badges — orders only carry
+    // Customer_uuid, so resolve display names once per batch here.
+    const customerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const customerNameByUuid = {};
+    if (customerUuids.length) {
+      const customerDocs = await Customers.find(
+        { Customer_uuid: { $in: customerUuids } },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean();
+      customerDocs.forEach((c) => { customerNameByUuid[c.Customer_uuid] = c.Customer_name; });
+    }
 
     // 4. Enrich files with matched order data (filename-based matching)
     let enriched = allFiles.map((file) => {
@@ -295,12 +341,16 @@ router.get('/scan', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
+        customerName: order ? customerNameByUuid[order.Customer_uuid] || null : null,
         linkedViaManual: false,
       };
     });
 
     // 5. For still-unmatched files, check DesignFileLink (manual links override)
     enriched = await applyLinks(enriched);
+
+    // 5b. Merge in any file assignments (independent of order-matching)
+    enriched = await applyAssignments(enriched);
 
     // 6. Build summary
     const summary = {
@@ -609,6 +659,157 @@ router.post('/rename-file', async (req, res) => {
   }
 });
 
+// ─── POST /api/design-files/create-file ──────────────────────────────────────
+/**
+ * "+" button next to Refresh — copies the same template file used by
+ * /orders/new into the "1 New Design" Drive folder, renamed to whatever the
+ * user typed. Google Drive Desktop then syncs it down to the local machine
+ * the same way order-created files already do.
+ *
+ * Body: { fileName }
+ */
+router.post('/create-file', async (req, res) => {
+  try {
+    const fileName = String(req.body?.fileName || '').trim();
+    if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
+
+    const templateFileId = process.env.DRIVE_TEMPLATE_FILE_ID;
+    if (!templateFileId) return res.status(400).json({ success: false, message: 'DRIVE_TEMPLATE_FILE_ID not configured' });
+
+    const dailyFolderId = process.env.DRIVE_DAILY_FOLDER_ID;
+    if (!dailyFolderId) return res.status(400).json({ success: false, message: 'DRIVE_DAILY_FOLDER_ID not configured' });
+
+    let drive;
+    try {
+      drive = await getAuthorizedDriveClient();
+    } catch (authErr) {
+      if (authErr?.reconnectRequired) {
+        return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+      }
+      throw authErr;
+    }
+
+    const allFolders = await listChildren(drive, dailyFolderId, 'application/vnd.google-apps.folder');
+    const newDesignFolder = allFolders.find((f) => folderStageNumber(f.name) === 1);
+    if (!newDesignFolder) {
+      return res.status(404).json({ success: false, message: '"1 - New Design" folder not found in Drive' });
+    }
+
+    const safeName = sanitize(fileName);
+    const finalName = /\.[a-zA-Z0-9]{2,5}$/.test(safeName) ? safeName : `${safeName}.cdr`;
+
+    const response = await drive.files.copy({
+      fileId: templateFileId,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      requestBody: { name: finalName, parents: [newDesignFolder.id] },
+      fields: 'id,name,parents,webViewLink',
+    });
+
+    return res.json({ success: true, file: response.data });
+  } catch (err) {
+    logger.error({ err }, 'design-files/create-file error');
+    if (err?.reconnectRequired) {
+      return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/assign ───────────────────────────────────────────
+/**
+ * Assigns a design file to a team member — works even if the file has no
+ * MIS order yet (standalone assignment tracked on DesignFileLink). If the
+ * file is already linked to a real order, also runs the existing order-level
+ * assignment (WhatsApp to assignee + admin overview, dashboard task lists).
+ * Either way, the Drive file is renamed to tag the assignee's name so the
+ * assignment is visible in the local (Drive Desktop synced) folder too.
+ *
+ * Body: { fileId, fileName, orderUuid?, orderNumber?, userId, assignedBy }
+ */
+router.post('/assign', async (req, res) => {
+  try {
+    const { fileId, fileName, orderUuid, userId, assignedBy } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
+
+    const user = await Users.findById(userId);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const resolvedAssignedBy = assignedBy || req.user?.userName || 'System';
+
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          assignedTo: user._id,
+          assignedToName: user.User_name,
+          assignedBy: resolvedAssignedBy,
+          assignedAt: new Date(),
+          ...(fileName ? { fileName } : {}),
+        },
+        $setOnInsert: { linkStatus: 'draft' },
+      },
+      { upsert: true }
+    );
+
+    if (orderUuid) {
+      try {
+        await assignOrderToUser({ orderId: orderUuid, userId: user._id, assignedBy: resolvedAssignedBy, via: 'design-file' });
+      } catch (orderErr) {
+        logger.warn('design-files/assign: order-level assign failed — %s', orderErr.message);
+      }
+    } else {
+      // Standalone file (no order yet) — no order/customer to look up, so use
+      // the same assignee + admin notification model as order-level assigns
+      // (assignOrderToUser), just with a synthetic "order" and the file name
+      // standing in for the customer field.
+      const orderLike = { Order_Number: null, Customer_uuid: null, dueDate: null };
+      const customerNameOverride = fileName ? `File: ${fileName}` : 'Design file';
+      try {
+        await notifyUserOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
+      } catch (notifyErr) {
+        logger.warn('design-files/assign: assignee WhatsApp notify failed — %s', notifyErr.message);
+      }
+      try {
+        await notifyAdminsOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
+      } catch (notifyErr) {
+        logger.warn('design-files/assign: admin WhatsApp notify failed — %s', notifyErr.message);
+      }
+    }
+
+    // Rename Drive file to tag the assignee — isolated, never fails the assign.
+    let renamed = false;
+    let newName = fileName || null;
+    try {
+      const drive = await getAuthorizedDriveClient();
+      const current = fileName || '';
+      const alreadyTagged = new RegExp(`\\[${user.User_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'i').test(current);
+      if (current && !alreadyTagged) {
+        const dot = current.lastIndexOf('.');
+        const base = dot !== -1 ? current.slice(0, dot) : current;
+        const ext = dot !== -1 ? current.slice(dot) : '';
+        newName = `${base} [${user.User_name}]${ext}`;
+        await drive.files.update({
+          fileId,
+          supportsAllDrives: true,
+          requestBody: { name: newName },
+          fields: 'id,name',
+        });
+        await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+        renamed = true;
+      }
+    } catch (renameErr) {
+      logger.warn('design-files/assign: Drive rename failed — %s', renameErr?.message);
+    }
+
+    return res.json({ success: true, assignedToName: user.User_name, renamed, newName });
+  } catch (err) {
+    logger.error({ err }, 'design-files/assign error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ─── POST /api/design-files/auto-temp-orders ─────────────────────────────────
 /**
  * For each unmatched file passed in, creates a temporary placeholder order and
@@ -650,8 +851,8 @@ router.post('/auto-temp-orders', async (req, res) => {
         Customer_uuid: tempCustomer.Customer_uuid,
         orderNote: `[TEMP] ${file.fileName || file.fileId}`,
         orderMode: 'note',
-        stage: 'design',
-        stageHistory: [{ stage: 'design', timestamp: new Date() }],
+        stage: 'new_design',
+        stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
         priority: 'medium',
         isTemporary: true,
         driveFile: { status: 'skipped' },
@@ -815,9 +1016,9 @@ router.post('/confirm-final', async (req, res) => {
       orderNote: noteText,
       orderMode: isDetailed ? 'items' : 'note',
       Remark: noteText,
-      stage: 'design',
+      stage: 'new_design',
       priority: 'medium',
-      stageHistory: [{ stage: 'design', timestamp: new Date() }],
+      stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
       driveFile: { status: 'skipped' },
     };
     if (isDetailed) {
@@ -1212,11 +1413,21 @@ router.get('/scan-archive', async (_req, res) => {
     const orders = orderNumbers.length
       ? await Orders.find(
           { Order_Number: { $in: orderNumbers } },
-          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, isTemporary: 1 }
+          { Order_uuid: 1, Order_Number: 1, stage: 1, Amount: 1, isTemporary: 1, Customer_uuid: 1 }
         ).lean()
       : [];
     const orderByNumber = {};
     orders.forEach((o) => { orderByNumber[o.Order_Number] = o; });
+
+    const archiveCustomerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const archiveCustomerNameByUuid = {};
+    if (archiveCustomerUuids.length) {
+      const customerDocs = await Customers.find(
+        { Customer_uuid: { $in: archiveCustomerUuids } },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean();
+      customerDocs.forEach((c) => { archiveCustomerNameByUuid[c.Customer_uuid] = c.Customer_name; });
+    }
 
     function enrichFile(file) {
       const order = file.extractedOrderNumber ? orderByNumber[file.extractedOrderNumber] || null : null;
@@ -1228,6 +1439,7 @@ router.get('/scan-archive', async (_req, res) => {
         orderStage: order?.stage || null,
         orderAmount: order?.Amount || null,
         isTemporaryOrder: order?.isTemporary || false,
+        customerName: order ? archiveCustomerNameByUuid[order.Customer_uuid] || null : null,
       };
     }
 
@@ -1242,7 +1454,8 @@ router.get('/scan-archive', async (_req, res) => {
 
     // 5. Apply DesignFileLink matches for archive files
     const allEnrichedFlat = enrichedDates.flatMap((d) => d.sections.flatMap((s) => s.files));
-    const linkedEnrichedFlat = await applyLinks(allEnrichedFlat);
+    let linkedEnrichedFlat = await applyLinks(allEnrichedFlat);
+    linkedEnrichedFlat = await applyAssignments(linkedEnrichedFlat);
     const linkedById = {};
     linkedEnrichedFlat.forEach((f) => { linkedById[f.fileId] = f; });
 

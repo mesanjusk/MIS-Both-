@@ -2,6 +2,7 @@ const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
 const { getOrderTotal, getReceivedAmountForOrder } = require('./businessWorkflowService');
 const { buildCustomerPhoneQuery } = require('./whatsappIdentityService');
+const { renderTemplate } = require('./whatsappTemplateService');
 
 const LIST_LIMIT = 10;
 const MY_ORDERS_COMMAND = /^(my\s*orders?|orders?)$/i;
@@ -50,18 +51,15 @@ function buildCustomerOrderListSections(orders) {
 
 async function buildCustomerOrderDetailMessage(order) {
   const outstanding = await getOutstandingForOrder(order);
-  const lines = [
-    `Order #${order.Order_Number}`,
-    `Status: ${order.stage}`,
-    `Amount: ₹${formatAmount(order)}`,
-  ];
-  if (outstanding > 0) {
-    lines.push(`Balance due: ₹${outstanding}`);
-    lines.push('For payment options, reply CONTACT and our team will assist you.');
-  } else {
-    lines.push('Fully paid — thank you!');
-  }
-  return lines.join('\n');
+  const header = await renderTemplate('customer.detail_header', {
+    orderNumber: order.Order_Number,
+    stage: order.stage,
+    amount: formatAmount(order),
+  });
+  const footer = outstanding > 0
+    ? await renderTemplate('customer.detail_footer_due', { outstanding })
+    : await renderTemplate('customer.detail_footer_paid');
+  return [header.body, footer.body].join('\n');
 }
 
 // Entry point wired into the WhatsApp inbound pipeline, tried only after the
@@ -82,20 +80,26 @@ async function handleWhatsAppCustomerOrderCommand({ payload, sendText, sendList 
 
   const customer = await resolveCustomerFromWhatsApp(payload?.from);
   if (!customer) {
-    await sendText({ to: payload.from, body: "We couldn't find an order account for this number. Please contact us directly." });
+    const { body } = await renderTemplate('customer.no_account');
+    await sendText({ to: payload.from, body });
     return { handled: true };
   }
 
   if (isMyOrders) {
     const orders = await findOrdersForCustomer(customer);
     if (!orders.length) {
-      await sendText({ to: payload.from, body: "You don't have any orders with us yet." });
+      const { body } = await renderTemplate('customer.no_orders');
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
+    const { body, listButtonLabel } = await renderTemplate('customer.list_intro', {
+      count: orders.length,
+      plural: orders.length === 1 ? '' : 's',
+    });
     await sendList({
       to: payload.from,
-      bodyText: `${orders.length} order${orders.length === 1 ? '' : 's'} on your account:`,
-      buttonLabel: 'View orders',
+      bodyText: body,
+      buttonLabel: listButtonLabel,
       sections: buildCustomerOrderListSections(orders),
     });
     return { handled: true };
@@ -108,7 +112,8 @@ async function handleWhatsAppCustomerOrderCommand({ payload, sendText, sendList 
     // Ownership check — never show an order that isn't this customer's,
     // even if the id looks well-formed.
     if (!order || order.Customer_uuid !== customer.Customer_uuid) {
-      await sendText({ to: payload.from, body: 'Order not found on your account.' });
+      const { body } = await renderTemplate('customer.order_not_found');
+      await sendText({ to: payload.from, body });
       return { handled: true };
     }
 

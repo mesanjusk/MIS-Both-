@@ -2,20 +2,16 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, IconButton, Tooltip, Stack, Paper,
-  Button, Drawer, LinearProgress, Dialog, DialogContent,
-  Chip, Grid, Divider,
+  Button, Drawer, LinearProgress,
+  Chip, Grid, useMediaQuery,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import axios from '../apiClient.js';
-import ClickAwayListener from '@mui/material/ClickAwayListener';
 
 import AllOrder from '../Reports/allOrder';
-import UserTask from './userTask';
-import PendingTasks from './PendingTasks';
 import AllAttandance from './AllAttandance';
-import TaskUpdate from './taskUpdate';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { useDashboardCustomize } from './Layout';
@@ -24,22 +20,14 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
-import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
-import Brightness3RoundedIcon from '@mui/icons-material/Brightness3Rounded';
-import WbTwilightRoundedIcon from '@mui/icons-material/WbTwilightRounded';
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import AddShoppingCartRoundedIcon from '@mui/icons-material/AddShoppingCartRounded';
-import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
-import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
-import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
-import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
-import AddCardRoundedIcon from '@mui/icons-material/AddCardRounded';
 
-import { ROUTES } from '../constants/routes';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
-import PendingOverviewWidget from '../Components/dashboard/PendingOverviewWidget';
+import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
+import OrderStatsCards from '../Components/dashboard/OrderStatsCards';
+import AttendanceQuickAction from '../Components/dashboard/AttendanceQuickAction';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
@@ -57,17 +45,9 @@ function ColoredName({ name }) {
   );
 }
 
-const getDefaultLayout = (isAdmin) => {
-  if (!isAdmin) return DEFAULT_LAYOUT;
-  return { ...DEFAULT_LAYOUT, right: [...(DEFAULT_LAYOUT.right || []), 'pendingOverview'] };
-};
-
-function getGreeting() {
-  const h = new Date().getHours();
-  if (h < 12) return { text: 'Good morning', icon: WbSunnyRoundedIcon };
-  if (h < 17) return { text: 'Good afternoon', icon: WbTwilightRoundedIcon };
-  return { text: 'Good evening', icon: Brightness3RoundedIcon };
-}
+// The merged 'workflow' widget adapts to admin/non-admin internally, so the
+// default layout no longer needs an admin-only widget appended here.
+const getDefaultLayout = () => DEFAULT_LAYOUT;
 
 /* ─── Quick Links Widget ─────────────────────────────────────────── */
 function QuickLinksWidget({ userGroup, isAdmin }) {
@@ -212,9 +192,10 @@ function DropZoneGap({ panelId, index, isDragging, onDropAt }) {
 }
 
 /* ─── Widget Card Wrapper ──────────────────────────────────────── */
-function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDragStart, onDragEnd }) {
+function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDragStart, onDragEnd, collapsible, isExpanded, onToggleExpand }) {
   const wdef = WIDGET_REGISTRY.find((w) => w.id === widgetId);
   const Icon = wdef?.icon;
+  const expanded = !collapsible || isExpanded;
 
   return (
     <Paper
@@ -241,12 +222,14 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         direction="row"
         alignItems="center"
         spacing={0.75}
+        onClick={collapsible ? () => onToggleExpand(widgetId) : undefined}
         sx={{
           px: 1.5,
           py: 0.9,
           borderBottom: '1px solid',
           borderColor: 'divider',
           bgcolor: editMode ? alpha('#16a34a', 0.03) : 'rgba(240,253,244,0.5)',
+          cursor: collapsible ? 'pointer' : editMode ? 'grab' : 'default',
         }}
       >
         {editMode && (
@@ -260,11 +243,22 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
         <Typography variant="caption" fontWeight={700} sx={{ flex: 1, color: 'text.secondary', fontSize: '0.72rem' }}>
           {wdef?.label || widgetId}
         </Typography>
+        {collapsible && (
+          <ExpandMoreRoundedIcon
+            sx={{
+              fontSize: 18,
+              color: 'text.disabled',
+              flexShrink: 0,
+              transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s',
+            }}
+          />
+        )}
         {/* Close button — always visible on hover */}
         <Tooltip title="Remove widget">
           <IconButton
             size="small"
-            onClick={() => onRemove(widgetId)}
+            onClick={(e) => { e.stopPropagation(); onRemove(widgetId); }}
             sx={{
               p: 0.25,
               opacity: editMode ? 1 : 0,
@@ -278,7 +272,7 @@ function WidgetWrapper({ widgetId, editMode, onRemove, children, panelId, onDrag
           </IconButton>
         </Tooltip>
       </Stack>
-      <Box sx={{ p: 1.25, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+      <Box sx={{ display: expanded ? 'block' : 'none', p: 1.25, overflowY: 'auto', flex: 1, minHeight: 0 }}>
         {children}
       </Box>
     </Paper>
@@ -290,10 +284,11 @@ function DashboardPanel({
   panelId, widgetIds, editMode, isDragging,
   onDragStart, onDragEnd, onDropAt, onDropOnPanel,
   onRemoveWidget, renderWidget,
+  collapsible, expandedWidgetId, onToggleWidget,
 }) {
   const [panelOver, setPanelOver] = useState(false);
   const isEmpty = widgetIds.length === 0;
-  const panelLabels = { left: 'Left Panel', center: 'Center Panel', right: 'Right Panel' };
+  const panelLabels = { left: 'Left Panel', right: 'Right Panel' };
 
   return (
     <Box
@@ -332,6 +327,9 @@ function DashboardPanel({
               panelId={panelId}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
+              collapsible={collapsible}
+              isExpanded={expandedWidgetId === id}
+              onToggleExpand={onToggleWidget}
             >
               {renderWidget(id)}
             </WidgetWrapper>
@@ -442,18 +440,28 @@ export default function Home() {
   const location = useLocation();
   const { search } = useLocation();
   const { userName, userGroup, isAdmin, permissions } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [attendanceData, setAttendanceData] = useState([]);
-  const [task, setTask] = useState([]);
-  const [selectedTaskId, setSelectedTaskId] = useState(null);
-  const [showTaskModal, setShowTaskModal] = useState(false);
 
   const [layout, setLayout] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragPayload = useRef(null);
+
+  /* Accordion widgets on mobile — only one open at a time */
+  const [expandedWidget, setExpandedWidget] = useState(null);
+  const handleToggleWidget = useCallback((id) => {
+    setExpandedWidget((prev) => (prev === id ? null : id));
+  }, []);
+  useEffect(() => {
+    if (!layout || expandedWidget) return;
+    const first = (layout.left || [])[0] || (layout.right || [])[0];
+    if (first) setExpandedWidget(first);
+  }, [layout, expandedWidget]);
 
   /* Widget library via context */
   const dashCtx = useDashboardCustomize();
@@ -467,39 +475,11 @@ export default function Home() {
     }
   }, [search]);
 
-  /* Plus dropdown */
-  const [plusOpen, setPlusOpen] = useState(false);
-  const plusAnchorRef = useRef(null);
-
-  /* Search */
-  const [searchQuery, setSearchQuery] = useState('');
-  const handleSearch = () => {
-    const q = searchQuery.trim();
-    if (!q) return;
-    navigate(`${ROUTES.REPORTS_ORDERS_LIST}?q=${encodeURIComponent(q)}`);
-    setSearchQuery('');
-  };
-
-  const PLUS_SECTIONS = [
-    {
-      label: '⚡ Quick Add',
-      items: [
-        { label: 'New Order', icon: <AddShoppingCartRoundedIcon fontSize="small" />, onClick: () => navigate(ROUTES.ORDERS_NEW) },
-        { label: 'Receipt', icon: <ReceiptLongRoundedIcon fontSize="small" />, path: ROUTES.RECEIPT },
-        { label: 'Payment', icon: <PaymentsRoundedIcon fontSize="small" />, path: ROUTES.PAYMENT },
-        { label: 'Followup', icon: <NotificationsActiveRoundedIcon fontSize="small" />, path: ROUTES.FOLLOWUPS },
-        { label: 'New Task', icon: <AddTaskRoundedIcon fontSize="small" />, path: ROUTES.TASKS_NEW },
-        { label: 'Add UPI', icon: <AddCardRoundedIcon fontSize="small" />, onClick: () => dashCtx?.openUpi?.() },
-      ],
-    },
-  ];
-
   /* Init user */
   useEffect(() => {
     const user = location.state?.id || localStorage.getItem('User_name') || userName;
     if (!user) { navigate('/'); return; }
     setLoggedInUser(user);
-    fetchData();
     fetchAttendance(user);
     const timer = setTimeout(() => setIsLoading(false), 1500);
     return () => clearTimeout(timer);
@@ -535,13 +515,6 @@ export default function Home() {
     window.addEventListener('mis_widget_layout_changed', handler);
     return () => window.removeEventListener('mis_widget_layout_changed', handler);
   }, [userName]);
-
-  const fetchData = async () => {
-    try {
-      const res = await axios.get('/api/usertasks/GetUsertaskList');
-      setTask(res.data.success ? res.data.result : []);
-    } catch { toast.error('Failed to load tasks'); }
-  };
 
   const fetchAttendance = async (currentUser) => {
     try {
@@ -586,7 +559,6 @@ export default function Home() {
     setLayout((prev) => {
       const next = {
         left: [...(prev.left || [])],
-        center: [...(prev.center || [])],
         right: [...(prev.right || [])],
       };
       next[fromPanel] = next[fromPanel].filter((id) => id !== widgetId);
@@ -605,7 +577,6 @@ export default function Home() {
     setLayout((prev) => {
       const next = {
         left: [...(prev.left || [])],
-        center: [...(prev.center || [])],
         right: [...(prev.right || [])],
       };
       next[fromPanel] = next[fromPanel].filter((id) => id !== widgetId);
@@ -619,19 +590,18 @@ export default function Home() {
   const handleRemoveWidget = useCallback((widgetId) => {
     setLayout((prev) => ({
       left: (prev.left || []).filter((id) => id !== widgetId),
-      center: (prev.center || []).filter((id) => id !== widgetId),
       right: (prev.right || []).filter((id) => id !== widgetId),
     }));
   }, []);
 
   const handleAddWidget = useCallback((widgetId) => {
     setLayout((prev) => {
-      const all = [...(prev.left || []), ...(prev.center || []), ...(prev.right || [])];
+      const all = [...(prev.left || []), ...(prev.right || [])];
       if (all.includes(widgetId)) return prev;
-      return { ...prev, center: [...(prev.center || []), widgetId] };
+      return { ...prev, right: [...(prev.right || []), widgetId] };
     });
     setShowLibrary(false);
-    toast.success('Widget added to center panel');
+    toast.success('Widget added to right panel');
   }, []);
 
   const handleResetLayout = useCallback(() => {
@@ -646,24 +616,14 @@ export default function Home() {
         return <QuickLinksWidget userGroup={userGroup} isAdmin={isAdmin} />;
       case 'attendance':
         return isAdmin ? <AllAttandance /> : null;
-      case 'myTasks':
-        return <UserTask />;
+      case 'workflow':
+        return <WorkflowWidget />;
       case 'recentAttendance':
         return <RecentAttendanceWidget attendanceData={attendanceData} />;
-      case 'pendingTasks':
-        return (
-          <PendingTasks
-            tasks={isAdmin ? task : task.filter((t) => t.User === loggedInUser)}
-            isLoading={isLoading}
-            onTaskClick={(t) => { setSelectedTaskId(t); setShowTaskModal(true); }}
-          />
-        );
       case 'ordersBoard':
         return <AllOrder />;
       case 'designFiles':
         return <DesignFilesWidget />;
-      case 'pendingOverview':
-        return isAdmin ? <PendingOverviewWidget /> : null;
       default:
         return (
           <Typography variant="caption" color="text.disabled">Unknown widget</Typography>
@@ -673,19 +633,16 @@ export default function Home() {
 
   if (!layout) return <LinearProgress sx={{ borderRadius: 1, mt: 2, bgcolor: '#dcfce7' }} />;
 
-  const layoutIds = [...(layout.left || []), ...(layout.center || []), ...(layout.right || [])];
+  const layoutIds = [...(layout.left || []), ...(layout.right || [])];
   const unusedWidgets = WIDGET_REGISTRY.filter((w) => !layoutIds.includes(w.id));
   const hasLeft = (layout.left || []).length > 0 || editMode;
   const hasRight = (layout.right || []).length > 0 || editMode;
-
-  const greeting = getGreeting();
-  const GreetIcon = greeting.icon;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
 
       {/* ── Hero ── */}
-      <Box sx={{ textAlign: 'center', pt: { xs: 2, md: 3 }, pb: 1.5, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, pt: { xs: 2, md: 3 }, pb: 1.5, flexShrink: 0, flexWrap: 'wrap' }}>
         <Typography
           variant="h2"
           sx={{
@@ -693,121 +650,21 @@ export default function Home() {
             fontWeight: 900,
             fontSize: { xs: '2.4rem', md: '3.2rem' },
             lineHeight: 1,
-            mb: 0.5,
             userSelect: 'none',
           }}
         >
           <ColoredName name={(loggedInUser || userName || 'User').split(' ')[0]} />
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          <Box component="span" sx={{ color: '#FBBC05' }}>
-            <GreetIcon sx={{ fontSize: 12, mr: 0.4, mb: '-2px' }} />
-          </Box>
-          {greeting.text} · {userGroup || 'User'} · {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
-        </Typography>
-
-        {/* Search with + button */}
-        <ClickAwayListener onClickAway={() => setPlusOpen(false)}>
-          <Box sx={{ position: 'relative', display: 'inline-flex', maxWidth: 560, width: '90%' }}>
-            <Box
-              ref={plusAnchorRef}
-              sx={{
-                display: 'flex', alignItems: 'center',
-                bgcolor: 'white', border: '1.5px solid', borderColor: alpha('#16a34a', 0.25),
-                borderRadius: '28px', width: '100%',
-                boxShadow: '0 4px 20px rgba(22,163,74,.1)',
-                '&:focus-within': { borderColor: '#16a34a', boxShadow: '0 4px 20px rgba(22,163,74,.18)' },
-              }}
-            >
-              <Tooltip title="Quick Add & Navigate">
-                <Box
-                  component="button"
-                  onClick={() => setPlusOpen((p) => !p)}
-                  sx={{
-                    width: 44, height: 44, bgcolor: '#16a34a', border: 'none', cursor: 'pointer',
-                    borderRadius: '26px 0 0 26px', color: 'white', fontSize: '1.4rem', fontWeight: 300,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    borderRight: '1.5px solid', borderRightColor: alpha('#16a34a', 0.25),
-                    '&:hover': { bgcolor: '#15803d' },
-                  }}
-                >
-                  +
-                </Box>
-              </Tooltip>
-              <Box
-                component="input"
-                placeholder="Search order #, customer name, item, vendor, or amount…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-                sx={{
-                  flex: 1, border: 'none', outline: 'none', px: 2, py: 1.25,
-                  fontSize: '0.85rem', color: '#334155', bgcolor: 'transparent',
-                  '&::placeholder': { color: '#94a3b8' },
-                }}
-              />
-              <Stack direction="row" spacing={0.25} sx={{ pr: 1 }}>
-                <Tooltip title="Search">
-                  <IconButton size="small" sx={{ color: searchQuery ? '#16a34a' : 'text.disabled' }} onClick={handleSearch}>
-                    <SearchRoundedIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            </Box>
-
-            {/* Plus dropdown - Google style */}
-            {plusOpen && (
-              <Paper
-                elevation={4}
-                sx={{
-                  position: 'absolute', top: 52, left: 0,
-                  minWidth: 240, borderRadius: 2.5,
-                  border: '1px solid', borderColor: 'divider',
-                  zIndex: 1400, py: 0.5, overflow: 'hidden',
-                  boxShadow: '0 12px 40px rgba(0,0,0,0.15)',
-                }}
-              >
-                {PLUS_SECTIONS.map((section, si) => (
-                  <Box key={section.label}>
-                    {si > 0 && <Divider sx={{ my: 0.5 }} />}
-                    <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, color: 'text.disabled', textTransform: 'uppercase', letterSpacing: 0.8, px: 2, pt: 0.75, pb: 0.25 }}>
-                      {section.label}
-                    </Typography>
-                    {section.items.map((item) => (
-                      <Box
-                        key={item.label}
-                        component="button"
-                        onClick={() => {
-                          setPlusOpen(false);
-                          if (item.onClick) item.onClick();
-                          else if (item.path) navigate(item.path);
-                        }}
-                        sx={{
-                          display: 'flex', alignItems: 'center', gap: 1.25,
-                          width: '100%', px: 2, py: 0.85, border: 'none', cursor: 'pointer',
-                          bgcolor: 'transparent', textAlign: 'left',
-                          fontSize: '0.82rem', color: '#334155', fontWeight: 500,
-                          '&:hover': { bgcolor: '#f0fdf4', color: '#16a34a' },
-                        }}
-                      >
-                        <Box sx={{ color: 'text.secondary', display: 'flex' }}>{item.icon || <SearchRoundedIcon sx={{ fontSize: 16 }} />}</Box>
-                        {item.label}
-                      </Box>
-                    ))}
-                  </Box>
-                ))}
-              </Paper>
-            )}
-          </Box>
-        </ClickAwayListener>
-
+        <AttendanceQuickAction userName={loggedInUser || userName} />
       </Box>
+
+      <OrderStatsCards />
 
       {isLoading && (
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
       )}
 
-      {/* ── 3-Panel Grid ── */}
+      {/* ── 2-Panel Grid ── */}
       <Box
         sx={{
           flex: 1,
@@ -815,7 +672,7 @@ export default function Home() {
           display: 'grid',
           gridTemplateColumns: {
             xs: '1fr',
-            md: [hasLeft ? 'minmax(0,1fr)' : '', 'minmax(0,2fr)', hasRight ? 'minmax(0,1fr)' : ''].filter(Boolean).join(' '),
+            md: hasLeft && hasRight ? 'minmax(0,1fr) minmax(0,1fr)' : '1fr',
           },
           gap: 1.5,
           alignItems: 'stretch',
@@ -838,25 +695,12 @@ export default function Home() {
               onDropOnPanel={handleDropOnPanel}
               onRemoveWidget={handleRemoveWidget}
               renderWidget={renderWidget}
+              collapsible={isMobile && !editMode}
+              expandedWidgetId={expandedWidget}
+              onToggleWidget={handleToggleWidget}
             />
           </Box>
         )}
-
-        {/* Center Panel */}
-        <Box sx={{ overflow: 'auto', minHeight: 0, height: '100%' }}>
-          <DashboardPanel
-            panelId="center"
-            widgetIds={layout.center || []}
-            editMode={editMode}
-            isDragging={isDragging}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-            onDropAt={handleDropAt}
-            onDropOnPanel={handleDropOnPanel}
-            onRemoveWidget={handleRemoveWidget}
-            renderWidget={renderWidget}
-          />
-        </Box>
 
         {/* Right Panel */}
         {hasRight && (
@@ -872,6 +716,9 @@ export default function Home() {
               onDropOnPanel={handleDropOnPanel}
               onRemoveWidget={handleRemoveWidget}
               renderWidget={renderWidget}
+              collapsible={isMobile && !editMode}
+              expandedWidgetId={expandedWidget}
+              onToggleWidget={handleToggleWidget}
             />
           </Box>
         )}
@@ -886,23 +733,6 @@ export default function Home() {
         permissions={permissions}
         onAdd={handleAddWidget}
       />
-
-      {/* ── Task update dialog ────────────────────────────────── */}
-      <Dialog
-        open={showTaskModal}
-        onClose={() => { setShowTaskModal(false); setSelectedTaskId(null); }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogContent sx={{ p: 0.5 }}>
-          {selectedTaskId && (
-            <TaskUpdate
-              task={selectedTaskId}
-              onClose={() => { setShowTaskModal(false); setSelectedTaskId(null); }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </Box>
   );
 }

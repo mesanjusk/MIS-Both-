@@ -1,12 +1,24 @@
 const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
+const Customers = require('../repositories/customer');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
+const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 const { CLOSED_STAGES } = require('../constants/orderStages');
+const normalizeWhatsAppNumber = require('../utils/normalizeNumber');
 
-const DESIGN_STAGE_KEYS = new Set(['enquiry', 'approved', 'design']);
+const DESIGN_STAGE_KEYS = new Set([
+  'enquiry',
+  'approved',
+  'new_design',
+  'old_design',
+  'approval',
+  'hold',
+  'customer',
+  'ready_to_print',
+]);
 
 function getIstDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -51,6 +63,19 @@ function decorateOrder(order, now = new Date()) {
   };
 }
 
+// Order documents only carry Customer_uuid — every screen that lists orders
+// by task/assignment needs the customer's display name, so resolve it once
+// per batch here rather than each caller re-joining Customers itself.
+async function buildCustomerNameMap(orders) {
+  const uuids = [...new Set((orders || []).map((o) => o?.Customer_uuid).filter(Boolean))];
+  if (!uuids.length) return new Map();
+  const customers = await Customers.find(
+    { Customer_uuid: { $in: uuids } },
+    { Customer_uuid: 1, Customer_name: 1 }
+  ).lean();
+  return new Map(customers.map((c) => [c.Customer_uuid, c.Customer_name]));
+}
+
 async function getPendingOrdersForUser(userOrName) {
   const user = typeof userOrName === 'string'
     ? await Users.findOne({ User_name: userOrName })
@@ -65,7 +90,11 @@ async function getPendingOrdersForUser(userOrName) {
     ],
   }).sort({ dueDate: 1, createdAt: 1 }).lean();
 
-  const orders = rows.map((row) => decorateOrder(row)).filter(isDesignAssignmentPending);
+  const customerNames = await buildCustomerNameMap(rows);
+  const orders = rows
+    .map((row) => decorateOrder(row))
+    .filter(isDesignAssignmentPending)
+    .map((order) => ({ ...order, customerName: customerNames.get(order.Customer_uuid) || '' }));
   return {
     user: {
       id: String(user._id),
@@ -80,7 +109,21 @@ async function getPendingOrdersForUser(userOrName) {
 }
 
 function normalizeMobile(value) {
-  return String(value || '').replace(/\D/g, '');
+  if (!String(value || '').trim()) return '';
+  // Same country-code-aware normalization used by every other WhatsApp send
+  // path (attendance, usertask) — a bare digit-strip here left the assignee
+  // notification silently undeliverable for 10-digit stored numbers.
+  return normalizeWhatsAppNumber(value);
+}
+
+// order.dueDate is a single Date field — the assignment card shows it as two
+// lines ("Due Date" / "Due Time"), so split it here rather than storing both.
+function formatDueDateParts(dueDate) {
+  if (!dueDate) return { dueDateText: 'Today', dueTimeText: '8:00 PM' };
+  const d = new Date(dueDate);
+  const dueDateText = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const dueTimeText = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
+  return { dueDateText, dueTimeText };
 }
 
 // ── Admin-facing "who has what, at which stage" overview ───────────────────
@@ -91,15 +134,18 @@ async function getPendingTasksOverview() {
     .sort({ dueDate: 1, createdAt: 1 })
     .lean();
 
+  const customerNames = await buildCustomerNameMap(rows);
   const tasks = rows.map((row) => {
     const decorated = decorateOrder(row, now);
     const assigned = decorated.latestStatusTask?.Assigned;
     return {
       orderId: String(row._id),
       orderNumber: row.Order_Number,
+      customerName: customerNames.get(row.Customer_uuid) || '',
       stage: row.stage,
       task: decorated.latestStatusTask?.Task || row.stage || 'Task',
       assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+      assignedBy: decorated.latestStatusTask?.AssignedBy || '',
       dueDate: row.dueDate,
       overdue: decorated.overdue,
     };
@@ -125,29 +171,74 @@ async function getPendingTasksOverview() {
   };
 }
 
-function buildPendingOverviewMessage(overview) {
-  if (!overview.totalCount) return 'Pending tasks overview: all clear, no open orders right now.';
+async function buildPendingOverviewMessage(overview) {
+  if (!overview.totalCount) {
+    const { body } = await renderTemplate('task.pending_overview_empty');
+    return body;
+  }
   const lines = overview.byUser.map(
     (group) => `${group.userName}: ${group.count} task${group.count === 1 ? '' : 's'}${group.overdueCount ? ` (${group.overdueCount} overdue)` : ''}`
   );
-  return `Pending tasks overview (${overview.totalCount} total, ${overview.overdueCount} overdue):\n${lines.join('\n')}`;
+  const { body } = await renderTemplate('task.pending_overview', {
+    total: overview.totalCount,
+    overdue: overview.overdueCount,
+    lines: lines.join('\n'),
+  });
+  return body;
 }
 
 // ── WhatsApp side-effects on assignment, both fire-and-forget so they
 // never block the assign response ──────────────────────────────────────────
 
-async function notifyUserOfAssignment({ order, user, assignedBy }) {
+async function getCustomerName(customerUuid) {
+  if (!customerUuid) return '';
+  const customer = await Customers.findOne({ Customer_uuid: customerUuid }, { Customer_name: 1 }).lean();
+  return customer?.Customer_name || '';
+}
+
+async function notifyUserOfAssignment({ order, user, assignedBy, customerNameOverride }) {
   const mobile = normalizeMobile(user?.Mobile_number);
   if (!mobile) return;
-  const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
-  const dueText = order?.dueDate ? new Date(order.dueDate).toLocaleString('en-IN') : 'today, 8:00 PM';
-  const body = `Hi ${user.User_name || user.name || 'there'}, you've been assigned Order #${order.Order_Number} (${latest?.Task || order.stage || 'Task'}) by ${assignedBy || 'System'}. Due: ${dueText}.`;
+  const customerName = customerNameOverride ?? await getCustomerName(order?.Customer_uuid);
+  const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
+  const { body } = await renderTemplate('task.assignment_notify', {
+    userName: user.User_name || user.name || 'there',
+    orderNumber: order?.Order_Number || '—',
+    customerName: customerName || '—',
+    assignedBy: assignedBy || 'System',
+    dueDate: dueDateText,
+    dueTime: dueTimeText,
+  });
   await sendWhatsAppText({ to: mobile, body });
+}
+
+async function notifyAdminsOfAssignment({ order, user, assignedBy, customerNameOverride }) {
+  const customerName = customerNameOverride ?? await getCustomerName(order?.Customer_uuid);
+  const { dueDateText, dueTimeText } = formatDueDateParts(order?.dueDate);
+  const { body } = await renderTemplate('task.admin_assignment_notify', {
+    userName: user?.User_name || CUSTOMER_ASSIGNEE_LABEL,
+    orderNumber: order?.Order_Number || '—',
+    customerName: customerName || '—',
+    assignedBy: assignedBy || 'System',
+    dueDate: dueDateText,
+    dueTime: dueTimeText,
+  });
+  const admins = await Users.find({}).lean();
+  for (const u of admins) {
+    if (tierFor(u.User_group) < 4) continue; // Admin/Owner tier only
+    const mobile = normalizeMobile(u.Mobile_number);
+    if (!mobile) continue;
+    try {
+      await sendWhatsAppText({ to: mobile, body });
+    } catch (err) {
+      logger.error(`[orderTask] Failed to notify admin ${mobile} of order assignment:`, err.message);
+    }
+  }
 }
 
 async function notifyAdminsOfPendingOverview() {
   const overview = await getPendingTasksOverview();
-  const body = buildPendingOverviewMessage(overview);
+  const body = await buildPendingOverviewMessage(overview);
   const users = await Users.find({}).lean();
   for (const u of users) {
     if (tierFor(u.User_group) < 4) continue; // Admin/Owner tier only
@@ -173,34 +264,48 @@ async function getUnassignedOrders() {
   return rows.map((row) => decorateOrder(row)).filter(isDesignAssignmentPending);
 }
 
+// Sentinel used in place of a real user when the ball is in the customer's
+// court (e.g. sent for approval) rather than any team member's — the one
+// other place a pending task can legitimately sit, per the order flow.
+const CUSTOMER_ASSIGNEE_LABEL = 'Customer';
+
 async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'System', via = 'app' }) {
   const filter = mongoose.isValidObjectId(orderId) ? { _id: orderId } : { Order_uuid: orderId };
   const order = await Orders.findOne(filter);
   if (!order) throw new Error('Order not found');
 
-  const user = userId
-    ? await Users.findById(userId)
-    : await Users.findOne({ $or: [{ User_name: String(userName || '').trim() }, { User_uuid: String(userName || '').trim() }] });
+  const isCustomerAssignment = !userId && String(userName || '').trim().toLowerCase() === 'customer';
 
-  if (!user) throw new Error('Assignee user not found');
+  let user = null;
+  if (!isCustomerAssignment) {
+    user = userId
+      ? await Users.findById(userId)
+      : await Users.findOne({ $or: [{ User_name: String(userName || '').trim() }, { User_uuid: String(userName || '').trim() }] });
 
-  order.assignedTo = user._id;
+    if (!user) throw new Error('Assignee user not found');
+  }
+
+  const assigneeLabel = isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
+
+  order.assignedTo = isCustomerAssignment ? null : user._id;
   order.dueDate = order.dueDate || buildDefaultDueDate();
   if (!order.stage || order.stage === 'enquiry') {
-    order.stage = 'design';
+    order.stage = 'new_design';
   }
 
   if (!Array.isArray(order.Status) || order.Status.length === 0) {
     order.Status = [{
       Task: 'Design',
-      Assigned: user.User_name,
+      Assigned: assigneeLabel,
+      AssignedBy: assignedBy,
       Delivery_Date: order.dueDate,
       Status_number: 1,
       CreatedAt: new Date(),
     }];
   } else {
     const last = order.Status[order.Status.length - 1];
-    last.Assigned = user.User_name;
+    last.Assigned = assigneeLabel;
+    last.AssignedBy = assignedBy;
     last.Delivery_Date = order.dueDate;
     last.CreatedAt = new Date();
   }
@@ -211,11 +316,18 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
 
   const plain = order.toObject ? order.toObject() : order;
 
-  // Fire-and-forget: the assignee gets pinged on WhatsApp, and admins get the
-  // refreshed full pending-tasks overview, but neither should block the
-  // assign response.
-  notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
-    logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
+  // Fire-and-forget: the assignee gets pinged on WhatsApp with the new-order
+  // card, admins get the same card plus the refreshed full pending-tasks
+  // overview, but none of these should block the assign response. Nothing to
+  // ping when the task is just waiting on the customer, so notifyUserOfAssignment
+  // is skipped in that case.
+  if (!isCustomerAssignment) {
+    notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+      logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
+    });
+  }
+  notifyAdminsOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+    logger.error('[orderTask] Failed to notify admins of order assignment:', err.message);
   });
   notifyAdminsOfPendingOverview().catch((err) => {
     logger.error('[orderTask] Failed to notify admins of pending overview:', err.message);
@@ -250,9 +362,11 @@ async function rolloverPendingOrders() {
   return { touched };
 }
 
-function buildTaskSummaryMessage({ employee, orders = [] }) {
+async function buildTaskSummaryMessage({ employee, orders = [] }) {
+  const name = employee?.User_name || 'team';
   if (!orders.length) {
-    return `Hi ${employee?.User_name || 'team'}, no pending order tasks are assigned to you right now.`;
+    const { body } = await renderTemplate('task.summary_none', { name });
+    return body;
   }
 
   const list = orders.slice(0, 8).map((order, index) => {
@@ -260,7 +374,8 @@ function buildTaskSummaryMessage({ employee, orders = [] }) {
     return `${index + 1}. Order #${order.Order_Number} - ${latest?.Task || order.stage || 'Task'}${order.overdue ? ' (overdue)' : ''}`;
   }).join('\n');
 
-  return `Hi ${employee?.User_name || 'team'}, here are your pending order tasks for today till 8:00 PM:\n${list}`;
+  const { body } = await renderTemplate('task.summary_intro', { name, list });
+  return body;
 }
 
 module.exports = {
@@ -273,4 +388,6 @@ module.exports = {
   rolloverPendingOrders,
   buildTaskSummaryMessage,
   buildPendingOverviewMessage,
+  notifyUserOfAssignment,
+  notifyAdminsOfAssignment,
 };

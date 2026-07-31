@@ -1798,13 +1798,18 @@ export default function DesignFilesWidget() {
   const handlePrint = () => openPrintWindow(filteredFiles, activeTabDef.label);
 
   return (
-    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', flexDirection: { xs: 'column', md: 'row' }, minHeight: { xs: 'auto', md: 480 } }}>
+    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', md: 480 } }}>
 
-      {/* ── Left sidebar ── */}
-      <Box sx={{ width: { xs: '100%', md: 200 }, flexShrink: 0, borderRight: { xs: 'none', md: '1px solid' }, borderBottom: { xs: '1px solid', md: 'none' }, borderColor: 'divider', display: 'flex', flexDirection: 'column', bgcolor: 'grey.50' }}>
+      {/* ── Top navbar ── */}
+      <Box sx={{ flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
           <FolderOpenRoundedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
           <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: 12, flex: 1 }}>Design Files</Typography>
+          {summary && (
+            <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10, display: { xs: 'none', sm: 'block' } }}>
+              {summary.total} total · {summary.matched} matched · {summary.unmatched} pending
+            </Typography>
+          )}
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={load} disabled={loading} sx={{ p: 0.25 }}>
               {loading ? <CircularProgress size={12} /> : <RefreshRoundedIcon sx={{ fontSize: 14 }} />}
@@ -1813,13 +1818,10 @@ export default function DesignFilesWidget() {
         </Stack>
 
         <Stack
-          direction={{ xs: 'row', md: 'column' }}
+          direction="row"
           sx={{
-            flex: 1,
-            overflowX: { xs: 'auto', md: 'visible' },
-            overflowY: { xs: 'hidden', md: 'auto' },
-            py: 0.5,
-            maxHeight: { xs: 120, md: 'none' },
+            overflowX: 'auto',
+            overflowY: 'hidden',
             WebkitOverflowScrolling: 'touch',
           }}
         >
@@ -1837,9 +1839,7 @@ export default function DesignFilesWidget() {
                   px: 1.5, py: 0.85, cursor: 'pointer',
                   flexShrink: 0,
                   whiteSpace: 'nowrap',
-                  borderLeft: { xs: 'none', md: '3px solid' },
-                  borderBottom: { xs: '3px solid', md: 'none' },
-                  borderLeftColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
+                  borderBottom: '3px solid',
                   borderBottomColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
                   bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'transparent',
                   '&:hover': { bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'action.hover' },
@@ -1847,7 +1847,7 @@ export default function DesignFilesWidget() {
                 }}
               >
                 <Icon sx={{ fontSize: 15, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.secondary', flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ fontSize: 12, flex: 1, fontWeight: isActive ? 700 : 400, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.primary' }}>
+                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: isActive ? 700 : 400, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.primary' }}>
                   {tab.label}
                 </Typography>
                 {count != null && count > 0 && (
@@ -1859,14 +1859,6 @@ export default function DesignFilesWidget() {
             );
           })}
         </Stack>
-
-        {summary && (
-          <Box sx={{ px: 1.5, py: 1, borderTop: '1px solid', borderColor: 'divider', display: { xs: 'none', md: 'block' } }}>
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-              {summary.total} total · {summary.matched} matched · {summary.unmatched} pending
-            </Typography>
-          </Box>
-        )}
       </Box>
 
       {/* ── Right panel ── */}

@@ -53,8 +53,6 @@ import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
-import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
-import RateReviewRoundedIcon from '@mui/icons-material/RateReviewRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
@@ -66,24 +64,6 @@ import axios from '../../apiClient';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
-  {
-    key: 'pending', label: 'Pending', icon: PendingActionsRoundedIcon,
-    stageFilter: (s) => s >= 1 && s <= 4, viewOnly: true, color: 'warning',
-    info: 'Files currently being worked on by the designer. No action needed until moved to Final.',
-  },
-  {
-    key: 'review', label: 'Review', icon: RateReviewRoundedIcon,
-    stageFilter: (s) => s >= 5 && s <= 7, viewOnly: true, color: 'info',
-    info: 'Design approved internally. Waiting for office to move to Final and create an order.',
-  },
-  {
-    key: 'final', label: 'Final', icon: DoneAllRoundedIcon,
-    stageFilter: (s) => s === 8, viewOnly: false, color: 'success',
-  },
-  {
-    key: 'printing', label: 'Printing', icon: LocalPrintshopRoundedIcon,
-    stageFilter: (s) => s === 9, viewOnly: false, color: 'error',
-  },
   {
     key: 'all', label: 'All Files', icon: FolderOpenRoundedIcon,
     stageFilter: () => true, viewOnly: false, color: 'default',
@@ -1648,7 +1628,7 @@ export default function DesignFilesWidget() {
   const [configMissing, setConfigMissing] = useState(false);
   const [archiveConfigured, setArchiveConfigured] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState('all');
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem('df_view') || 'grid'; } catch { return 'grid'; }
   });
@@ -1775,7 +1755,6 @@ export default function DesignFilesWidget() {
 
   const files = data?.files || [];
   const staleLinks = data?.staleLinks || [];
-  const summary = data?.summary;
 
   const visibleTabs = TABS.filter((t) => t.key !== 'archive' || archiveConfigured);
   const activeTabDef = TABS.find((t) => t.key === activeTab) || TABS[0];
@@ -1800,140 +1779,105 @@ export default function DesignFilesWidget() {
   return (
     <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', md: 480 } }}>
 
-      {/* ── Top navbar ── */}
-      <Box sx={{ flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
-        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ px: 1.5, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <FolderOpenRoundedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
-          <Typography variant="subtitle2" fontWeight={700} sx={{ fontSize: 12, flex: 1 }}>Design Files</Typography>
-          {summary && (
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10, display: { xs: 'none', sm: 'block' } }}>
-              {summary.total} total · {summary.matched} matched · {summary.unmatched} pending
-            </Typography>
-          )}
-          <Tooltip title="Refresh">
-            <IconButton size="small" onClick={load} disabled={loading} sx={{ p: 0.25 }}>
-              {loading ? <CircularProgress size={12} /> : <RefreshRoundedIcon sx={{ fontSize: 14 }} />}
+      {/* ── Toolbar: tabs + actions + refresh, single row ── */}
+      <Stack
+        direction="row" alignItems="center" spacing={0.75}
+        sx={{ px: 1.5, py: 0.65, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5, bgcolor: 'grey.50' }}
+      >
+        {visibleTabs.map((tab) => {
+          const Icon = tab.icon;
+          const count = tab.key !== 'archive' ? tabCount(tab) : null;
+          const isActive = activeTab === tab.key;
+          const colorKey = tab.color === 'default' ? null : tab.color;
+          return (
+            <Stack
+              key={tab.key}
+              direction="row" alignItems="center" spacing={0.75}
+              onClick={() => { setActiveTab(tab.key); setSelectedIds(new Set()); }}
+              sx={{
+                px: 1, py: 0.4, cursor: 'pointer',
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+                borderRadius: 1.5,
+                bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'transparent',
+                '&:hover': { bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'action.hover' },
+                transition: 'background 0.1s',
+              }}
+            >
+              <Icon sx={{ fontSize: 15, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.secondary', flexShrink: 0 }} />
+              <Typography variant="body2" sx={{ fontSize: 12, fontWeight: isActive ? 700 : 400, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.primary' }}>
+                {tab.label}
+              </Typography>
+              {count != null && count > 0 && (
+                <Chip label={count} size="small"
+                  sx={{ fontSize: 10, height: 18, minWidth: 22, bgcolor: isActive ? (colorKey ? `${colorKey}.main` : 'grey.600') : 'action.hover', color: isActive ? 'white' : 'text.secondary', fontWeight: 700, '& .MuiChip-label': { px: 0.5 } }}
+                />
+              )}
+            </Stack>
+          );
+        })}
+
+        <Box sx={{ flex: 1 }} />
+
+        {/* Create Temp Orders */}
+        {activeTab !== 'archive' && unmatchedInView.length > 0 && (
+          <Button size="small" variant="outlined" color="warning"
+            startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
+            onClick={() => setAutoTempOpen(true)}
+            sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+          >
+            Create Temp ({unmatchedInView.length})
+          </Button>
+        )}
+
+        {/* Export + print buttons */}
+        {activeTab !== 'archive' && filteredFiles.length > 0 && (
+          <>
+            <Tooltip title="Export CSV / Excel">
+              <IconButton size="small" onClick={() => exportCSV(false)} sx={{ p: 0.4, color: 'text.secondary' }}>
+                <FileDownloadRoundedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Print / Save as PDF">
+              <IconButton size="small" onClick={handlePrint} sx={{ p: 0.4, color: 'text.secondary' }}>
+                <PrintRoundedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+
+        {/* List / grid toggle */}
+        <Stack direction="row" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
+          <Tooltip title="List view">
+            <IconButton size="small" onClick={() => setView('list')}
+              sx={{ borderRadius: 0, bgcolor: viewMode === 'list' ? 'primary.main' : 'transparent', color: viewMode === 'list' ? 'white' : 'text.secondary', p: 0.4 }}
+            >
+              <ViewListRoundedIcon sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Grid view">
+            <IconButton size="small" onClick={() => setView('grid')}
+              sx={{ borderRadius: 0, bgcolor: viewMode === 'grid' ? 'primary.main' : 'transparent', color: viewMode === 'grid' ? 'white' : 'text.secondary', p: 0.4 }}
+            >
+              <ViewModuleRoundedIcon sx={{ fontSize: 15 }} />
             </IconButton>
           </Tooltip>
         </Stack>
 
-        <Stack
-          direction="row"
-          sx={{
-            overflowX: 'auto',
-            overflowY: 'hidden',
-            WebkitOverflowScrolling: 'touch',
-          }}
-        >
-          {visibleTabs.map((tab) => {
-            const Icon = tab.icon;
-            const count = tab.key !== 'archive' ? tabCount(tab) : null;
-            const isActive = activeTab === tab.key;
-            const colorKey = tab.color === 'default' ? null : tab.color;
-            return (
-              <Stack
-                key={tab.key}
-                direction="row" alignItems="center" spacing={1}
-                onClick={() => { setActiveTab(tab.key); setSelectedIds(new Set()); }}
-                sx={{
-                  px: 1.5, py: 0.85, cursor: 'pointer',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                  borderBottom: '3px solid',
-                  borderBottomColor: isActive ? (colorKey ? `${colorKey}.main` : 'text.secondary') : 'transparent',
-                  bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'transparent',
-                  '&:hover': { bgcolor: isActive ? (colorKey ? `${colorKey}.50` : 'action.selected') : 'action.hover' },
-                  transition: 'background 0.1s',
-                }}
-              >
-                <Icon sx={{ fontSize: 15, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.secondary', flexShrink: 0 }} />
-                <Typography variant="body2" sx={{ fontSize: 12, fontWeight: isActive ? 700 : 400, color: isActive ? (colorKey ? `${colorKey}.main` : 'text.primary') : 'text.primary' }}>
-                  {tab.label}
-                </Typography>
-                {count != null && count > 0 && (
-                  <Chip label={count} size="small"
-                    sx={{ fontSize: 10, height: 18, minWidth: 22, bgcolor: isActive ? (colorKey ? `${colorKey}.main` : 'grey.600') : 'action.hover', color: isActive ? 'white' : 'text.secondary', fontWeight: 700, '& .MuiChip-label': { px: 0.5 } }}
-                  />
-                )}
-              </Stack>
-            );
-          })}
-        </Stack>
-      </Box>
+        {/* Refresh */}
+        <Tooltip title="Refresh">
+          <IconButton size="small" onClick={load} disabled={loading} sx={{ p: 0.4 }}>
+            {loading ? <CircularProgress size={14} /> : <RefreshRoundedIcon sx={{ fontSize: 16 }} />}
+          </IconButton>
+        </Tooltip>
+      </Stack>
 
       {/* ── Right panel ── */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
 
-        {/* Panel header */}
-        <Stack direction="row" alignItems="center" spacing={0.75}
-          sx={{ px: 1.5, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5 }}
-        >
-          <Typography variant="subtitle2" fontWeight={600} sx={{ flex: 1, fontSize: 13, minWidth: { xs: '100%', sm: 'auto' } }}>
-            {activeTabDef.label}
-            {activeTab !== 'archive' && filteredFiles.length > 0 && (
-              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                {filteredFiles.length} file{filteredFiles.length !== 1 ? 's' : ''}
-              </Typography>
-            )}
-          </Typography>
-
-          {/* Create Temp Orders — Pending tab */}
-          {activeTab === 'pending' && unmatchedInView.length > 0 && (
-            <Button size="small" variant="outlined" color="warning"
-              startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
-              onClick={() => setAutoTempOpen(true)}
-              sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-            >
-              Create Temp ({unmatchedInView.length})
-            </Button>
-          )}
-
-          {/* Export + print buttons */}
-          {activeTab !== 'archive' && filteredFiles.length > 0 && (
-            <>
-              <Tooltip title="Export CSV / Excel">
-                <IconButton size="small" onClick={() => exportCSV(false)} sx={{ p: 0.4, color: 'text.secondary' }}>
-                  <FileDownloadRoundedIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Print / Save as PDF">
-                <IconButton size="small" onClick={handlePrint} sx={{ p: 0.4, color: 'text.secondary' }}>
-                  <PrintRoundedIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            </>
-          )}
-
-          {/* List / grid toggle */}
-          {(
-            <Stack direction="row" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
-              <Tooltip title="List view">
-                <IconButton size="small" onClick={() => setView('list')}
-                  sx={{ borderRadius: 0, bgcolor: viewMode === 'list' ? 'primary.main' : 'transparent', color: viewMode === 'list' ? 'white' : 'text.secondary', p: 0.4 }}
-                >
-                  <ViewListRoundedIcon sx={{ fontSize: 15 }} />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Grid view">
-                <IconButton size="small" onClick={() => setView('grid')}
-                  sx={{ borderRadius: 0, bgcolor: viewMode === 'grid' ? 'primary.main' : 'transparent', color: viewMode === 'grid' ? 'white' : 'text.secondary', p: 0.4 }}
-                >
-                  <ViewModuleRoundedIcon sx={{ fontSize: 15 }} />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          )}
-        </Stack>
-
         {loading && <LinearProgress sx={{ height: 2 }} />}
 
         <StaleDraftAlert staleLinks={staleLinks} />
-
-        {activeTabDef.viewOnly && activeTabDef.info && filteredFiles.length > 0 && (
-          <Alert severity={activeTabDef.color === 'warning' ? 'warning' : 'info'} sx={{ mx: 1.5, mt: 1, py: 0.5, fontSize: 11 }}>
-            {activeTabDef.info}
-          </Alert>
-        )}
 
         {error && (
           <Alert severity="error" sx={{ mx: 1.5, mt: 1 }} action={<Button size="small" onClick={load}>Retry</Button>}>
@@ -1951,13 +1895,7 @@ export default function DesignFilesWidget() {
           <Box sx={{ flex: 1, overflowY: 'auto', px: 1.5, py: 1 }}>
             {!loading && !error && filteredFiles.length === 0 && (
               <Box sx={{ py: 5, textAlign: 'center' }}>
-                <Typography variant="body2" color="text.secondary">
-                  {activeTab === 'pending' ? 'No files in stages 1–4.'
-                    : activeTab === 'review' ? 'No files in stages 5–7.'
-                    : activeTab === 'final' ? 'No files in Final folder.'
-                    : activeTab === 'printing' ? 'No files in Printing folder.'
-                    : 'No files found.'}
-                </Typography>
+                <Typography variant="body2" color="text.secondary">No files found.</Typography>
               </Box>
             )}
 
@@ -2012,19 +1950,16 @@ export default function DesignFilesWidget() {
                 {selectedIds.size} selected
               </Typography>
 
-              {/* Link to Order — All tab only */}
-              {activeTab === 'all' && (
-                <Button size="small" variant="outlined"
-                  startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
-                  onClick={() => setLinkDialogOpen(true)}
-                  sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-                >
-                  Link to Order
-                </Button>
-              )}
+              <Button size="small" variant="outlined"
+                startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                onClick={() => setLinkDialogOpen(true)}
+                sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+              >
+                Link to Order
+              </Button>
 
-              {/* Create Print Bill — Printing tab */}
-              {activeTab === 'printing' && (
+              {/* Create Print Bill — shown when any selected file is in the Printing stage */}
+              {selectedFiles.some((f) => f.stageNumber === 9) && (
                 <Button size="small" variant="outlined" color="error"
                   startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
                   onClick={() => setPrintDialogOpen(true)}

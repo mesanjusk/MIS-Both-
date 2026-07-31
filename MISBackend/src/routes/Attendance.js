@@ -3,7 +3,7 @@ const router = express.Router();
 const Attendance = require("../repositories/attendance");
 const User = require("../repositories/users");
 const Usertasks = require("../repositories/usertask");
-const { markAttendance } = require("../services/attendanceService");
+const { markAttendance, isTransitionAllowed, getCurrentAttendanceType } = require("../services/attendanceService");
 const { getPendingOrdersForUser } = require("../services/orderTaskService");
 const { formatIST } = require("../utils/dateTime");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
@@ -120,7 +120,21 @@ router.post('/addAttendance', async (req, res, next) => {
     });
 
     if (todayAttendance) {
+      // Same transition/duplicate rules as the WhatsApp bot, applied to the
+      // same Attendance schema, so a mark is validated identically no matter
+      // which channel it comes from.
+      const currentType = getCurrentAttendanceType(todayAttendance);
+      const isAllowed = isTransitionAllowed({ hasAttendance: true, currentType, attendanceType: Type });
+      if (!isAllowed) {
+        return res.status(409).json({ success: false, message: 'This attendance type is not allowed right now.' });
+      }
+      const isDuplicate = todayAttendance.User.some((entry) => entry.Type === Type);
+      if (isDuplicate) {
+        return res.status(409).json({ success: false, message: 'Attendance for this action is already marked today.' });
+      }
+
       todayAttendance.User.push({ Type, Time, CreatedAt: new Date().toISOString() });
+      todayAttendance.Status = Type === 'Out' ? 'Completed' : todayAttendance.Status;
       await todayAttendance.save();
 
       const assignmentSnapshot =

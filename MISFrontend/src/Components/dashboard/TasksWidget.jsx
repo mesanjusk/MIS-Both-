@@ -33,6 +33,7 @@ function normalizeMyOrder(order) {
     stage: order?.stage,
     task: latest?.Task || order?.stage || 'Task',
     assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+    assignedBy: latest?.AssignedBy || '',
     dueDate: order?.dueDate,
     overdue: Boolean(order?.overdue),
   };

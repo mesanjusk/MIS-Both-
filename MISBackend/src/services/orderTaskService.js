@@ -7,6 +7,7 @@ const { tierFor } = require('../utils/roleHierarchy');
 const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 const { CLOSED_STAGES } = require('../constants/orderStages');
+const normalizeWhatsAppNumber = require('../utils/normalizeNumber');
 
 const DESIGN_STAGE_KEYS = new Set(['enquiry', 'approved', 'design']);
 
@@ -99,7 +100,11 @@ async function getPendingOrdersForUser(userOrName) {
 }
 
 function normalizeMobile(value) {
-  return String(value || '').replace(/\D/g, '');
+  if (!String(value || '').trim()) return '';
+  // Same country-code-aware normalization used by every other WhatsApp send
+  // path (attendance, usertask) — a bare digit-strip here left the assignee
+  // notification silently undeliverable for 10-digit stored numbers.
+  return normalizeWhatsAppNumber(value);
 }
 
 // ── Admin-facing "who has what, at which stage" overview ───────────────────
@@ -121,6 +126,7 @@ async function getPendingTasksOverview() {
       stage: row.stage,
       task: decorated.latestStatusTask?.Task || row.stage || 'Task',
       assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+      assignedBy: decorated.latestStatusTask?.AssignedBy || '',
       dueDate: row.dueDate,
       overdue: decorated.overdue,
     };
@@ -241,6 +247,7 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
     order.Status = [{
       Task: 'Design',
       Assigned: assigneeLabel,
+      AssignedBy: assignedBy,
       Delivery_Date: order.dueDate,
       Status_number: 1,
       CreatedAt: new Date(),
@@ -248,6 +255,7 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   } else {
     const last = order.Status[order.Status.length - 1];
     last.Assigned = assigneeLabel;
+    last.AssignedBy = assignedBy;
     last.Delivery_Date = order.dueDate;
     last.CreatedAt = new Date();
   }

@@ -5,7 +5,6 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Grid,
   IconButton,
   ListItemIcon,
   ListItemText,
@@ -119,42 +118,47 @@ export default function OrderTaskList({
   if (view === 'card') {
     return (
       <Box>
-        <Grid container spacing={1}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(8, minmax(110px, 1fr))' },
+            gap: 1,
+            overflowX: 'auto',
+          }}
+        >
           {tasks.map((task) => {
             const isUnassigned = task.assignedTo === 'Unassigned';
             return (
-              <Grid item xs={12} sm={6} key={task.orderId}>
-                <Card variant="outlined">
-                  <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                    <Stack direction="row" alignItems="center" spacing={0.5}>
-                      <AssignIcon task={task} />
-                      <Typography variant="body2" fontWeight={700}>#{task.orderNumber}</Typography>
-                      {task.customerName && (
-                        <Typography variant="body2" color="text.secondary" noWrap sx={{ flex: 1 }}>
-                          {task.customerName}
-                        </Typography>
-                      )}
-                    </Stack>
-                    <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                      <Chip size="small" label={STAGE_LABELS[task.stage] || task.task} variant="outlined" />
-                      <Chip
-                        size="small"
-                        label={isUnassigned ? 'Unassigned' : task.assignedTo}
-                        color={isUnassigned ? 'warning' : 'default'}
-                      />
-                      {!isUnassigned && task.assignedBy && (
-                        <Typography variant="caption" color="text.secondary">
-                          by {task.assignedBy}
-                        </Typography>
-                      )}
-                      {dueCell(task)}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
+              <Card variant="outlined" key={task.orderId}>
+                <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <AssignIcon task={task} />
+                    <Typography variant="body2" fontWeight={700}>#{task.orderNumber}</Typography>
+                  </Stack>
+                  {task.customerName && (
+                    <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.25 }}>
+                      {task.customerName}
+                    </Typography>
+                  )}
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                    <Chip size="small" label={STAGE_LABELS[task.stage] || task.task} variant="outlined" />
+                    <Chip
+                      size="small"
+                      label={isUnassigned ? 'Unassigned' : task.assignedTo}
+                      color={isUnassigned ? 'warning' : 'default'}
+                    />
+                    {!isUnassigned && task.assignedBy && (
+                      <Typography variant="caption" color="text.secondary">
+                        by {task.assignedBy}
+                      </Typography>
+                    )}
+                    {dueCell(task)}
+                  </Stack>
+                </CardContent>
+              </Card>
             );
           })}
-        </Grid>
+        </Box>
         {assignMenu}
       </Box>
     );

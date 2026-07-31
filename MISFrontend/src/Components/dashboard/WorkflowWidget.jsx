@@ -63,7 +63,7 @@ function groupByStage(tasks) {
 // widgets that didn't reference each other.
 export default function WorkflowWidget() {
   const { userName, isAdmin } = useAuth();
-  const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'table');
+  const [view, setView] = useState(() => localStorage.getItem(VIEW_KEY) || 'card');
   const [overview, setOverview] = useState(null);
   const [myOrders, setMyOrders] = useState([]);
   const [users, setUsers] = useState([]);

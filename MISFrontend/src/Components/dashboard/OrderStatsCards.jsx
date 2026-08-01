@@ -109,9 +109,17 @@ export default function OrderStatsCards() {
     () => openOrders.filter((o) => isTodayDate(o?.createdAt)),
     [openOrders]
   );
+  // "Old Pending" is only for orders that were never moved into a defined
+  // workflow stage — once an order has a stage, it belongs in that stage's
+  // own card, not here too.
+  const stageNameSet = useMemo(() => new Set(tasksMeta.map((s) => s.name)), [tasksMeta]);
   const oldOrders = useMemo(
-    () => openOrders.filter((o) => !isTodayDate(o?.createdAt)),
-    [openOrders]
+    () => openOrders.filter((o) => {
+      if (isTodayDate(o?.createdAt)) return false;
+      const task = String(o?.highestStatusTask?.Task || '').trim();
+      return !task || !stageNameSet.has(task);
+    }),
+    [openOrders, stageNameSet]
   );
 
   const cards = useMemo(() => {

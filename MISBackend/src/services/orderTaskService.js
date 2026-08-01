@@ -53,6 +53,18 @@ function getLatestStatusTask(order) {
   return Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
 }
 
+// "DragDrop" is a legacy placeholder the old kanban drag-drop endpoint used
+// to write into Status.Assigned when it had no real assignee to carry
+// forward (see statusRouter's /updateStatus) — older rows still have it on
+// disk. Treated the same as the "None" sentinel so it never renders as if
+// a person named DragDrop owns the task.
+const UNASSIGNED_ASSIGNED_VALUES = new Set(['none', 'dragdrop', '']);
+
+function normalizeAssignedLabel(assigned) {
+  const trimmed = String(assigned || '').trim();
+  return UNASSIGNED_ASSIGNED_VALUES.has(trimmed.toLowerCase()) ? 'Unassigned' : trimmed;
+}
+
 function isLatestTaskClosed(order) {
   const task = getLatestStatusTask(order)?.Task;
   return CLOSED_TASK_LABELS.has(String(task || '').trim().toLowerCase());
@@ -153,17 +165,18 @@ async function getPendingTasksOverview() {
   const customerNames = await buildCustomerNameMap(rows);
   const tasks = rows.map((row) => {
     const decorated = decorateOrder(row, now);
-    const assigned = decorated.latestStatusTask?.Assigned;
     return {
       orderId: String(row._id),
       orderNumber: row.Order_Number,
       customerName: customerNames.get(row.Customer_uuid) || '',
+      description: row.orderNote || '',
       stage: row.stage,
       task: decorated.latestStatusTask?.Task || row.stage || 'Task',
-      assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+      assignedTo: normalizeAssignedLabel(decorated.latestStatusTask?.Assigned),
       assignedBy: decorated.latestStatusTask?.AssignedBy || '',
       dueDate: row.dueDate,
       overdue: decorated.overdue,
+      stageUpdatedAt: decorated.latestStatusTask?.CreatedAt || row.updatedAt || null,
     };
   });
 

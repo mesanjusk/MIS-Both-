@@ -196,6 +196,15 @@ export default function OrderTaskList({
       '—'
     );
 
+  // Date the order last moved stage (its most recent Status entry), shown
+  // next to the order number so a stuck card is obvious at a glance without
+  // opening it.
+  const stageUpdatedLabel = (task) => {
+    if (!task.stageUpdatedAt) return '';
+    const date = new Date(task.stageUpdatedAt);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  };
+
   if (view === 'card' || view === 'stack') {
     const gridSx = view === 'stack'
       ? { display: 'flex', flexDirection: 'column', gap: 0.75 }
@@ -217,11 +226,35 @@ export default function OrderTaskList({
                     <AssignIcon task={task} />
                     <MoveIcon task={task} />
                     <Typography variant="body2" fontWeight={700}>#{task.orderNumber}</Typography>
+                    {stageUpdatedLabel(task) && (
+                      <Tooltip title="Last moved on this date">
+                        <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>
+                          {stageUpdatedLabel(task)}
+                        </Typography>
+                      </Tooltip>
+                    )}
                   </Stack>
                   {task.customerName && (
                     <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.25 }}>
                       {task.customerName}
                     </Typography>
+                  )}
+                  {task.description && (
+                    <Tooltip title={task.description}>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          mt: 0.25,
+                        }}
+                      >
+                        {task.description}
+                      </Typography>
+                    </Tooltip>
                   )}
                   <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
                     <Chip

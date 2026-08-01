@@ -92,7 +92,11 @@ router.post("/updateStatus", async (req, res) => {
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
   const filter = idToFilter(id);
   if (!filter) return res.status(400).json({ success: false, message: "Invalid Order id" });
-  const out = await pushStatusOnly(filter, task, "DragDrop");
+  // "None" is the shared unassigned sentinel (see orderTaskService's
+  // assignedTo normalization) — previously this hinted "DragDrop", which
+  // leaked into the UI's assignee chip as if a person named DragDrop had
+  // the task.
+  const out = await pushStatusOnly(filter, task, "None");
   if (!out.ok) return res.status(out.code || 500).json({ success: false, message: out.msg });
   return res.json({ success: true, message: "Status updated" });
 });
@@ -103,7 +107,7 @@ router.put("/updateStatus/:id", async (req, res) => {
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
   const filter = idToFilter(id);
   if (!filter) return res.status(400).json({ success: false, message: "Invalid Order id" });
-  const out = await pushStatusOnly(filter, task, "DragDrop");
+  const out = await pushStatusOnly(filter, task, "None");
   if (!out.ok) return res.status(out.code || 500).json({ success: false, message: out.msg });
   return res.json({ success: true, message: "Status updated" });
 });

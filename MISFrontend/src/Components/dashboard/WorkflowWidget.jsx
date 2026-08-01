@@ -18,21 +18,28 @@ import DesignFilesWidget from './DesignFilesWidget';
 import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
 import { fetchUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
-import { WORKFLOW_SECTIONS } from '../../constants/orderStages';
+import { WORKFLOW_SECTIONS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+
+// "DragDrop"/"None" are placeholder Assigned values written by the legacy
+// kanban drag-drop endpoint when it had no real assignee to carry forward —
+// treated as unassigned so they never render as if a person owns the task.
+const UNASSIGNED_ASSIGNED_VALUES = new Set(['none', 'dragdrop', '']);
 
 function normalizeMyOrder(order) {
   const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
-  const assigned = latest?.Assigned;
+  const assigned = String(latest?.Assigned || '').trim();
   return {
     orderId: String(order?._id || order?.Order_uuid || ''),
     orderNumber: order?.Order_Number,
     customerName: order?.customerName || '',
+    description: order?.orderNote || '',
     stage: order?.stage,
     task: latest?.Task || order?.stage || 'Task',
-    assignedTo: assigned && assigned !== 'None' ? assigned : 'Unassigned',
+    assignedTo: UNASSIGNED_ASSIGNED_VALUES.has(assigned.toLowerCase()) ? 'Unassigned' : assigned,
     assignedBy: latest?.AssignedBy || '',
     dueDate: order?.dueDate,
     overdue: Boolean(order?.overdue),
+    stageUpdatedAt: latest?.CreatedAt || order?.updatedAt || null,
   };
 }
 
@@ -64,6 +71,40 @@ function groupBySection(tasks) {
     buckets.get(key).push(task);
   }
   return buckets;
+}
+
+// Pipeline order the granular stage strip is sorted in — unrecognized
+// labels (old free-text Status.Task values with no matching stage) sort
+// after all of these, alphabetically.
+const STAGE_LABEL_ORDER = [
+  'New Design', 'Old Design', 'Approval', 'Hold', 'Customer',
+  'Ready to Print', 'Print', 'Fitting', 'Bind & Packing', 'Ready', 'Delivered',
+];
+
+function resolveStageLabel(task) {
+  return STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task || 'Other';
+}
+
+// Finer-grained breakdown than the 4 pipeline columns below it — one chip
+// per real stage (New Design, Approval, Print, Fitting, ...) with a live
+// count, the same idea as the dashboard's top stage-summary strip but
+// scoped to this widget's own task list.
+function groupByStageLabel(tasks) {
+  const counts = new Map();
+  for (const task of tasks) {
+    const label = resolveStageLabel(task);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => {
+      const ai = STAGE_LABEL_ORDER.indexOf(a.label);
+      const bi = STAGE_LABEL_ORDER.indexOf(b.label);
+      if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
 }
 
 // Replaces the previous separate "Tasks" and "Design Files" home-screen
@@ -140,6 +181,7 @@ export default function WorkflowWidget() {
   }, [isAdmin, overview, myOrders]);
 
   const sections = useMemo(() => groupBySection(allTasks), [allTasks]);
+  const stageBreakdown = useMemo(() => groupByStageLabel(allTasks), [allTasks]);
 
   return (
     <Box>
@@ -166,7 +208,26 @@ export default function WorkflowWidget() {
       {isLoading && !overview && !myOrders.length ? (
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
       ) : (
-        <Box sx={{ display: 'flex', gap: 1.25, overflowX: 'auto', pb: 0.5, alignItems: 'flex-start' }}>
+        <>
+          {stageBreakdown.length > 0 && (
+            <Stack
+              direction="row"
+              spacing={0.75}
+              flexWrap="nowrap"
+              sx={{ overflowX: 'auto', pb: 1, mb: 1, '&::-webkit-scrollbar': { height: 6 } }}
+            >
+              {stageBreakdown.map(({ label, count }) => (
+                <Chip
+                  key={label}
+                  size="small"
+                  label={`${label} · ${count}`}
+                  variant="outlined"
+                  sx={{ flexShrink: 0, fontWeight: 600, bgcolor: 'background.paper' }}
+                />
+              ))}
+            </Stack>
+          )}
+          <Box sx={{ display: 'flex', gap: 1.25, overflowX: 'auto', pb: 0.5, alignItems: 'flex-start' }}>
           {WORKFLOW_SECTIONS.map((section) => {
             const tasks = sections.get(section.key) || [];
             const isDesign = section.key === 'design';
@@ -237,7 +298,8 @@ export default function WorkflowWidget() {
               </Box>
             );
           })}
-        </Box>
+          </Box>
+        </>
       )}
     </Box>
   );

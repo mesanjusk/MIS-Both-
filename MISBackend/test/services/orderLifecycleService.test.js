@@ -89,7 +89,15 @@ describe('orderLifecycleService.updateOrderStage', () => {
   });
 
   test('self-heals a legacy stage alias instead of rejecting the move', async () => {
-    let order = await createOrder({ stage: 'design', stageHistory: [{ stage: 'design' }] });
+    let order = await createOrder();
+    // The schema's `stage` enum only accepts the modern stage list, so a
+    // legacy alias like 'design' can no longer be written through Mongoose —
+    // it only exists on rows that predate that constraint. Simulate that by
+    // writing around Mongoose validation via the raw driver.
+    await Orders.collection.updateOne(
+      { _id: order._id },
+      { $set: { stage: 'design', stageHistory: [{ stage: 'design', timestamp: new Date() }] } }
+    );
     await updateOrderStage({ orderId: order._id, stage: 'print' });
     order = await Orders.findById(order._id);
     expect(order.stage).toBe('print');

@@ -1,16 +1,8 @@
-const mongoose = require('mongoose');
 const { v4: uuid } = require('uuid');
 const Orders = require('../repositories/order');
 const Items = require('../repositories/items');
 const StockMovement = require('../repositories/stockMovement');
-
-function resolveOrderFilter(rawId) {
-  const id = String(rawId || '').trim();
-  if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return { _id: id };
-  if (/^\d+$/.test(id)) return { Order_Number: Number(id) };
-  return { Order_uuid: id };
-}
+const { resolveOrderFilter } = require('../utils/orderFilter');
 
 async function movementTotalsByItem(itemUuids = []) {
   if (!itemUuids.length) return new Map();

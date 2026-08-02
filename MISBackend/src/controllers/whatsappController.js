@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
+const { normalizePhone } = require('../utils/phone');
 const axios = require('axios');
 const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
@@ -47,7 +48,6 @@ const SUPPORTED_INCOMING_TYPES = new Set([
   'interactive',
 ]);
 const RESOLVED_API_VERSION = WHATSAPP_API_VERSION || 'v19.0';
-const normalizePhone = (to) => String(to || '').replace(/\D/g, '');
 const MESSAGE_TYPES = new Set(['text', 'image', 'document', 'template', 'flow']);
 
 const ensureWhatsAppMessagingConfig = () => {

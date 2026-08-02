@@ -1,15 +1,7 @@
-const mongoose = require('mongoose');
 const { v4: uuid } = require('uuid');
 const Tasks = require('../repositories/tasks');
 const Orders = require('../repositories/order');
-
-const resolveOrderFilter = (rawId) => {
-  const id = String(rawId || '').trim();
-  if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return { _id: id };
-  if (/^\d+$/.test(id)) return { Order_Number: Number(id) };
-  return { Order_uuid: id };
-};
+const { resolveOrderFilter } = require('../utils/orderFilter');
 
 const createTask = async (payload = {}) => {
   const Task_name = String(payload.Task_name || '').trim();

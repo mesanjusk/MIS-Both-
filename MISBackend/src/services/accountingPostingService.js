@@ -24,6 +24,7 @@ const {
   isUuid,
   updateBalancesForJournal,
 } = require('./accountRegistry');
+const { parseAmount } = require('../utils/money');
 
 // ---------------------------------------------------------------------------
 // System account NAMES – used only as lookup keys, never stored raw in records.
@@ -63,8 +64,7 @@ const BUSINESS_SOURCES = Object.freeze({
 // ---------------------------------------------------------------------------
 
 function money(value) {
-  const parsed = Number(String(value ?? '').replace(/[₹,\s]/g, '').trim());
-  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
+  return Number(parseAmount(value).toFixed(2));
 }
 
 function assertPositiveAmount(amount) {

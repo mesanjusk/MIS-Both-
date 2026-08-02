@@ -30,7 +30,7 @@ const BankStatementSchema = new mongoose.Schema({
   entries:        [bankStatementEntrySchema],
 }, { timestamps: true });
 
-BankStatementSchema.index({ statement_uuid: 1 });
+// statement_uuid already gets an index from `unique: true` on its field definition above.
 BankStatementSchema.index({ 'entries.txn_date': 1 });
 BankStatementSchema.index({ 'entries.match_status': 1 });
 

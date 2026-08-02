@@ -1,9 +1,8 @@
 const Message = require('../repositories/Message');
 const logger = require('../utils/logger');
+const { normalizePhone } = require('../utils/phone');
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
-
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
 const resolveMessageType = (req) => {
   const explicitType = String(req.body?.type || '').trim().toLowerCase();

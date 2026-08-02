@@ -16,6 +16,7 @@ const {
 const { resolveStaffFromWhatsApp, buildCustomerPhoneQuery } = require('./whatsappIdentityService');
 const { renderTemplate } = require('./whatsappTemplateService');
 const { ORDER_STAGES, CLOSED_STAGES } = require('../constants/orderStages');
+const { normalizePhone } = require('../utils/phone');
 
 const LIST_LIMIT = 10;
 const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -25,8 +26,6 @@ const ORDERS_COMMAND = /^orders?$/i;
 const ORDER_DETAIL_COMMAND = /^order\s+(\d+)$/i;
 const NEW_ORDER_COMMAND = /^new\s*order$/i;
 const CANCEL_COMMAND = /^cancel$/i;
-
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
 const truncate = (value, max) => {
   const str = String(value ?? '').trim();

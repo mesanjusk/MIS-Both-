@@ -1,5 +1,4 @@
 const { v4: uuid } = require('uuid');
-const mongoose = require('mongoose');
 const ItemWorkflowTemplate = require('../repositories/itemWorkflowTemplate');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
@@ -7,17 +6,10 @@ const Usertasks = require('../repositories/usertask');
 const VendorMaster = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
 const { ORDER_STAGES } = require('../constants/orderStages');
+const { resolveOrderFilter } = require('../utils/orderFilter');
 
 function normalizeItemName(name) {
   return String(name || '').trim().toLowerCase();
-}
-
-function resolveOrderFilter(rawId) {
-  const id = String(rawId || '').trim();
-  if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return { _id: id };
-  if (/^\d+$/.test(id)) return { Order_Number: Number(id) };
-  return { Order_uuid: id };
 }
 
 async function findMatchingTemplates(itemNames) {

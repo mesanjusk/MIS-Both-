@@ -1,5 +1,6 @@
 const { findEmployeeByWhatsAppNumber } = require('./whatsappAttendanceService');
 const { getWhatsAppPermissionsForGroup } = require('./permissionService');
+const { normalizePhone } = require('../utils/phone');
 
 // Resolves an inbound WhatsApp sender to an internal staff record plus the
 // permissions their group grants for WhatsApp order commands. Returns null
@@ -12,8 +13,6 @@ async function resolveStaffFromWhatsApp(rawPhone) {
   const permissions = await getWhatsAppPermissionsForGroup(user.User_group);
   return { user, permissions };
 }
-
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
 // Customers.Mobile_number isn't stored in one consistent format across the
 // app — WhatsApp auto-registration stores the full normalized number

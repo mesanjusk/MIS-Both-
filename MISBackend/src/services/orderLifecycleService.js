@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const { v4: uuid } = require('uuid');
 const Orders = require('../repositories/order');
 const Tasks = require('../repositories/tasks');
@@ -11,6 +10,8 @@ const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 const { ORDER_STAGES, isValidStage, isForwardMove, normalizeLegacyStage } = require('../constants/orderStages');
+const { normalizePhone } = require('../utils/phone');
+const { resolveOrderFilter } = require('../utils/orderFilter');
 
 const nextUsertaskNumber = async () => {
   const doc = await Counter.findByIdAndUpdate(
@@ -21,16 +22,7 @@ const nextUsertaskNumber = async () => {
   return Number(doc?.seq || 1);
 };
 
-const resolveOrderFilter = (rawId) => {
-  const id = String(rawId || '').trim();
-  if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return { _id: id };
-  if (/^\d+$/.test(id)) return { Order_Number: Number(id) };
-  return { Order_uuid: id };
-};
-
 const normalizeStage = (stage) => String(stage || '').trim().toLowerCase();
-const normalizePhone = (value = '') => String(value || '').replace(/\D/g, '');
 
 
 const autoCreateDesignerTask = async (order) => {

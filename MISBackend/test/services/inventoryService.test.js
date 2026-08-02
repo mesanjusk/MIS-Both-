@@ -4,7 +4,7 @@ const Orders = require('../../src/repositories/order');
 const Items = require('../../src/repositories/items');
 const StockMovement = require('../../src/repositories/stockMovement');
 const VendorMaster = require('../../src/repositories/vendorMaster');
-const VendorWork = require('../../src/repositories/vendorWork');
+const ProductionJob = require('../../src/repositories/productionJob');
 const { getStockSummary, consumeWorkRow } = require('../../src/services/inventoryService');
 const { enrichOrderItemsAndBuildWorkRows } = require('../../src/routes/Order/_shared');
 
@@ -132,8 +132,13 @@ describe('inventoryService.consumeWorkRow', () => {
   });
 });
 
-describe('vendor summary/order-ledger merge (VendorWork print jobs)', () => {
-  test('a VendorWork print job folds into per-vendor assigned totals and is retrievable for the order ledger', async () => {
+describe('vendor summary/order-ledger merge (ProductionJob printing jobs)', () => {
+  // VendorWork was consolidated into ProductionJob (job_category: 'printing') —
+  // see productionJob.js's driveFileId comment. /masters/summary and
+  // /order-ledger (routes/Vendor.js) now fold ProductionJob rows into the
+  // per-vendor totals instead; this exercises that same aggregation without
+  // spinning up the whole Express app.
+  test('a printing ProductionJob folds into per-vendor assigned totals and is retrievable for the order ledger', async () => {
     const vendorUuid = uuid();
     const order = await Orders.create({
       Order_uuid: uuid(),
@@ -142,31 +147,27 @@ describe('vendor summary/order-ledger merge (VendorWork print jobs)', () => {
       Items: [{ Item: 'Art Paper 300gsm', Quantity: 50, Rate: 5, Amount: 250 }],
     });
     await VendorMaster.create({ Vendor_uuid: vendorUuid, Vendor_name: 'Acme Printers' });
-    await VendorWork.create({
-      work_uuid: uuid(),
-      Vendor_uuid: vendorUuid,
-      Vendor_name: 'Acme Printers',
-      Order_uuid: order.Order_uuid,
-      Order_Number: order.Order_Number,
-      Process: 'printing',
-      Amount: 1500,
-      Paid_Amount: 500,
-      Status: 'sent',
+    await ProductionJob.create({
+      job_category: 'printing',
+      vendor_uuid: vendorUuid,
+      vendor_name: 'Acme Printers',
+      order_uuid: order.Order_uuid,
+      order_number: order.Order_Number,
+      jobValue: 1500,
+      status: 'sent',
     });
 
-    // Exercises the same aggregation the /masters/summary and /order-ledger
-    // routes run, without spinning up the whole Express app.
-    const printJobs = await VendorWork.find({}, { Vendor_uuid: 1, Amount: 1 }).lean();
+    const printJobs = await ProductionJob.find({ job_category: 'printing' }, { vendor_uuid: 1, jobValue: 1 }).lean();
     const assignedByVendor = {};
     for (const job of printJobs) {
-      if (!assignedByVendor[job.Vendor_uuid]) assignedByVendor[job.Vendor_uuid] = { totalAssigned: 0, count: 0 };
-      assignedByVendor[job.Vendor_uuid].totalAssigned += Number(job.Amount || 0);
-      assignedByVendor[job.Vendor_uuid].count += 1;
+      if (!assignedByVendor[job.vendor_uuid]) assignedByVendor[job.vendor_uuid] = { totalAssigned: 0, count: 0 };
+      assignedByVendor[job.vendor_uuid].totalAssigned += Number(job.jobValue || 0);
+      assignedByVendor[job.vendor_uuid].count += 1;
     }
     expect(assignedByVendor[vendorUuid]).toMatchObject({ totalAssigned: 1500, count: 1 });
 
-    const ledgerRows = await VendorWork.find({ Vendor_uuid: vendorUuid }).lean();
+    const ledgerRows = await ProductionJob.find({ vendor_uuid: vendorUuid, job_category: 'printing' }).lean();
     expect(ledgerRows).toHaveLength(1);
-    expect(ledgerRows[0].Order_uuid).toBe(order.Order_uuid);
+    expect(ledgerRows[0].order_uuid).toBe(order.Order_uuid);
   });
 });

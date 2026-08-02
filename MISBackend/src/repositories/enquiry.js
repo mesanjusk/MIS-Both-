@@ -13,7 +13,10 @@ const EnquirySchema=new mongoose.Schema({
 
     // Set when this enquiry was auto-created from an inbound WhatsApp message
     // rather than typed in by staff — lets the team find/triage them separately.
-    source: { type: String, enum: ['manual', 'whatsapp_auto'], default: 'manual' },
+    // whatsapp_auto = auto-detected from the API-connected number's webhook.
+    // whatsapp_manual = staff saw a message on the regular (non-API) WhatsApp
+    // Business number and logged it themselves via the quick-log shortcut.
+    source: { type: String, enum: ['manual', 'whatsapp_auto', 'whatsapp_manual'], default: 'manual' },
     status: { type: String, enum: ['unreviewed', 'reviewed', 'converted', 'dismissed'], default: 'reviewed' },
     customerUuid: { type: String, default: null },
     mobileNumber: { type: String, default: null },

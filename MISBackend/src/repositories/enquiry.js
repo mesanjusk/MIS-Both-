@@ -10,6 +10,13 @@ const EnquirySchema=new mongoose.Schema({
     Assigned: { type: String, required: true },
     Delivery_Date: { type: Date, required: true },
     Remark: { type: String, required: true },
+
+    // Set when this enquiry was auto-created from an inbound WhatsApp message
+    // rather than typed in by staff — lets the team find/triage them separately.
+    source: { type: String, enum: ['manual', 'whatsapp_auto'], default: 'manual' },
+    status: { type: String, enum: ['unreviewed', 'reviewed', 'converted', 'dismissed'], default: 'reviewed' },
+    customerUuid: { type: String, default: null },
+    mobileNumber: { type: String, default: null },
  },  { timestamps: true })
 
 // Index definitions to improve query speed
@@ -19,6 +26,8 @@ EnquirySchema.index({ Item: 1 });
 EnquirySchema.index({ Task: 1 });
 EnquirySchema.index({ Assigned: 1 });
 EnquirySchema.index({ Delivery_Date: 1 });
+EnquirySchema.index({ status: 1 });
+EnquirySchema.index({ source: 1 });
 
  const Enquiry = mongoose.model("Enquiry", EnquirySchema);
 

@@ -107,11 +107,78 @@ const DesignFileLinkSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // ── Activity tracking (when was this file first/last seen, how long in
+    // its current stage) — powers the "not yet finalized" aging view.
+    firstSeenAt: {
+      type: Date,
+      default: null,
+    },
+    stageEnteredAt: {
+      type: Date,
+      default: null,
+    },
+    lastSeenAt: {
+      type: Date,
+      default: null,
+    },
+    // Every stage the file has passed through, in order.
+    fileStageHistory: {
+      type: [
+        {
+          stageNumber: Number,
+          stageLabel: String,
+          enteredAt: Date,
+        },
+      ],
+      default: [],
+    },
+
+    // ── Customer proof / approval cycle ──────────────────────────────────
+    // none = no proof sent yet; awaiting_response = sent, waiting on customer;
+    // changes_requested = customer asked for a revision; approved = customer
+    // signed off (does not by itself confirm the order — that is still the
+    // separate confirm-final step).
+    proofStatus: {
+      type: String,
+      enum: ['none', 'awaiting_response', 'changes_requested', 'approved'],
+      default: 'none',
+      index: true,
+    },
+    proofRevisionCount: {
+      type: Number,
+      default: 0,
+    },
+    lastProofSentAt: {
+      type: Date,
+      default: null,
+    },
+    lastProofSentBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Users',
+      default: null,
+    },
+    lastCustomerResponseAt: {
+      type: Date,
+      default: null,
+    },
+    // Internal follow-up nudge sent to the designer/assignee when a customer
+    // hasn't responded to a proof in time.
+    lastNudgeAt: {
+      type: Date,
+      default: null,
+    },
+    nudgeCount: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
 
 DesignFileLinkSchema.index({ orderUuid: 1 });
 DesignFileLinkSchema.index({ linkStatus: 1 });
+DesignFileLinkSchema.index({ stageNumber: 1, linkStatus: 1 });
+DesignFileLinkSchema.index({ proofStatus: 1 });
 
 module.exports = mongoose.model('DesignFileLink', DesignFileLinkSchema);

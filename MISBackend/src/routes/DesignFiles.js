@@ -29,12 +29,16 @@ const Orders = require('../repositories/order');
 const VendorMaster = require('../repositories/vendorMaster');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const DesignFileLink = require('../repositories/DesignFileLink');
+const DesignProofLog = require('../repositories/DesignProofLog');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
 const Users = require('../repositories/users');
+const Usertasks = require('../repositories/usertask');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const { assignOrderToUser, notifyUserOfAssignment, notifyAdminsOfAssignment } = require('../services/orderTaskService');
+const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
+const { normalizePhone } = require('../utils/phone');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -923,8 +927,14 @@ router.post('/auto-temp-orders', async (req, res) => {
 
 // ─── POST /api/design-files/auto-scan-link ───────────────────────────────────
 /**
- * Creates a draft DesignFileLink for any file in stages 1-7 that has no existing
- * link yet. Called automatically from the frontend after every scan.
+ * Called automatically from the frontend after every scan (stages 1-6).
+ * Creates a draft DesignFileLink the first time a file is seen, and on every
+ * subsequent call updates lastSeenAt (a heartbeat proving the file was still
+ * scanned) and, when the file's folder/stage has changed since the last scan,
+ * appends to fileStageHistory and resets stageEnteredAt. Without this update
+ * step a file's recorded stage/timestamps would freeze at whatever they were
+ * the first time it was spotted, which is why "how long has this file been
+ * stuck" was previously unanswerable from the data.
  *
  * Body: { files: [{ fileId, fileName, stageNumber, stageLabel }] }
  */
@@ -932,51 +942,268 @@ router.post('/auto-scan-link', async (req, res) => {
   try {
     const { files = [] } = req.body || {};
     if (!Array.isArray(files) || !files.length) {
-      return res.json({ success: true, created: 0 });
+      return res.json({ success: true, updated: 0 });
     }
 
-    // Only process stages 1–7
-    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 4);
+    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 6);
     if (!eligible.length) {
-      return res.json({ success: true, created: 0 });
+      return res.json({ success: true, updated: 0 });
     }
 
-    // Filter out fileIds that already have a DesignFileLink
-    const fileIds = eligible.map((f) => f.fileId);
-    const existingLinks = await DesignFileLink.find(
-      { driveFileId: { $in: fileIds } },
-      { driveFileId: 1 }
-    ).lean();
-    const alreadyLinked = new Set(existingLinks.map((l) => l.driveFileId));
-    const toCreate = eligible.filter((f) => !alreadyLinked.has(f.fileId));
-
-    if (!toCreate.length) {
-      return res.json({ success: true, created: 0 });
-    }
-
-    const ops = toCreate.map((f) => ({
+    const now = new Date();
+    const ops = eligible.map((f) => ({
       updateOne: {
         filter: { driveFileId: f.fileId },
-        update: {
-          $set: {
-            linkStatus: 'draft',
-            orderUuid: null,
-            orderNumber: null,
-            fileName: f.fileName || null,
-            stageNumber: f.stageNumber || null,
-            stageLabel: f.stageLabel || null,
-            linkedAt: new Date(),
+        update: [
+          {
+            $set: {
+              fileName: f.fileName || null,
+              linkStatus: { $ifNull: ['$linkStatus', 'draft'] },
+              lastSeenAt: now,
+              firstSeenAt: { $ifNull: ['$firstSeenAt', now] },
+              stageEnteredAt: {
+                $cond: [{ $eq: ['$stageNumber', f.stageNumber || null] }, { $ifNull: ['$stageEnteredAt', now] }, now],
+              },
+              fileStageHistory: {
+                $cond: [
+                  { $eq: ['$stageNumber', f.stageNumber || null] },
+                  { $ifNull: ['$fileStageHistory', []] },
+                  {
+                    $concatArrays: [
+                      { $ifNull: ['$fileStageHistory', []] },
+                      [{ stageNumber: f.stageNumber || null, stageLabel: f.stageLabel || null, enteredAt: now }],
+                    ],
+                  },
+                ],
+              },
+              stageNumber: f.stageNumber || null,
+              stageLabel: f.stageLabel || null,
+            },
           },
-        },
+        ],
         upsert: true,
       },
     }));
 
     await DesignFileLink.bulkWrite(ops);
 
-    return res.json({ success: true, created: toCreate.length });
+    return res.json({ success: true, updated: eligible.length });
   } catch (err) {
     logger.error({ err }, 'design-files/auto-scan-link error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── GET /api/design-files/pending ────────────────────────────────────────────
+/**
+ * "Not yet finalized" view — every tracked file still sitting in stages 1-4
+ * (i.e. not yet in Final/Printing and not yet confirmed as a real order),
+ * with aging computed from fileStageHistory/stageEnteredAt so stuck files are
+ * visible instead of looking identical to freshly-arrived ones.
+ */
+const AGING_HOURS = { amber: Number(process.env.STUCK_FILE_AMBER_HOURS || 48), red: Number(process.env.STUCK_FILE_RED_HOURS || 96) };
+
+router.get('/pending', async (_req, res) => {
+  try {
+    const links = await DesignFileLink.find({
+      linkStatus: { $ne: 'confirmed' },
+      stageNumber: { $gte: 1, $lte: 4 },
+    }).lean();
+
+    const now = Date.now();
+    const rows = links.map((l) => {
+      const stageHours = l.stageEnteredAt ? (now - new Date(l.stageEnteredAt).getTime()) / 3600000 : null;
+      const totalHours = l.firstSeenAt ? (now - new Date(l.firstSeenAt).getTime()) / 3600000 : null;
+      let severity = 'ok';
+      if (stageHours != null) {
+        if (stageHours >= AGING_HOURS.red) severity = 'red';
+        else if (stageHours >= AGING_HOURS.amber) severity = 'amber';
+      }
+      return {
+        driveFileId: l.driveFileId,
+        fileName: l.fileName,
+        stageNumber: l.stageNumber,
+        stageLabel: l.stageLabel,
+        linkStatus: l.linkStatus,
+        orderUuid: l.orderUuid,
+        orderNumber: l.orderNumber,
+        customerUuid: l.customerUuid,
+        customerName: l.customerName,
+        assignedToName: l.assignedToName,
+        firstSeenAt: l.firstSeenAt,
+        stageEnteredAt: l.stageEnteredAt,
+        lastSeenAt: l.lastSeenAt,
+        daysInStage: stageHours != null ? +(stageHours / 24).toFixed(1) : null,
+        daysSinceFirstSeen: totalHours != null ? +(totalHours / 24).toFixed(1) : null,
+        severity,
+        proofStatus: l.proofStatus,
+        proofRevisionCount: l.proofRevisionCount,
+        lastProofSentAt: l.lastProofSentAt,
+        lastCustomerResponseAt: l.lastCustomerResponseAt,
+      };
+    });
+
+    rows.sort((a, b) => (b.daysInStage || 0) - (a.daysInStage || 0));
+    return res.json({ success: true, count: rows.length, files: rows, thresholds: AGING_HOURS });
+  } catch (err) {
+    logger.error({ err }, 'design-files/pending error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/send-proof ───────────────────────────────────────
+/**
+ * Records that a proof was sent to the customer for a design file and
+ * notifies them over WhatsApp. Also creates/refreshes a follow-up Usertask
+ * for the assignee so a forgotten follow-up shows up on their task list
+ * instead of silently sitting until the customer happens to respond.
+ *
+ * Body: { fileId, fileName, orderUuid, orderNumber, customerUuid, customerName,
+ *         mobileNumber, note, mediaLink }
+ */
+router.post('/send-proof', async (req, res) => {
+  try {
+    const { fileId, fileName, orderUuid, orderNumber, customerUuid, customerName, mobileNumber, note, mediaLink } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+
+    let mobile = normalizePhone(mobileNumber);
+    let resolvedCustomerName = customerName || null;
+    if (!mobile && customerUuid) {
+      const customer = await Customers.findOne({ Customer_uuid: customerUuid }).lean();
+      mobile = normalizePhone(customer?.Mobile_number);
+      resolvedCustomerName = resolvedCustomerName || customer?.Customer_name || null;
+    }
+    if (!mobile) {
+      return res.status(400).json({ success: false, message: 'A customer mobile number is required to send a proof' });
+    }
+
+    const link = await DesignFileLink.findOne({ driveFileId: fileId }).lean();
+    const revisionNumber = (link?.proofRevisionCount || 0) + 1;
+    const now = new Date();
+
+    const messageBody = [
+      `Hi ${resolvedCustomerName || ''},`.trim(),
+      `Here is the design proof${orderNumber ? ` for Order #${orderNumber}` : ''}${revisionNumber > 1 ? ` (revision ${revisionNumber})` : ''}.`,
+      note ? `Note: ${note}` : null,
+      mediaLink ? `View: ${mediaLink}` : null,
+      'Please reply with "OK" to approve, or let us know what changes you need.',
+    ].filter(Boolean).join('\n');
+
+    try {
+      await sendWhatsAppText({ to: mobile, body: messageBody, source: 'DESIGN_PROOF', activity: 'DESIGN_PROOF', contactName: resolvedCustomerName });
+    } catch (sendErr) {
+      logger.error({ err: sendErr }, 'design-files/send-proof: WhatsApp send failed');
+      return res.status(502).json({ success: false, message: sendErr.message || 'Failed to send WhatsApp message' });
+    }
+
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          fileName: fileName || link?.fileName || null,
+          orderUuid: orderUuid || link?.orderUuid || null,
+          orderNumber: orderNumber || link?.orderNumber || null,
+          customerUuid: customerUuid || link?.customerUuid || null,
+          customerName: resolvedCustomerName || link?.customerName || null,
+          proofStatus: 'awaiting_response',
+          proofRevisionCount: revisionNumber,
+          lastProofSentAt: now,
+          lastProofSentBy: req.user?._id || null,
+          lastNudgeAt: null,
+          nudgeCount: 0,
+        },
+      },
+      { upsert: true }
+    );
+
+    await DesignProofLog.create({
+      proofUuid: uuidv4(),
+      driveFileId: fileId,
+      fileName: fileName || link?.fileName || null,
+      orderUuid: orderUuid || link?.orderUuid || null,
+      orderNumber: orderNumber || link?.orderNumber || null,
+      customerUuid: customerUuid || link?.customerUuid || null,
+      customerName: resolvedCustomerName || link?.customerName || null,
+      mobileNumber: mobile,
+      revisionNumber,
+      sentAt: now,
+      sentBy: req.user?._id || null,
+      sentByName: req.user?.userName || req.user?.User_name || null,
+      note: note || '',
+      mediaLink: mediaLink || null,
+      status: 'awaiting_response',
+    });
+
+    // Follow-up reminder so a forgotten check-in surfaces on the assignee's
+    // task list instead of depending on someone remembering.
+    try {
+      const assigneeName = link?.assignedToName || req.user?.userName || req.user?.User_name || null;
+      if (assigneeName) {
+        const taskName = `Follow up on proof — ${fileName || link?.fileName || fileId}${orderNumber ? ` (Order #${orderNumber})` : ''}`;
+        const existing = await Usertasks.findOne({ Usertask_name: taskName, Status: { $in: ['Pending', 'pending'] } }).lean();
+        if (!existing) {
+          const nextNumber = await (async () => {
+            const doc = await Counter.findByIdAndUpdate('usertask_number', { $inc: { seq: 1 } }, { new: true, upsert: true, setDefaultsOnInsert: true }).lean();
+            return Number(doc?.seq || 1);
+          })();
+          await Usertasks.create({
+            Usertask_uuid: uuidv4(),
+            Usertask_Number: nextNumber,
+            User: assigneeName,
+            Usertask_name: taskName,
+            Date: now,
+            Time: now.toLocaleTimeString('en-US', { hour12: false }),
+            Deadline: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+            Remark: `Proof sent to ${resolvedCustomerName || mobile}. Check for a response within 24h and follow up if there's none.`,
+            Status: 'Pending',
+          });
+        }
+      }
+    } catch (taskErr) {
+      logger.error({ err: taskErr }, 'design-files/send-proof: follow-up task creation failed (non-fatal)');
+    }
+
+    return res.json({ success: true, revisionNumber, proofStatus: 'awaiting_response' });
+  } catch (err) {
+    logger.error({ err }, 'design-files/send-proof error');
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/proof-response ───────────────────────────────────
+/**
+ * Manual override for recording how the customer responded to a proof, for
+ * when it comes in as a phone call or the auto-detected WhatsApp reply
+ * needs correcting.
+ *
+ * Body: { fileId, outcome: 'approved' | 'changes_requested', note }
+ */
+router.post('/proof-response', async (req, res) => {
+  try {
+    const { fileId, outcome, note } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!['approved', 'changes_requested'].includes(outcome)) {
+      return res.status(400).json({ success: false, message: 'outcome must be approved or changes_requested' });
+    }
+
+    const now = new Date();
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      { $set: { proofStatus: outcome, lastCustomerResponseAt: now } }
+    );
+
+    const latestProof = await DesignProofLog.findOne({ driveFileId: fileId }).sort({ sentAt: -1 });
+    if (latestProof) {
+      latestProof.status = outcome;
+      latestProof.respondedAt = now;
+      latestProof.responseNote = note || '';
+      latestProof.respondedVia = 'manual';
+      await latestProof.save();
+    }
+
+    return res.json({ success: true, proofStatus: outcome });
+  } catch (err) {
+    logger.error({ err }, 'design-files/proof-response error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

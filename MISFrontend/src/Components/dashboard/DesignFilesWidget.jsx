@@ -66,12 +66,17 @@ import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
+import DesignFilesAttentionPanel from './DesignFilesAttentionPanel';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 const TABS = [
   {
     key: 'all', label: 'All Files', icon: FolderOpenRoundedIcon,
     stageFilter: () => true, viewOnly: false, color: 'default',
+  },
+  {
+    key: 'attention', label: 'Needs Attention', icon: WarningAmberRoundedIcon,
+    stageFilter: null, viewOnly: true, color: 'warning',
   },
   {
     key: 'archive', label: 'Archive', icon: ArchiveRoundedIcon,
@@ -1866,10 +1871,12 @@ export default function DesignFilesWidget() {
       setSelectedIds(new Set());
 
       const allFiles = res.data?.files || [];
-      const stage1to4 = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 4);
-      if (stage1to4.length) {
+      // Stages 1-6 so fileStageHistory captures the full path a file takes,
+      // including when it enters Final/Printing — not just the early stages.
+      const trackedStages = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 6);
+      if (trackedStages.length) {
         axios.post('/api/design-files/auto-scan-link', {
-          files: stage1to4.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+          files: trackedStages.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
         }).catch(() => {});
       }
       const printingWithoutJob = allFiles.filter((f) => f.stageNumber === 6 && !f.printJobId);
@@ -2119,6 +2126,10 @@ export default function DesignFilesWidget() {
         {activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
             <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} viewMode={viewMode} />
+          </Box>
+        ) : activeTab === 'attention' ? (
+          <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
+            <DesignFilesAttentionPanel />
           </Box>
         ) : (
           /* File list / grid */

@@ -3,6 +3,7 @@ const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const Users = require('../repositories/users');
 const Orders = require('../repositories/order');
 const Usertasks = require('../repositories/usertask');
+const DesignFileLink = require('../repositories/DesignFileLink');
 const { renderTemplate } = require('./whatsappTemplateService');
 const logger = require('../utils/logger');
 
@@ -216,6 +217,7 @@ function initTaskDigestScheduler() {
       if (hour === 9 && minute === 0 && lastOwnerSummaryRun !== key) {
         lastOwnerSummaryRun = key;
         await sendOwnerDailySummary();
+        await sendStuckFilesDigest();
       }
       if (hour === 19 && minute === 0 && lastEveningRun !== key) {
         lastEveningRun = key;
@@ -225,6 +227,110 @@ function initTaskDigestScheduler() {
       logger.error('Task digest scheduler error:', error);
     }
   }, 60 * 1000);
+}
+
+const PROOF_NUDGE_HOURS = Number(process.env.PROOF_NUDGE_HOURS || 24);
+
+/**
+ * Nudges the assigned designer when a customer hasn't responded to a sent
+ * proof within PROOF_NUDGE_HOURS — the "designer forgot to follow up"
+ * scenario. Skipped once any reply has arrived since the proof was sent
+ * (see detectProofResponse in whatsappController.js), even if the reply's
+ * wording was too ambiguous to auto-classify as approved/changes-requested.
+ */
+async function nudgeStalledProofs() {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - PROOF_NUDGE_HOURS * 60 * 60 * 1000);
+
+  const stalled = await DesignFileLink.find({
+    $and: [
+      { proofStatus: 'awaiting_response' },
+      { lastProofSentAt: { $lte: cutoff } },
+      { $or: [{ lastNudgeAt: null }, { lastNudgeAt: { $lte: cutoff } }] },
+      {
+        $expr: {
+          $or: [
+            { $eq: ['$lastCustomerResponseAt', null] },
+            { $lt: ['$lastCustomerResponseAt', '$lastProofSentAt'] },
+          ],
+        },
+      },
+    ],
+  }).lean();
+
+  let sent = 0;
+  for (const link of stalled) {
+    try {
+      if (!link.assignedToName) continue; // nobody to nudge — surfaced instead via the stuck-files digest
+      const assignee = await Users.findOne({ User_name: link.assignedToName }).lean();
+      const mobile = normalizeNumber(assignee?.Mobile_number);
+      if (!mobile) continue;
+
+      const daysWaiting = Math.max(1, Math.round((now - new Date(link.lastProofSentAt)) / (24 * 3600 * 1000)));
+      const body = `Reminder: customer hasn't responded to the design proof for ${link.fileName || 'a design file'}${link.orderNumber ? ` (Order #${link.orderNumber})` : ''}, sent ${daysWaiting} day(s) ago. Please follow up with ${link.customerName || 'the customer'}.`;
+      await sendWhatsAppText({ to: mobile, body, source: 'PROOF_FOLLOWUP', activity: 'PROOF_FOLLOWUP', contactName: link.assignedToName });
+      await DesignFileLink.updateOne({ _id: link._id }, { $set: { lastNudgeAt: now }, $inc: { nudgeCount: 1 } });
+      sent += 1;
+    } catch (err) {
+      logger.error(`Proof follow-up nudge failed for ${link.driveFileId}:`, err.message);
+    }
+  }
+  return sent;
+}
+
+function initProofFollowupScheduler() {
+  setInterval(async () => {
+    try {
+      const count = await nudgeStalledProofs();
+      if (count) logger.info(`[proof-followup] Sent ${count} nudge(s)`);
+    } catch (err) {
+      logger.error('Proof follow-up scheduler error:', err);
+    }
+  }, 30 * 60 * 1000);
+}
+
+/**
+ * Daily digest of design files still sitting in stages 1-4 (not yet Final)
+ * past the "amber" aging threshold — the direct answer to "which files still
+ * aren't finalized," pushed proactively instead of requiring someone to open
+ * the dashboard and notice.
+ */
+async function sendStuckFilesDigest() {
+  try {
+    const ownerMobile = process.env.OWNER_WHATSAPP_NUMBER;
+    if (!ownerMobile) {
+      logger.info('Stuck files digest skipped — OWNER_WHATSAPP_NUMBER not set');
+      return { skipped: true };
+    }
+
+    const amberHours = Number(process.env.STUCK_FILE_AMBER_HOURS || 48);
+    const cutoff = new Date(Date.now() - amberHours * 60 * 60 * 1000);
+    const stuck = await DesignFileLink.find({
+      linkStatus: { $ne: 'confirmed' },
+      stageNumber: { $gte: 1, $lte: 4 },
+      stageEnteredAt: { $lte: cutoff },
+    }).sort({ stageEnteredAt: 1 }).limit(20).lean();
+
+    if (!stuck.length) return { skipped: true, reason: 'none stuck' };
+
+    const now = Date.now();
+    const lines = stuck.map((f) => {
+      const days = Math.round((now - new Date(f.stageEnteredAt).getTime()) / (24 * 3600 * 1000));
+      return `${f.fileName || f.driveFileId} — ${f.stageLabel || `stage ${f.stageNumber}`}, ${days}d, ${f.assignedToName || 'unassigned'}`;
+    });
+
+    const body = `Files not yet finalized (${stuck.length}):\n${lines.join('\n')}`;
+    await sendWhatsAppText({
+      to: normalizeNumber(ownerMobile),
+      body,
+      source: 'STUCK_FILES_DIGEST',
+      activity: 'STUCK_FILES_DIGEST',
+    });
+    return { sent: true, count: stuck.length };
+  } catch (err) {
+    logger.error('Failed to send stuck files digest:', err.message);
+    return { sent: false, error: err.message };
+  }
 }
 
 let lastAutoPORun = '';
@@ -258,4 +364,7 @@ module.exports = {
   initTaskDigestScheduler,
   sendOwnerDailySummary,
   initAutoPOScheduler,
+  initProofFollowupScheduler,
+  nudgeStalledProofs,
+  sendStuckFilesDigest,
 };

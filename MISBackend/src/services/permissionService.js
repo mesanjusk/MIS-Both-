@@ -20,16 +20,29 @@ function defaultWhatsAppPermissions(userGroup) {
   };
 }
 
+// The only keys permissionService/WhatsApp commands actually consult — kept
+// separate from a plain Object.keys(...).length check because Mongoose
+// auto-assigns an _id to a nested subdocument (see repositories/usergroup.js)
+// the moment modulePermissions is written at all, even as `{}` (e.g. routes/
+// Usergroup.js's update route $sets an empty object when no permission
+// booleans are in the request body). Without this, that stray _id would (a)
+// make an actually-unconfigured group look "configured" and (b) leak into
+// the returned permissions object via the spread below.
+const PERMISSION_KEYS = ['viewOrders', 'advanceOrderStage', 'assignOrders', 'createOrders', 'receivePayments'];
+
 async function getWhatsAppPermissionsForGroup(userGroup) {
   const fallback = defaultWhatsAppPermissions(userGroup);
   if (!userGroup) return fallback;
 
   const group = await Usergroup.findOne({ User_group: userGroup }).lean();
-  if (!group?.modulePermissions || Object.keys(group.modulePermissions).length === 0) {
+  const configured = PERMISSION_KEYS.filter((key) => group?.modulePermissions?.[key] !== undefined);
+  if (!configured.length) {
     return fallback;
   }
 
-  return { ...fallback, ...group.modulePermissions };
+  const overrides = {};
+  for (const key of configured) overrides[key] = group.modulePermissions[key];
+  return { ...fallback, ...overrides };
 }
 
 module.exports = { getWhatsAppPermissionsForGroup, defaultWhatsAppPermissions };

@@ -694,4 +694,10 @@ module.exports = {
   executeOrderAction,
   nextStageFor,
   parseAmountFromText,
+  // Exposed for unit testing — otherwise only reachable through the command
+  // handler above.
+  isOrderInScope,
+  truncate,
+  formatDate,
+  formatAmount,
 };

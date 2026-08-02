@@ -12,6 +12,11 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/test/setupTests.js',
+  },
   server: {
     proxy: {
       '/api': {

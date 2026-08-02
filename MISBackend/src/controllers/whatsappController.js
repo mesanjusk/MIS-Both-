@@ -27,6 +27,8 @@ const { processWhatsAppAttendanceCommand, processWhatsAppAttendanceButtonTap } =
 const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
 const { handleWhatsAppCustomerOrderCommand } = require('../services/whatsappCustomerCommandService');
 const AutoReply = require('../repositories/AutoReply');
+const DesignFileLink = require('../repositories/DesignFileLink');
+const DesignProofLog = require('../repositories/DesignProofLog');
 const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
 
@@ -261,17 +263,74 @@ const upsertContactFromIncomingMessage = async (payload) => {
   );
 };
 
+/**
+ * Auto-creates an "unreviewed" Enquiry from a cold inbound WhatsApp message so
+ * a new order sent as a WhatsApp text (rather than entered by staff) doesn't
+ * sit invisible in the app until the customer chases it up days later. Kept
+ * deliberately lightweight (no NLP/keyword classification of intent) — it
+ * just flags "first message of a new conversation, needs a human look."
+ */
+const createUnreviewedEnquiry = async (phone, customerName, messageText) => {
+  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const recentAuto = await Enquiry.findOne({
+    mobileNumber: phone,
+    source: 'whatsapp_auto',
+    createdAt: { $gte: sixHoursAgo },
+  }).lean();
+  if (recentAuto) return null; // already flagged recently — don't spam duplicates
+
+  const lastEnquiry = await Enquiry.findOne().sort({ Enquiry_Number: -1 }).lean();
+  const newEnquiryNumber = lastEnquiry ? lastEnquiry.Enquiry_Number + 1 : 1;
+
+  const enquiry = await Enquiry.create({
+    Enquiry_uuid: `WA-${Date.now()}-${phone}`,
+    Enquiry_Number: newEnquiryNumber,
+    Customer_name: customerName,
+    Priority: 'Normal',
+    Item: 'WhatsApp message — needs review',
+    Task: 'Enquiry',
+    Assigned: 'Unassigned',
+    Delivery_Date: new Date(),
+    Remark: String(messageText || 'Auto created from WhatsApp').slice(0, 2000),
+    source: 'whatsapp_auto',
+    status: 'unreviewed',
+    mobileNumber: phone,
+  });
+
+  sendAdminAlertText(
+    `New WhatsApp message from ${customerName} (${phone}) may be a new order — not yet in the dashboard.\n"${String(messageText || '').slice(0, 200)}"`
+  ).catch((err) => logger.error('[whatsapp] Failed to send admin alert for unreviewed enquiry:', err));
+
+  return enquiry;
+};
+
 const upsertCustomerAndEnquiryFromIncomingMessage = async (payload, { allowCreate = false } = {}) => {
   const phone = normalizePhone(payload?.from);
   if (!phone) return { customer: null, createdEnquiry: false };
 
+  const messageText = payload?.message || payload?.body || payload?.text || '';
   const existingCustomer = await Customers.findOne({ Mobile_number: phone }).lean();
   if (existingCustomer) {
+    const wasColdConversation =
+      !existingCustomer.LastInteraction ||
+      Date.now() - new Date(existingCustomer.LastInteraction).getTime() > 24 * 60 * 60 * 1000;
+
     await Customers.updateOne(
       { _id: existingCustomer._id },
       { $set: { LastInteraction: payload?.timestamp || new Date() } }
     );
-    return { customer: existingCustomer, createdEnquiry: false };
+
+    // A repeat customer messaging cold (first message in 24h+) is exactly the
+    // "customer sends a new order over WhatsApp and nobody logs it" case —
+    // flag it the same way as a brand-new sender, just without creating a
+    // duplicate Customer record.
+    if (wasColdConversation) {
+      await createUnreviewedEnquiry(phone, existingCustomer.Customer_name, messageText).catch((err) =>
+        logger.error('[whatsapp] Failed to auto-create enquiry for existing customer:', err)
+      );
+    }
+
+    return { customer: existingCustomer, createdEnquiry: wasColdConversation };
   }
 
   // The shared WhatsApp number carries other projects' traffic too — never
@@ -290,20 +349,7 @@ const upsertCustomerAndEnquiryFromIncomingMessage = async (payload, { allowCreat
     LastInteraction: payload?.timestamp || new Date(),
   });
 
-  const lastEnquiry = await Enquiry.findOne().sort({ Enquiry_Number: -1 }).lean();
-  const newEnquiryNumber = lastEnquiry ? lastEnquiry.Enquiry_Number + 1 : 1;
-
-  await Enquiry.create({
-    Enquiry_uuid: `WA-${Date.now()}-${phone}`,
-    Enquiry_Number: newEnquiryNumber,
-    Customer_name: customerDoc.Customer_name,
-    Priority: 'Normal',
-    Item: 'WhatsApp Enquiry',
-    Task: 'Enquiry',
-    Assigned: 'System',
-    Delivery_Date: new Date(),
-    Remark: String(payload?.message || payload?.body || 'Auto created from WhatsApp').slice(0, 2000),
-  });
+  await createUnreviewedEnquiry(phone, customerDoc.Customer_name, messageText);
 
   return {
     customer: customerDoc.toObject ? customerDoc.toObject() : customerDoc,
@@ -1294,23 +1340,28 @@ const sendText = asyncHandler(async (req, res) => {
   });
 });
 
-const sendAdminAlert = asyncHandler(async (req, res) => {
+/** Callable version of the admin alert, usable from background flows (not just the HTTP route). */
+const sendAdminAlertText = async (text) => {
   const adminPhone = String(
     process.env.ADMIN_ALERT_PHONE ||
       process.env.WHATSAPP_ADMIN_PHONE ||
       '919372333633'
   ).trim();
+  const body = String(text || '').trim();
+  if (!adminPhone || !body) return null;
+  return dispatchTextMessage({ to: adminPhone, body });
+};
 
+const sendAdminAlert = asyncHandler(async (req, res) => {
   const text = String(req.body?.text || req.body?.body || req.body?.message || '').trim();
-
-  if (!adminPhone || !text) {
-    throw new AppError('Admin phone and message are required', 400);
+  if (!text) {
+    throw new AppError('Message is required', 400);
   }
 
-  const data = await dispatchTextMessage({
-    to: adminPhone,
-    body: text,
-  });
+  const data = await sendAdminAlertText(text);
+  if (!data) {
+    throw new AppError('Admin phone and message are required', 400);
+  }
 
   return res.status(200).json({
     success: true,
@@ -1602,6 +1653,64 @@ const receiveWebhook = (req, res) => {
   }
 };
 
+const PROOF_APPROVE_RE = /\b(ok|okay|okie|good|nice|fine|approved?|proceed|perfect|correct|great|looks good)\b/i;
+const PROOF_CHANGE_RE = /\b(change|edit|revise|revision|wrong|mistake|fix|update|different|not\s*ok|issue|problem)\b/i;
+
+/**
+ * Best-effort: if the customer replying is the one a design proof is
+ * currently awaiting a response from, record the reply against that proof
+ * (and, when the wording is unambiguous, auto-classify it as approved vs.
+ * changes-requested) and let the assigned designer know — so "designer
+ * forgot to follow up, customer never got acknowledged" doesn't happen
+ * silently. Deliberately conservative: on ambiguous wording it only records
+ * that *a* reply arrived (stopping follow-up nudges) without guessing the
+ * outcome, leaving that for manual confirmation via /proof-response.
+ */
+const detectProofResponse = async (payload) => {
+  const phone = normalizePhone(payload?.from);
+  const text = String(payload?.text || payload?.message || payload?.body || '').trim();
+  if (!phone || !text) return;
+
+  const latestProof = await DesignProofLog.findOne({ mobileNumber: phone, status: 'awaiting_response' }).sort({ sentAt: -1 });
+  if (!latestProof) return;
+
+  const now = new Date();
+  let outcome = null;
+  if (PROOF_CHANGE_RE.test(text)) outcome = 'changes_requested';
+  else if (PROOF_APPROVE_RE.test(text)) outcome = 'approved';
+
+  await DesignFileLink.updateOne(
+    { driveFileId: latestProof.driveFileId },
+    { $set: { lastCustomerResponseAt: now, ...(outcome ? { proofStatus: outcome } : {}) } }
+  );
+
+  if (!outcome) return;
+
+  latestProof.status = outcome;
+  latestProof.respondedAt = now;
+  latestProof.responseNote = text.slice(0, 500);
+  latestProof.respondedVia = 'whatsapp_reply';
+  await latestProof.save();
+
+  try {
+    const link = await DesignFileLink.findOne({ driveFileId: latestProof.driveFileId }).lean();
+    const assigneeName = link?.assignedToName;
+    if (assigneeName) {
+      const assigneeUser = await User.findOne({ User_name: assigneeName }).lean();
+      const assigneeMobile = normalizePhone(assigneeUser?.Mobile_number);
+      if (assigneeMobile) {
+        const label = outcome === 'approved' ? 'approved the proof' : 'requested changes';
+        await dispatchTextMessage({
+          to: assigneeMobile,
+          body: `Customer ${latestProof.customerName || phone} ${label} for ${latestProof.fileName || 'design file'}${latestProof.orderNumber ? ` (Order #${latestProof.orderNumber})` : ''}.\n"${text.slice(0, 200)}"`,
+        });
+      }
+    }
+  } catch (notifyErr) {
+    logger.error('[whatsapp] Failed to notify designer of proof response:', notifyErr);
+  }
+};
+
 const processIncomingWhatsAppPayload = async (payload) => {
   try {
     upsertContactFromIncomingMessage(payload).catch((contactError) => {
@@ -1627,6 +1736,14 @@ const processIncomingWhatsAppPayload = async (payload) => {
         processIncomingMediaMessage({
           messageRecordId: savedMessage._id,
           mediaId: payload.mediaId,
+        });
+      });
+    }
+
+    if (!isDuplicate && ['text', 'button', 'interactive'].includes(payload.type)) {
+      setImmediate(() => {
+        detectProofResponse(payload).catch((err) => {
+          logger.error('[whatsapp] Proof-response detection failed:', err);
         });
       });
     }

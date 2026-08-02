@@ -25,6 +25,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded';
 import MarkChatUnreadRoundedIcon from '@mui/icons-material/MarkChatUnreadRounded';
 import axios from '../../apiClient';
+import WhatsAppQuickLogButton from './WhatsAppQuickLogButton';
 
 const SEVERITY_COLOR = { ok: 'default', amber: 'warning', red: 'error' };
 
@@ -163,7 +164,14 @@ function EnquiryRow({ enquiry, onReview }) {
     <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ py: 0.75, px: 1, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' } }}>
       <MarkChatUnreadRoundedIcon sx={{ fontSize: 18, color: 'warning.main', mt: 0.3 }} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" fontWeight={500}>{enquiry.Customer_name} {enquiry.mobileNumber ? `(${enquiry.mobileNumber})` : ''}</Typography>
+        <Stack direction="row" spacing={0.75} alignItems="center">
+          <Typography variant="body2" fontWeight={500}>{enquiry.Customer_name} {enquiry.mobileNumber ? `(${enquiry.mobileNumber})` : ''}</Typography>
+          <Chip
+            size="small"
+            label={enquiry.source === 'whatsapp_manual' ? 'Logged — regular number' : 'Auto-detected — API number'}
+            sx={{ fontSize: 10, height: 16 }}
+          />
+        </Stack>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>{enquiry.Remark}</Typography>
       </Box>
       <Stack direction="row" spacing={0.5}>
@@ -237,10 +245,16 @@ export default function DesignFilesAttentionPanel() {
         ))}
       </Stack>
 
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-        <MarkChatUnreadRoundedIcon sx={{ fontSize: 18 }} color="warning" />
-        <Typography variant="subtitle2" fontWeight={700}>New WhatsApp messages needing review ({enquiries.length})</Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <MarkChatUnreadRoundedIcon sx={{ fontSize: 18 }} color="warning" />
+          <Typography variant="subtitle2" fontWeight={700}>New WhatsApp messages needing review ({enquiries.length})</Typography>
+        </Stack>
+        <WhatsAppQuickLogButton onLogged={load} />
       </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+        Auto-detected from the API number, plus anything staff log manually from the regular WhatsApp Business number.
+      </Typography>
       {!loading && enquiries.length === 0 && (
         <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>None pending.</Typography>
       )}

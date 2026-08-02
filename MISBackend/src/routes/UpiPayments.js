@@ -255,3 +255,10 @@ router.patch(
 );
 
 module.exports = router;
+// Exposed for unit testing — otherwise only reachable through the HTTP routes above.
+module.exports.parsePositiveAmount = parsePositiveAmount;
+module.exports.isValidObjectId = isValidObjectId;
+module.exports.normalizeStatus = normalizeStatus;
+module.exports.buildUpiLink = buildUpiLink;
+module.exports.buildShareLink = buildShareLink;
+module.exports.sanitizeAttempt = sanitizeAttempt;

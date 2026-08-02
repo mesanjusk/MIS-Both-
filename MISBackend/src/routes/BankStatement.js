@@ -52,8 +52,12 @@ function parseDateStr(str) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// Normalise CSV header: trim, lowercase, collapse spaces → underscore
-const normHeader = (h) => h.trim().toLowerCase().replace(/[\s\/\.\-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+// Normalise CSV header: trim, lowercase, collapse separators → underscore.
+// A header with a trailing separator (e.g. "Ref No./Cheque No.") would
+// otherwise collapse to "ref_no_cheque_no_" with a stray trailing
+// underscore, silently breaking the row['ref_no_cheque_no'] lookup below
+// for exactly the column name this parser documents as the expected format.
+const normHeader = (h) => h.trim().toLowerCase().replace(/[\s\/\.\-]+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/^_+|_+$/g, '');
 
 // Parse SBI bank statement CSV
 // Expected columns (in order): Txn Date, Value Date, Description, Ref No./Cheque No., Branch Code, Debit, Credit, Balance
@@ -663,3 +667,12 @@ router.delete('/:uuid', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed for unit testing — the parsing/matching logic is otherwise only
+// reachable through the multipart upload routes above.
+module.exports.toAmt = toAmt;
+module.exports.parseDateStr = parseDateStr;
+module.exports.normHeader = normHeader;
+module.exports.parseSbiCsv = parseSbiCsv;
+module.exports.parseSbiPdfText = parseSbiPdfText;
+module.exports.parseSbiTextFormat = parseSbiTextFormat;
+module.exports.autoMatchEntries = autoMatchEntries;

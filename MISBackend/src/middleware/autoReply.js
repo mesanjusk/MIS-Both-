@@ -3,6 +3,7 @@ const CatalogSession = require('../repositories/catalogSession');
 const Customers = require('../repositories/customer');
 const Contact = require('../repositories/contact');
 const User = require('../repositories/users');
+const { normalizePhone } = require('../utils/phone');
 
 const DEFAULT_DELAY_MIN_SECONDS = 2;
 const DEFAULT_DELAY_MAX_SECONDS = 5;
@@ -12,7 +13,6 @@ const RESTART_INPUTS = new Set(['restart', 'reset', 'start over']);
 const normalizeIncomingText = (text) => String(text || '').trim().toLowerCase();
 const normalizeDisplayValue = (value) => String(value ?? '').trim();
 const normalizeComparableValue = (value) => normalizeDisplayValue(value).toLowerCase();
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
 
 const isBlankCatalogValue = (value) => {
   const normalized = normalizeDisplayValue(value);

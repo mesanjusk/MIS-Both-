@@ -11,6 +11,7 @@ const Counter = require('../repositories/counter');
 const logger = require('../utils/logger');
 const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
 const { SYSTEM_ACCOUNTS, BUSINESS_SOURCES } = require('../services/accountingPostingService');
+const { parseAmount } = require('../utils/money');
 
 router.use(requireAuth);
 
@@ -26,11 +27,7 @@ const pdfUpload = multer({
 
 // --------------- helpers ---------------
 
-const toAmt = (v) => {
-  if (!v) return 0;
-  const n = Number(String(v).replace(/[₹,\s]/g, ''));
-  return Number.isFinite(n) ? n : 0;
-};
+const toAmt = parseAmount;
 
 // Parse DD/MM/YYYY or DD-MM-YYYY or YYYY-MM-DD
 function parseDateStr(str) {

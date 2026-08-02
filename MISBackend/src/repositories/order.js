@@ -246,8 +246,8 @@ OrdersSchema.index({ "Items.Item": 1 });
 OrdersSchema.index({ "workRows.itemName": 1 });
 OrdersSchema.index({ "Steps.vendorId": 1 });
 OrdersSchema.index({ "Steps.posting.isPosted": 1 });
-OrdersSchema.index({ "vendorAssignments.vendorCustomerUuid": 1 });
-OrdersSchema.index({ "vendorAssignments.vendorUuid": 1 });
+// vendorAssignments.vendorCustomerUuid/vendorUuid already get an index from
+// `index: true` on their field definitions above — do not redeclare here.
 OrdersSchema.index({ createdAt: -1 });
 OrdersSchema.index({ stage: 1, createdAt: -1 });
 OrdersSchema.index({ stage: 1, priority: 1, dueDate: 1 });

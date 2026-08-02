@@ -21,6 +21,7 @@ const {
 const { buildDefaultDueDate } = require('./orderTaskService');
 const { updateOrderStage } = require('./orderLifecycleService');
 const { ORDER_STAGES, CLOSED_STAGES, stageIndex, isValidStage } = require('../constants/orderStages');
+const { resolveOrderFilter: buildOrderFilter } = require('../utils/orderFilter');
 
 function nowIstDayBounds(base = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -48,14 +49,6 @@ function toNumber(value, fallback = 0) {
 function normalizeStage(stage, fallback = 'new_design') {
   const normalized = cleanString(stage).toLowerCase();
   return isValidStage(normalized) ? normalized : fallback;
-}
-
-function buildOrderFilter(orderUuidOrNumber) {
-  const id = cleanString(orderUuidOrNumber);
-  if (!id) return null;
-  if (mongoose.isValidObjectId(id)) return { _id: id };
-  if (/^\d+$/.test(id)) return { Order_Number: Number(id) };
-  return { Order_uuid: id };
 }
 
 async function nextCounterValue(id, seed = 0) {

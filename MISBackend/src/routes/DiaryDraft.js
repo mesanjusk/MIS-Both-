@@ -10,6 +10,7 @@ const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
 const { resolve: resolveAccount, getName: getAccountName, updateBalancesForJournal } = require('../services/accountRegistry');
 const { extractCsvFromFile } = require('../services/geminiOcrService');
+const { parseAmount: toAmt } = require('../utils/money');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -36,11 +37,6 @@ function parseCsv(text) {
     return row;
   });
 }
-
-const toAmt = (v) => {
-  const n = Number(String(v || '0').replace(/[₹,\s]/g, ''));
-  return Number.isFinite(n) ? n : 0;
-};
 
 const PAYMENT_MODE_MAP = { cash: 'Cash', cheque: 'Cheque', upi: 'UPI', neft: 'Bank', bank: 'Bank' };
 

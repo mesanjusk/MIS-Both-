@@ -5,8 +5,7 @@ const Transaction = require('../repositories/transaction');
 const Enquiry = require('../repositories/enquiry');
 const Message = require('../repositories/Message');
 const logger = require('../utils/logger');
-
-const normalizePhone = (value) => String(value || '').replace(/\D/g, '');
+const { normalizePhone } = require('../utils/phone');
 
 const getCustomerTimeline = async (req, res) => {
   try {

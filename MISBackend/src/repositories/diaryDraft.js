@@ -27,7 +27,7 @@ const DiaryDraftSchema = new mongoose.Schema({
   entries:          [diaryEntrySchema],
 }, { timestamps: true });
 
-DiaryDraftSchema.index({ diary_uuid: 1 });
+// diary_uuid already gets an index from `unique: true` on its field definition above.
 DiaryDraftSchema.index({ diary_date: -1 });
 DiaryDraftSchema.index({ status: 1 });
 

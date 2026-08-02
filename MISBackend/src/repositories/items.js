@@ -62,7 +62,7 @@ const ItemsSchema = new mongoose.Schema(
 ItemsSchema.index({ Item_name: 1 });
 ItemsSchema.index({ Item_group: 1 });
 ItemsSchema.index({ Item_uuid: 1 });
-ItemsSchema.index({ itemType: 1 });
+// itemType already gets an index from `index: true` on its field definition above.
 ItemsSchema.index({ isActive: 1 });
 
 module.exports = mongoose.model("Items", ItemsSchema);

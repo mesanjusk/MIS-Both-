@@ -122,29 +122,37 @@ export const WORKFLOW_SECTIONS = [
 // share of the board's row width. Does not affect stage bucketing/
 // order-moving logic — that still runs entirely off WORKFLOW_SECTIONS.
 //
-// No "Design" bucket here on purpose: the design sub-stages (Today's New,
-// Old Pending, Design Approval, Hold, Ready to Print) are no longer shown
-// as a Workflow parent column at all — the Design Files widget is the
-// authoritative, always-accurate view for that stage of work (it reads
-// live off each file's actual Drive folder), and progression through those
-// stages happens by moving files between folders, not from this board.
+// The "design" bucket has no sectionKeys — it isn't rendered as stage
+// sub-columns at all. Its 45% of the row instead holds the Design Files
+// widget directly (see WorkflowWidget's isDesignFilesGroup check), since
+// that widget's own "Design Board" tab is the authoritative, always-
+// accurate view of design-stage work (reads live off each file's actual
+// Drive folder) — the design sub-stages (Today's New, Old Pending, Design
+// Approval, Hold, Ready to Print) move automatically as files change
+// folders, not from a manual column here.
 export const WORKFLOW_GROUPS = [
+  {
+    key: 'design',
+    label: 'Design',
+    widthPercent: 45,
+    sectionKeys: [],
+  },
   {
     key: 'print',
     label: 'Print',
-    widthPercent: 27,
+    widthPercent: 15,
     sectionKeys: ['print'],
   },
   {
     key: 'postPrint',
     label: 'Post Print',
-    widthPercent: 46,
+    widthPercent: 25,
     sectionKeys: ['fitting', 'bindPack'],
   },
   {
     key: 'ready',
     label: 'Ready',
-    widthPercent: 27,
+    widthPercent: 15,
     sectionKeys: ['ready'],
   },
 ];

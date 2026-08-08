@@ -64,12 +64,22 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
+import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
 import DesignFilesAttentionPanel from './DesignFilesAttentionPanel';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
+// "Design Board" is the default landing tab — it's the authoritative,
+// always-accurate view of design-stage work (grouped straight off each
+// file's real Drive folder), replacing the old Workflow widget's Design
+// parent column, which relied on a separate assigned-tasks query and could
+// sit empty even when design work genuinely existed.
 const TABS = [
+  {
+    key: 'board', label: 'Design Board', icon: ViewKanbanRoundedIcon,
+    stageFilter: null, viewOnly: false, color: 'primary',
+  },
   {
     key: 'all', label: 'All Files', icon: FolderOpenRoundedIcon,
     stageFilter: () => true, viewOnly: false, color: 'default',
@@ -82,6 +92,20 @@ const TABS = [
     key: 'archive', label: 'Archive', icon: ArchiveRoundedIcon,
     stageFilter: null, viewOnly: true, color: 'default',
   },
+];
+
+// Design Board columns — folder stage number -> column, in the same order
+// the (now-removed) Workflow Design parent column used. Stage 7 (Approval)
+// and stages 1-4 are fully folder-auto-synced (see the backend's
+// FOLDER_STAGE_TO_ORDER_STAGE); Final(5)/Printing(6) files are deliberately
+// excluded here — those are handled by the explicit Confirm Final / Create
+// Print Job actions in the other tabs, not by this board.
+const BOARD_COLUMNS = [
+  { stageNumber: 1, key: 'todaysNew', label: "Today's New" },
+  { stageNumber: 2, key: 'oldPending', label: 'Old Pending' },
+  { stageNumber: 7, key: 'designApproval', label: 'Design Approval' },
+  { stageNumber: 3, key: 'hold', label: 'Hold' },
+  { stageNumber: 4, key: 'readyToPrint', label: 'Ready to Print' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1836,6 +1860,70 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
   );
 }
 
+// ─── Design Board panel ───────────────────────────────────────────────────────
+// Groups files into BOARD_COLUMNS by their real Drive-folder stage number —
+// the same grouping the Workflow board's Design parent column used to show,
+// but always accurate since it's sourced directly from this scan rather than
+// a separate assigned-tasks query. No "move to stage" control here: a file's
+// column is decided purely by which Drive folder it's physically in, synced
+// automatically (see the backend's syncOrderStagesFromFolders).
+function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob }) {
+  return (
+    <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', px: 1.5, py: 1 }}>
+      {BOARD_COLUMNS.map((col) => {
+        const colFiles = files.filter((f) => f.stageNumber === col.stageNumber);
+        return (
+          <Box
+            key={col.key}
+            sx={{
+              flex: '1 1 0',
+              minWidth: 200,
+              display: 'flex',
+              flexDirection: 'column',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              bgcolor: 'background.paper',
+              maxHeight: 520,
+              overflow: 'hidden',
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ px: 1.25, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}
+            >
+              <Typography variant="body2" fontWeight={800} sx={{ flex: 1 }}>{col.label}</Typography>
+              <Chip size="small" label={colFiles.length} />
+            </Stack>
+            <Stack spacing={0.4} sx={{ p: 1, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              {colFiles.length === 0 ? (
+                <Typography variant="caption" color="text.disabled" sx={{ textAlign: 'center', py: 2 }}>Nothing here.</Typography>
+              ) : (
+                colFiles.map((file) => (
+                  <FileListRow
+                    key={file.fileId}
+                    file={file}
+                    viewOnly={false}
+                    onRename={onRename}
+                    onConfirm={file.stageNumber === 5 ? onConfirm : undefined}
+                    onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
+                    onEditPrintJob={file.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
+                    onRelink={onRelink}
+                    onAssign={onAssign}
+                    onDeliver={onDeliver}
+                  />
+                ))
+              )}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 // ─── Main widget ──────────────────────────────────────────────────────────────
 export default function DesignFilesWidget() {
   const { userName } = useAuth();
@@ -1845,7 +1933,7 @@ export default function DesignFilesWidget() {
   const [configMissing, setConfigMissing] = useState(false);
   const [archiveConfigured, setArchiveConfigured] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('board');
   const [viewMode, setViewMode] = useState(() => {
     try { return localStorage.getItem('df_view') || 'grid'; } catch { return 'grid'; }
   });
@@ -1876,9 +1964,10 @@ export default function DesignFilesWidget() {
       setSelectedIds(new Set());
 
       const allFiles = res.data?.files || [];
-      // Stages 1-6 so fileStageHistory captures the full path a file takes,
-      // including when it enters Final/Printing — not just the early stages.
-      const trackedStages = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 6);
+      // Stages 1-7 so fileStageHistory captures the full path a file takes,
+      // including when it enters Approval or Final/Printing — not just the
+      // early stages.
+      const trackedStages = allFiles.filter((f) => f.stageNumber >= 1 && f.stageNumber <= 7);
       if (trackedStages.length) {
         axios.post('/api/design-files/auto-scan-link', {
           files: trackedStages.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
@@ -2127,8 +2216,21 @@ export default function DesignFilesWidget() {
           </Alert>
         )}
 
-        {/* Archive */}
-        {activeTab === 'archive' ? (
+        {/* Design Board */}
+        {activeTab === 'board' ? (
+          <Box sx={{ flex: 1, overflowY: 'auto' }}>
+            <DesignBoardPanel
+              files={files}
+              onRename={handleRename}
+              onAssign={handleAssign}
+              onRelink={setRelinkFile}
+              onDeliver={setDeliverFile}
+              onConfirm={setConfirmFile}
+              onCreatePrintJob={handleCreatePrintJob}
+              onEditPrintJob={setEditPrintJobFile}
+            />
+          </Box>
+        ) : activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
             <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} viewMode={viewMode} />
           </Box>

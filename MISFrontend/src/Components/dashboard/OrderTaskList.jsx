@@ -28,15 +28,12 @@ import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
 
 // Stages a task can be manually moved to from the Workflow widget — one per
-// pipeline column, matching WORKFLOW_SECTIONS in constants/orderStages.js,
-// so "Move to stage" lists the same columns the board itself shows rather
-// than all 17 raw enum values.
+// remaining pipeline column, matching WORKFLOW_GROUPS in
+// constants/orderStages.js. Design sub-stages (Today's New/Old Pending/
+// Design Approval/Hold/Ready to Print) are deliberately excluded here —
+// those now move automatically based on which Drive folder a design file
+// sits in (see the Design Files widget), not by a manual dashboard action.
 const MOVABLE_STAGES = [
-  { stage: 'new_design', label: "Today's New" },
-  { stage: 'old_design', label: 'Old Pending' },
-  { stage: 'approval', label: 'Design Approval' },
-  { stage: 'hold', label: 'Hold' },
-  { stage: 'ready_to_print', label: 'Ready to Print' },
   { stage: 'print', label: 'Print' },
   { stage: 'fitting', label: 'Fitting' },
   { stage: 'bind_packing', label: 'Bind-Pack' },

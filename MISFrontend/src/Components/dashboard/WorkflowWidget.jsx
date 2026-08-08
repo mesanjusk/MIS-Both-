@@ -239,20 +239,26 @@ export default function WorkflowWidget() {
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
       ) : (
         <>
-          {/* 4 parent pipeline columns (Design/Print/Post Print/Ready) in a
-              single row that never wraps — each holds a fixed % of the row
-              width (WORKFLOW_GROUPS.widthPercent). Design's 45% embeds the
-              Design Files widget directly (see isDesignGroup below) — its
-              own "Design Board" tab is the authoritative, always-accurate
-              view of design-stage work, sourced live from each file's real
-              Drive folder rather than the assigned-tasks query the other
-              3 columns use. The other 3 parents hold their stage
-              sub-columns (WORKFLOW_SECTIONS); if those can't all fit, only
-              that parent's own sub-column strip scrolls sideways — the 4
-              parents themselves stay put. Layout only: bucketing/
-              move-to-stage logic is untouched and still runs off
-              WORKFLOW_SECTIONS. */}
-          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, alignItems: 'stretch' }}>
+          {/* Desktop (md+): 4 parent pipeline columns (Design/Print/Post
+              Print/Ready) in a single row that never wraps — each holds a
+              fixed % of the row width (WORKFLOW_GROUPS.widthPercent).
+              Mobile (xs/sm): the same 4 sections stack full-width instead —
+              percentage-of-row widths plus nested min-width grids/columns
+              don't have anywhere to shrink to on a phone screen, so rather
+              than squeeze them into unreadable slivers, each section just
+              takes the full width, one below the other.
+              Design's share embeds the Design Files widget directly (see
+              isDesignGroup below) — its own "Design Board" tab is the
+              authoritative, always-accurate view of design-stage work,
+              sourced live from each file's real Drive folder rather than
+              the assigned-tasks query the other 3 sections use. The other
+              3 hold their stage sub-columns (WORKFLOW_SECTIONS): on desktop
+              those scroll sideways within their own section if they can't
+              all fit; on mobile they wrap onto extra rows instead, since
+              there's no side-scrolling room to spare there either. Layout
+              only: bucketing/move-to-stage logic is untouched and still
+              runs off WORKFLOW_SECTIONS. */}
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 1, alignItems: 'stretch' }}>
           {WORKFLOW_GROUPS.map((group) => {
             const isDesignGroup = group.key === 'design';
             const columns = group.sectionKeys.map((key) => SECTION_BY_KEY.get(key)).filter(Boolean);
@@ -261,8 +267,8 @@ export default function WorkflowWidget() {
               <Box
                 key={group.key}
                 sx={{
-                  flex: `0 0 ${group.widthPercent}%`,
-                  maxWidth: `${group.widthPercent}%`,
+                  flex: { xs: '1 1 auto', md: `0 0 ${group.widthPercent}%` },
+                  maxWidth: { xs: '100%', md: `${group.widthPercent}%` },
                   minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
@@ -279,7 +285,7 @@ export default function WorkflowWidget() {
                   // toolbar (tabs + count + view/add/refresh icons) as a
                   // single row, so wrapping it in another title row would
                   // just stack two rows on top of each other.
-                  <Box sx={{ maxHeight: 560, overflowY: 'auto' }}>
+                  <Box sx={{ maxHeight: { xs: 480, md: 560 }, overflowY: 'auto' }}>
                     <DesignFilesWidget />
                   </Box>
                 ) : (
@@ -291,14 +297,14 @@ export default function WorkflowWidget() {
                   <Chip size="small" label={groupCount} />
                 </Stack>
 
-                <Box sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, gap: 0.75, overflowX: { xs: 'visible', md: 'auto' }, flex: 1, minHeight: 0 }}>
                   {columns.map((section) => {
                     const tasks = sections.get(section.key) || [];
                     return (
                       <Box
                         key={section.key}
                         sx={{
-                          flex: '1 1 0',
+                          flex: { xs: '1 1 140px', md: '1 1 0' },
                           minWidth: 140,
                           display: 'flex',
                           flexDirection: 'column',
@@ -306,7 +312,7 @@ export default function WorkflowWidget() {
                           borderColor: 'divider',
                           borderRadius: 1.5,
                           bgcolor: 'background.paper',
-                          maxHeight: 560,
+                          maxHeight: { xs: 320, md: 560 },
                           overflow: 'hidden',
                         }}
                       >

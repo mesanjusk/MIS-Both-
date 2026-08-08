@@ -30,6 +30,7 @@ import RightSidebar from '../Components/RightSidebar';
 import CustomizeDialog from '../Components/CustomizeDialog';
 import axios, { getApiBase } from '../apiClient';
 import { ROUTES } from '../constants/routes';
+import { useSidebarVisibility } from '../hooks/useNavCustomize';
 
 const LEFT_SIDEBAR_WIDTH = 66;
 const RIGHT_SIDEBAR_WIDTH = 66;
@@ -41,6 +42,9 @@ export const useDashboardCustomize = () => useContext(DashboardCustomizeCtx);
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { leftSidebarEnabled, rightSidebarEnabled } = useSidebarVisibility();
+  const leftOffset = leftSidebarEnabled ? LEFT_SIDEBAR_WIDTH : 0;
+  const rightOffset = rightSidebarEnabled ? RIGHT_SIDEBAR_WIDTH : 0;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [driveChecking, setDriveChecking] = useState(false);
   const [driveDialogOpen, setDriveDialogOpen] = useState(false);
@@ -144,7 +148,7 @@ export default function Layout() {
           sx={{
             flexGrow: 1,
             minWidth: 0,
-            mr: { lg: `${RIGHT_SIDEBAR_WIDTH}px` },
+            mr: { lg: `${rightOffset}px` },
             height: '100dvh',
             display: 'flex',
             flexDirection: 'column',
@@ -156,8 +160,8 @@ export default function Layout() {
             sx={{
               position: 'fixed',
               top: 0,
-              left: { xs: 0, md: `${LEFT_SIDEBAR_WIDTH}px` },
-              right: { xs: 0, lg: `${RIGHT_SIDEBAR_WIDTH}px` },
+              left: { xs: 0, md: `${leftOffset}px` },
+              right: { xs: 0, lg: `${rightOffset}px` },
               zIndex: 1200,
             }}
           >
@@ -196,7 +200,6 @@ export default function Layout() {
         {/* ── Right Sidebar (fixed 66px on lg+) ── */}
         <RightSidebar
           onNewOrderClick={handleNewOrderClick}
-          onCustomize={openCustomize}
           openUpi={openUpi}
         />
 
@@ -241,27 +244,29 @@ export default function Layout() {
         </Dialog>
 
         {/* ── Mobile: FAB to open left sidebar ── */}
-        <Fab
-          aria-label="open menu"
-          onClick={() => setMobileOpen(true)}
-          size="small"
-          sx={(t) => ({
-            position: 'fixed',
-            left: 12,
-            bottom: 82,
-            display: { xs: 'flex', md: 'none' },
-            zIndex: 1199,
-            bgcolor: 'background.paper',
-            color: t.palette.primary.main,
-            border: `1.5px solid ${alpha(t.palette.primary.main, 0.3)}`,
-            boxShadow: `0 4px 14px ${alpha(t.palette.primary.main, 0.18)}`,
-            '&:hover': {
-              bgcolor: alpha(t.palette.primary.main, 0.06),
-            },
-          })}
-        >
-          <AddIcon fontSize="small" />
-        </Fab>
+        {leftSidebarEnabled && (
+          <Fab
+            aria-label="open menu"
+            onClick={() => setMobileOpen(true)}
+            size="small"
+            sx={(t) => ({
+              position: 'fixed',
+              left: 12,
+              bottom: 82,
+              display: { xs: 'flex', md: 'none' },
+              zIndex: 1199,
+              bgcolor: 'background.paper',
+              color: t.palette.primary.main,
+              border: `1.5px solid ${alpha(t.palette.primary.main, 0.3)}`,
+              boxShadow: `0 4px 14px ${alpha(t.palette.primary.main, 0.18)}`,
+              '&:hover': {
+                bgcolor: alpha(t.palette.primary.main, 0.06),
+              },
+            })}
+          >
+            <AddIcon fontSize="small" />
+          </Fab>
+        )}
 
         {/* ── Mobile: Bottom navigation ── */}
         <Paper

@@ -37,6 +37,9 @@ const DEFAULT_PERMISSIONS = {
   leftHidden: [],
   rightActionsHidden: [],
   rightLinksHidden: [],
+  leftSidebarEnabled: false,
+  rightSidebarEnabled: false,
+  footerEnabled: false,
 };
 
 const HOME_WIDGETS = [
@@ -164,6 +167,8 @@ function UserPermissionPanel({ user, onSaved }) {
       return { ...p, rightLinksHidden: next };
     });
   };
+
+  const toggleMasterFlag = (key) => setPerms((p) => ({ ...p, [key]: !p[key] }));
 
   const allGroupsChecked = perms.sidebarGroups.length === 0;
   const groupsRestricted = !allGroupsChecked;
@@ -375,6 +380,19 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 4 && (
         <Box>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+            <FormControlLabel
+              control={<Switch checked={Boolean(perms.footerEnabled)} onChange={() => toggleMasterFlag('footerEnabled')} color="primary" />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>Enable footer for this user</Typography>
+                  <Typography variant="caption" color="text.secondary">Off by default — the footer bar stays hidden until this is turned on (here or by the user themselves).</Typography>
+                </Box>
+              }
+              labelPlacement="start"
+              sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
+            />
+          </Paper>
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             {!(perms.footerHidden || []).length
               ? 'User can see ALL footer links.'
@@ -421,6 +439,19 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 5 && (
         <Box>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+            <FormControlLabel
+              control={<Switch checked={Boolean(perms.leftSidebarEnabled)} onChange={() => toggleMasterFlag('leftSidebarEnabled')} color="primary" />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>Enable left sidebar for this user</Typography>
+                  <Typography variant="caption" color="text.secondary">Off by default — the left sidebar rail stays hidden until this is turned on (here or by the user themselves).</Typography>
+                </Box>
+              }
+              labelPlacement="start"
+              sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
+            />
+          </Paper>
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             {!(perms.leftHidden || []).length
               ? 'User can see ALL left sidebar items allowed by their role & group access above.'
@@ -473,6 +504,19 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 6 && (
         <Box>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+            <FormControlLabel
+              control={<Switch checked={Boolean(perms.rightSidebarEnabled)} onChange={() => toggleMasterFlag('rightSidebarEnabled')} color="primary" />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight={700}>Enable right sidebar for this user</Typography>
+                  <Typography variant="caption" color="text.secondary">Off by default — the right sidebar rail stays hidden until this is turned on (here or by the user themselves).</Typography>
+                </Box>
+              }
+              labelPlacement="start"
+              sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
+            />
+          </Paper>
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             Controls the quick action & quick link rail on the right edge of the screen.
           </Alert>
@@ -645,7 +689,10 @@ export default function AdminUserPermissions() {
                       user.permissions?.footerHidden?.length > 0 ||
                       user.permissions?.leftHidden?.length > 0 ||
                       user.permissions?.rightActionsHidden?.length > 0 ||
-                      user.permissions?.rightLinksHidden?.length > 0
+                      user.permissions?.rightLinksHidden?.length > 0 ||
+                      user.permissions?.leftSidebarEnabled ||
+                      user.permissions?.rightSidebarEnabled ||
+                      user.permissions?.footerEnabled
                     ) && (
                       <Chip size="small" label="Custom" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                     )}

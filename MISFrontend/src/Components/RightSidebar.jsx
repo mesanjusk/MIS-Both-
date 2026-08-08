@@ -22,11 +22,10 @@ import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
-import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { ROUTES } from '../constants/routes';
 import { useAuth } from '../context/AuthContext';
-import { useNavCustomize, isRightActionVisible, isRightLinkVisible } from '../hooks/useNavCustomize';
+import { useNavCustomize, isRightActionVisible, isRightLinkVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
 
 const NAVBAR_HEIGHT = 64;
 const RIGHT_SIDEBAR_WIDTH = 66;
@@ -100,12 +99,13 @@ function SectionLabel({ children }) {
   );
 }
 
-export default function RightSidebar({ onCustomize, openUpi }) {
+export default function RightSidebar({ openUpi }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
   const { prefs } = useNavCustomize();
   const { permissions } = useAuth();
+  const { rightSidebarEnabled } = useSidebarVisibility();
 
   const isSelected = (path) =>
     Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
@@ -161,6 +161,9 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     (l) => !(permissions?.rightLinksHidden || []).includes(l.label) && isRightLinkVisible(prefs, l.label),
   );
 
+  // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.
+  if (!rightSidebarEnabled || (visibleActions.length === 0 && visibleLinks.length === 0)) return null;
+
   return (
     <Box
       sx={(t) => ({
@@ -206,22 +209,10 @@ export default function RightSidebar({ onCustomize, openUpi }) {
           ))}
         </Stack>
       </Box>
-
-      <Divider sx={{ mx: 1 }} />
-
-      <Box sx={{ px: 0.75, py: 0.75, flexShrink: 0 }}>
-        <RailItem
-          icon={<DashboardCustomizeRoundedIcon fontSize="small" />}
-          label="Customize"
-          onClick={onCustomize}
-          accent={theme.palette.primary.main}
-        />
-      </Box>
     </Box>
   );
 }
 
 RightSidebar.propTypes = {
-  onCustomize: PropTypes.func,
   openUpi: PropTypes.func,
 };

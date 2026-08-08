@@ -3,13 +3,9 @@ import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Box, ButtonBase, Divider, Drawer, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
-import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
-import { ROUTES } from '../constants/routes';
-import { useNavCustomize, isLeftItemVisible } from '../hooks/useNavCustomize';
-import { useDashboardCustomize } from '../Pages/Layout';
+import { useNavCustomize, isLeftItemVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
 
 const DRAWER_WIDTH = 66;
 
@@ -92,12 +88,12 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
-  const { clearAuth, permissions } = useAuth();
+  const { permissions } = useAuth();
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
   const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
   const adminHiddenItems = useMemo(() => permissions?.leftHidden || [], [permissions]);
   const { prefs } = useNavCustomize();
-  const dashCtx = useDashboardCustomize();
+  const { leftSidebarEnabled } = useSidebarVisibility();
 
   const groups = useMemo(
     () =>
@@ -116,23 +112,11 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
     [roleKey, allowedGroups, adminHiddenItems, prefs],
   );
 
+  // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.
+  if (!leftSidebarEnabled || groups.length === 0) return null;
+
   const handleNavigate = (path) => {
     navigate(path);
-    onCloseMobile();
-  };
-
-  const handleLogout = () => {
-    clearAuth();
-    onCloseMobile();
-    navigate('/');
-  };
-
-  const handleWidgets = () => {
-    if (pathname === ROUTES.HOME || pathname.startsWith(ROUTES.HOME + '?')) {
-      dashCtx?.openWidgetLib?.();
-    } else {
-      navigate(ROUTES.HOME + '?widgets=1');
-    }
     onCloseMobile();
   };
 
@@ -167,25 +151,6 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
           </Stack>
         </Box>
       ))}
-
-      {/* Spacer pushes widgets + logout to bottom */}
-      <Box sx={{ flex: 1 }} />
-
-      <Divider sx={{ width: 38, my: 0.5 }} />
-
-      <RailIcon
-        icon={<WidgetsRoundedIcon sx={{ fontSize: 22 }} />}
-        label="Widgets"
-        onClick={handleWidgets}
-        accent={theme.palette.primary.main}
-      />
-
-      <RailIcon
-        icon={<LogoutRoundedIcon sx={{ fontSize: 22 }} />}
-        label="Sign Out"
-        onClick={handleLogout}
-        accent={theme.palette.error.main}
-      />
     </Stack>
   );
 

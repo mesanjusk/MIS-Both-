@@ -26,7 +26,7 @@ import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry';
 import DesignFilesWidget from '../Components/dashboard/DesignFilesWidget';
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
-import OrderStatsCards from '../Components/dashboard/OrderStatsCards';
+import PendingByAssignedWidget from '../Components/dashboard/PendingByAssignedWidget';
 import AttendanceQuickAction from '../Components/dashboard/AttendanceQuickAction';
 
 /* ─── Google-colored name ────────────────────────────────────────── */
@@ -624,6 +624,8 @@ export default function Home() {
         return <AllOrder />;
       case 'designFiles':
         return <DesignFilesWidget />;
+      case 'pendingByAssigned':
+        return isAdmin ? <PendingByAssignedWidget /> : null;
       default:
         return (
           <Typography variant="caption" color="text.disabled">Unknown widget</Typography>
@@ -657,8 +659,6 @@ export default function Home() {
         </Typography>
         <AttendanceQuickAction userName={loggedInUser || userName} />
       </Box>
-
-      <OrderStatsCards />
 
       {isLoading && (
         <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />

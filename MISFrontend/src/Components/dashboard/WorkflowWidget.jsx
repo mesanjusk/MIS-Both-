@@ -234,7 +234,18 @@ export default function WorkflowWidget() {
               ))}
             </Stack>
           )}
-          <Box sx={{ display: 'flex', gap: 1.25, overflowX: 'auto', pb: 0.5, alignItems: 'flex-start' }}>
+          {/* CSS grid instead of a horizontal-scroll row — columns shrink and
+              wrap onto extra rows as the viewport narrows so every stage is
+              visible without side-scrolling, in the same left-to-right,
+              top-to-bottom sequence as WORKFLOW_SECTIONS. */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 1,
+              alignItems: 'start',
+            }}
+          >
           {WORKFLOW_SECTIONS.map((section) => {
             const tasks = sections.get(section.key) || [];
             const isDesign = section.key === 'todaysNew';
@@ -242,9 +253,7 @@ export default function WorkflowWidget() {
               <Box
                 key={section.key}
                 sx={{
-                  flex: isDesign ? '1 1 380px' : '0 0 260px',
-                  width: isDesign ? undefined : 260,
-                  minWidth: isDesign ? 340 : 260,
+                  minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
                   border: '1px solid',
@@ -268,7 +277,7 @@ export default function WorkflowWidget() {
                     flexShrink: 0,
                   }}
                 >
-                  <Typography variant="body2" fontWeight={800} sx={{ flex: 1 }}>{section.label}</Typography>
+                  <Typography variant="body2" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{section.label}</Typography>
                   <Chip size="small" label={tasks.length} />
                 </Stack>
 

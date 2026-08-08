@@ -39,14 +39,21 @@ const { upsertVendorJob } = require('../services/vendorJobService');
 const { assignOrderToUser, notifyUserOfAssignment, notifyAdminsOfAssignment } = require('../services/orderTaskService');
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const { normalizePhone } = require('../utils/phone');
+const { updateOrderStage } = require('../services/orderLifecycleService');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
+// Folder 7 (Approval) covers the MIS 'approval'/'customer' stages, which
+// never had a physical folder before — create "7.Approval" alongside the
+// existing 1-6 folders in Drive to use it. Folders 5 (Final) and 6
+// (Printing) intentionally have no MIS-stage counterpart below: those are
+// driven by the explicit Confirm Final / Create Print Job actions instead
+// of by folder location.
 const STAGE_LABELS = {
   1: 'New Design', 2: 'Old Design', 3: 'Hold',
-  4: 'Ready2Print', 5: 'Final', 6: 'Printing',
+  4: 'Ready2Print', 5: 'Final', 6: 'Printing', 7: 'Approval',
 };
 const STAGE_COLORS = {
   1: { bg: '#E3F2FD', color: '#0D47A1' },
@@ -55,9 +62,56 @@ const STAGE_COLORS = {
   4: { bg: '#E8F5E9', color: '#1B5E20' },
   5: { bg: '#E0F2F1', color: '#004D40' },
   6: { bg: '#FCE4EC', color: '#880E4F' },
+  7: { bg: '#FFF3E0', color: '#E65100' },
 };
 function stageLabel(n) { return STAGE_LABELS[n] || `Stage ${n}`; }
 function stageColor(n) { return STAGE_COLORS[n] || { bg: '#F5F5F5', color: '#424242' }; }
+
+// Folder → MIS order.stage, for auto-syncing order.stage to wherever a
+// designer has physically moved the file in Drive — the folder is the
+// source of truth for these stages, no manual "move to stage" needed.
+const FOLDER_STAGE_TO_ORDER_STAGE = {
+  1: 'new_design',
+  2: 'old_design',
+  3: 'hold',
+  4: 'ready_to_print',
+  7: 'approval',
+};
+
+// Stages a design-loop folder move is allowed to sync *out of* — anything
+// already in production (print onward) or closed is left alone even if a
+// stray file for that order still sits in an earlier design folder, so a
+// forgotten Drive file can never drag a finished order backward.
+const SYNCABLE_CURRENT_STAGES = new Set([
+  'enquiry', 'quoted', 'approved',
+  'new_design', 'old_design', 'approval', 'hold', 'customer', 'ready_to_print',
+]);
+
+// Writes each matched file's folder-detected stage back onto its linked
+// order when the two disagree, so order.stage — used everywhere else in the
+// app (reports, the Workflow board's Print/Post Print/Ready columns) —
+// stays truthful once someone starts moving files between Drive folders
+// instead of drifting from whatever stage the order was created at.
+// Mutates matching entries of `files` in place with the new orderStage so
+// the response this request returns is already up to date. Best-effort:
+// failures are logged and skipped, never fail the scan itself.
+async function syncOrderStagesFromFolders(files) {
+  const candidates = files.filter((f) => {
+    const target = FOLDER_STAGE_TO_ORDER_STAGE[f.stageNumber];
+    return f.matched && f.orderUuid && target && target !== f.orderStage && SYNCABLE_CURRENT_STAGES.has(f.orderStage || 'enquiry');
+  });
+  if (!candidates.length) return;
+
+  await Promise.allSettled(candidates.map(async (file) => {
+    const target = FOLDER_STAGE_TO_ORDER_STAGE[file.stageNumber];
+    try {
+      await updateOrderStage({ orderId: file.orderUuid, stage: target });
+      file.orderStage = target;
+    } catch (err) {
+      logger.warn('design-files/scan: folder-driven stage sync failed for order %s -> %s — %s', file.orderNumber, target, err?.message);
+    }
+  }));
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -355,6 +409,10 @@ router.get('/scan', async (_req, res) => {
 
     // 5b. Merge in any file assignments (independent of order-matching)
     enriched = await applyAssignments(enriched);
+
+    // 5c. Auto-sync order.stage to match wherever the file physically sits
+    // in Drive (design-loop folders only — see syncOrderStagesFromFolders).
+    await syncOrderStagesFromFolders(enriched);
 
     // 6. Build summary
     const summary = {
@@ -931,7 +989,7 @@ router.post('/auto-temp-orders', async (req, res) => {
 
 // ─── POST /api/design-files/auto-scan-link ───────────────────────────────────
 /**
- * Called automatically from the frontend after every scan (stages 1-6).
+ * Called automatically from the frontend after every scan (stages 1-7).
  * Creates a draft DesignFileLink the first time a file is seen, and on every
  * subsequent call updates lastSeenAt (a heartbeat proving the file was still
  * scanned) and, when the file's folder/stage has changed since the last scan,
@@ -949,7 +1007,7 @@ router.post('/auto-scan-link', async (req, res) => {
       return res.json({ success: true, updated: 0 });
     }
 
-    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 6);
+    const eligible = files.filter((f) => f.fileId && f.stageNumber >= 1 && f.stageNumber <= 7);
     if (!eligible.length) {
       return res.json({ success: true, updated: 0 });
     }

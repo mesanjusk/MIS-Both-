@@ -117,36 +117,34 @@ export const WORKFLOW_SECTIONS = [
   },
 ];
 
-// Purely a rendering concern for the Workflow board: groups the 9
-// WORKFLOW_SECTIONS columns above back under the original 4 pipeline
-// buckets (Design/Print/Post Print/Ready) as parent columns, each with a
-// fixed share of the board's row width, so the board reads as 4 wide
-// buckets with narrower per-stage sub-columns inside rather than 9 flat
-// columns. Does not affect stage bucketing/order-moving logic — that still
-// runs entirely off WORKFLOW_SECTIONS.
+// Purely a rendering concern for the Workflow board: groups the production
+// sub-stage columns above under wide parent buckets, each with a fixed
+// share of the board's row width. Does not affect stage bucketing/
+// order-moving logic — that still runs entirely off WORKFLOW_SECTIONS.
+//
+// No "Design" bucket here on purpose: the design sub-stages (Today's New,
+// Old Pending, Design Approval, Hold, Ready to Print) are no longer shown
+// as a Workflow parent column at all — the Design Files widget is the
+// authoritative, always-accurate view for that stage of work (it reads
+// live off each file's actual Drive folder), and progression through those
+// stages happens by moving files between folders, not from this board.
 export const WORKFLOW_GROUPS = [
-  {
-    key: 'design',
-    label: 'Design',
-    widthPercent: 45,
-    sectionKeys: ['todaysNew', 'oldPending', 'designApproval', 'hold', 'readyToPrint'],
-  },
   {
     key: 'print',
     label: 'Print',
-    widthPercent: 15,
+    widthPercent: 27,
     sectionKeys: ['print'],
   },
   {
     key: 'postPrint',
     label: 'Post Print',
-    widthPercent: 25,
+    widthPercent: 46,
     sectionKeys: ['fitting', 'bindPack'],
   },
   {
     key: 'ready',
     label: 'Ready',
-    widthPercent: 15,
+    widthPercent: 27,
     sectionKeys: ['ready'],
   },
 ];

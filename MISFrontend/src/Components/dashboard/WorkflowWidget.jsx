@@ -236,12 +236,28 @@ export default function WorkflowWidget() {
               ))}
             </Stack>
           )}
-          {/* 4 parent pipeline columns (Design/Print/Post Print/Ready) in a
-              single row that never wraps — each holds a fixed % of the row
-              width (WORKFLOW_GROUPS.widthPercent). The 9 real stage
+          {/* Design Files — the authoritative, always-accurate view of
+              design-stage work (Today's New/Old Pending/Design Approval/
+              Hold/Ready to Print), sourced live from each file's real Drive
+              folder rather than the assigned-tasks query the columns below
+              use. Shown as its own full-width section instead of a
+              Workflow parent column since progression through those design
+              sub-stages happens by moving files between folders, not from
+              here. */}
+          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper', mb: 1, overflow: 'hidden' }}>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)' }}>
+              <FolderOpenRoundedIcon sx={{ fontSize: 16, color: '#0891b2' }} />
+              <Typography variant="body2" fontWeight={800}>Design Files</Typography>
+            </Stack>
+            <DesignFilesWidget />
+          </Box>
+
+          {/* Remaining parent pipeline columns (Print/Post Print/Ready) in
+              a single row that never wraps — each holds a fixed % of the
+              row width (WORKFLOW_GROUPS.widthPercent). Their stage
               sub-columns (WORKFLOW_SECTIONS) live inside their parent and
               share that width; if they can't all fit, only that parent's
-              own sub-column strip scrolls sideways — the 4 parents
+              own sub-column strip scrolls sideways — the parents
               themselves stay put. Layout only: bucketing/move-to-stage
               logic is untouched and still runs off WORKFLOW_SECTIONS. */}
           <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, alignItems: 'stretch' }}>
@@ -274,13 +290,12 @@ export default function WorkflowWidget() {
                 <Box sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', flex: 1, minHeight: 0 }}>
                   {columns.map((section) => {
                     const tasks = sections.get(section.key) || [];
-                    const isDesign = section.key === 'todaysNew';
                     return (
                       <Box
                         key={section.key}
                         sx={{
-                          flex: isDesign ? '1 1 260px' : '1 1 0',
-                          minWidth: isDesign ? 240 : 140,
+                          flex: '1 1 0',
+                          minWidth: 140,
                           display: 'flex',
                           flexDirection: 'column',
                           border: '1px solid',
@@ -319,24 +334,6 @@ export default function WorkflowWidget() {
                             onMoveStage={handleMoveStage}
                             emptyMessage="Nothing here."
                           />
-
-                          {isDesign && (
-                            <Box sx={{ mt: tasks.length ? 1.5 : 0 }}>
-                              {tasks.length > 0 && <Divider sx={{ mb: 1.5 }} />}
-                              <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mb: 0.75 }}>
-                                <FolderOpenRoundedIcon sx={{ fontSize: 15, color: '#0891b2' }} />
-                                <Typography
-                                  variant="caption"
-                                  fontWeight={800}
-                                  color="text.disabled"
-                                  sx={{ textTransform: 'uppercase', letterSpacing: 0.7 }}
-                                >
-                                  Design Files
-                                </Typography>
-                              </Stack>
-                              <DesignFilesWidget />
-                            </Box>
-                          )}
                         </Box>
                       </Box>
                     );

@@ -15,6 +15,17 @@ const UsergroupSchema=new mongoose.Schema({
         assignOrders: { type: Boolean },
         createOrders: { type: Boolean },
         receivePayments: { type: Boolean },
+        // Social Media module — left unset ("not configured") the same way
+        // as the WhatsApp keys above; socialPermissionService falls back to
+        // a role-tier default when a key is absent for this group.
+        socialView: { type: Boolean },
+        socialCreate: { type: Boolean },
+        socialEdit: { type: Boolean },
+        socialDelete: { type: Boolean },
+        socialApprove: { type: Boolean },
+        socialPublish: { type: Boolean },
+        socialAccountsManage: { type: Boolean },
+        socialAnalyticsView: { type: Boolean },
       },
       default: undefined,
     },

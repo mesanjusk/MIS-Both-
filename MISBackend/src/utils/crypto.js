@@ -3,37 +3,40 @@ const AppError = require('./AppError');
 
 const ALGORITHM = 'aes-256-gcm';
 
-const getEncryptionKey = () => {
-  const key = process.env.WHATSAPP_TOKEN_ENCRYPTION_KEY;
+// keyEnvVar lets each integration keep its own encryption key (e.g. WhatsApp
+// tokens vs. social-platform tokens) while sharing this AES-256-GCM helper —
+// defaults to the original WhatsApp key so existing callers are unaffected.
+const getEncryptionKey = (keyEnvVar = 'WHATSAPP_TOKEN_ENCRYPTION_KEY') => {
+  const key = process.env[keyEnvVar];
   if (!key) {
-    throw new AppError('WHATSAPP_TOKEN_ENCRYPTION_KEY is missing', 500);
+    throw new AppError(`${keyEnvVar} is missing`, 500);
   }
 
   const bufferKey = Buffer.from(key, 'base64');
   if (bufferKey.length !== 32) {
-    throw new AppError('WHATSAPP_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key', 500);
+    throw new AppError(`${keyEnvVar} must be a base64-encoded 32-byte key`, 500);
   }
 
   return bufferKey;
 };
 
-const encrypt = (value) => {
+const encrypt = (value, keyEnvVar) => {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(ALGORITHM, getEncryptionKey(), iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, getEncryptionKey(keyEnvVar), iv);
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`;
 };
 
-const decrypt = (cipherText) => {
+const decrypt = (cipherText, keyEnvVar) => {
   const [ivPart, authTagPart, encryptedPart] = cipherText.split(':');
 
   if (!ivPart || !authTagPart || !encryptedPart) {
     throw new AppError('Invalid encrypted token format', 500);
   }
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(), Buffer.from(ivPart, 'base64'));
+  const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(keyEnvVar), Buffer.from(ivPart, 'base64'));
   decipher.setAuthTag(Buffer.from(authTagPart, 'base64'));
 
   const decrypted = Buffer.concat([

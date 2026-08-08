@@ -84,7 +84,17 @@ const emitNewMessage = (message) => {
   ioInstance.emit("new_message", message);
 };
 
+// Generic broadcast used by the Social Media module (post submitted/
+// approved/rejected/scheduled/published/failed, account needs reconnect).
+// Broadcasts to every connected client — same reach as emitNewMessage above;
+// there is no per-user room support yet in this socket layer.
+const emitSocialEvent = (event, payload) => {
+  if (!ioInstance) return;
+  ioInstance.emit(`social:${event}`, payload);
+};
+
 module.exports = {
   initSocket,
   emitNewMessage,
+  emitSocialEvent,
 };

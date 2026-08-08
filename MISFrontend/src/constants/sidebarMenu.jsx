@@ -23,6 +23,14 @@ import PhoneRoundedIcon from '@mui/icons-material/PhoneRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
+import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
+import AddPhotoAlternateRoundedIcon from '@mui/icons-material/AddPhotoAlternateRounded';
+import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
+import PermMediaRoundedIcon from '@mui/icons-material/PermMediaRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
+import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
+import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
+import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded';
 import { ROUTES } from './routes';
 
 const ADMIN_ROLES = ['Admin', 'Owner'];
@@ -127,6 +135,19 @@ export const SIDEBAR_GROUPS = [
       { label: 'Send Message', path: ROUTES.WHATSAPP_SEND, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Broadcast Page', path: ROUTES.WHATSAPP_BROADCAST, icon: <ChatRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Flow Builder', path: ROUTES.FLOW_BUILDER, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, adminOnly: true },
+    ],
+  },
+  {
+    label: 'Social Media',
+    items: [
+      { label: 'Overview', path: ROUTES.SOCIAL_OVERVIEW, icon: <ShareRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Create Post', path: ROUTES.SOCIAL_CREATE_POST, icon: <AddPhotoAlternateRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Calendar', path: ROUTES.SOCIAL_CALENDAR, icon: <CalendarMonthRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Content Library', path: ROUTES.SOCIAL_CONTENT_LIBRARY, icon: <PermMediaRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Approval', path: ROUTES.SOCIAL_APPROVAL, icon: <FactCheckRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Publishing Queue', path: ROUTES.SOCIAL_PUBLISHING_QUEUE, icon: <PendingActionsRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
+      { label: 'Social Accounts', path: ROUTES.SOCIAL_ACCOUNTS, icon: <LinkRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Social Analytics', path: ROUTES.SOCIAL_ANALYTICS, icon: <InsightsRoundedIcon fontSize="small" />, roles: OFFICE_ROLES },
     ],
   },
   {

@@ -61,32 +61,58 @@ export const LEGACY_STAGE_LABELS = {
   finishing: 'Bind & Packing',
 };
 
-// Home-screen Workflow widget column grouping. Mirrors the physical
-// production pipeline the team actually works off: New/Old Design +
-// Approval/Hold/Customer sit together as "Design", Ready to Print and
-// Print share a "Print" column, Fitting and Bind & Packing share "Post
-// Print", and Ready is the final "Ready & Archive" column. Any stage not
-// listed here (enquiry/quoted/approved — pre-assignment) falls back to
-// Design since that's the earliest working stage.
+// Home-screen Workflow widget column grouping — one column per real
+// production stage instead of the old 4 coarse buckets, so the board reads
+// as the shop's actual stage-by-stage flow. Pre-assignment stages
+// (enquiry/quoted/approved) and today's fresh design work fall back to
+// "Today's New" since that's the earliest working stage; "Customer" (waiting
+// on customer input) sits with "Design Approval" since both are part of the
+// same approval back-and-forth. Ready still folds in delivered/paid so
+// closed-out orders don't disappear from the board.
 export const WORKFLOW_SECTIONS = [
   {
-    key: 'design',
-    label: 'Design',
-    stages: ['enquiry', 'quoted', 'approved', 'new_design', 'old_design', 'approval', 'hold', 'customer'],
+    key: 'todaysNew',
+    label: "Today's New",
+    stages: ['enquiry', 'quoted', 'approved', 'new_design'],
+  },
+  {
+    key: 'oldPending',
+    label: 'Old Pending',
+    stages: ['old_design'],
+  },
+  {
+    key: 'designApproval',
+    label: 'Design Approval',
+    stages: ['approval', 'customer'],
+  },
+  {
+    key: 'hold',
+    label: 'Hold',
+    stages: ['hold'],
+  },
+  {
+    key: 'readyToPrint',
+    label: 'Ready to Print',
+    stages: ['ready_to_print'],
   },
   {
     key: 'print',
     label: 'Print',
-    stages: ['ready_to_print', 'print'],
+    stages: ['print'],
   },
   {
-    key: 'postPrint',
-    label: 'Post Print',
-    stages: ['fitting', 'bind_packing'],
+    key: 'fitting',
+    label: 'Fitting',
+    stages: ['fitting'],
+  },
+  {
+    key: 'bindPack',
+    label: 'Bind-Pack',
+    stages: ['bind_packing'],
   },
   {
     key: 'ready',
-    label: 'Ready & Archive',
+    label: 'Ready',
     stages: ['ready', 'delivered', 'paid'],
   },
 ];

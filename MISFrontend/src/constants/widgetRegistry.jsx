@@ -14,7 +14,7 @@ export const WIDGET_REGISTRY = [
     bg: '#fef3c7',
     defaultPanel: 'left',
     adminOnly: false,
-    description: 'SOP checklist plus pending tasks in four scrollable columns — Design, Print, Post Print, Ready & Archive — with all design files in the Design column',
+    description: "SOP checklist plus pending tasks in scrollable columns — Today's New, Old Pending, Design Approval, Hold, Ready to Print, Print, Fitting, Bind-Pack, Ready — with all design files in the Today's New column",
   },
   {
     id: 'designFiles',

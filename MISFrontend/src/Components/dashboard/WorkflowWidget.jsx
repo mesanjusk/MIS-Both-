@@ -50,20 +50,27 @@ const STAGE_TO_SECTION = new Map(
 // Many older orders never got a granular `stage` (they still carry the old
 // coarse 'design' value, or none at all) but their real progress is tracked
 // as free-text in Status.Task — "Printing", "Fitting", "Post Printing" etc.
-// Without this, every one of those orders falls back to the Design column
-// regardless of where the order actually is. Checked in this order because
-// "Ready to Print" contains both "ready" and "print" — print wins there.
+// Without this, every one of those orders falls back to the Today's New
+// column regardless of where the order actually is. Order matters: "Ready
+// to Print" contains both "ready" and "print", and "Post Printing" contains
+// "print" too, so the more specific checks run first.
 function guessSectionFromLabel(label) {
   const text = String(label || '').toLowerCase();
+  if (/ready\s*to\s*print/.test(text)) return 'readyToPrint';
+  if (text.includes('fitting')) return 'fitting';
+  if (/(bind|pack)/.test(text)) return 'bindPack';
   if (text.includes('print')) return 'print';
-  if (/(fitting|bind|pack|post)/.test(text)) return 'postPrint';
+  if (text.includes('hold')) return 'hold';
+  if (/(approval|customer)/.test(text)) return 'designApproval';
+  if (text.includes('old')) return 'oldPending';
   if (/(ready|deliver)/.test(text)) return 'ready';
-  return 'design';
+  return 'todaysNew';
 }
 
-// Buckets tasks into the four production-pipeline columns (Design, Print,
-// Post Print, Ready & Archive) instead of the previous flat "by stage name"
-// grouping — matches how the team actually walks an order through the shop.
+// Buckets tasks into the per-stage production-pipeline columns (Today's New,
+// Old Pending, Design Approval, Hold, Ready to Print, Print, Fitting,
+// Bind-Pack, Ready) instead of a flat "by stage name" grouping — matches how
+// the team actually walks an order through the shop.
 function groupBySection(tasks) {
   const buckets = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, []]));
   for (const task of tasks) {
@@ -230,14 +237,14 @@ export default function WorkflowWidget() {
           <Box sx={{ display: 'flex', gap: 1.25, overflowX: 'auto', pb: 0.5, alignItems: 'flex-start' }}>
           {WORKFLOW_SECTIONS.map((section) => {
             const tasks = sections.get(section.key) || [];
-            const isDesign = section.key === 'design';
+            const isDesign = section.key === 'todaysNew';
             return (
               <Box
                 key={section.key}
                 sx={{
-                  flex: isDesign ? '1 1 420px' : '0 0 280px',
-                  width: isDesign ? undefined : 280,
-                  minWidth: isDesign ? 380 : 280,
+                  flex: isDesign ? '1 1 380px' : '0 0 260px',
+                  width: isDesign ? undefined : 260,
+                  minWidth: isDesign ? 340 : 260,
                   display: 'flex',
                   flexDirection: 'column',
                   border: '1px solid',

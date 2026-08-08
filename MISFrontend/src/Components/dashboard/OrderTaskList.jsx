@@ -27,16 +27,19 @@ import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
 
-// Stages a task can be manually moved to from the Workflow widget — one
-// representative (usually the entry stage) per pipeline column, so "Move
-// to stage" reads as "move to Design/Print/Post Print/Ready" rather than
-// listing all 17 raw enum values.
+// Stages a task can be manually moved to from the Workflow widget — one per
+// pipeline column, matching WORKFLOW_SECTIONS in constants/orderStages.js,
+// so "Move to stage" lists the same columns the board itself shows rather
+// than all 17 raw enum values.
 const MOVABLE_STAGES = [
-  { stage: 'new_design', label: 'Design' },
+  { stage: 'new_design', label: "Today's New" },
+  { stage: 'old_design', label: 'Old Pending' },
+  { stage: 'approval', label: 'Design Approval' },
+  { stage: 'hold', label: 'Hold' },
   { stage: 'ready_to_print', label: 'Ready to Print' },
   { stage: 'print', label: 'Print' },
   { stage: 'fitting', label: 'Fitting' },
-  { stage: 'bind_packing', label: 'Bind & Packing' },
+  { stage: 'bind_packing', label: 'Bind-Pack' },
   { stage: 'ready', label: 'Ready' },
 ];
 

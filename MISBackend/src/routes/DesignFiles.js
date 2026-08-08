@@ -820,11 +820,15 @@ router.post('/assign', async (req, res) => {
  * a DesignFileLink record so the file is tracked in MIS immediately.
  * The user can open the temp order later and fill in the real customer/amount.
  *
- * Body: { files: [{ fileId, fileName, stageNumber, stageLabel, stageColor }] }
+ * Body: { files: [{ fileId, fileName, stageNumber, stageLabel, stageColor }], fromArchive }
+ * fromArchive: the files came from the Design Files "Archive" tab (already-
+ * printed historical jobs), so the new order skips design and starts at
+ * 'print' instead of the usual 'new_design'.
  */
 router.post('/auto-temp-orders', async (req, res) => {
   try {
-    const { files = [] } = req.body || {};
+    const { files = [], fromArchive } = req.body || {};
+    const initialStage = fromArchive ? 'print' : 'new_design';
     if (!Array.isArray(files) || !files.length) {
       return res.status(400).json({ success: false, message: 'files array is required' });
     }
@@ -855,8 +859,8 @@ router.post('/auto-temp-orders', async (req, res) => {
         Customer_uuid: tempCustomer.Customer_uuid,
         orderNote: `[TEMP] ${file.fileName || file.fileId}`,
         orderMode: 'note',
-        stage: 'new_design',
-        stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
+        stage: initialStage,
+        stageHistory: [{ stage: initialStage, timestamp: new Date() }],
         priority: 'medium',
         isTemporary: true,
         driveFile: { status: 'skipped' },
@@ -1213,11 +1217,15 @@ router.post('/proof-response', async (req, res) => {
  * Confirms a Final (stage 5) file as a real MIS order.
  * Creates the order and renames the Drive file.
  *
- * Body: { fileId, fileName, customerUuid, itemDetails, mobileNumber }
+ * Body: { fileId, fileName, customerUuid, itemDetails, mobileNumber, fromArchive }
+ * fromArchive: the file came from the Design Files "Archive" tab (already-
+ * printed historical jobs), so the new order skips design and starts at
+ * 'print' instead of the usual 'new_design'.
  */
 router.post('/confirm-final', async (req, res) => {
   try {
-    const { fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items } = req.body || {};
+    const { fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items, fromArchive } = req.body || {};
+    const initialStage = fromArchive ? 'print' : 'new_design';
 
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
@@ -1243,9 +1251,9 @@ router.post('/confirm-final', async (req, res) => {
       orderNote: noteText,
       orderMode: isDetailed ? 'items' : 'note',
       Remark: noteText,
-      stage: 'new_design',
+      stage: initialStage,
       priority: 'medium',
-      stageHistory: [{ stage: 'new_design', timestamp: new Date() }],
+      stageHistory: [{ stage: initialStage, timestamp: new Date() }],
       driveFile: { status: 'skipped' },
     };
     if (isDetailed) {

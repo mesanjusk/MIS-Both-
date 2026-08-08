@@ -493,7 +493,7 @@ function StaleDraftAlert({ staleLinks }) {
 }
 
 // ─── Confirm Final Dialog ─────────────────────────────────────────────────────
-function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
+function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
   const [customer, setCustomer] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customerInput, setCustomerInput] = useState('');
@@ -560,6 +560,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess }) {
         items: isDetailed
           ? items.map((r) => ({ itemName: r.itemName, qty: parseFloat(r.qty) || 1, rate: parseFloat(r.rate) || 0, amount: parseFloat(r.amount) || 0 }))
           : [],
+        fromArchive,
       });
       onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed`, 'success');
       onClose();
@@ -806,7 +807,7 @@ function EditPrintJobDialog({ open, file, onClose, onSuccess }) {
 }
 
 // ─── Link Order Dialog ────────────────────────────────────────────────────────
-function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
+function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess, fromArchive = false }) {
   const [order, setOrder] = useState(null);
   const [options, setOptions] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -833,6 +834,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
     try {
       const res = await axios.post('/api/design-files/auto-temp-orders', {
         files: selectedFiles.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+        fromArchive,
       });
       const { created = 0, renamed = 0, failed = 0 } = res.data || {};
       if (failed > 0) {
@@ -919,7 +921,7 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess }) {
 }
 
 // ─── Auto Temp Dialog ─────────────────────────────────────────────────────────
-function AutoTempDialog({ open, files, onClose, onSuccess }) {
+function AutoTempDialog({ open, files, onClose, onSuccess, fromArchive = false }) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -931,6 +933,7 @@ function AutoTempDialog({ open, files, onClose, onSuccess }) {
     try {
       const res = await axios.post('/api/design-files/auto-temp-orders', {
         files: files.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
+        fromArchive,
       });
       setResult(res.data);
     } catch (err) {
@@ -1736,6 +1739,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
       <LinkOrderDialog
         open={archiveLinkOpen || !!relinkFile}
         selectedFiles={relinkFile ? [relinkFile] : selectedFiles}
+        fromArchive
         onClose={() => { setArchiveLinkOpen(false); setRelinkFile(null); }}
         onSuccess={(msg, severity = 'success') => {
           setArchiveToast({ message: msg, severity });
@@ -1745,6 +1749,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
       />
       <AutoTempDialog
         open={archiveTempOpen} files={unmatchedFiles}
+        fromArchive
         onClose={() => setArchiveTempOpen(false)}
         onSuccess={(msg, severity = 'success') => {
           setArchiveToast({ message: msg, severity });
@@ -2242,6 +2247,7 @@ export default function DesignFilesWidget() {
       {/* Dialogs */}
       <ConfirmFinalDialog
         open={!!confirmFile} file={confirmFile}
+        fromArchive={activeTab === 'archive'}
         onClose={() => setConfirmFile(null)}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setConfirmFile(null); load(); }}
       />

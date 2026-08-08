@@ -98,6 +98,14 @@ const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions')
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
 const DriveFolderReport = lazy(() => import('./Pages/DriveFolderReport'));
 const SopPage = lazy(() => import('./Pages/SopPage'));
+const SocialOverview = lazy(() => import('./Pages/SocialOverview'));
+const SocialCreatePost = lazy(() => import('./Pages/SocialCreatePost'));
+const SocialCalendar = lazy(() => import('./Pages/SocialCalendar'));
+const SocialContentLibrary = lazy(() => import('./Pages/SocialContentLibrary'));
+const SocialApproval = lazy(() => import('./Pages/SocialApproval'));
+const SocialPublishingQueue = lazy(() => import('./Pages/SocialPublishingQueue'));
+const SocialAccounts = lazy(() => import('./Pages/SocialAccounts'));
+const SocialAnalytics = lazy(() => import('./Pages/SocialAnalytics'));
 
 function RouteLoader() {
   return (
@@ -244,6 +252,16 @@ export default function App() {
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={withSuspense(<WhatsAppActionLogPage />)} />
             <Route path={ROUTES.DRIVE_FOLDER_REPORT} element={withSuspense(<DriveFolderReport />)} />
             <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
+
+            <Route path={ROUTES.SOCIAL_OVERVIEW} element={withSuspense(<SocialOverview />)} />
+            <Route path={ROUTES.SOCIAL_CREATE_POST} element={withSuspense(<SocialCreatePost />)} />
+            <Route path={`${ROUTES.SOCIAL_CREATE_POST}/:id`} element={withSuspense(<SocialCreatePost />)} />
+            <Route path={ROUTES.SOCIAL_CALENDAR} element={withSuspense(<SocialCalendar />)} />
+            <Route path={ROUTES.SOCIAL_CONTENT_LIBRARY} element={withSuspense(<SocialContentLibrary />)} />
+            <Route path={ROUTES.SOCIAL_APPROVAL} element={withSuspense(<SocialApproval />)} />
+            <Route path={ROUTES.SOCIAL_PUBLISHING_QUEUE} element={withSuspense(<SocialPublishingQueue />)} />
+            <Route path={ROUTES.SOCIAL_ACCOUNTS} element={withSuspense(<SocialAccounts />)} />
+            <Route path={ROUTES.SOCIAL_ANALYTICS} element={withSuspense(<SocialAnalytics />)} />
 
             <Route path={ROUTE_ALIASES.HOME_ADMIN} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTE_ALIASES.HOME_OLD} element={<Navigate to={ROUTES.HOME} replace />} />

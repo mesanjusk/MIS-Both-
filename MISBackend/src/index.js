@@ -83,6 +83,15 @@ const SopRouter = require("./routes/sop");
 const { seedUserGroups } = require("./services/sopService");
 const BusinessProfile = require("./routes/BusinessProfile");
 const PublicInvoiceRouter = require("./routes/PublicInvoice");
+const SocialAccountsRouter = require("./routes/SocialAccounts");
+const SocialPostsRouter = require("./routes/SocialPosts");
+const SocialCalendarRouter = require("./routes/SocialCalendar");
+const SocialAssetsRouter = require("./routes/SocialAssets");
+const SocialAnalyticsRouter = require("./routes/SocialAnalytics");
+const SocialCampaignsRouter = require("./routes/SocialCampaigns");
+const SocialOverviewRouter = require("./routes/SocialOverview");
+const SocialProvidersRouter = require("./routes/SocialProviders");
+const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
 
 const app = express();
 const server = http.createServer(app);
@@ -159,6 +168,14 @@ app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);
 app.use("/api/drive-folder-report", DriveFolderReport);
+app.use("/api/social/accounts", SocialAccountsRouter);
+app.use("/api/social/posts", SocialPostsRouter);
+app.use("/api/social/calendar", SocialCalendarRouter);
+app.use("/api/social/assets", SocialAssetsRouter);
+app.use("/api/social/analytics", SocialAnalyticsRouter);
+app.use("/api/social/campaigns", SocialCampaignsRouter);
+app.use("/api/social/overview", SocialOverviewRouter);
+app.use("/api/social/providers", SocialProvidersRouter);
 app.use("/api", Chat);
 
 // ---------- WhatsApp webhook (no auth — Meta calls this directly) ----------
@@ -184,6 +201,7 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
   initAutoPOScheduler();
   initProofFollowupScheduler();
   initAttendanceReminderScheduler({ sendText: dispatchTextMessage, sendButtons: dispatchInteractiveButtons });
+  initSocialPublishingScheduler();
 
   // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
   try {

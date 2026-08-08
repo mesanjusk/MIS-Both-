@@ -107,6 +107,16 @@ export const ROUTES = {
   // SOP
   SOP: '/sop',
 
+  // Social Media
+  SOCIAL_OVERVIEW: '/social',
+  SOCIAL_CREATE_POST: '/social/create',
+  SOCIAL_CALENDAR: '/social/calendar',
+  SOCIAL_CONTENT_LIBRARY: '/social/library',
+  SOCIAL_APPROVAL: '/social/approval',
+  SOCIAL_PUBLISHING_QUEUE: '/social/queue',
+  SOCIAL_ACCOUNTS: '/social/accounts',
+  SOCIAL_ANALYTICS: '/social/analytics',
+
   // Admin
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
   ADMIN_GROUP_PERMISSIONS: '/admin/group-permissions',

@@ -134,25 +134,25 @@ export const WORKFLOW_GROUPS = [
   {
     key: 'design',
     label: 'Design',
-    widthPercent: 45,
+    widthPercent: 52,
     sectionKeys: [],
   },
   {
     key: 'print',
     label: 'Print',
-    widthPercent: 15,
+    widthPercent: 12,
     sectionKeys: ['print'],
   },
   {
     key: 'postPrint',
     label: 'Post Print',
-    widthPercent: 25,
+    widthPercent: 24,
     sectionKeys: ['fitting', 'bindPack'],
   },
   {
     key: 'ready',
     label: 'Ready',
-    widthPercent: 15,
+    widthPercent: 12,
     sectionKeys: ['ready'],
   },
 ];

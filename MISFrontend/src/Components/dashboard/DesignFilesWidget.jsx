@@ -6,7 +6,6 @@ import {
   Box,
   Button,
   Card,
-  CardActions,
   CardContent,
   Checkbox,
   Chip,
@@ -21,6 +20,7 @@ import {
   IconButton,
   InputAdornment,
   LinearProgress,
+  ListItemIcon,
   Menu,
   MenuItem,
   Snackbar,
@@ -38,7 +38,6 @@ import {
 } from '@mui/material';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DesignServicesRoundedIcon from '@mui/icons-material/DesignServicesRounded';
 import LocalPrintshopRoundedIcon from '@mui/icons-material/LocalPrintshopRounded';
@@ -65,6 +64,9 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
 import DesignFilesAttentionPanel from './DesignFilesAttentionPanel';
@@ -189,151 +191,145 @@ function StageChip({ stageLabel: label, stageColor }) {
 }
 
 // ─── Status badges ────────────────────────────────────────────────────────────
-function StatusBadges({ file }) {
+// Compact icon+text mini-badges rather than full chips — each one caps its
+// own width and truncates (a long customer/assignee name used to blow out
+// the whole row instead of just its own badge). Wraps onto extra lines
+// rather than ever being clipped, since columns have vertical room to
+// scroll but not horizontal room to spare.
+function MiniBadge({ icon: Icon, label, sx }) {
   return (
-    <Stack direction="row" spacing={0.4} flexWrap="wrap">
-      {file.isDraft && (
-        <Chip label="DRAFT" size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'grey.200', color: 'grey.700', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />
-      )}
-      {file.isTemporaryOrder && (
-        <Chip label="TEMP" size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'warning.100', color: 'warning.800', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />
-      )}
-      {file.printJobNumber != null && (
-        <Chip label={pjLabel(file.printJobNumber)} size="small" sx={{ fontSize: 9, height: 16, bgcolor: 'success.100', color: 'success.800', fontWeight: 700, '& .MuiChip-label': { px: 0.6 } }} />
-      )}
+    <Tooltip title={label}>
+      <Stack direction="row" spacing={0.25} alignItems="center" sx={{ maxWidth: 92, ...sx }}>
+        {Icon && <Icon sx={{ fontSize: 11, flexShrink: 0 }} />}
+        <Typography sx={{ fontSize: 9.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </Typography>
+      </Stack>
+    </Tooltip>
+  );
+}
+
+function StatusBadges({ file, sx }) {
+  const hasAny = file.isDraft || file.isTemporaryOrder || file.printJobNumber != null
+    || (file.matched && !file.isDraft) || file.customerName || file.assignedToName;
+  if (!hasAny) return null;
+  return (
+    <Stack direction="row" spacing={0.75} flexWrap="wrap" alignItems="center" sx={{ rowGap: 0.25, ...sx }}>
+      {file.isDraft && <MiniBadge label="DRAFT" sx={{ color: 'grey.700' }} />}
+      {file.isTemporaryOrder && <MiniBadge label="TEMP" sx={{ color: 'warning.800' }} />}
+      {file.printJobNumber != null && <MiniBadge label={pjLabel(file.printJobNumber)} sx={{ color: 'success.800' }} />}
       {file.matched && !file.isDraft && (
-        <Chip
-          label={`#${file.orderNumber}`} size="small"
-          icon={<CheckCircleRoundedIcon sx={{ fontSize: '10px !important' }} />}
-          sx={{ fontSize: 9, height: 16, bgcolor: 'success.50', color: 'success.700', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
-        />
+        <MiniBadge icon={TagRoundedIcon} label={String(file.orderNumber)} sx={{ color: 'success.700' }} />
       )}
       {file.customerName && (
-        <Chip
-          label={file.customerName} size="small"
-          sx={{ fontSize: 9, height: 16, bgcolor: 'info.50', color: 'info.800', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
-        />
+        <MiniBadge icon={PersonRoundedIcon} label={file.customerName} sx={{ color: 'info.800' }} />
       )}
       {file.assignedToName && (
-        <Chip
-          label={file.assignedToName} size="small"
-          icon={<PersonAddAltRoundedIcon sx={{ fontSize: '10px !important' }} />}
-          sx={{ fontSize: 9, height: 16, bgcolor: 'secondary.50', color: 'secondary.800', fontWeight: 600, '& .MuiChip-label': { px: 0.5 } }}
-        />
+        <MiniBadge icon={PersonAddAltRoundedIcon} label={file.assignedToName} sx={{ color: 'secondary.800' }} />
       )}
     </Stack>
   );
 }
 
-// ─── Inline action buttons ────────────────────────────────────────────────────
+// ─── Actions menu ─────────────────────────────────────────────────────────────
+// A single "more actions" kebab instead of a row of separate icon buttons —
+// with 4-6 possible actions per file, spelling them all out inline left no
+// room for the filename in a narrow card. Everything that used to be its
+// own button is now a labeled menu item instead.
 function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly }) {
-  const [renaming, setRenaming] = useState(false);
-  const [creatingPJ, setCreatingPJ] = useState(false);
-  const [assigning, setAssigning] = useState(false);
-  const [assignAnchor, setAssignAnchor] = useState(null);
+  const [anchor, setAnchor] = useState(null);
+  const [view, setView] = useState('actions'); // 'actions' | 'assign'
+  const [busy, setBusy] = useState(false);
   const [assignUsers, setAssignUsers] = useState(null);
   if (viewOnly) return null;
 
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
 
-  const handleRename = async (e) => {
+  const actions = [];
+  if (file.stageNumber === 5 && onConfirm) {
+    actions.push({ key: 'confirm', label: 'Confirm as real MIS order', icon: AssignmentTurnedInRoundedIcon, color: 'success.main', run: () => onConfirm(file) });
+  }
+  if (file.stageNumber === 6 && file.printJobNumber != null && onEditPrintJob) {
+    actions.push({ key: 'editPJ', label: 'Update print job vendor & amount', icon: EditNoteRoundedIcon, color: 'text.secondary', run: () => onEditPrintJob(file) });
+  }
+  if (file.stageNumber === 6 && file.printJobNumber == null && onCreatePrintJob) {
+    actions.push({ key: 'createPJ', label: 'Create print job', icon: ReceiptLongRoundedIcon, color: 'warning.main', run: () => onCreatePrintJob(file) });
+  }
+  if (file.orderUuid && onRelink) {
+    actions.push({ key: 'relink', label: `Change order (currently #${file.orderNumber})`, icon: SwapHorizRoundedIcon, color: 'info.main', run: () => onRelink(file) });
+  }
+  if (needsRename && onRename) {
+    actions.push({ key: 'rename', label: `Rename to start with #${file.orderNumber}`, icon: DriveFileRenameOutlineRoundedIcon, color: 'text.secondary', run: () => onRename(file) });
+  }
+  if (file.orderUuid && file.orderStage !== 'delivered' && onDeliver) {
+    actions.push({ key: 'deliver', label: `Mark Order #${file.orderNumber} as delivered`, icon: LocalShippingRoundedIcon, color: 'success.main', run: () => onDeliver(file) });
+  }
+  const hasAssign = !!onAssign;
+  if (!actions.length && !hasAssign) return null;
+
+  const openMenu = (e) => { e.stopPropagation(); setView('actions'); setAnchor(e.currentTarget); };
+  const closeMenu = (e) => { e?.stopPropagation(); setAnchor(null); setView('actions'); };
+
+  const runAction = async (e, fn) => {
     e.stopPropagation();
-    if (!onRename || renaming) return;
-    setRenaming(true);
-    try { await onRename(file); } finally { setRenaming(false); }
+    closeMenu();
+    if (busy) return;
+    setBusy(true);
+    try { await fn(); } finally { setBusy(false); }
   };
 
-  const handleCreatePJ = async (e) => {
+  const openAssignView = (e) => {
     e.stopPropagation();
-    if (!onCreatePrintJob || creatingPJ) return;
-    setCreatingPJ(true);
-    try { await onCreatePrintJob(file); } finally { setCreatingPJ(false); }
-  };
-
-  const openAssignMenu = (e) => {
-    e.stopPropagation();
-    setAssignAnchor(e.currentTarget);
+    setView('assign');
     if (assignUsers === null) loadUsersCached().then(setAssignUsers);
   };
-  const closeAssignMenu = (e) => {
-    e?.stopPropagation();
-    setAssignAnchor(null);
-  };
-  const handlePickAssignee = async (e, user) => {
+
+  const pickAssignee = async (e, user) => {
     e.stopPropagation();
-    closeAssignMenu();
-    if (!onAssign || assigning) return;
-    setAssigning(true);
-    try { await onAssign(file, user); } finally { setAssigning(false); }
+    closeMenu();
+    if (!onAssign || busy) return;
+    setBusy(true);
+    try { await onAssign(file, user); } finally { setBusy(false); }
   };
 
   return (
-    <Stack direction="row" spacing={0.25} alignItems="center">
-      {file.stageNumber === 5 && onConfirm && (
-        <Tooltip title="Confirm as real MIS order">
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onConfirm(file); }} sx={{ color: 'success.600' }}>
-            <AssignmentTurnedInRoundedIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
-      )}
-      {file.stageNumber === 6 && file.printJobNumber != null && onEditPrintJob && (
-        <Tooltip title="Update print job vendor & amount">
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEditPrintJob(file); }} sx={{ color: 'text.secondary' }}>
-            <EditNoteRoundedIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
-      )}
-      {file.stageNumber === 6 && file.printJobNumber == null && onCreatePrintJob && (
-        <Tooltip title="Create print job">
-          <IconButton size="small" onClick={handleCreatePJ} disabled={creatingPJ} sx={{ color: 'warning.600' }}>
-            {creatingPJ ? <CircularProgress size={11} /> : <ReceiptLongRoundedIcon sx={{ fontSize: 15 }} />}
-          </IconButton>
-        </Tooltip>
-      )}
-      {file.orderUuid && onRelink && (
-        <Tooltip title={`Change order (currently #${file.orderNumber})`}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onRelink(file); }} sx={{ color: 'info.main' }}>
-            <SwapHorizRoundedIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
-      )}
-      {needsRename && onRename && (
-        <Tooltip title={`Rename to start with #${file.orderNumber}`}>
-          <IconButton size="small" onClick={handleRename} disabled={renaming} sx={{ color: 'text.secondary' }}>
-            {renaming ? <CircularProgress size={11} /> : <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 15 }} />}
-          </IconButton>
-        </Tooltip>
-      )}
-      {onAssign && (
-        <>
-          <Tooltip title={file.assignedToName ? `Reassign (currently ${file.assignedToName})` : 'Assign to team member'}>
-            <IconButton size="small" onClick={openAssignMenu} disabled={assigning} sx={{ color: 'secondary.main' }}>
-              {assigning ? <CircularProgress size={11} /> : <PersonAddAltRoundedIcon sx={{ fontSize: 15 }} />}
-            </IconButton>
-          </Tooltip>
-          <Menu anchorEl={assignAnchor} open={!!assignAnchor} onClose={closeAssignMenu} onClick={(e) => e.stopPropagation()}>
-            <MenuItem disabled sx={{ opacity: '1 !important', fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>
+    <>
+      <IconButton size="small" onClick={openMenu} disabled={busy} sx={{ p: 0.3, flexShrink: 0 }}>
+        {busy ? <CircularProgress size={13} /> : <MoreVertRoundedIcon sx={{ fontSize: 16 }} />}
+      </IconButton>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu} onClick={(e) => e.stopPropagation()}>
+        {view === 'actions' ? (
+          [
+            ...actions.map((a) => (
+              <MenuItem key={a.key} onClick={(e) => runAction(e, a.run)} sx={{ fontSize: 13 }}>
+                <ListItemIcon><a.icon fontSize="small" sx={{ color: a.color }} /></ListItemIcon>
+                {a.label}
+              </MenuItem>
+            )),
+            ...(hasAssign ? [
+              <MenuItem key="assign" onClick={openAssignView} sx={{ fontSize: 13 }}>
+                <ListItemIcon><PersonAddAltRoundedIcon fontSize="small" sx={{ color: 'secondary.main' }} /></ListItemIcon>
+                {file.assignedToName ? `Reassign (currently ${file.assignedToName})` : 'Assign to team member'}
+              </MenuItem>,
+            ] : []),
+          ]
+        ) : (
+          [
+            <MenuItem key="hdr" disabled sx={{ opacity: '1 !important', fontSize: 11, fontWeight: 600, color: 'text.secondary' }}>
               {file.matched && file.orderNumber != null
                 ? `Order #${file.orderNumber} — ${file.customerName || 'no customer linked'}`
                 : 'Not linked to an order'}
-            </MenuItem>
-            <Divider />
-            {assignUsers === null && <MenuItem disabled>Loading users…</MenuItem>}
-            {assignUsers?.length === 0 && <MenuItem disabled>No users found</MenuItem>}
-            {assignUsers?.map((u) => (
-              <MenuItem key={u._id} onClick={(e) => handlePickAssignee(e, u)}>{u.User_name}</MenuItem>
-            ))}
-          </Menu>
-        </>
-      )}
-      {file.orderUuid && file.orderStage !== 'delivered' && onDeliver && (
-        <Tooltip title={`Mark Order #${file.orderNumber} as delivered`}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDeliver(file); }} sx={{ color: 'success.main' }}>
-            <LocalShippingRoundedIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
-      )}
-    </Stack>
+            </MenuItem>,
+            <Divider key="div" />,
+            ...(assignUsers === null ? [<MenuItem key="loading" disabled>Loading users…</MenuItem>] : []),
+            ...(assignUsers?.length === 0 ? [<MenuItem key="none" disabled>No users found</MenuItem>] : []),
+            ...((assignUsers || []).map((u) => (
+              <MenuItem key={u._id} onClick={(e) => pickAssignee(e, u)}>{u.User_name}</MenuItem>
+            ))),
+          ]
+        )}
+      </Menu>
+    </>
   );
 }
 
@@ -351,16 +347,29 @@ function rowColors(file, checked) {
   return              { bg: 'transparent',        bgHover: 'action.hover',  border: 'divider'       };
 }
 
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly }) {
+// Two-line layout: line 1 is the icon + filename + kebab menu only, so the
+// filename always gets the row's full width instead of competing with a
+// stage chip and a row of separate action buttons; line 2 (if there's
+// anything to show) carries the compact status/customer/assignee badges.
+// hideStageChip skips the per-file stage chip entirely — used by the
+// Design Board, where every card in a column already shares one stage, so
+// repeating it on every card added noise without adding information.
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover, border } = rowColors(file, checked);
+  const subText = file.isDraft
+    ? 'Tracking — no order yet'
+    : isUnmatched
+    ? `Order #${file.extractedOrderNumber || '?'} not found`
+    : file.matched && file.orderStage
+    ? `MIS: ${file.orderStage}`
+    : '';
 
   return (
-    <Stack
-      direction="row" alignItems="center" spacing={0.75}
+    <Box
       onClick={() => onToggle && onToggle(file.fileId)}
       sx={{
-        py: 0.5, px: 0.75, borderRadius: 1.5,
+        py: 0.5, px: 0.6, borderRadius: 1.5,
         border: '1px solid',
         borderColor: border,
         bgcolor: bg,
@@ -369,59 +378,63 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         cursor: onToggle ? 'pointer' : 'default',
       }}
     >
-      {onToggle && (
-        <Checkbox
-          size="small" checked={!!checked}
-          onChange={() => onToggle(file.fileId)}
-          onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.2, flexShrink: 0 }}
-        />
-      )}
-
-      <Box sx={{ flexShrink: 0 }}>
-        {file.stageNumber === 6
-          ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
-          : file.stageNumber === 5
-          ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
-          : isUnmatched
-          ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
-          : <DesignServicesRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
-      </Box>
-
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          variant="body2" fontWeight={500}
-          sx={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          title={file.fileName}
-        >
-          {file.fileName}
-        </Typography>
-        {file.isDraft && (
-          <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>Tracking — no order yet</Typography>
+      <Stack direction="row" alignItems="center" spacing={0.5}>
+        {onToggle && (
+          <Checkbox
+            size="small" checked={!!checked}
+            onChange={() => onToggle(file.fileId)}
+            onClick={(e) => e.stopPropagation()}
+            sx={{ p: 0.2, flexShrink: 0 }}
+          />
         )}
-        {isUnmatched && (
-          <Typography variant="caption" color="warning.700" sx={{ fontSize: 10 }}>
-            Order #{file.extractedOrderNumber || '?'} not found
+
+        <Box sx={{ flexShrink: 0, display: 'flex' }}>
+          {file.stageNumber === 6
+            ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
+            : file.stageNumber === 5
+            ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
+            : isUnmatched
+            ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
+            : <DesignServicesRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
+        </Box>
+
+        <Tooltip title={file.fileName}>
+          <Typography
+            variant="body2" fontWeight={600}
+            sx={{ flex: 1, minWidth: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {file.fileName}
           </Typography>
-        )}
-        {file.matched && !file.isDraft && file.orderStage && (
-          <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>MIS: {file.orderStage}</Typography>
-        )}
-      </Box>
+        </Tooltip>
 
-      <Stack direction="row" spacing={0.4} alignItems="center" sx={{ flexShrink: 0 }}>
-        {file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
-        <StatusBadges file={file} />
+        {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
         <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewOnly={viewOnly} />
       </Stack>
-    </Stack>
+
+      {subText && (
+        <Typography
+          variant="caption"
+          sx={{ display: 'block', fontSize: 9.5, pl: onToggle ? 4 : 2.75, color: isUnmatched ? 'warning.700' : 'text.disabled' }}
+        >
+          {subText}
+        </Typography>
+      )}
+      <StatusBadges file={file} sx={{ pl: onToggle ? 4 : 2.75, mt: 0.25 }} />
+    </Box>
   );
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, border } = rowColors(file, checked);
+  const subText = file.isDraft
+    ? 'Tracking — no order yet'
+    : isUnmatched
+    ? `Order #${file.extractedOrderNumber || '?'} not found`
+    : file.matched && file.orderStage
+    ? `MIS: ${file.orderStage}`
+    : '';
 
   return (
     <Card
@@ -446,7 +459,9 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
               sx={{ p: 0.2, flexShrink: 0, ml: -0.5 }}
             />
           )}
-          {file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
+          {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
+          <Box sx={{ flex: 1 }} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewOnly={viewOnly} />
         </Stack>
 
         <Stack direction="row" spacing={0.5} alignItems="flex-start">
@@ -459,39 +474,23 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
               ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
               : <DesignServicesRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
           </Box>
-          <Typography
-            variant="body2" fontWeight={500}
-            sx={{ fontSize: 11, wordBreak: 'break-word', lineHeight: 1.35 }}
-            title={file.fileName}
-          >
-            {file.fileName}
-          </Typography>
+          <Tooltip title={file.fileName}>
+            <Typography
+              variant="body2" fontWeight={600}
+              sx={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}
+            >
+              {file.fileName}
+            </Typography>
+          </Tooltip>
         </Stack>
 
-        <Box sx={{ mt: 0.5 }}><StatusBadges file={file} /></Box>
-
-        {file.isDraft && (
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.25, fontSize: 10 }}>
-            Tracking — no order yet
+        {subText && (
+          <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontSize: 9.5, color: isUnmatched ? 'warning.700' : 'text.disabled' }}>
+            {subText}
           </Typography>
         )}
-        {isUnmatched && (
-          <Typography variant="caption" color="warning.700" sx={{ display: 'block', mt: 0.25, fontSize: 10 }}>
-            Order #{file.extractedOrderNumber || '?'} not found
-          </Typography>
-        )}
-        {file.matched && !file.isDraft && file.orderStage && (
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.25, fontSize: 10 }}>
-            MIS: {file.orderStage}
-          </Typography>
-        )}
+        <StatusBadges file={file} sx={{ mt: 0.4, mb: 0.5 }} />
       </CardContent>
-
-      {!viewOnly && (
-        <CardActions sx={{ pt: 0, pb: 0.5, px: 0.75, justifyContent: 'flex-end', borderTop: '1px solid', borderColor: 'divider' }}>
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewOnly={viewOnly} />
-        </CardActions>
-      )}
     </Card>
   );
 }
@@ -1327,6 +1326,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                 <FileCard
                   file={file}
                   viewOnly={!isActionable}
+                  hideStageChip
                   checked={isActionable && selectedIds?.has(file.fileId)}
                   onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                   onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
@@ -1346,6 +1346,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                 key={file.fileId}
                 file={file}
                 viewOnly={!isActionable}
+                hideStageChip
                 checked={isActionable && selectedIds?.has(file.fileId)}
                 onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                 onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
@@ -1428,6 +1429,7 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                       <FileCard
                         file={file}
                         viewOnly={false}
+                        hideStageChip
                         checked={selectedIds?.has(file.fileId)}
                         onToggle={onToggle ? () => onToggle(file) : undefined}
                         onConfirm={stageNumber === 5 ? onConfirm : undefined}
@@ -1447,6 +1449,7 @@ function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, 
                       key={file.fileId}
                       file={file}
                       viewOnly={false}
+                      hideStageChip
                       checked={selectedIds?.has(file.fileId)}
                       onToggle={onToggle ? () => onToggle(file) : undefined}
                       onConfirm={stageNumber === 5 ? onConfirm : undefined}
@@ -1874,7 +1877,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
     // shrink and wrap onto extra rows as the available width narrows
     // (this panel usually lives inside the Workflow board's ~45%-wide
     // Design column) so all 5 columns stay visible without side-scrolling.
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 0.75, p: 0.75 }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 0.75, p: 0.75 }}>
       {BOARD_COLUMNS.map((col) => {
         const colFiles = files.filter((f) => f.stageNumber === col.stageNumber);
         return (
@@ -1910,6 +1913,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
                     key={file.fileId}
                     file={file}
                     viewOnly={false}
+                    hideStageChip
                     onRename={onRename}
                     onConfirm={file.stageNumber === 5 ? onConfirm : undefined}
                     onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}

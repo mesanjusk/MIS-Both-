@@ -95,6 +95,7 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
   const { clearAuth, permissions } = useAuth();
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
   const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
+  const adminHiddenItems = useMemo(() => permissions?.leftHidden || [], [permissions]);
   const { prefs } = useNavCustomize();
   const dashCtx = useDashboardCustomize();
 
@@ -105,11 +106,14 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
         .map((group) => ({
           ...group,
           items: group.items.filter(
-            (item) => canShowItem(item, roleKey) && isLeftItemVisible(prefs, item.path),
+            (item) =>
+              canShowItem(item, roleKey) &&
+              !adminHiddenItems.includes(item.path) &&
+              isLeftItemVisible(prefs, item.path),
           ),
         }))
         .filter((group) => group.items.length),
-    [roleKey, allowedGroups, prefs],
+    [roleKey, allowedGroups, adminHiddenItems, prefs],
   );
 
   const handleNavigate = (path) => {

@@ -25,6 +25,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { ROUTES } from '../constants/routes';
+import { useAuth } from '../context/AuthContext';
 import { useNavCustomize, isRightActionVisible, isRightLinkVisible } from '../hooks/useNavCustomize';
 
 const NAVBAR_HEIGHT = 64;
@@ -104,6 +105,7 @@ export default function RightSidebar({ onCustomize, openUpi }) {
   const { pathname } = useLocation();
   const theme = useTheme();
   const { prefs } = useNavCustomize();
+  const { permissions } = useAuth();
 
   const isSelected = (path) =>
     Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
@@ -152,8 +154,12 @@ export default function RightSidebar({ onCustomize, openUpi }) {
     { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_DELIVERY },
   ];
 
-  const visibleActions = quickActions.filter((a) => isRightActionVisible(prefs, a.label));
-  const visibleLinks = quickLinks.filter((l) => isRightLinkVisible(prefs, l.label));
+  const visibleActions = quickActions.filter(
+    (a) => !(permissions?.rightActionsHidden || []).includes(a.label) && isRightActionVisible(prefs, a.label),
+  );
+  const visibleLinks = quickLinks.filter(
+    (l) => !(permissions?.rightLinksHidden || []).includes(l.label) && isRightLinkVisible(prefs, l.label),
+  );
 
   return (
     <Box

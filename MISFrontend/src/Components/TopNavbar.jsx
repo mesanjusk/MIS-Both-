@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -26,11 +26,14 @@ import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneR
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
+import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
+import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
+import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
 
 const normalizeRoleKey = (value = '') => {
@@ -146,11 +149,13 @@ NavDropdown.propTypes = {
 
 export default function TopNavbar() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
   const { prefs } = useNavCustomize();
   const { permissions } = useAuth();
+  const dashCtx = useDashboardCustomize();
   const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => {
     if ((permissions?.topNavHidden || []).includes(d.label)) return false;
     return isTopNavItemVisible(prefs, d.label);
@@ -164,6 +169,16 @@ export default function TopNavbar() {
     clearAuth();
     navigate(ROUTES.ROOT);
   };
+
+  const handleWidgets = () => {
+    if (pathname === ROUTES.HOME || pathname.startsWith(ROUTES.HOME + '?')) {
+      dashCtx?.openWidgetLib?.();
+    } else {
+      navigate(ROUTES.HOME + '?widgets=1');
+    }
+  };
+
+  const handleCustomize = () => dashCtx?.openCustomize?.();
 
   return (
     <AppBar
@@ -362,6 +377,16 @@ export default function TopNavbar() {
 
           <MenuItem dense onClick={() => { setMenuAnchor(null); navigate(ROUTES.WORKFLOW_TEMPLATES); }}>
             <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Workflow Templates
+          </MenuItem>
+
+          <Divider />
+
+          <MenuItem dense onClick={() => { setMenuAnchor(null); handleWidgets(); }}>
+            <WidgetsRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Widgets
+          </MenuItem>
+
+          <MenuItem dense onClick={() => { setMenuAnchor(null); handleCustomize(); }}>
+            <DashboardCustomizeRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Customize
           </MenuItem>
 
           <Divider />

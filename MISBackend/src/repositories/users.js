@@ -32,6 +32,10 @@ const UsersSchema = new mongoose.Schema({
       leftHidden:          { type: [String], default: [] }, // left sidebar item paths hidden by admin
       rightActionsHidden:  { type: [String], default: [] }, // right sidebar quick action labels hidden by admin
       rightLinksHidden:    { type: [String], default: [] }, // right sidebar quick link labels hidden by admin
+      // Left/right sidebar & footer are opt-in: off by default until admin or user turns them on.
+      leftSidebarEnabled:  { type: Boolean, default: false },
+      rightSidebarEnabled: { type: Boolean, default: false },
+      footerEnabled:       { type: Boolean, default: false },
     },
     default: () => ({
       sidebarGroups: [],
@@ -48,6 +52,9 @@ const UsersSchema = new mongoose.Schema({
       leftHidden: [],
       rightActionsHidden: [],
       rightLinksHidden: [],
+      leftSidebarEnabled: false,
+      rightSidebarEnabled: false,
+      footerEnabled: false,
     }),
   },
 });

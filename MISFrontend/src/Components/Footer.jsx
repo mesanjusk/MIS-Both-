@@ -2,7 +2,7 @@ import { Box, Typography } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
 import { useAuth } from '../context/AuthContext';
-import { useNavCustomize, isFooterLinkVisible } from '../hooks/useNavCustomize';
+import { useNavCustomize, isFooterLinkVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
 
 const FOOTER_LINKS = [
   { label: 'Home',         path: ROUTES.HOME },
@@ -28,13 +28,15 @@ export { FOOTER_LINKS };
 export default function Footer() {
   const { permissions } = useAuth();
   const { prefs } = useNavCustomize();
+  const { footerEnabled } = useSidebarVisibility();
 
   const visibleLinks = FOOTER_LINKS.filter((link) => {
     if ((permissions?.footerHidden || []).includes(link.label)) return false;
     return isFooterLinkVisible(prefs, link.label);
   });
 
-  if (visibleLinks.length === 0) return null;
+  // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.
+  if (!footerEnabled || visibleLinks.length === 0) return null;
 
   return (
     <Box

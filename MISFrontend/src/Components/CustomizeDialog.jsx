@@ -135,6 +135,8 @@ export default function CustomizeDialog({ open, onClose }) {
       return { ...prev, footerHidden: hidden.includes(label) ? hidden.filter((l) => l !== label) : [...hidden, label] };
     });
 
+  const toggleFlag = (key) => setDraft((prev) => ({ ...prev, [key]: !prev[key] }));
+
   /* ── widget toggles ── */
   const allWidgetIds = [...(widgetLayout.left || []), ...(widgetLayout.right || [])];
 
@@ -217,6 +219,14 @@ export default function CustomizeDialog({ open, onClose }) {
         {/* ── Left Sidebar ── */}
         {tab === 1 && (
           <Box>
+            <FormControlLabel
+              control={<Switch checked={Boolean(draft.leftSidebarOn)} onChange={() => toggleFlag('leftSidebarOn')} />}
+              label={<Typography variant="body2" fontWeight={700}>Show left sidebar</Typography>}
+              sx={{ display: 'flex', mx: 0, mb: 1.5 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Off by default. Turn this on to show the left sidebar rail, then pick which items appear on it below.
+            </Typography>
             {SIDEBAR_GROUPS.map((group) => (
               <Box key={group.label} sx={{ mb: 2 }}>
                 <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
@@ -242,6 +252,14 @@ export default function CustomizeDialog({ open, onClose }) {
         {/* ── Right Sidebar ── */}
         {tab === 2 && (
           <Box>
+            <FormControlLabel
+              control={<Switch checked={Boolean(draft.rightSidebarOn)} onChange={() => toggleFlag('rightSidebarOn')} />}
+              label={<Typography variant="body2" fontWeight={700}>Show right sidebar</Typography>}
+              sx={{ display: 'flex', mx: 0, mb: 1.5 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Off by default. Turn this on to show the right sidebar rail, then pick which actions/links appear below.
+            </Typography>
             <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
               Quick Actions
             </Typography>
@@ -274,8 +292,13 @@ export default function CustomizeDialog({ open, onClose }) {
         {/* ── Footer ── */}
         {tab === 4 && (
           <Box>
+            <FormControlLabel
+              control={<Switch checked={Boolean(draft.footerOn)} onChange={() => toggleFlag('footerOn')} />}
+              label={<Typography variant="body2" fontWeight={700}>Show footer</Typography>}
+              sx={{ display: 'flex', mx: 0, mb: 1.5 }}
+            />
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Choose which links appear in the footer bar at the bottom of the screen.
+              Off by default. Turn this on to show the footer bar, then pick which links appear below.
             </Typography>
             {FOOTER_LINKS.map((link) => (
               <FormControlLabel

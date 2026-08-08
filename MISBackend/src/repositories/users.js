@@ -26,6 +26,12 @@ const UsersSchema = new mongoose.Schema({
       canViewAccounts: { type: Boolean, default: true },
       canExportData:   { type: Boolean, default: false },
       dashboardCards:  { type: [String], default: [] }, // empty = show all cards
+      allowedWidgets:      { type: [String], default: [] }, // empty = allow all home widgets
+      topNavHidden:        { type: [String], default: [] }, // top navbar dropdown labels hidden by admin
+      footerHidden:        { type: [String], default: [] }, // footer link labels hidden by admin
+      leftHidden:          { type: [String], default: [] }, // left sidebar item paths hidden by admin
+      rightActionsHidden:  { type: [String], default: [] }, // right sidebar quick action labels hidden by admin
+      rightLinksHidden:    { type: [String], default: [] }, // right sidebar quick link labels hidden by admin
     },
     default: () => ({
       sidebarGroups: [],
@@ -36,6 +42,12 @@ const UsersSchema = new mongoose.Schema({
       canViewAccounts: true,
       canExportData: false,
       dashboardCards: [],
+      allowedWidgets: [],
+      topNavHidden: [],
+      footerHidden: [],
+      leftHidden: [],
+      rightActionsHidden: [],
+      rightLinksHidden: [],
     }),
   },
 });

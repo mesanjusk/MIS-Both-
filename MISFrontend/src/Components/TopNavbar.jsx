@@ -52,6 +52,7 @@ const NAV_DROPDOWN_DEFS = [
   { label: 'Accounts',   groups: ['Accounts & UPI', 'Account Reports', 'Collection Reports'] },
   { label: 'Reports',    groups: ['Dashboard Reports'] },
   { label: 'WhatsApp',   groups: ['WhatsApp', 'Email'] },
+  { label: 'Social',     groups: ['Social Media'] },
   { label: 'Call Logs',  groups: ['Call Logs'] },
   { label: 'SOP',        groups: ['SOP'] },
   { label: 'Admin',      groups: ['Admin'] },

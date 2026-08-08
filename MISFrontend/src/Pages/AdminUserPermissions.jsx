@@ -11,13 +11,16 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
+import ViewSidebarRoundedIcon from '@mui/icons-material/ViewSidebarRounded';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { FOOTER_LINKS } from '../Components/Footer';
 
-const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Call Logs', 'SOP', 'Admin'];
+const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'SOP', 'Admin'];
 const FOOTER_LABELS = FOOTER_LINKS.map((l) => l.label);
+const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Transaction 4D', 'Attendance'];
+const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];
 
 const DEFAULT_PERMISSIONS = {
   sidebarGroups: [],
@@ -31,6 +34,9 @@ const DEFAULT_PERMISSIONS = {
   allowedWidgets: [],
   topNavHidden: [],
   footerHidden: [],
+  leftHidden: [],
+  rightActionsHidden: [],
+  rightLinksHidden: [],
 };
 
 const HOME_WIDGETS = [
@@ -129,6 +135,36 @@ function UserPermissionPanel({ user, onSaved }) {
     });
   };
 
+  const toggleLeftItem = (path) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.leftHidden) ? p.leftHidden : [];
+      const next = current.includes(path)
+        ? current.filter((v) => v !== path)
+        : [...current, path];
+      return { ...p, leftHidden: next };
+    });
+  };
+
+  const toggleRightAction = (label) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.rightActionsHidden) ? p.rightActionsHidden : [];
+      const next = current.includes(label)
+        ? current.filter((l) => l !== label)
+        : [...current, label];
+      return { ...p, rightActionsHidden: next };
+    });
+  };
+
+  const toggleRightLink = (label) => {
+    setPerms((p) => {
+      const current = Array.isArray(p.rightLinksHidden) ? p.rightLinksHidden : [];
+      const next = current.includes(label)
+        ? current.filter((l) => l !== label)
+        : [...current, label];
+      return { ...p, rightLinksHidden: next };
+    });
+  };
+
   const allGroupsChecked = perms.sidebarGroups.length === 0;
   const groupsRestricted = !allGroupsChecked;
   const allWidgetsAllowed = !perms.allowedWidgets?.length;
@@ -141,6 +177,8 @@ function UserPermissionPanel({ user, onSaved }) {
         <Tab label="Home Widgets" icon={<WidgetsRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
         <Tab label="Top Navbar" icon={<MenuRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
         <Tab label="Footer" icon={<LinkRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
+        <Tab label="Left Sidebar Items" icon={<ViewSidebarRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
+        <Tab label="Right Sidebar" icon={<ViewSidebarRoundedIcon sx={{ fontSize: 14, transform: 'scaleX(-1)' }} />} iconPosition="start" />
       </Tabs>
 
       {tab === 0 && (
@@ -381,6 +419,133 @@ function UserPermissionPanel({ user, onSaved }) {
         </Box>
       )}
 
+      {tab === 5 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            {!(perms.leftHidden || []).length
+              ? 'User can see ALL left sidebar items allowed by their role & group access above.'
+              : `${(perms.leftHidden || []).length} left sidebar item(s) are hidden for this user.`}
+          </Alert>
+          <Stack spacing={2}>
+            {SIDEBAR_GROUPS.map((group) => (
+              <Box key={group.label}>
+                <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                  {group.label}
+                </Typography>
+                <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                  {group.items.map((item) => {
+                    const isHidden = (perms.leftHidden || []).includes(item.path);
+                    return (
+                      <Paper
+                        key={item.path}
+                        variant="outlined"
+                        onClick={() => toggleLeftItem(item.path)}
+                        sx={{
+                          px: 1.5, py: 0.75,
+                          borderRadius: 2,
+                          cursor: 'pointer',
+                          borderColor: isHidden ? 'divider' : 'primary.main',
+                          bgcolor: isHidden ? 'transparent' : (t) => alpha(t.palette.primary.main, 0.04),
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        <Stack direction="row" alignItems="center" justifyContent="space-between">
+                          <Typography variant="body2" fontWeight={600} color={isHidden ? 'text.disabled' : 'text.primary'}>{item.label}</Typography>
+                          {!isHidden
+                            ? <CheckCircleRoundedIcon color="primary" fontSize="small" />
+                            : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider' }} />}
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+          {!!(perms.leftHidden || []).length && (
+            <Button variant="outlined" size="small" sx={{ mt: 1.5 }}
+              onClick={() => setPerms((p) => ({ ...p, leftHidden: [] }))}>
+              Show All Left Sidebar Items
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {tab === 6 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+            Controls the quick action & quick link rail on the right edge of the screen.
+          </Alert>
+          <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Quick Actions
+          </Typography>
+          <Stack spacing={0.75} sx={{ mt: 0.5, mb: 2.5 }}>
+            {RIGHT_ACTIONS.map((label) => {
+              const isHidden = (perms.rightActionsHidden || []).includes(label);
+              return (
+                <Paper
+                  key={label}
+                  variant="outlined"
+                  onClick={() => toggleRightAction(label)}
+                  sx={{
+                    px: 1.5, py: 0.75,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    borderColor: isHidden ? 'divider' : 'primary.main',
+                    bgcolor: isHidden ? 'transparent' : (t) => alpha(t.palette.primary.main, 0.04),
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography variant="body2" fontWeight={600} color={isHidden ? 'text.disabled' : 'text.primary'}>{label}</Typography>
+                    {!isHidden
+                      ? <CheckCircleRoundedIcon color="primary" fontSize="small" />
+                      : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider' }} />}
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+
+          <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
+            Quick Links
+          </Typography>
+          <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+            {RIGHT_LINKS.map((label) => {
+              const isHidden = (perms.rightLinksHidden || []).includes(label);
+              return (
+                <Paper
+                  key={label}
+                  variant="outlined"
+                  onClick={() => toggleRightLink(label)}
+                  sx={{
+                    px: 1.5, py: 0.75,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    borderColor: isHidden ? 'divider' : 'primary.main',
+                    bgcolor: isHidden ? 'transparent' : (t) => alpha(t.palette.primary.main, 0.04),
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between">
+                    <Typography variant="body2" fontWeight={600} color={isHidden ? 'text.disabled' : 'text.primary'}>{label}</Typography>
+                    {!isHidden
+                      ? <CheckCircleRoundedIcon color="primary" fontSize="small" />
+                      : <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'divider' }} />}
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+          {(!!(perms.rightActionsHidden || []).length || !!(perms.rightLinksHidden || []).length) && (
+            <Button variant="outlined" size="small" sx={{ mt: 1.5 }}
+              onClick={() => setPerms((p) => ({ ...p, rightActionsHidden: [], rightLinksHidden: [] }))}>
+              Show All Right Sidebar Items
+            </Button>
+          )}
+        </Box>
+      )}
+
       <Button
         variant="contained"
         startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveRoundedIcon />}
@@ -477,7 +642,10 @@ export default function AdminUserPermissions() {
                       user.permissions?.sidebarGroups?.length > 0 ||
                       user.permissions?.allowedWidgets?.length > 0 ||
                       user.permissions?.topNavHidden?.length > 0 ||
-                      user.permissions?.footerHidden?.length > 0
+                      user.permissions?.footerHidden?.length > 0 ||
+                      user.permissions?.leftHidden?.length > 0 ||
+                      user.permissions?.rightActionsHidden?.length > 0 ||
+                      user.permissions?.rightLinksHidden?.length > 0
                     ) && (
                       <Chip size="small" label="Custom" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                     )}

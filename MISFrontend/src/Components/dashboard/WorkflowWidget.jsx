@@ -18,7 +18,9 @@ import DesignFilesWidget from './DesignFilesWidget';
 import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
 import { fetchUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
-import { WORKFLOW_SECTIONS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+
+const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
 
 // "DragDrop"/"None" are placeholder Assigned values written by the legacy
 // kanban drag-drop endpoint when it had no real assignee to carry forward —
@@ -234,82 +236,111 @@ export default function WorkflowWidget() {
               ))}
             </Stack>
           )}
-          {/* CSS grid instead of a horizontal-scroll row — columns shrink and
-              wrap onto extra rows as the viewport narrows so every stage is
-              visible without side-scrolling, in the same left-to-right,
-              top-to-bottom sequence as WORKFLOW_SECTIONS. */}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: 1,
-              alignItems: 'start',
-            }}
-          >
-          {WORKFLOW_SECTIONS.map((section) => {
-            const tasks = sections.get(section.key) || [];
-            const isDesign = section.key === 'todaysNew';
+          {/* 4 parent pipeline columns (Design/Print/Post Print/Ready) in a
+              single row that never wraps — each holds a fixed % of the row
+              width (WORKFLOW_GROUPS.widthPercent). The 9 real stage
+              sub-columns (WORKFLOW_SECTIONS) live inside their parent and
+              share that width; if they can't all fit, only that parent's
+              own sub-column strip scrolls sideways — the 4 parents
+              themselves stay put. Layout only: bucketing/move-to-stage
+              logic is untouched and still runs off WORKFLOW_SECTIONS. */}
+          <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, alignItems: 'stretch' }}>
+          {WORKFLOW_GROUPS.map((group) => {
+            const columns = group.sectionKeys.map((key) => SECTION_BY_KEY.get(key)).filter(Boolean);
+            const groupCount = columns.reduce((sum, section) => sum + (sections.get(section.key) || []).length, 0);
             return (
               <Box
-                key={section.key}
+                key={group.key}
                 sx={{
+                  flex: `0 0 ${group.widthPercent}%`,
+                  maxWidth: `${group.widthPercent}%`,
                   minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
                   border: '1px solid',
                   borderColor: 'divider',
                   borderRadius: 2,
-                  bgcolor: 'background.paper',
-                  maxHeight: 560,
-                  overflow: 'hidden',
+                  bgcolor: 'action.hover',
+                  p: 0.5,
                 }}
               >
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={1}
-                  sx={{
-                    px: 1.25,
-                    py: 0.85,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    bgcolor: 'rgba(240,253,244,0.6)',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Typography variant="body2" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{section.label}</Typography>
-                  <Chip size="small" label={tasks.length} />
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 0.75, py: 0.5, flexShrink: 0 }}>
+                  <Typography variant="caption" fontWeight={800} sx={{ flex: 1, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {group.label}
+                  </Typography>
+                  <Chip size="small" label={groupCount} />
                 </Stack>
 
-                <Box sx={{ overflowY: 'auto', p: 1, flex: 1, minHeight: 0 }}>
-                  <OrderTaskList
-                    tasks={tasks}
-                    view="stack"
-                    users={users}
-                    assigningId={assigningId}
-                    onAssign={handleAssign}
-                    movingId={movingId}
-                    onMoveStage={handleMoveStage}
-                    emptyMessage="Nothing here."
-                  />
-
-                  {isDesign && (
-                    <Box sx={{ mt: tasks.length ? 1.5 : 0 }}>
-                      {tasks.length > 0 && <Divider sx={{ mb: 1.5 }} />}
-                      <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mb: 0.75 }}>
-                        <FolderOpenRoundedIcon sx={{ fontSize: 15, color: '#0891b2' }} />
-                        <Typography
-                          variant="caption"
-                          fontWeight={800}
-                          color="text.disabled"
-                          sx={{ textTransform: 'uppercase', letterSpacing: 0.7 }}
+                <Box sx={{ display: 'flex', gap: 0.75, overflowX: 'auto', flex: 1, minHeight: 0 }}>
+                  {columns.map((section) => {
+                    const tasks = sections.get(section.key) || [];
+                    const isDesign = section.key === 'todaysNew';
+                    return (
+                      <Box
+                        key={section.key}
+                        sx={{
+                          flex: isDesign ? '1 1 260px' : '1 1 0',
+                          minWidth: isDesign ? 240 : 140,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1.5,
+                          bgcolor: 'background.paper',
+                          maxHeight: 560,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={0.5}
+                          sx={{
+                            px: 1,
+                            py: 0.65,
+                            borderBottom: '1px solid',
+                            borderColor: 'divider',
+                            bgcolor: 'rgba(240,253,244,0.6)',
+                            flexShrink: 0,
+                          }}
                         >
-                          Design Files
-                        </Typography>
-                      </Stack>
-                      <DesignFilesWidget />
-                    </Box>
-                  )}
+                          <Typography variant="caption" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{section.label}</Typography>
+                          <Chip size="small" label={tasks.length} />
+                        </Stack>
+
+                        <Box sx={{ overflowY: 'auto', p: 0.75, flex: 1, minHeight: 0 }}>
+                          <OrderTaskList
+                            tasks={tasks}
+                            view="stack"
+                            users={users}
+                            assigningId={assigningId}
+                            onAssign={handleAssign}
+                            movingId={movingId}
+                            onMoveStage={handleMoveStage}
+                            emptyMessage="Nothing here."
+                          />
+
+                          {isDesign && (
+                            <Box sx={{ mt: tasks.length ? 1.5 : 0 }}>
+                              {tasks.length > 0 && <Divider sx={{ mb: 1.5 }} />}
+                              <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mb: 0.75 }}>
+                                <FolderOpenRoundedIcon sx={{ fontSize: 15, color: '#0891b2' }} />
+                                <Typography
+                                  variant="caption"
+                                  fontWeight={800}
+                                  color="text.disabled"
+                                  sx={{ textTransform: 'uppercase', letterSpacing: 0.7 }}
+                                >
+                                  Design Files
+                                </Typography>
+                              </Stack>
+                              <DesignFilesWidget />
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                  })}
                 </Box>
               </Box>
             );

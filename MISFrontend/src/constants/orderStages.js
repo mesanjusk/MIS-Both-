@@ -117,6 +117,40 @@ export const WORKFLOW_SECTIONS = [
   },
 ];
 
+// Purely a rendering concern for the Workflow board: groups the 9
+// WORKFLOW_SECTIONS columns above back under the original 4 pipeline
+// buckets (Design/Print/Post Print/Ready) as parent columns, each with a
+// fixed share of the board's row width, so the board reads as 4 wide
+// buckets with narrower per-stage sub-columns inside rather than 9 flat
+// columns. Does not affect stage bucketing/order-moving logic — that still
+// runs entirely off WORKFLOW_SECTIONS.
+export const WORKFLOW_GROUPS = [
+  {
+    key: 'design',
+    label: 'Design',
+    widthPercent: 45,
+    sectionKeys: ['todaysNew', 'oldPending', 'designApproval', 'hold', 'readyToPrint'],
+  },
+  {
+    key: 'print',
+    label: 'Print',
+    widthPercent: 15,
+    sectionKeys: ['print'],
+  },
+  {
+    key: 'postPrint',
+    label: 'Post Print',
+    widthPercent: 25,
+    sectionKeys: ['fitting', 'bindPack'],
+  },
+  {
+    key: 'ready',
+    label: 'Ready',
+    widthPercent: 15,
+    sectionKeys: ['ready'],
+  },
+];
+
 // Design-review stages loop rather than move strictly forward (see the
 // backend constants file for the matching isForwardMove exception).
 export const DESIGN_LOOP_STAGES = new Set([

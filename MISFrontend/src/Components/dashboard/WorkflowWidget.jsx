@@ -236,32 +236,22 @@ export default function WorkflowWidget() {
               ))}
             </Stack>
           )}
-          {/* Design Files — the authoritative, always-accurate view of
-              design-stage work (Today's New/Old Pending/Design Approval/
-              Hold/Ready to Print), sourced live from each file's real Drive
-              folder rather than the assigned-tasks query the columns below
-              use. Shown as its own full-width section instead of a
-              Workflow parent column since progression through those design
-              sub-stages happens by moving files between folders, not from
-              here. */}
-          <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper', mb: 1, overflow: 'hidden' }}>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ px: 1.5, py: 1, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)' }}>
-              <FolderOpenRoundedIcon sx={{ fontSize: 16, color: '#0891b2' }} />
-              <Typography variant="body2" fontWeight={800}>Design Files</Typography>
-            </Stack>
-            <DesignFilesWidget />
-          </Box>
-
-          {/* Remaining parent pipeline columns (Print/Post Print/Ready) in
-              a single row that never wraps — each holds a fixed % of the
-              row width (WORKFLOW_GROUPS.widthPercent). Their stage
-              sub-columns (WORKFLOW_SECTIONS) live inside their parent and
-              share that width; if they can't all fit, only that parent's
-              own sub-column strip scrolls sideways — the parents
-              themselves stay put. Layout only: bucketing/move-to-stage
-              logic is untouched and still runs off WORKFLOW_SECTIONS. */}
+          {/* 4 parent pipeline columns (Design/Print/Post Print/Ready) in a
+              single row that never wraps — each holds a fixed % of the row
+              width (WORKFLOW_GROUPS.widthPercent). Design's 45% embeds the
+              Design Files widget directly (see isDesignGroup below) — its
+              own "Design Board" tab is the authoritative, always-accurate
+              view of design-stage work, sourced live from each file's real
+              Drive folder rather than the assigned-tasks query the other
+              3 columns use. The other 3 parents hold their stage
+              sub-columns (WORKFLOW_SECTIONS); if those can't all fit, only
+              that parent's own sub-column strip scrolls sideways — the 4
+              parents themselves stay put. Layout only: bucketing/
+              move-to-stage logic is untouched and still runs off
+              WORKFLOW_SECTIONS. */}
           <Box sx={{ display: 'flex', flexWrap: 'nowrap', gap: 1, alignItems: 'stretch' }}>
           {WORKFLOW_GROUPS.map((group) => {
+            const isDesignGroup = group.key === 'design';
             const columns = group.sectionKeys.map((key) => SECTION_BY_KEY.get(key)).filter(Boolean);
             const groupCount = columns.reduce((sum, section) => sum + (sections.get(section.key) || []).length, 0);
             return (
@@ -276,10 +266,23 @@ export default function WorkflowWidget() {
                   border: '1px solid',
                   borderColor: 'divider',
                   borderRadius: 2,
-                  bgcolor: 'action.hover',
-                  p: 0.5,
+                  bgcolor: isDesignGroup ? 'background.paper' : 'action.hover',
+                  p: isDesignGroup ? 0 : 0.5,
+                  overflow: isDesignGroup ? 'hidden' : 'visible',
                 }}
               >
+                {isDesignGroup ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', maxHeight: 560, overflow: 'hidden' }}>
+                    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ px: 1.25, py: 0.85, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}>
+                      <FolderOpenRoundedIcon sx={{ fontSize: 16, color: '#0891b2' }} />
+                      <Typography variant="body2" fontWeight={800}>Design Files</Typography>
+                    </Stack>
+                    <Box sx={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
+                      <DesignFilesWidget />
+                    </Box>
+                  </Box>
+                ) : (
+                <>
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 0.75, py: 0.5, flexShrink: 0 }}>
                   <Typography variant="caption" fontWeight={800} sx={{ flex: 1, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                     {group.label}
@@ -339,6 +342,8 @@ export default function WorkflowWidget() {
                     );
                   })}
                 </Box>
+                </>
+                )}
               </Box>
             );
           })}

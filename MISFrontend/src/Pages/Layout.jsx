@@ -60,11 +60,6 @@ export default function Layout() {
   const openUpi = useCallback(() => setUpiOpen(true), []);
   const closeUpi = useCallback(() => setUpiOpen(false), []);
 
-  /* Widget library — controlled here so sidebar can trigger it */
-  const [widgetLibOpen, setWidgetLibOpen] = useState(false);
-  const openWidgetLib = useCallback(() => setWidgetLibOpen(true), []);
-  const closeWidgetLib = useCallback(() => setWidgetLibOpen(false), []);
-
   const openGoogleDriveReconnect = () => {
     const baseUrl = getApiBase() || window.location.origin;
     const returnTo = encodeURIComponent(window.location.href);
@@ -131,7 +126,6 @@ export default function Layout() {
       value={{
         customizeOpen, openCustomize, closeCustomize,
         upiOpen, openUpi, closeUpi,
-        widgetLibOpen, openWidgetLib, closeWidgetLib,
       }}
     >
       <Box sx={{ height: '100dvh', bgcolor: 'background.default', display: 'flex', overflow: 'hidden' }}>

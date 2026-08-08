@@ -19,7 +19,7 @@ export const WIDGET_REGISTRY = [
   },
   {
     id: 'designFiles',
-    label: 'Design Files (standalone)',
+    label: 'Design Files',
     icon: FolderOpenRoundedIcon,
     color: '#0891b2',
     bg: '#cffafe',
@@ -78,15 +78,3 @@ export const WIDGET_REGISTRY = [
     description: 'Pick a team member to see just their pending tasks',
   },
 ];
-
-// v9: merged 'tasks' + 'designFiles' into a single 'workflow' widget (pending
-// tasks grouped by stage, with design files embedded as a collapsible
-// section) — the punch-in/out action moved out of the widget grid entirely,
-// next to the user's name in the header, so 'recentAttendance' is no longer
-// a default widget either.
-export const LAYOUT_KEY = (user) => `mis_home_layout_v9_${user}`;
-
-export const DEFAULT_LAYOUT = {
-  left: ['workflow'],
-  right: ['quickLinks'],
-};

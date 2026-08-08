@@ -179,7 +179,7 @@ function UserPermissionPanel({ user, onSaved }) {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }} variant="scrollable" scrollButtons="auto">
         <Tab label="Sidebar Access" />
         <Tab label="Feature Rights" />
-        <Tab label="Home Widgets" icon={<WidgetsRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
+        <Tab label="Home Tabs" icon={<WidgetsRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
         <Tab label="Top Navbar" icon={<MenuRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
         <Tab label="Footer" icon={<LinkRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
         <Tab label="Left Sidebar Items" icon={<ViewSidebarRoundedIcon sx={{ fontSize: 14 }} />} iconPosition="start" />
@@ -268,8 +268,8 @@ function UserPermissionPanel({ user, onSaved }) {
         <Box>
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             {allWidgetsAllowed
-              ? 'User can see ALL home dashboard widgets. Restrict below to limit which widgets are available.'
-              : `User is restricted to ${perms.allowedWidgets.length} of ${HOME_WIDGETS.length} widgets.`}
+              ? 'User can see ALL home screen tabs. Restrict below to limit which tabs are available.'
+              : `User is restricted to ${perms.allowedWidgets.length} of ${HOME_WIDGETS.length} tabs.`}
           </Alert>
           <Stack spacing={1}>
             {HOME_WIDGETS.map((w) => {
@@ -317,7 +317,7 @@ function UserPermissionPanel({ user, onSaved }) {
             })}
           </Stack>
           <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
-            These settings control widget visibility in the <strong>Widget Library</strong> only. Users can still see widgets already pinned to their layout until they remove them.
+            These settings control which tabs appear on the user's Home screen.
           </Alert>
           {!allWidgetsAllowed && (
             <Button
@@ -326,7 +326,7 @@ function UserPermissionPanel({ user, onSaved }) {
               sx={{ mt: 1.5 }}
               onClick={() => setPerms((p) => ({ ...p, allowedWidgets: [] }))}
             >
-              Allow All Widgets
+              Allow All Tabs
             </Button>
           )}
         </Box>
@@ -642,7 +642,7 @@ export default function AdminUserPermissions() {
         <Box>
           <Typography variant="h5" fontWeight={900}>User Permissions</Typography>
           <Typography variant="caption" color="text.secondary">
-            Manage sidebar access, feature rights & home dashboard widgets per user
+            Manage sidebar access, feature rights & home screen tabs per user
           </Typography>
         </Box>
       </Stack>

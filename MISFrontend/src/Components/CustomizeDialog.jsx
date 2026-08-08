@@ -5,7 +5,6 @@ import {
   Autocomplete,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -20,7 +19,6 @@ import {
   Typography,
 } from '@mui/material';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
-import { WIDGET_REGISTRY, LAYOUT_KEY, DEFAULT_LAYOUT } from '../constants/widgetRegistry.jsx';
 import { useNavCustomize } from '../hooks/useNavCustomize';
 import { useAuth } from '../context/AuthContext';
 import { FOOTER_LINKS } from './Footer';
@@ -45,7 +43,6 @@ export default function CustomizeDialog({ open, onClose }) {
   const { isAdmin } = useAuth();
   const [draft, setDraft] = useState({});
   const [tab, setTab] = useState(0);
-  const [widgetLayout, setWidgetLayout] = useState(DEFAULT_LAYOUT);
 
   const [mobileDraft, setMobileDraft] = useState(DEFAULT_MOBILE_SETTINGS);
   const [customerGroupOptions, setCustomerGroupOptions] = useState([]);
@@ -56,13 +53,6 @@ export default function CustomizeDialog({ open, onClose }) {
   useEffect(() => {
     if (open) {
       setDraft(prefs);
-      const user = localStorage.getItem('User_name') || '';
-      try {
-        const saved = localStorage.getItem(LAYOUT_KEY(user));
-        setWidgetLayout(saved ? JSON.parse(saved) : DEFAULT_LAYOUT);
-      } catch {
-        setWidgetLayout(DEFAULT_LAYOUT);
-      }
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -137,30 +127,9 @@ export default function CustomizeDialog({ open, onClose }) {
 
   const toggleFlag = (key) => setDraft((prev) => ({ ...prev, [key]: !prev[key] }));
 
-  /* ── widget toggles ── */
-  const allWidgetIds = [...(widgetLayout.left || []), ...(widgetLayout.right || [])];
-
-  const getPanel = (id) => {
-    if ((widgetLayout.left  || []).includes(id)) return 'Left';
-    if ((widgetLayout.right || []).includes(id)) return 'Right';
-    return null;
-  };
-
-  const addWidget = (id) =>
-    setWidgetLayout((prev) => ({ ...prev, right: [...(prev.right || []), id] }));
-
-  const removeWidget = (id) =>
-    setWidgetLayout((prev) => ({
-      left:  (prev.left  || []).filter((i) => i !== id),
-      right: (prev.right || []).filter((i) => i !== id),
-    }));
-
   /* ── save / cancel / reset ── */
   const handleSave = () => {
     save(draft);
-    const user = localStorage.getItem('User_name') || '';
-    localStorage.setItem(LAYOUT_KEY(user), JSON.stringify(widgetLayout));
-    window.dispatchEvent(new CustomEvent('mis_widget_layout_changed'));
 
     if (isAdmin) {
       saveMobileVisibilitySettings(mobileDraft)
@@ -180,7 +149,6 @@ export default function CustomizeDialog({ open, onClose }) {
 
   const handleReset = () => {
     setDraft({});
-    setWidgetLayout(DEFAULT_LAYOUT);
   };
 
   return (
@@ -191,7 +159,6 @@ export default function CustomizeDialog({ open, onClose }) {
         <Tab label="Top Navbar" />
         <Tab label="Left Sidebar" />
         <Tab label="Right Sidebar" />
-        <Tab label="Home Widgets" />
         <Tab label="Footer" />
         {isAdmin && <Tab label="Mobile Numbers" />}
       </Tabs>
@@ -290,7 +257,7 @@ export default function CustomizeDialog({ open, onClose }) {
         )}
 
         {/* ── Footer ── */}
-        {tab === 4 && (
+        {tab === 3 && (
           <Box>
             <FormControlLabel
               control={<Switch checked={Boolean(draft.footerOn)} onChange={() => toggleFlag('footerOn')} />}
@@ -311,47 +278,8 @@ export default function CustomizeDialog({ open, onClose }) {
           </Box>
         )}
 
-        {/* ── Home Widgets ── */}
-        {tab === 3 && (
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Toggle widgets on/off for your home page. Enabled widgets appear in the right panel.
-            </Typography>
-            {WIDGET_REGISTRY.map((w) => {
-              const active = allWidgetIds.includes(w.id);
-              const panel = getPanel(w.id);
-              const Icon = w.icon;
-              return (
-                <Stack
-                  key={w.id}
-                  direction="row"
-                  alignItems="center"
-                  spacing={1.5}
-                  sx={{ py: 0.85, borderBottom: '1px solid', borderColor: 'divider' }}
-                >
-                  <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: w.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon sx={{ fontSize: 16, color: w.color }} />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={700} noWrap>{w.label}</Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap>{w.description}</Typography>
-                  </Box>
-                  {panel && (
-                    <Chip size="small" label={panel} sx={{ fontSize: '0.62rem', fontWeight: 700, height: 20 }} />
-                  )}
-                  <Switch
-                    size="small"
-                    checked={active}
-                    onChange={() => active ? removeWidget(w.id) : addWidget(w.id)}
-                  />
-                </Stack>
-              );
-            })}
-          </Box>
-        )}
-
         {/* ── Mobile Number Visibility (admin only) ── */}
-        {tab === 5 && isAdmin && (
+        {tab === 4 && isAdmin && (
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
               Control whether customer and staff mobile numbers are visible to non-admin users. Admins always see full numbers.

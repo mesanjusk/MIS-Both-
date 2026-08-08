@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
@@ -26,7 +26,6 @@ import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneR
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
-import WidgetsRoundedIcon from '@mui/icons-material/WidgetsRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { useAuth } from '../context/AuthContext';
@@ -149,7 +148,6 @@ NavDropdown.propTypes = {
 
 export default function TopNavbar() {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
@@ -168,14 +166,6 @@ export default function TopNavbar() {
   const handleLogout = () => {
     clearAuth();
     navigate(ROUTES.ROOT);
-  };
-
-  const handleWidgets = () => {
-    if (pathname === ROUTES.HOME || pathname.startsWith(ROUTES.HOME + '?')) {
-      dashCtx?.openWidgetLib?.();
-    } else {
-      navigate(ROUTES.HOME + '?widgets=1');
-    }
   };
 
   const handleCustomize = () => dashCtx?.openCustomize?.();
@@ -380,10 +370,6 @@ export default function TopNavbar() {
           </MenuItem>
 
           <Divider />
-
-          <MenuItem dense onClick={() => { setMenuAnchor(null); handleWidgets(); }}>
-            <WidgetsRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Widgets
-          </MenuItem>
 
           <MenuItem dense onClick={() => { setMenuAnchor(null); handleCustomize(); }}>
             <DashboardCustomizeRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Customize

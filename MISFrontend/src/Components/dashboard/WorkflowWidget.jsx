@@ -11,7 +11,6 @@ import {
   Typography,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
-import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
@@ -198,9 +197,31 @@ export default function WorkflowWidget() {
 
       <Divider sx={{ my: 1.5 }} />
 
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="subtitle1" fontWeight={700}>Workflow</Typography>
-        <Stack direction="row" spacing={0.5} alignItems="center">
+      {/* Title, live stage-count chips, unassigned badge, and refresh all
+          share one row — the chip strip scrolls sideways on its own
+          (flex: 1, overflowX: auto) if it's too long, while the title and
+          action icons stay fixed at the edges. */}
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>Workflow</Typography>
+        {stageBreakdown.length > 0 && (
+          <Stack
+            direction="row"
+            spacing={0.75}
+            flexWrap="nowrap"
+            sx={{ flex: 1, minWidth: 0, overflowX: 'auto', py: 0.25, '&::-webkit-scrollbar': { height: 6 } }}
+          >
+            {stageBreakdown.map(({ label, count }) => (
+              <Chip
+                key={label}
+                size="small"
+                label={`${label} · ${count}`}
+                variant="outlined"
+                sx={{ flexShrink: 0, fontWeight: 600, bgcolor: 'background.paper' }}
+              />
+            ))}
+          </Stack>
+        )}
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0, ml: 'auto' }}>
           {isAdmin && overview?.unassignedCount > 0 && (
             <Chip size="small" color="warning" label={`${overview.unassignedCount} unassigned`} />
           )}
@@ -218,24 +239,6 @@ export default function WorkflowWidget() {
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
       ) : (
         <>
-          {stageBreakdown.length > 0 && (
-            <Stack
-              direction="row"
-              spacing={0.75}
-              flexWrap="nowrap"
-              sx={{ overflowX: 'auto', pb: 1, mb: 1, '&::-webkit-scrollbar': { height: 6 } }}
-            >
-              {stageBreakdown.map(({ label, count }) => (
-                <Chip
-                  key={label}
-                  size="small"
-                  label={`${label} · ${count}`}
-                  variant="outlined"
-                  sx={{ flexShrink: 0, fontWeight: 600, bgcolor: 'background.paper' }}
-                />
-              ))}
-            </Stack>
-          )}
           {/* 4 parent pipeline columns (Design/Print/Post Print/Ready) in a
               single row that never wraps — each holds a fixed % of the row
               width (WORKFLOW_GROUPS.widthPercent). Design's 45% embeds the
@@ -272,14 +275,12 @@ export default function WorkflowWidget() {
                 }}
               >
                 {isDesignGroup ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', maxHeight: 560, overflow: 'hidden' }}>
-                    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ px: 1.25, py: 0.85, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}>
-                      <FolderOpenRoundedIcon sx={{ fontSize: 16, color: '#0891b2' }} />
-                      <Typography variant="body2" fontWeight={800}>Design Files</Typography>
-                    </Stack>
-                    <Box sx={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
-                      <DesignFilesWidget />
-                    </Box>
+                  // No extra header here — Design Files renders its own
+                  // toolbar (tabs + count + view/add/refresh icons) as a
+                  // single row, so wrapping it in another title row would
+                  // just stack two rows on top of each other.
+                  <Box sx={{ maxHeight: 560, overflowY: 'auto' }}>
+                    <DesignFilesWidget />
                   </Box>
                 ) : (
                 <>

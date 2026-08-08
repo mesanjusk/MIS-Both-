@@ -4,6 +4,7 @@ import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
+import PersonSearchRoundedIcon from '@mui/icons-material/PersonSearchRounded';
 
 export const WIDGET_REGISTRY = [
   {
@@ -65,6 +66,16 @@ export const WIDGET_REGISTRY = [
     defaultPanel: 'right',
     adminOnly: false,
     description: 'Full order board & activity stream',
+  },
+  {
+    id: 'pendingByAssigned',
+    label: 'Pending by Assigned',
+    icon: PersonSearchRoundedIcon,
+    color: '#be185d',
+    bg: '#fce7f3',
+    defaultPanel: 'right',
+    adminOnly: true,
+    description: 'Pick a team member to see just their pending tasks',
   },
 ];
 

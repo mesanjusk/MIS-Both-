@@ -107,6 +107,7 @@ const BOARD_COLUMNS = [
   { stageNumber: 3, key: 'hold', label: 'Hold' },
   { stageNumber: 4, key: 'readyToPrint', label: 'Ready to Print' },
 ];
+const BOARD_STAGE_NUMBERS = new Set(BOARD_COLUMNS.map((c) => c.stageNumber));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function alreadyPrefixedWithOrder(fileName, orderNumber) {
@@ -1797,7 +1798,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
       />
       <Snackbar
         open={!!archiveToast} autoHideDuration={archiveToast?.severity === 'error' ? 7000 : 4000}
-        onClose={() => setArchiveToast(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        onClose={() => setArchiveToast(null)} anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
       >
         <Alert onClose={() => setArchiveToast(null)} severity={archiveToast?.severity || 'success'} variant="filled" sx={{ width: '100%', fontSize: 13 }}>
           {archiveToast?.message}
@@ -1869,22 +1870,25 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 // automatically (see the backend's syncOrderStagesFromFolders).
 function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob }) {
   return (
-    <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', px: 1.5, py: 1 }}>
+    // CSS grid (auto-fit) instead of a horizontal-scroll row — columns
+    // shrink and wrap onto extra rows as the available width narrows
+    // (this panel usually lives inside the Workflow board's ~45%-wide
+    // Design column) so all 5 columns stay visible without side-scrolling.
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 0.75, p: 0.75 }}>
       {BOARD_COLUMNS.map((col) => {
         const colFiles = files.filter((f) => f.stageNumber === col.stageNumber);
         return (
           <Box
             key={col.key}
             sx={{
-              flex: '1 1 0',
-              minWidth: 200,
+              minWidth: 0,
               display: 'flex',
               flexDirection: 'column',
               border: '1px solid',
               borderColor: 'divider',
               borderRadius: 2,
               bgcolor: 'background.paper',
-              maxHeight: 520,
+              maxHeight: 420,
               overflow: 'hidden',
             }}
           >
@@ -1892,12 +1896,12 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
               direction="row"
               alignItems="center"
               spacing={1}
-              sx={{ px: 1.25, py: 0.75, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}
+              sx={{ px: 1, py: 0.65, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}
             >
-              <Typography variant="body2" fontWeight={800} sx={{ flex: 1 }}>{col.label}</Typography>
+              <Typography variant="caption" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{col.label}</Typography>
               <Chip size="small" label={colFiles.length} />
             </Stack>
-            <Stack spacing={0.4} sx={{ p: 1, overflowY: 'auto', flex: 1, minHeight: 0 }}>
+            <Stack spacing={0.4} sx={{ p: 0.75, overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {colFiles.length === 0 ? (
                 <Typography variant="caption" color="text.disabled" sx={{ textAlign: 'center', py: 2 }}>Nothing here.</Typography>
               ) : (
@@ -2088,6 +2092,7 @@ export default function DesignFilesWidget() {
   const unmatchedInView = filteredFiles.filter((f) => !f.matched && !f.isDraft);
 
   function tabCount(tab) {
+    if (tab.key === 'board') return files.filter((f) => BOARD_STAGE_NUMBERS.has(f.stageNumber)).length;
     if (!tab.stageFilter || !files.length) return 0;
     return files.filter((f) => tab.stageFilter(f.stageNumber)).length;
   }
@@ -2388,7 +2393,7 @@ export default function DesignFilesWidget() {
         open={!!toast}
         autoHideDuration={toast?.severity === 'warning' || toast?.severity === 'error' ? 7000 : 4000}
         onClose={() => setToast(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
       >
         <Alert onClose={() => setToast(null)} severity={toast?.severity || 'success'} variant="filled" sx={{ width: '100%', fontSize: 13 }}>
           {toast?.message}

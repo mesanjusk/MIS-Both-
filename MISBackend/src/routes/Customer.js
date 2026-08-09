@@ -138,6 +138,7 @@ router.post("/addCustomer", async (req, res) => {
     Opening_balance,
     Opening_balance_type,
     Opening_balance_date,
+    Capabilities,
   } = req.body;
 
   try {
@@ -175,6 +176,7 @@ router.post("/addCustomer", async (req, res) => {
       Opening_balance: obAmount,
       Opening_balance_type: obType,
       Opening_balance_date: obDate,
+      Capabilities: Array.isArray(Capabilities) ? Capabilities : [],
     });
 
     await newCustomer.save();
@@ -434,6 +436,7 @@ router.put("/update/:id", async (req, res) => {
     Opening_balance,
     Opening_balance_type,
     Opening_balance_date,
+    Capabilities,
   } = req.body;
 
   try {
@@ -451,6 +454,7 @@ router.put("/update/:id", async (req, res) => {
       PartyRoles: normalizePartyRoles(PartyRoles),
       LastInteraction,
     };
+    if (Array.isArray(Capabilities)) updateFields.Capabilities = Capabilities;
 
     if (obAmount !== undefined) {
       updateFields.Opening_balance = obAmount;

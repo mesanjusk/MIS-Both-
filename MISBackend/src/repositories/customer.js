@@ -29,6 +29,17 @@ const CustomersSchema = new mongoose.Schema({
   Opening_balance: { type: Number, default: 0 },
   Opening_balance_type: { type: String, enum: ["debit", "credit"], default: "debit" },
   Opening_balance_date: { type: Date, default: null },
+  // Which pipeline stage(s) this party works — only meaningful (and only
+  // shown in the UI) when Customer_group is "Account Payable": that group is
+  // this business's real, admin-maintained list of who they owe money to
+  // (vendors, freelancers, contractors, even employees paid this way), unlike
+  // the auto-populated vendor_masters collection. Tagging a capability here
+  // is what makes that party assignable on a given task stage.
+  Capabilities: {
+    type: [String],
+    enum: ["design", "print", "postprint", "delivery"],
+    default: [],
+  },
 });
 
 CustomersSchema.pre("validate", function (next) {

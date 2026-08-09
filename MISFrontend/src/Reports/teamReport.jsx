@@ -19,7 +19,7 @@ import { ASSIGNEE_TYPE_LABELS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../cons
 import { ReportFilterBar, ReportPageShell, ReportTableCard } from '../Components/reports/ReportShell';
 import { EmptyState, LoadingState } from '../Components/ui';
 
-const TYPE_FILTERS = ['all', 'employee', 'freelancer', 'vendor', 'contractor'];
+const TYPE_FILTERS = ['all', 'employee', 'payable'];
 
 const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 
@@ -27,8 +27,8 @@ const currency = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 // and GET /api/assignees/:type/:id/report) is id-based, not name-based, so it
 // stays correct even if two people share a name. This is deliberately the
 // single place "how much pending work / how much do we owe them" is easy to
-// pull up for an employee, freelancer, vendor, or contractor, instead of
-// hunting across the Workflow board and the vendor ledger separately.
+// pull up for an employee or Account Payable party, instead of hunting
+// across the Workflow board and the Outstanding Report separately.
 export default function TeamReport() {
   const [assignees, setAssignees] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -73,7 +73,7 @@ export default function TeamReport() {
   return (
     <ReportPageShell
       title="Team & Partners Report"
-      subtitle="Pending work and billing, per employee, freelancer, vendor, or contractor — in one place."
+      subtitle="Pending work and billing, per employee or Account Payable party — in one place."
       count={filtered.length}
     >
       <ReportFilterBar>
@@ -102,7 +102,7 @@ export default function TeamReport() {
       {loadingList && <LoadingState label="Loading team & partners" />}
 
       {!loadingList && !selected ? (
-        <EmptyState title="Pick a person above" description="Search or filter by type, then select someone to see their pending work and (for freelancers/vendors/contractors) their billing balance." />
+        <EmptyState title="Pick a person above" description="Search or filter by type, then select someone to see their pending work and (for Account Payable parties) their billing balance." />
       ) : null}
 
       {selected && (
@@ -116,10 +116,10 @@ export default function TeamReport() {
 
           {report?.billing && (
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1.5 }}>
-              <Chip label={`Billed ${currency(report.billing.totalBilled)}`} />
-              <Chip label={`Paid ${currency(report.billing.totalPaid)}`} />
+              <Chip label={`Debit ${currency(report.billing.totalDebit)}`} />
+              <Chip label={`Credit ${currency(report.billing.totalCredit)}`} />
               <Chip
-                color={report.billing.balanceNature === 'payable' ? 'warning' : 'success'}
+                color={report.billing.balanceNature === 'payable' ? 'warning' : report.billing.balanceNature === 'receivable' ? 'info' : 'success'}
                 label={`Balance ${currency(report.billing.balance)} ${report.billing.balanceNature}`}
               />
             </Stack>

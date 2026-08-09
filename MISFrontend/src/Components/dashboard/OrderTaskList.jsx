@@ -32,8 +32,8 @@ import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_L
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
 // Display order for the type-grouped sections inside the assign menu —
-// in-house people first, then the external parties.
-const ASSIGNEE_TYPE_ORDER = ['employee', 'freelancer', 'vendor', 'contractor'];
+// in-house people first, then Account Payable parties.
+const ASSIGNEE_TYPE_ORDER = ['employee', 'payable'];
 
 // Stages a task can be manually moved to from the Workflow widget — one per
 // remaining pipeline column, matching WORKFLOW_GROUPS in
@@ -160,9 +160,9 @@ export default function OrderTaskList({
     );
   };
 
-  // Narrow the (potentially long) combined employee+freelancer+vendor+
-  // contractor list down to whoever can actually work the active task's
-  // stage — an assignee with no capabilities set is unrestricted (shows on
+  // Narrow the (potentially long) combined employee + Account Payable list
+  // down to whoever can actually work the active task's stage — an
+  // assignee with no capabilities set is unrestricted (shows on
   // every stage) so nothing vanishes from the menu until someone tags it.
   // Falls back to the full list when the stage isn't mapped to a capability
   // at all, so an unrecognized/legacy stage never leaves the menu empty.

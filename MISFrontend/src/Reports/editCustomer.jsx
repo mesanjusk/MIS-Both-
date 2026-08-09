@@ -6,6 +6,9 @@ import {
     updateCustomer,
 } from '../services/customerService.js';
 import { useParams } from "react-router-dom";
+import { CAPABILITY_LABELS, isAccountPayableGroup } from '../constants/orderStages';
+
+const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 
 const getFyStartDate = () => {
     const now = new Date();
@@ -24,7 +27,8 @@ export default function EditCustomer({ customerId, closeModal }) {
         Status: 'active',
         Tags: [],
         PartyRoles: ['customer'],
-        LastInteraction: ''
+        LastInteraction: '',
+        Capabilities: [],
     });
     const [hasOpeningBalance, setHasOpeningBalance] = useState(false);
     const [openingBalance, setOpeningBalance] = useState('');
@@ -57,7 +61,8 @@ export default function EditCustomer({ customerId, closeModal }) {
                             PartyRoles: Array.isArray(customer.PartyRoles) && customer.PartyRoles.length
                                 ? customer.PartyRoles
                                 : ['customer'],
-                            LastInteraction: customer.LastInteraction || ''
+                            LastInteraction: customer.LastInteraction || '',
+                            Capabilities: customer.Capabilities || [],
                         });
                         const ob = Number(customer.Opening_balance) || 0;
                         if (ob > 0) {
@@ -187,6 +192,22 @@ export default function EditCustomer({ customerId, closeModal }) {
                             </label>
                         </div>
                     </div>
+                    {isAccountPayableGroup(values.Customer_group) && (
+                        <div>
+                            <label className="block text-gray-700 text-sm mb-1">Works On (Stages)</label>
+                            <select
+                                multiple
+                                className="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                value={values.Capabilities}
+                                onChange={(e) => setValues({ ...values, Capabilities: Array.from(e.target.selectedOptions, (option) => option.value) })}
+                            >
+                                {CAPABILITY_OPTIONS.map((key) => (
+                                    <option key={key} value={key}>{CAPABILITY_LABELS[key]}</option>
+                                ))}
+                            </select>
+                            <small className="text-gray-500">Required to appear in the task-assign menu — tags this Account Payable party as a real assignable person for these stages. Hold Ctrl (Cmd on Mac) to select multiple.</small>
+                        </div>
+                    )}
                     <div>
                         <label className="block text-gray-700 text-sm mb-1">Status</label>
                         <select

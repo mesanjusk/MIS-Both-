@@ -2,42 +2,42 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const Users = require('../repositories/users');
-const VendorMaster = require('../repositories/vendorMaster');
+const Customers = require('../repositories/customer');
 const Orders = require('../repositories/order');
-const VendorLedger = require('../repositories/vendorLedger');
+const Transaction = require('../repositories/transaction');
 const { CLOSED_STAGES } = require('../constants/orderStages');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
 
+// "Account Payable" is a real, admin-maintained Customer_group this business
+// already uses to mean "money we owe" — it covers vendors, freelancers,
+// contractors, and even employees paid this way. It is NOT the same as the
+// separate, mostly auto-populated vendor_masters collection (background jobs
+// write junk/customer names into that one with no review), so external
+// assignees are sourced from Customers here, not VendorMaster.
+const ACCOUNT_PAYABLE_GROUP = /^account\s*payable$/i;
+
 // One combined "who can this task be assigned to" list — in-house employees
-// (Users) plus freelancers/vendors/contractors (VendorMaster), each tagged
-// with a `type` and `capabilities` so the frontend can filter a single big
-// list down to "who does design/print/postprint/delivery" per stage instead
-// of showing everyone everywhere.
+// (Users) plus Account Payable parties (Customers), each tagged with a
+// `type` and `capabilities` so the frontend can filter a single big list
+// down to "who does design/print/postprint/delivery" per stage instead of
+// showing everyone everywhere.
 //
 // Employees: Capabilities empty = unrestricted (shows on every stage), since
 // Users is a small, admin-curated list — nothing disappears until tagged.
 //
-// External parties (VendorMaster) are the opposite: that collection is NOT
-// a curated "our vendors" list — several background jobs auto-create rows
-// in it with no human review (the Drive-folder auto-PO scan creates a
-// vendor from any folder name it sees, order vendor-assignment falls back
-// to the order's *customer* name when no vendor is picked, production jobs
-// create one from whatever name string is typed, plus a hardcoded
-// "Suspense Printer" placeholder). Showing all of that unfiltered flooded
-// the assign menu with junk/customer names that aren't real assignable
-// people. So a vendor only appears here once an admin has explicitly
-// tagged it with at least one capability — that tag is the "yes, this is a
-// real person I want assignable" signal.
+// Account Payable customers: only appear once an admin has explicitly
+// tagged them with at least one capability — that tag is both "yes, this is
+// a real assignable person" and "here's which stage they work."
 router.get('/', async (_req, res) => {
   try {
-    const [users, vendors] = await Promise.all([
+    const [users, payableParties] = await Promise.all([
       Users.find({}, { User_name: 1, Mobile_number: 1, User_group: 1, Capabilities: 1 }).sort({ User_name: 1 }).lean(),
-      VendorMaster.find(
-        { Active: true, 'Capabilities.0': { $exists: true } },
-        { Vendor_name: 1, Mobile_number: 1, Engagement_type: 1, Capabilities: 1 }
-      ).sort({ Vendor_name: 1 }).lean(),
+      Customers.find(
+        { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP, 'Capabilities.0': { $exists: true } },
+        { Customer_name: 1, Mobile_number: 1, Capabilities: 1 }
+      ).sort({ Customer_name: 1 }).lean(),
     ]);
 
     const employees = users.map((u) => ({
@@ -49,13 +49,13 @@ router.get('/', async (_req, res) => {
       capabilities: u.Capabilities || [],
     }));
 
-    const externals = vendors.map((v) => ({
-      id: String(v._id),
-      name: v.Vendor_name,
-      type: v.Engagement_type || 'vendor',
-      mobile: v.Mobile_number || '',
-      role: '',
-      capabilities: v.Capabilities || [],
+    const externals = payableParties.map((c) => ({
+      id: String(c._id),
+      name: c.Customer_name,
+      type: 'payable',
+      mobile: c.Mobile_number || '',
+      role: 'Account Payable',
+      capabilities: c.Capabilities || [],
     }));
 
     res.json({ success: true, result: [...employees, ...externals] });
@@ -73,6 +73,8 @@ router.get('/', async (_req, res) => {
 // non-employee types since employees are salaried, not billed per job.
 router.get('/:type/:id/report', async (req, res) => {
   try {
+    // 'vendor' is the order-schema's generic label for "not an employee" —
+    // covers the Account Payable customer here (see assignOrderToUser).
     const type = req.params.type === 'vendor' ? 'vendor' : 'user';
     const id = String(req.params.id || '').trim();
     if (!id) return res.status(400).json({ success: false, message: 'id is required' });
@@ -100,26 +102,34 @@ router.get('/:type/:id/report', async (req, res) => {
 
     let billing = null;
     if (type === 'vendor') {
-      // Orders/report above are keyed by the vendor's Mongo _id (same id
-      // space as employees), but the ledger (vendor_masters/vendor_ledger)
-      // was built keyed by Vendor_uuid — resolve once here rather than
-      // changing the ledger's join key everywhere it's already used.
-      const vendorDoc = await VendorMaster.findById(id).select('Vendor_uuid').lean();
-      const entries = vendorDoc ? await VendorLedger.find({ vendor_uuid: vendorDoc.Vendor_uuid }).lean() : [];
-      let debit = 0;
-      let credit = 0;
-      for (const entry of entries) {
-        const amount = Number(entry.amount || 0);
-        if (entry.dr_cr === 'dr') debit += amount;
-        else credit += amount;
+      // Same debit/credit-by-Account_id logic as the Outstanding Report
+      // (MISFrontend/src/Reports/outstandingReport.jsx) — that's the real,
+      // trusted accounts-payable/receivable ledger this business already
+      // uses, keyed off Customer_uuid via Transaction.Journal_entry, not a
+      // separate ad-hoc ledger.
+      const customerDoc = await Customers.findById(id).select('Customer_uuid').lean();
+      if (customerDoc?.Customer_uuid) {
+        const transactions = await Transaction.find(
+          { 'Journal_entry.Account_id': customerDoc.Customer_uuid },
+          { Journal_entry: 1 }
+        ).lean();
+        let debit = 0;
+        let credit = 0;
+        for (const tx of transactions) {
+          for (const entry of tx.Journal_entry || []) {
+            if (entry.Account_id !== customerDoc.Customer_uuid) continue;
+            if (entry.Type === 'Debit') debit += Number(entry.Amount || 0);
+            else if (entry.Type === 'Credit') credit += Number(entry.Amount || 0);
+          }
+        }
+        const balance = debit - credit; // >0 they owe us, <0 we owe them
+        billing = {
+          totalDebit: debit,
+          totalCredit: credit,
+          balance: Math.abs(balance),
+          balanceNature: balance < 0 ? 'payable' : balance > 0 ? 'receivable' : 'settled',
+        };
       }
-      const balance = credit - debit;
-      billing = {
-        totalPaid: debit,
-        totalBilled: credit,
-        balance: Math.abs(balance),
-        balanceNature: balance >= 0 ? 'payable' : 'advance',
-      };
     }
 
     res.json({ success: true, result: { pending, recent: recent.slice(0, 20), billing } });

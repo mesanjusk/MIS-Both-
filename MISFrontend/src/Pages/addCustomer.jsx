@@ -21,6 +21,9 @@ import AddIcon from '@mui/icons-material/Add';
 import axios from '../apiClient.js';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
+import { CAPABILITY_LABELS, isAccountPayableGroup } from '../constants/orderStages';
+
+const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 
 export default function AddCustomer({ onClose }) {
   const navigate = useNavigate();
@@ -41,6 +44,7 @@ export default function AddCustomer({ onClose }) {
     Tags: [],
     PartyRoles: ['customer'],
     LastInteraction: '',
+    Capabilities: [],
   });
 
   const [hasOpeningBalance, setHasOpeningBalance] = useState(false);
@@ -268,6 +272,22 @@ export default function AddCustomer({ onClose }) {
                 label="Use as Vendor"
               />
             </Stack>
+
+            {isAccountPayableGroup(form.Customer_group) && (
+              <TextField
+                label="Works On (Stages)"
+                select
+                fullWidth
+                SelectProps={{ multiple: true, value: form.Capabilities, onChange: (e) => handleChange('Capabilities', typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value) }}
+                helperText="Required to appear in the task-assign menu — tags this Account Payable party as a real assignable person for these stages."
+                size="small"
+                sx={compactFieldSx}
+              >
+                {CAPABILITY_OPTIONS.map((key) => (
+                  <MenuItem key={key} value={key}>{CAPABILITY_LABELS[key]}</MenuItem>
+                ))}
+              </TextField>
+            )}
 
             <TextField
               label="Tags"

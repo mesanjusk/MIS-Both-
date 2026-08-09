@@ -79,14 +79,21 @@ export const CAPABILITY_LABELS = {
   delivery: 'Ready/Delivery',
 };
 
-// Badge labels for the assign menu — matches VendorMaster.Engagement_type
-// plus the fixed 'employee' type used for in-house Users.
+// Badge labels for the assign menu. 'employee' = in-house Users; 'payable' =
+// Customers under the "Account Payable" group (vendors/freelancers/
+// contractors/anyone this business owes money to) — see
+// MISBackend/src/routes/Assignees.js for why that's the source instead of
+// the separate, mostly auto-populated vendor_masters collection.
 export const ASSIGNEE_TYPE_LABELS = {
   employee: 'Employee',
-  freelancer: 'Freelancer',
-  vendor: 'Vendor',
-  contractor: 'Contractor',
+  payable: 'Account Payable',
 };
+
+// Case/whitespace-tolerant match for the Customer_group value that marks a
+// customer record as an Account Payable party — mirrors the backend's
+// ACCOUNT_PAYABLE_GROUP regex in MISBackend/src/routes/Assignees.js. Used to
+// conditionally show the "Works on (stage)" picker on the Customer form.
+export const isAccountPayableGroup = (group = '') => /^account\s*payable$/i.test(String(group || '').trim());
 
 // Cosmetic-only: a handful of older orders still carry a pre-migration
 // coarse stage value (e.g. plain 'design') that predates the granular list

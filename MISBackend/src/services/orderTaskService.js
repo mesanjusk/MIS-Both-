@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
-const VendorMaster = require('../repositories/vendorMaster');
 const Customers = require('../repositories/customer');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
@@ -315,9 +314,12 @@ async function assignOrderToUser({ orderId, userId, userName, vendorId, assigned
   const isCustomerAssignment = !isVendorAssignment && !userId && String(userName || '').trim().toLowerCase() === 'customer';
 
   let user = null;
+  // "vendor" here means an Account Payable party (Customers, not
+  // VendorMaster) — see MISBackend/src/routes/Assignees.js for why that
+  // collection is the real, admin-curated "who we owe money to" list.
   let vendor = null;
   if (isVendorAssignment) {
-    vendor = await VendorMaster.findOne({ $or: [{ Vendor_uuid: String(vendorId) }, ...(mongoose.isValidObjectId(vendorId) ? [{ _id: vendorId }] : [])] });
+    vendor = await Customers.findOne({ $or: [{ Customer_uuid: String(vendorId) }, ...(mongoose.isValidObjectId(vendorId) ? [{ _id: vendorId }] : [])] });
     if (!vendor) throw new Error('Assignee vendor not found');
   } else if (!isCustomerAssignment) {
     user = userId
@@ -327,7 +329,7 @@ async function assignOrderToUser({ orderId, userId, userName, vendorId, assigned
     if (!user) throw new Error('Assignee user not found');
   }
 
-  const assigneeLabel = isVendorAssignment ? vendor.Vendor_name : isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
+  const assigneeLabel = isVendorAssignment ? vendor.Customer_name : isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
   const assignedToType = isVendorAssignment ? 'vendor' : 'user';
 
   order.assignedTo = isVendorAssignment ? vendor._id : isCustomerAssignment ? null : user._id;

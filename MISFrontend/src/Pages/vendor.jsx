@@ -19,7 +19,6 @@ import {
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import WhatsAppAttendanceSettings from '../Components/whatsappCloud/WhatsAppAttendanceSettings';
-import { CAPABILITY_LABELS, ASSIGNEE_TYPE_LABELS } from '../constants/orderStages';
 import {
   createProductionJob,
   createVendorLedgerEntry,
@@ -46,12 +45,7 @@ const vendorFormInitial = {
   raw_material_capable: false,
   jobwork_capable: true,
   active: true,
-  engagement_type: 'vendor',
-  capabilities: [],
 };
-
-const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
-const ENGAGEMENT_TYPE_OPTIONS = ['vendor', 'freelancer', 'contractor'];
 
 const ledgerFormInitial = {
   vendor_uuid: '',
@@ -320,16 +314,8 @@ export default function VendorPage() {
                         <Typography variant="body2" color="text.secondary">Terms: {vendor.Payment_terms || 'Not set'}</Typography>
                         <Stack direction="row" spacing={1} flexWrap="wrap">
                           <Chip size="small" label={vendor.Active ? 'Active' : 'Inactive'} color={vendor.Active ? 'success' : 'default'} />
-                          <Chip size="small" color="primary" label={ASSIGNEE_TYPE_LABELS[vendor.Engagement_type] || 'Vendor'} />
                           <Chip size="small" label={vendor.Raw_material_capable ? 'Raw Material' : 'Jobwork'} />
                         </Stack>
-                        {(vendor.Capabilities || []).length > 0 && (
-                          <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                            {vendor.Capabilities.map((cap) => (
-                              <Chip key={cap} size="small" variant="outlined" label={CAPABILITY_LABELS[cap] || cap} />
-                            ))}
-                          </Stack>
-                        )}
                         <Button
                           size="small"
                           onClick={() => {
@@ -347,8 +333,6 @@ export default function VendorPage() {
                               raw_material_capable: Boolean(vendor.Raw_material_capable),
                               jobwork_capable: vendor.Jobwork_capable !== false,
                               active: vendor.Active !== false,
-                              engagement_type: vendor.Engagement_type || 'vendor',
-                              capabilities: vendor.Capabilities || [],
                             });
                             setOpenVendorDialog(true);
                           }}
@@ -465,26 +449,6 @@ export default function VendorPage() {
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12} md={6}><TextField fullWidth label="Vendor name" value={vendorForm.vendor_name} onChange={(e) => setVendorForm((prev) => ({ ...prev, vendor_name: e.target.value }))} /></Grid>
             <Grid item xs={12} md={6}><TextField fullWidth label="Mobile number" value={vendorForm.mobile_number} onChange={(e) => setVendorForm((prev) => ({ ...prev, mobile_number: e.target.value }))} /></Grid>
-            <Grid item xs={12} md={4}>
-              <TextField fullWidth select label="Engagement type" value={vendorForm.engagement_type} onChange={(e) => setVendorForm((prev) => ({ ...prev, engagement_type: e.target.value }))} helperText="How this party is engaged — not our in-house team">
-                {ENGAGEMENT_TYPE_OPTIONS.map((key) => (
-                  <MenuItem key={key} value={key}>{ASSIGNEE_TYPE_LABELS[key]}</MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
-                select
-                label="Works on (stages)"
-                SelectProps={{ multiple: true, value: vendorForm.capabilities, onChange: (e) => setVendorForm((prev) => ({ ...prev, capabilities: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })) }}
-                helperText="Required to appear in the task-assign menu at all — prevents auto-created/junk vendor records from showing up as assignable people."
-              >
-                {CAPABILITY_OPTIONS.map((key) => (
-                  <MenuItem key={key} value={key}>{CAPABILITY_LABELS[key]}</MenuItem>
-                ))}
-              </TextField>
-            </Grid>
             <Grid item xs={12} md={4}><TextField fullWidth select label="Vendor type" value={vendorForm.vendor_type} onChange={(e) => setVendorForm((prev) => ({ ...prev, vendor_type: e.target.value }))}><MenuItem value="material">Material</MenuItem><MenuItem value="jobwork">Jobwork</MenuItem><MenuItem value="mixed">Mixed</MenuItem></TextField></Grid>
             <Grid item xs={12} md={4}><TextField fullWidth label="Opening balance" type="number" value={vendorForm.opening_balance} onChange={(e) => setVendorForm((prev) => ({ ...prev, opening_balance: e.target.value }))} /></Grid>
             <Grid item xs={12} md={4}><TextField fullWidth select label="Opening balance type" value={vendorForm.opening_balance_type} onChange={(e) => setVendorForm((prev) => ({ ...prev, opening_balance_type: e.target.value }))}><MenuItem value="none">None</MenuItem><MenuItem value="payable">Payable</MenuItem><MenuItem value="advance">Advance</MenuItem></TextField></Grid>

@@ -14,14 +14,30 @@ router.use(requireAuth);
 // (Users) plus freelancers/vendors/contractors (VendorMaster), each tagged
 // with a `type` and `capabilities` so the frontend can filter a single big
 // list down to "who does design/print/postprint/delivery" per stage instead
-// of showing everyone everywhere. Capabilities empty = unrestricted (shows
-// on every stage) so nothing disappears from the assign menu until someone
-// actually tags it.
+// of showing everyone everywhere.
+//
+// Employees: Capabilities empty = unrestricted (shows on every stage), since
+// Users is a small, admin-curated list — nothing disappears until tagged.
+//
+// External parties (VendorMaster) are the opposite: that collection is NOT
+// a curated "our vendors" list — several background jobs auto-create rows
+// in it with no human review (the Drive-folder auto-PO scan creates a
+// vendor from any folder name it sees, order vendor-assignment falls back
+// to the order's *customer* name when no vendor is picked, production jobs
+// create one from whatever name string is typed, plus a hardcoded
+// "Suspense Printer" placeholder). Showing all of that unfiltered flooded
+// the assign menu with junk/customer names that aren't real assignable
+// people. So a vendor only appears here once an admin has explicitly
+// tagged it with at least one capability — that tag is the "yes, this is a
+// real person I want assignable" signal.
 router.get('/', async (_req, res) => {
   try {
     const [users, vendors] = await Promise.all([
       Users.find({}, { User_name: 1, Mobile_number: 1, User_group: 1, Capabilities: 1 }).sort({ User_name: 1 }).lean(),
-      VendorMaster.find({ Active: true }, { Vendor_name: 1, Mobile_number: 1, Engagement_type: 1, Capabilities: 1 }).sort({ Vendor_name: 1 }).lean(),
+      VendorMaster.find(
+        { Active: true, 'Capabilities.0': { $exists: true } },
+        { Vendor_name: 1, Mobile_number: 1, Engagement_type: 1, Capabilities: 1 }
+      ).sort({ Vendor_name: 1 }).lean(),
     ]);
 
     const employees = users.map((u) => ({

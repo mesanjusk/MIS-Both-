@@ -5,6 +5,7 @@ const Customers = require('../repositories/customer');
 const Orders = require('../repositories/order');
 const Transaction = require('../repositories/transaction');
 const { CLOSED_STAGES } = require('../constants/orderStages');
+const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -15,7 +16,6 @@ router.use(requireAuth);
 // separate, mostly auto-populated vendor_masters collection (background jobs
 // write junk/customer names into that one with no review), so external
 // assignees are sourced from Customers here, not VendorMaster.
-const ACCOUNT_PAYABLE_GROUP = /^account\s*payable$/i;
 
 // The assign menu and Team & Partners report both list Account Payable
 // parties ONLY — employees are deliberately excluded here (they're assigned

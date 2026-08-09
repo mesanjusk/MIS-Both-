@@ -32,14 +32,14 @@ const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
-const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
 const { upsertVendorJob } = require('../services/vendorJobService');
-const { assignOrderToUser, notifyUserOfAssignment, notifyAdminsOfAssignment } = require('../services/orderTaskService');
+const { assignOrderToUser } = require('../services/orderTaskService');
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const { normalizePhone } = require('../utils/phone');
 const { updateOrderStage } = require('../services/orderLifecycleService');
+const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -172,7 +172,7 @@ async function listChildren(drive, folderId, mimeTypeFilter = null) {
   if (mimeTypeFilter) q.push(`mimeType = '${mimeTypeFilter}'`);
   const res = await drive.files.list({
     q: q.join(' and '),
-    fields: 'files(id,name,mimeType,modifiedTime,size)',
+    fields: 'files(id,name,mimeType,modifiedTime,createdTime,size)',
     pageSize: 500,
     supportsAllDrives: true,
     includeItemsFromAllDrives: true,
@@ -299,7 +299,7 @@ async function applyAssignments(enriched) {
 
   const links = await DesignFileLink.find(
     { driveFileId: { $in: ids }, assignedTo: { $ne: null } },
-    { driveFileId: 1, assignedTo: 1, assignedToName: 1, assignedBy: 1, assignedAt: 1 }
+    { driveFileId: 1, assignedTo: 1, assignedToType: 1, assignedToName: 1, assignedBy: 1, assignedAt: 1 }
   ).lean();
   if (!links.length) return enriched;
 
@@ -312,6 +312,7 @@ async function applyAssignments(enriched) {
     return {
       ...file,
       assignedTo: String(link.assignedTo),
+      assignedToType: link.assignedToType || 'user',
       assignedToName: link.assignedToName,
       assignedBy: link.assignedBy,
       assignedAt: link.assignedAt,
@@ -353,6 +354,7 @@ router.get('/scan', async (_req, res) => {
           fileName: file.name,
           mimeType: file.mimeType,
           modifiedTime: file.modifiedTime,
+          createdTime: file.createdTime,
           size: file.size || null,
           folderName: folder.name,
           stageNumber: folder.stageNumber,
@@ -467,6 +469,7 @@ router.get('/unmatched', async (_req, res) => {
           fileId: file.id,
           fileName: file.name,
           modifiedTime: file.modifiedTime,
+          createdTime: file.createdTime,
           stageNumber: folder.stageNumber,
           stageLabel: stageLabel(folder.stageNumber),
           stageColor: stageColor(folder.stageNumber),
@@ -524,6 +527,7 @@ router.get('/order/:orderUuid', async (req, res) => {
               fileId: file.id,
               fileName: file.name,
               modifiedTime: file.modifiedTime,
+              createdTime: file.createdTime,
               stageNumber: folder.stageNumber,
               stageLabel: stageLabel(folder.stageNumber),
               stageColor: stageColor(folder.stageNumber),
@@ -780,23 +784,25 @@ router.post('/create-file', async (req, res) => {
 
 // ─── POST /api/design-files/assign ───────────────────────────────────────────
 /**
- * Assigns a design file to a team member — works even if the file has no
- * MIS order yet (standalone assignment tracked on DesignFileLink). If the
- * file is already linked to a real order, also runs the existing order-level
- * assignment (WhatsApp to assignee + admin overview, dashboard task lists).
- * Either way, the Drive file is renamed to tag the assignee's name so the
- * assignment is visible in the local (Drive Desktop synced) folder too.
+ * Assigns a design file to an Account Payable party (Customers, tagged with
+ * the 'design' capability — same source as the order task-assign menu, see
+ * MISBackend/src/routes/Assignees.js) — works even if the file has no MIS
+ * order yet (standalone assignment tracked on DesignFileLink). If the file
+ * is already linked to a real order, also runs the existing order-level
+ * assignment (dashboard task lists). Either way, the Drive file is renamed
+ * to tag the assignee's name so the assignment is visible in the local
+ * (Drive Desktop synced) folder too.
  *
- * Body: { fileId, fileName, orderUuid?, orderNumber?, userId, assignedBy }
+ * Body: { fileId, fileName, orderUuid?, orderNumber?, assigneeId, assignedBy }
  */
 router.post('/assign', async (req, res) => {
   try {
-    const { fileId, fileName, orderUuid, userId, assignedBy } = req.body || {};
+    const { fileId, fileName, orderUuid, assigneeId, assignedBy } = req.body || {};
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
-    if (!userId) return res.status(400).json({ success: false, message: 'userId required' });
+    if (!assigneeId) return res.status(400).json({ success: false, message: 'assigneeId required' });
 
-    const user = await Users.findById(userId);
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const party = await Customers.findById(assigneeId);
+    if (!party) return res.status(404).json({ success: false, message: 'Account Payable party not found' });
 
     const resolvedAssignedBy = assignedBy || req.user?.userName || 'System';
 
@@ -804,8 +810,9 @@ router.post('/assign', async (req, res) => {
       { driveFileId: fileId },
       {
         $set: {
-          assignedTo: user._id,
-          assignedToName: user.User_name,
+          assignedTo: party._id,
+          assignedToType: 'vendor',
+          assignedToName: party.Customer_name,
           assignedBy: resolvedAssignedBy,
           assignedAt: new Date(),
           ...(fileName ? { fileName } : {}),
@@ -817,26 +824,9 @@ router.post('/assign', async (req, res) => {
 
     if (orderUuid) {
       try {
-        await assignOrderToUser({ orderId: orderUuid, userId: user._id, assignedBy: resolvedAssignedBy, via: 'design-file' });
+        await assignOrderToUser({ orderId: orderUuid, vendorId: party._id, assignedBy: resolvedAssignedBy, via: 'design-file' });
       } catch (orderErr) {
         logger.warn('design-files/assign: order-level assign failed — %s', orderErr.message);
-      }
-    } else {
-      // Standalone file (no order yet) — no order/customer to look up, so use
-      // the same assignee + admin notification model as order-level assigns
-      // (assignOrderToUser), just with a synthetic "order" and the file name
-      // standing in for the customer field.
-      const orderLike = { Order_Number: null, Customer_uuid: null, dueDate: null };
-      const customerNameOverride = fileName ? `File: ${fileName}` : 'Design file';
-      try {
-        await notifyUserOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
-      } catch (notifyErr) {
-        logger.warn('design-files/assign: assignee WhatsApp notify failed — %s', notifyErr.message);
-      }
-      try {
-        await notifyAdminsOfAssignment({ order: orderLike, user, assignedBy: resolvedAssignedBy, customerNameOverride });
-      } catch (notifyErr) {
-        logger.warn('design-files/assign: admin WhatsApp notify failed — %s', notifyErr.message);
       }
     }
 
@@ -846,12 +836,12 @@ router.post('/assign', async (req, res) => {
     try {
       const drive = await getAuthorizedDriveClient();
       const current = fileName || '';
-      const alreadyTagged = new RegExp(`\\[${user.User_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'i').test(current);
+      const alreadyTagged = new RegExp(`\\[${party.Customer_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'i').test(current);
       if (current && !alreadyTagged) {
         const dot = current.lastIndexOf('.');
         const base = dot !== -1 ? current.slice(0, dot) : current;
         const ext = dot !== -1 ? current.slice(dot) : '';
-        newName = `${base} [${user.User_name}]${ext}`;
+        newName = `${base} [${party.Customer_name}]${ext}`;
         await drive.files.update({
           fileId,
           supportsAllDrives: true,
@@ -865,7 +855,7 @@ router.post('/assign', async (req, res) => {
       logger.warn('design-files/assign: Drive rename failed — %s', renameErr?.message);
     }
 
-    return res.json({ success: true, assignedToName: user.User_name, renamed, newName });
+    return res.json({ success: true, assignedToName: party.Customer_name, renamed, newName });
   } catch (err) {
     logger.error({ err }, 'design-files/assign error');
     return res.status(500).json({ success: false, message: err.message });
@@ -1000,6 +990,14 @@ router.post('/auto-temp-orders', async (req, res) => {
  *
  * Body: { files: [{ fileId, fileName, stageNumber, stageLabel }] }
  */
+// Every new design file that syncs in from Drive is auto-assigned to this
+// Account Payable party by default (tagged with the 'design' capability,
+// same source as the design assign menu) — an admin can still reassign it,
+// but nothing should ever land unassigned. Resolved by name each call
+// (cheap single lookup) rather than cached, since which party holds this
+// name can change.
+const DEFAULT_DESIGN_ASSIGNEE_NAME = 'Sk Sai';
+
 router.post('/auto-scan-link', async (req, res) => {
   try {
     const { files = [] } = req.body || {};
@@ -1012,40 +1010,53 @@ router.post('/auto-scan-link', async (req, res) => {
       return res.json({ success: true, updated: 0 });
     }
 
+    const defaultAssignee = await Customers.findOne({
+      Customer_group: ACCOUNT_PAYABLE_GROUP,
+      Customer_name: new RegExp(`^${DEFAULT_DESIGN_ASSIGNEE_NAME}$`, 'i'),
+    }, { Customer_name: 1 }).lean();
+
     const now = new Date();
-    const ops = eligible.map((f) => ({
-      updateOne: {
-        filter: { driveFileId: f.fileId },
-        update: [
-          {
-            $set: {
-              fileName: f.fileName || null,
-              linkStatus: { $ifNull: ['$linkStatus', 'draft'] },
-              lastSeenAt: now,
-              firstSeenAt: { $ifNull: ['$firstSeenAt', now] },
-              stageEnteredAt: {
-                $cond: [{ $eq: ['$stageNumber', f.stageNumber || null] }, { $ifNull: ['$stageEnteredAt', now] }, now],
+    const ops = eligible.map((f) => {
+      const isNewDocCondition = { $eq: [{ $ifNull: ['$firstSeenAt', null] }, null] };
+      return {
+        updateOne: {
+          filter: { driveFileId: f.fileId },
+          update: [
+            {
+              $set: {
+                fileName: f.fileName || null,
+                linkStatus: { $ifNull: ['$linkStatus', 'draft'] },
+                lastSeenAt: now,
+                firstSeenAt: { $ifNull: ['$firstSeenAt', now] },
+                stageEnteredAt: {
+                  $cond: [{ $eq: ['$stageNumber', f.stageNumber || null] }, { $ifNull: ['$stageEnteredAt', now] }, now],
+                },
+                fileStageHistory: {
+                  $cond: [
+                    { $eq: ['$stageNumber', f.stageNumber || null] },
+                    { $ifNull: ['$fileStageHistory', []] },
+                    {
+                      $concatArrays: [
+                        { $ifNull: ['$fileStageHistory', []] },
+                        [{ stageNumber: f.stageNumber || null, stageLabel: f.stageLabel || null, enteredAt: now }],
+                      ],
+                    },
+                  ],
+                },
+                stageNumber: f.stageNumber || null,
+                stageLabel: f.stageLabel || null,
+                ...(defaultAssignee ? {
+                  assignedTo: { $cond: [isNewDocCondition, defaultAssignee._id, '$assignedTo'] },
+                  assignedToType: { $cond: [isNewDocCondition, 'vendor', { $ifNull: ['$assignedToType', 'user'] }] },
+                  assignedToName: { $cond: [isNewDocCondition, defaultAssignee.Customer_name, '$assignedToName'] },
+                } : {}),
               },
-              fileStageHistory: {
-                $cond: [
-                  { $eq: ['$stageNumber', f.stageNumber || null] },
-                  { $ifNull: ['$fileStageHistory', []] },
-                  {
-                    $concatArrays: [
-                      { $ifNull: ['$fileStageHistory', []] },
-                      [{ stageNumber: f.stageNumber || null, stageLabel: f.stageLabel || null, enteredAt: now }],
-                    ],
-                  },
-                ],
-              },
-              stageNumber: f.stageNumber || null,
-              stageLabel: f.stageLabel || null,
             },
-          },
-        ],
-        upsert: true,
-      },
-    }));
+          ],
+          upsert: true,
+        },
+      };
+    });
 
     await DesignFileLink.bulkWrite(ops);
 
@@ -1635,6 +1646,7 @@ router.get('/scan-archive', async (_req, res) => {
                 fileId: file.id,
                 fileName: file.name,
                 modifiedTime: file.modifiedTime,
+                createdTime: file.createdTime,
                 size: file.size || null,
                 dateFolderName: dateFolder.name,
                 monthFolderName: monthFolder.name,
@@ -1663,6 +1675,7 @@ router.get('/scan-archive', async (_req, res) => {
             fileId: file.id,
             fileName: file.name,
             modifiedTime: file.modifiedTime,
+            createdTime: file.createdTime,
             size: file.size || null,
             dateFolderName: dateFolder.name,
             monthFolderName: monthFolder.name,

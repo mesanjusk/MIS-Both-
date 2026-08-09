@@ -52,9 +52,9 @@ import AssignmentTurnedInRoundedIcon from '@mui/icons-material/AssignmentTurnedI
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
-import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
-import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
+import EventRoundedIcon from '@mui/icons-material/EventRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
@@ -69,7 +69,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
-import DesignFilesAttentionPanel from './DesignFilesAttentionPanel';
+import { fetchAssignees } from '../../services/assigneeService';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 // "Design Board" is the default landing tab — it's the authoritative,
@@ -77,6 +77,9 @@ import DesignFilesAttentionPanel from './DesignFilesAttentionPanel';
 // file's real Drive folder), replacing the old Workflow widget's Design
 // parent column, which relied on a separate assigned-tasks query and could
 // sit empty even when design work genuinely existed.
+//
+// "Needs Attention" tab removed by request — Drafts (below) replaces the
+// old dismiss-and-forget stale-draft alert with a persistent tab instead.
 const TABS = [
   {
     key: 'board', label: 'Design Board', icon: ViewKanbanRoundedIcon,
@@ -84,11 +87,11 @@ const TABS = [
   },
   {
     key: 'all', label: 'All Files', icon: FolderOpenRoundedIcon,
-    stageFilter: () => true, viewOnly: false, color: 'default',
+    stageFilter: (file) => !file?.isDraft, viewOnly: false, color: 'default',
   },
   {
-    key: 'attention', label: 'Needs Attention', icon: WarningAmberRoundedIcon,
-    stageFilter: null, viewOnly: true, color: 'warning',
+    key: 'draft', label: 'Drafts', icon: DescriptionRoundedIcon,
+    stageFilter: (file) => !!file?.isDraft, viewOnly: false, color: 'default',
   },
   {
     key: 'archive', label: 'Archive', icon: ArchiveRoundedIcon,
@@ -121,6 +124,17 @@ function pjLabel(num) {
   return `PJ-${String(num).padStart(3, '0')}`;
 }
 
+// Creation date only — deliberately not modifiedTime, which changes every
+// time the file is edited or moved between stage folders and would make a
+// card's date jump around instead of anchoring to when the file first
+// showed up.
+function formatCreatedDate(createdTime) {
+  if (!createdTime) return null;
+  const d = new Date(createdTime);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
 function buildCSV(files) {
   const header = ['File Name', 'Stage', 'Order #', 'Status', 'Print Job'];
   const rows = files.map((f) => [
@@ -135,15 +149,18 @@ function buildCSV(files) {
     .join('\n');
 }
 
-// ─── Users cache (for the Assign menu — shared across every file row) ────────
-let _usersPromise = null;
-function loadUsersCached() {
-  if (!_usersPromise) {
-    _usersPromise = axios.get('/api/users/GetUserList')
-      .then((res) => res.data?.result || [])
-      .catch(() => { _usersPromise = null; return []; });
+// ─── Design assignees cache (for the Assign menu — shared across every file
+// row) ─── Sourced from Account Payable parties tagged with the 'design'
+// capability, same as the order task-assign menu (see
+// MISBackend/src/routes/Assignees.js) — not employees.
+let _designAssigneesPromise = null;
+function loadDesignAssigneesCached() {
+  if (!_designAssigneesPromise) {
+    _designAssigneesPromise = fetchAssignees()
+      .then((res) => (res.data?.result || []).filter((a) => a.capabilities?.includes('design')))
+      .catch(() => { _designAssigneesPromise = null; return []; });
   }
-  return _usersPromise;
+  return _designAssigneesPromise;
 }
 
 function triggerDownload(content, filename, mime) {
@@ -210,12 +227,13 @@ function MiniBadge({ icon: Icon, label, sx }) {
 }
 
 function StatusBadges({ file, sx }) {
-  const hasAny = file.isDraft || file.isTemporaryOrder || file.printJobNumber != null
+  const createdLabel = formatCreatedDate(file.createdTime);
+  const hasAny = createdLabel || file.isTemporaryOrder || file.printJobNumber != null
     || (file.matched && !file.isDraft) || file.customerName || file.assignedToName;
   if (!hasAny) return null;
   return (
     <Stack direction="row" spacing={0.75} flexWrap="wrap" alignItems="center" sx={{ rowGap: 0.25, ...sx }}>
-      {file.isDraft && <MiniBadge label="DRAFT" sx={{ color: 'grey.700' }} />}
+      {createdLabel && <MiniBadge icon={EventRoundedIcon} label={createdLabel} sx={{ color: 'grey.700' }} />}
       {file.isTemporaryOrder && <MiniBadge label="TEMP" sx={{ color: 'warning.800' }} />}
       {file.printJobNumber != null && <MiniBadge label={pjLabel(file.printJobNumber)} sx={{ color: 'success.800' }} />}
       {file.matched && !file.isDraft && (
@@ -240,7 +258,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   const [anchor, setAnchor] = useState(null);
   const [view, setView] = useState('actions'); // 'actions' | 'assign'
   const [busy, setBusy] = useState(false);
-  const [assignUsers, setAssignUsers] = useState(null);
+  const [assignParties, setAssignParties] = useState(null);
   if (viewOnly) return null;
 
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
@@ -281,15 +299,15 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   const openAssignView = (e) => {
     e.stopPropagation();
     setView('assign');
-    if (assignUsers === null) loadUsersCached().then(setAssignUsers);
+    if (assignParties === null) loadDesignAssigneesCached().then(setAssignParties);
   };
 
-  const pickAssignee = async (e, user) => {
+  const pickAssignee = async (e, party) => {
     e.stopPropagation();
     closeMenu();
     if (!onAssign || busy) return;
     setBusy(true);
-    try { await onAssign(file, user); } finally { setBusy(false); }
+    try { await onAssign(file, party); } finally { setBusy(false); }
   };
 
   return (
@@ -309,7 +327,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
             ...(hasAssign ? [
               <MenuItem key="assign" onClick={openAssignView} sx={{ fontSize: 13 }}>
                 <ListItemIcon><PersonAddAltRoundedIcon fontSize="small" sx={{ color: 'secondary.main' }} /></ListItemIcon>
-                {file.assignedToName ? `Reassign (currently ${file.assignedToName})` : 'Assign to team member'}
+                {file.assignedToName ? `Reassign (currently ${file.assignedToName})` : 'Assign'}
               </MenuItem>,
             ] : []),
           ]
@@ -321,10 +339,10 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
                 : 'Not linked to an order'}
             </MenuItem>,
             <Divider key="div" />,
-            ...(assignUsers === null ? [<MenuItem key="loading" disabled>Loading users…</MenuItem>] : []),
-            ...(assignUsers?.length === 0 ? [<MenuItem key="none" disabled>No users found</MenuItem>] : []),
-            ...((assignUsers || []).map((u) => (
-              <MenuItem key={u._id} onClick={(e) => pickAssignee(e, u)}>{u.User_name}</MenuItem>
+            ...(assignParties === null ? [<MenuItem key="loading" disabled>Loading…</MenuItem>] : []),
+            ...(assignParties?.length === 0 ? [<MenuItem key="none" disabled>No one tagged for design yet</MenuItem>] : []),
+            ...((assignParties || []).map((p) => (
+              <MenuItem key={p.id} onClick={(e) => pickAssignee(e, p)}>{p.name}</MenuItem>
             ))),
           ]
         )}
@@ -358,7 +376,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover, border } = rowColors(file, checked);
   const subText = file.isDraft
-    ? 'Tracking — no order yet'
+    ? (file.assignedToName ? `Assigned: ${file.assignedToName}` : '')
     : isUnmatched
     ? `Order #${file.extractedOrderNumber || '?'} not found`
     : file.matched && file.orderStage
@@ -429,7 +447,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, border } = rowColors(file, checked);
   const subText = file.isDraft
-    ? 'Tracking — no order yet'
+    ? (file.assignedToName ? `Assigned: ${file.assignedToName}` : '')
     : isUnmatched
     ? `Order #${file.extractedOrderNumber || '?'} not found`
     : file.matched && file.orderStage
@@ -492,27 +510,6 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
         <StatusBadges file={file} sx={{ mt: 0.4, mb: 0.5 }} />
       </CardContent>
     </Card>
-  );
-}
-
-// ─── Stale draft alert ────────────────────────────────────────────────────────
-function StaleDraftAlert({ staleLinks }) {
-  const [open, setOpen] = useState(true);
-  if (!staleLinks?.length || !open) return null;
-  return (
-    <Alert severity="warning" icon={<WarningAmberRoundedIcon fontSize="small" />} onClose={() => setOpen(false)} sx={{ mx: 1.5, mt: 1, fontSize: 12 }}>
-      <AlertTitle sx={{ fontSize: 12, fontWeight: 700 }}>
-        {staleLinks.length} draft file{staleLinks.length !== 1 ? 's' : ''} disappeared from Drive
-      </AlertTitle>
-      {staleLinks.map((l) => (
-        <Typography key={l.driveFileId} variant="caption" sx={{ display: 'block', color: 'warning.900' }}>
-          • {l.fileName || l.driveFileId}
-        </Typography>
-      ))}
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-        These files were tracked as drafts but are no longer visible in Drive — possibly deleted or moved unexpectedly.
-      </Typography>
-    </Alert>
   );
 }
 
@@ -1536,14 +1533,14 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
     openPrintJobDialog([file]);
   }, [openPrintJobDialog]);
 
-  const handleAssign = useCallback(async (file, user) => {
+  const handleAssign = useCallback(async (file, party) => {
     try {
       const res = await axios.post('/api/design-files/assign', {
         fileId: file.fileId, fileName: file.fileName,
         orderUuid: file.orderUuid || null, orderNumber: file.orderNumber || null,
-        userId: user._id, assignedBy: userName,
+        assigneeId: party.id, assignedBy: userName,
       });
-      setArchiveToast({ message: `Assigned to ${res.data?.assignedToName || user.User_name}`, severity: 'success' });
+      setArchiveToast({ message: `Assigned to ${res.data?.assignedToName || party.name}`, severity: 'success' });
       loadArchive();
     } catch (err) {
       setArchiveToast({ message: err?.response?.data?.message || err.message || 'Failed to assign', severity: 'error' });
@@ -1873,13 +1870,12 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 // automatically (see the backend's syncOrderStagesFromFolders).
 function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob }) {
   return (
-    // CSS grid (auto-fit) instead of a horizontal-scroll row — columns
-    // shrink and wrap onto extra rows as the available width narrows
-    // (this panel usually lives inside the Workflow board's ~45%-wide
-    // Design column) so all 5 columns stay visible without side-scrolling.
-    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 0.75, p: 0.75 }}>
+    // Fixed 5-column grid, always one row — `auto-fit`+`minmax` used to wrap
+    // a 5th column onto its own row on narrower desktop widths (columns
+    // shrinking to fit still beats one column stranded alone below).
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 0.75, p: 0.75 }}>
       {BOARD_COLUMNS.map((col) => {
-        const colFiles = files.filter((f) => f.stageNumber === col.stageNumber);
+        const colFiles = files.filter((f) => f.stageNumber === col.stageNumber && !f.isDraft);
         return (
           <Box
             key={col.key}
@@ -1942,9 +1938,8 @@ export default function DesignFilesWidget() {
   const [archiveConfigured, setArchiveConfigured] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
   const [activeTab, setActiveTab] = useState('board');
-  const [viewMode, setViewMode] = useState(() => {
-    try { return localStorage.getItem('df_view') || 'grid'; } catch { return 'grid'; }
-  });
+  // List/grid toggle removed by request — grid is the only view now.
+  const viewMode = 'grid';
   const [confirmFile, setConfirmFile] = useState(null);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -1955,11 +1950,6 @@ export default function DesignFilesWidget() {
   const [createFileOpen, setCreateFileOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
-
-  const setView = (mode) => {
-    setViewMode(mode);
-    try { localStorage.setItem('df_view', mode); } catch {}
-  };
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -2038,14 +2028,14 @@ export default function DesignFilesWidget() {
     }
   }, [load]);
 
-  const handleAssign = useCallback(async (file, user) => {
+  const handleAssign = useCallback(async (file, party) => {
     try {
       const res = await axios.post('/api/design-files/assign', {
         fileId: file.fileId, fileName: file.fileName,
         orderUuid: file.orderUuid || null, orderNumber: file.orderNumber || null,
-        userId: user._id, assignedBy: userName,
+        assigneeId: party.id, assignedBy: userName,
       });
-      setToast({ message: `Assigned to ${res.data?.assignedToName || user.User_name}`, severity: 'success' });
+      setToast({ message: `Assigned to ${res.data?.assignedToName || party.name}`, severity: 'success' });
       load();
     } catch (err) {
       setToast({ message: err?.response?.data?.message || err.message || 'Failed to assign', severity: 'error' });
@@ -2090,15 +2080,15 @@ export default function DesignFilesWidget() {
 
   const visibleTabs = TABS.filter((t) => t.key !== 'archive' || archiveConfigured);
   const activeTabDef = TABS.find((t) => t.key === activeTab) || TABS[0];
-  const filteredFiles = activeTabDef.stageFilter ? files.filter((f) => activeTabDef.stageFilter(f.stageNumber)) : [];
+  const filteredFiles = activeTabDef.stageFilter ? files.filter((f) => activeTabDef.stageFilter(f)) : [];
   const selectedFiles = filteredFiles.filter((f) => selectedIds.has(f.fileId));
   const canSelect = !activeTabDef.viewOnly && activeTab !== 'archive';
   const unmatchedInView = filteredFiles.filter((f) => !f.matched && !f.isDraft);
 
   function tabCount(tab) {
-    if (tab.key === 'board') return files.filter((f) => BOARD_STAGE_NUMBERS.has(f.stageNumber)).length;
+    if (tab.key === 'board') return files.filter((f) => BOARD_STAGE_NUMBERS.has(f.stageNumber) && !f.isDraft).length;
     if (!tab.stageFilter || !files.length) return 0;
-    return files.filter((f) => tab.stageFilter(f.stageNumber)).length;
+    return files.filter((f) => tab.stageFilter(f)).length;
   }
 
   const exportCSV = (selectedOnly = false) => {
@@ -2179,24 +2169,6 @@ export default function DesignFilesWidget() {
           </>
         )}
 
-        {/* List / grid toggle */}
-        <Stack direction="row" sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
-          <Tooltip title="List view">
-            <IconButton size="small" onClick={() => setView('list')}
-              sx={{ borderRadius: 0, bgcolor: viewMode === 'list' ? 'primary.main' : 'transparent', color: viewMode === 'list' ? 'white' : 'text.secondary', p: 0.4 }}
-            >
-              <ViewListRoundedIcon sx={{ fontSize: 15 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Grid view">
-            <IconButton size="small" onClick={() => setView('grid')}
-              sx={{ borderRadius: 0, bgcolor: viewMode === 'grid' ? 'primary.main' : 'transparent', color: viewMode === 'grid' ? 'white' : 'text.secondary', p: 0.4 }}
-            >
-              <ViewModuleRoundedIcon sx={{ fontSize: 15 }} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-
         {/* New design file */}
         <Tooltip title="New design file">
           <IconButton size="small" onClick={() => setCreateFileOpen(true)} sx={{ p: 0.4 }}>
@@ -2217,7 +2189,22 @@ export default function DesignFilesWidget() {
 
         {loading && <LinearProgress sx={{ height: 2 }} />}
 
-        <StaleDraftAlert staleLinks={staleLinks} />
+        {/* Stale drafts (tracked but vanished from Drive) only show here, in
+            the Drafts tab itself — not as a global dismiss-and-forget banner
+            that reappeared every refresh since "closing" it never persisted
+            anything server-side. */}
+        {activeTab === 'draft' && staleLinks.length > 0 && (
+          <Alert severity="warning" icon={<WarningAmberRoundedIcon fontSize="small" />} sx={{ mx: 1.5, mt: 1, fontSize: 12 }}>
+            <AlertTitle sx={{ fontSize: 12, fontWeight: 700 }}>
+              {staleLinks.length} draft file{staleLinks.length !== 1 ? 's' : ''} no longer visible in Drive
+            </AlertTitle>
+            {staleLinks.map((l) => (
+              <Typography key={l.driveFileId} variant="caption" sx={{ display: 'block', color: 'warning.900' }}>
+                • {l.fileName || l.driveFileId}
+              </Typography>
+            ))}
+          </Alert>
+        )}
 
         {error && (
           <Alert severity="error" sx={{ mx: 1.5, mt: 1 }} action={<Button size="small" onClick={load}>Retry</Button>}>
@@ -2242,10 +2229,6 @@ export default function DesignFilesWidget() {
         ) : activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
             <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} viewMode={viewMode} />
-          </Box>
-        ) : activeTab === 'attention' ? (
-          <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
-            <DesignFilesAttentionPanel />
           </Box>
         ) : (
           /* File list / grid */

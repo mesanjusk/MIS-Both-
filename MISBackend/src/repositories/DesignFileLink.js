@@ -88,12 +88,21 @@ const DesignFileLinkSchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    // Assignment — set when a team member is assigned to this file, whether
-    // or not it has a real order yet (draft files can be assigned too).
+    // Assignment — set when someone is assigned to this file, whether or not
+    // it has a real order yet (draft files can be assigned too). New
+    // assignments always go to Account Payable parties (Customers), not
+    // employees — see MISBackend/src/routes/Assignees.js — but the ref stays
+    // 'Users' as a populate hint only, since older rows point there; which
+    // collection assignedTo actually points into is read off assignedToType.
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Users',
       default: null,
+    },
+    assignedToType: {
+      type: String,
+      enum: ['user', 'vendor'],
+      default: 'user',
     },
     assignedToName: {
       type: String,

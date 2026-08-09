@@ -1,16 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
+  Avatar,
   Box,
   Chip,
   CircularProgress,
   Divider,
   IconButton,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
+import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
@@ -18,6 +27,7 @@ import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOr
 import { fetchUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
 const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
 
@@ -93,6 +103,30 @@ function resolveStageLabel(task) {
   return STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task || 'Other';
 }
 
+function sortByStageLabelOrder(a, b) {
+  const ai = STAGE_LABEL_ORDER.indexOf(a.label);
+  const bi = STAGE_LABEL_ORDER.indexOf(b.label);
+  if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
+  if (ai === -1) return 1;
+  if (bi === -1) return -1;
+  return ai - bi;
+}
+
+// Same stage buckets as groupByStageLabel below, but keeps the actual task
+// list per stage (not just a count) — used by the "By User" tab to show
+// each person's pending work broken down stage by stage.
+function groupTasksByStageLabel(tasks) {
+  const buckets = new Map();
+  for (const task of tasks) {
+    const label = resolveStageLabel(task);
+    if (!buckets.has(label)) buckets.set(label, []);
+    buckets.get(label).push(task);
+  }
+  return Array.from(buckets.entries())
+    .map(([label, labelTasks]) => ({ label, tasks: labelTasks }))
+    .sort(sortByStageLabelOrder);
+}
+
 // Finer-grained breakdown than the 4 pipeline columns below it — one chip
 // per real stage (New Design, Approval, Print, Fitting, ...) with a live
 // count, the same idea as the dashboard's top stage-summary strip but
@@ -105,14 +139,7 @@ function groupByStageLabel(tasks) {
   }
   return Array.from(counts.entries())
     .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => {
-      const ai = STAGE_LABEL_ORDER.indexOf(a.label);
-      const bi = STAGE_LABEL_ORDER.indexOf(b.label);
-      if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
+    .sort(sortByStageLabelOrder);
 }
 
 // Replaces the previous separate "Tasks" and "Design Files" home-screen
@@ -122,6 +149,7 @@ function groupByStageLabel(tasks) {
 // moved out of here entirely, next to the user's name in the top nav.
 export default function WorkflowWidget() {
   const { userName, isAdmin } = useAuth();
+  const [tab, setTab] = useState('board');
   const [overview, setOverview] = useState(null);
   const [myOrders, setMyOrders] = useState([]);
   const [users, setUsers] = useState([]);
@@ -130,17 +158,20 @@ export default function WorkflowWidget() {
   const [assigningId, setAssigningId] = useState('');
   const [movingId, setMovingId] = useState('');
 
+  // `overview` (and its `byUser` breakdown) is now fetched for every signed-
+  // in user, not just admins — it powers the "By User" tab so the whole team
+  // can see stage-wise/user-wise pending work, while the admin-only "Board"
+  // behavior (overview.tasks vs. myOrders) is unchanged.
   const load = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      if (isAdmin) {
-        const res = await fetchPendingTasksOverview();
-        setOverview(res?.data || null);
-      } else {
-        const res = await fetchMyOrderTasks(userName);
-        setMyOrders(res?.data?.orders || []);
-      }
+      const [overviewRes, mineRes] = await Promise.all([
+        fetchPendingTasksOverview(),
+        isAdmin ? null : fetchMyOrderTasks(userName),
+      ]);
+      setOverview(overviewRes?.data || null);
+      if (mineRes) setMyOrders(mineRes?.data?.orders || []);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load pending tasks.');
     } finally {
@@ -191,6 +222,14 @@ export default function WorkflowWidget() {
   const sections = useMemo(() => groupBySection(allTasks), [allTasks]);
   const stageBreakdown = useMemo(() => groupByStageLabel(allTasks), [allTasks]);
 
+  // "By User" tab data: overview.byUser is already grouped/sorted by the
+  // backend (most-loaded person first, "Unassigned" as its own bucket) —
+  // here we just also break each person's tasks down by stage.
+  const byUserGroups = useMemo(
+    () => (overview?.byUser || []).map((group) => ({ ...group, stageGroups: groupTasksByStageLabel(group.tasks) })),
+    [overview]
+  );
+
   return (
     <Box>
       <UserTask />
@@ -221,10 +260,31 @@ export default function WorkflowWidget() {
             ))}
           </Stack>
         )}
-        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0, ml: 'auto' }}>
-          {isAdmin && overview?.unassignedCount > 0 && (
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0, ml: 'auto' }}>
+          {overview?.unassignedCount > 0 && (
             <Chip size="small" color="warning" label={`${overview.unassignedCount} unassigned`} />
           )}
+          {/* Board = today's live pipeline view, unchanged. By User = every
+              team member's pending work grouped by person then by stage, so
+              anyone can see who's holding what without leaving Workflow. */}
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={tab}
+            onChange={(_, next) => next && setTab(next)}
+            sx={{
+              '& .MuiToggleButton-root': { px: 1, py: 0.35, textTransform: 'none', fontWeight: 600, lineHeight: 1.2 },
+            }}
+          >
+            <ToggleButton value="board">
+              <ViewKanbanRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
+              Board
+            </ToggleButton>
+            <ToggleButton value="byUser">
+              <PeopleAltRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
+              By User
+            </ToggleButton>
+          </ToggleButtonGroup>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={load} disabled={isLoading}>
               <RefreshRoundedIcon fontSize="small" />
@@ -237,6 +297,92 @@ export default function WorkflowWidget() {
 
       {isLoading && !overview && !myOrders.length ? (
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
+      ) : tab === 'byUser' ? (
+        byUserGroups.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+            Nothing pending for anyone right now.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            {byUserGroups.map((group) => {
+              const isUnassignedGroup = group.userName === 'Unassigned';
+              const isMe = !isUnassignedGroup && group.userName === userName;
+              return (
+                <Accordion
+                  key={group.userName}
+                  defaultExpanded
+                  disableGutters
+                  sx={{
+                    border: '1px solid',
+                    borderColor: isMe ? 'primary.main' : 'divider',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    '&:before': { display: 'none' },
+                    '&.Mui-expanded': { margin: 0 },
+                  }}
+                >
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreRoundedIcon />}
+                    sx={{ bgcolor: 'action.hover', '& .MuiAccordionSummary-content': { alignItems: 'center' } }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%', pr: 1 }}>
+                      <Avatar
+                        sx={{
+                          width: 28,
+                          height: 28,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          bgcolor: isUnassignedGroup ? 'transparent' : stringToColor(group.userName),
+                          border: isUnassignedGroup ? '1.5px dashed' : 'none',
+                          borderColor: 'warning.main',
+                          color: isUnassignedGroup ? 'warning.main' : '#fff',
+                        }}
+                      >
+                        {isUnassignedGroup ? '?' : initialsFor(group.userName)}
+                      </Avatar>
+                      <Typography variant="body2" fontWeight={700} color={isUnassignedGroup ? 'warning.main' : 'text.primary'}>
+                        {group.userName}{isMe ? ' (you)' : ''}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} sx={{ ml: 'auto' }}>
+                        <Chip size="small" label={`${group.count} pending`} />
+                        {group.overdueCount > 0 && (
+                          <Chip size="small" color="error" label={`${group.overdueCount} overdue`} />
+                        )}
+                      </Stack>
+                    </Stack>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ pt: 1.25, bgcolor: 'background.paper' }}>
+                    <Stack spacing={1.5}>
+                      {group.stageGroups.map(({ label, tasks }) => (
+                        <Box key={label}>
+                          <Typography
+                            variant="caption"
+                            fontWeight={800}
+                            color="text.secondary"
+                            sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}
+                          >
+                            {label} · {tasks.length}
+                          </Typography>
+                          <Box sx={{ mt: 0.5 }}>
+                            <OrderTaskList
+                              tasks={tasks}
+                              view="card"
+                              users={users}
+                              assigningId={assigningId}
+                              onAssign={handleAssign}
+                              movingId={movingId}
+                              onMoveStage={handleMoveStage}
+                            />
+                          </Box>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </AccordionDetails>
+                </Accordion>
+              );
+            })}
+          </Stack>
+        )
       ) : (
         <>
           {/* Desktop (md+): 4 parent pipeline columns (Design/Print/Post

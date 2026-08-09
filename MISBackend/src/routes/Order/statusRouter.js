@@ -10,7 +10,6 @@ const {
   getPendingTasksOverview,
   buildTaskSummaryMessage,
 } = require("../../services/orderTaskService");
-const { tierFor } = require("../../utils/roleHierarchy");
 const logger = require("../../utils/logger");
 const { idToFilter, parseStatusPayload } = require("../../utils/orderHelpers");
 const { pushStatusOnly } = require("./_shared");
@@ -41,11 +40,12 @@ router.get("/tasks/queue", async (_req, res) => {
   }
 });
 
+// Read-only "who has what, at which stage" breakdown — open to every
+// authenticated user (not just admins) so the whole team can see stage-wise
+// and user-wise pending work on the Workflow board's "By User" tab. Auth
+// itself is still enforced upstream by Order/index.js's requireAuth.
 router.get("/tasks/overview", async (req, res) => {
   try {
-    if (tierFor(req.user?.userGroup) < 4) {
-      return res.status(403).json({ success: false, message: "Admin access required" });
-    }
     const overview = await getPendingTasksOverview();
     return res.json({ success: true, ...overview });
   } catch (error) {

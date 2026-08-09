@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../apiClient.js';
 import { toast, ToastContainer } from '../Components';
+import { CAPABILITY_LABELS } from '../constants/orderStages';
+
+const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 
 export default function EditUser({ userId, closeModal }) {
     const [groupOptions, setGroupOptions] = useState([]);
@@ -10,6 +13,7 @@ export default function EditUser({ userId, closeModal }) {
         Mobile_number: '',
         User_group: '',
         Allowed_Task_Groups: [],
+        Capabilities: [],
     });
 
     useEffect(() => {
@@ -47,6 +51,7 @@ export default function EditUser({ userId, closeModal }) {
                             Mobile_number: user.Mobile_number || '',
                             User_group: user.User_group || '',
                             Allowed_Task_Groups: user.Allowed_Task_Groups || [],
+                            Capabilities: user.Capabilities || [],
                         });
                     }
                 })
@@ -59,6 +64,11 @@ export default function EditUser({ userId, closeModal }) {
     const handleTaskGroupChange = (e) => {
         const selected = Array.from(e.target.selectedOptions, option => option.value);
         setValues(prev => ({ ...prev, Allowed_Task_Groups: selected }));
+    };
+
+    const handleCapabilitiesChange = (e) => {
+        const selected = Array.from(e.target.selectedOptions, option => option.value);
+        setValues(prev => ({ ...prev, Capabilities: selected }));
     };
 
     const handleSaveChanges = async (e) => {
@@ -81,7 +91,8 @@ export default function EditUser({ userId, closeModal }) {
                 User_name: values.User_name,
                 Mobile_number: values.Mobile_number,
                 User_group: values.User_group,
-                Allowed_Task_Groups: values.Allowed_Task_Groups
+                Allowed_Task_Groups: values.Allowed_Task_Groups,
+                Capabilities: values.Capabilities,
             });
 
             if (res.data.success) {
@@ -142,6 +153,19 @@ export default function EditUser({ userId, closeModal }) {
                         ))}
                     </select>
                     <small className="text-muted">Hold Ctrl (Cmd on Mac) to select multiple</small>
+
+                    <label className="mt-2">Works On (Stages)</label>
+                    <select
+                        multiple
+                        value={values.Capabilities}
+                        onChange={handleCapabilitiesChange}
+                        className="form-control"
+                    >
+                        {CAPABILITY_OPTIONS.map((key) => (
+                            <option key={key} value={key}>{CAPABILITY_LABELS[key]}</option>
+                        ))}
+                    </select>
+                    <small className="text-muted">Filters this person into the stage-wise assign menu. Leave empty to show them on every stage.</small>
 
                     <button type="submit" className="btn btn-primary mt-3 w-100">Save Changes</button>
                     <button type="button" className="btn btn-secondary mt-2 w-100" onClick={closeModal}>Cancel</button>

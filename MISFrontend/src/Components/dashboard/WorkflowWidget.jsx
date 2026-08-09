@@ -24,7 +24,7 @@ import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
 import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
-import { fetchUsers } from '../../services/userService';
+import { fetchAssignees } from '../../services/assigneeService';
 import { useAuth } from '../../context/AuthContext';
 import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
@@ -152,7 +152,7 @@ export default function WorkflowWidget() {
   const [tab, setTab] = useState('board');
   const [overview, setOverview] = useState(null);
   const [myOrders, setMyOrders] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [assignees, setAssignees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState('');
@@ -182,13 +182,13 @@ export default function WorkflowWidget() {
   useEffect(() => {
     if (!userName) return;
     load();
-    fetchUsers().then((res) => setUsers(res?.data?.result || [])).catch(() => setUsers([]));
+    fetchAssignees().then((res) => setAssignees(res?.data?.result || [])).catch(() => setAssignees([]));
   }, [load, userName]);
 
-  const handleAssign = async (orderId, assignedTo) => {
+  const handleAssign = async (orderId, assignedTo, assignedToType = 'user') => {
     setAssigningId(orderId);
     try {
-      await assignOrderToUser(orderId, { assignedTo, assignedBy: userName });
+      await assignOrderToUser(orderId, { assignedTo, assignedToType, assignedBy: userName });
       await load();
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to update assignment.');
@@ -367,7 +367,7 @@ export default function WorkflowWidget() {
                             <OrderTaskList
                               tasks={tasks}
                               view="card"
-                              users={users}
+                              assignees={assignees}
                               assigningId={assigningId}
                               onAssign={handleAssign}
                               movingId={movingId}

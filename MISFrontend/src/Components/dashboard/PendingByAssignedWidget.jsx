@@ -14,6 +14,11 @@ import {
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import OrderTaskList from './OrderTaskList';
 import { fetchPendingTasksOverview } from '../../services/orderService';
+// Status.AssignedType on the order only stores the coarse 'user'/'vendor'
+// split (not the finer employee/freelancer/vendor/contractor tag from
+// VendorMaster.Engagement_type), so the badge here is deliberately generic —
+// the Team & Partners report page is where the precise type shows.
+const ASSIGNED_TYPE_BADGE = { user: 'Employee', vendor: 'Vendor / Freelancer' };
 
 // Read-only "who has what" view: a single-assignee filter over the same
 // admin task-overview data the Workflow widget's columns are built from
@@ -89,6 +94,9 @@ export default function PendingByAssignedWidget() {
                 </MenuItem>
               ))}
             </TextField>
+            {selectedGroup?.assignedToType && ASSIGNED_TYPE_BADGE[selectedGroup.assignedToType] && (
+              <Chip size="small" variant="outlined" label={ASSIGNED_TYPE_BADGE[selectedGroup.assignedToType]} />
+            )}
             {selectedGroup && (
               <Chip
                 size="small"

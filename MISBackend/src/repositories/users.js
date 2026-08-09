@@ -16,6 +16,15 @@ const UsersSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  // Which pipeline stage(s) this employee normally works — same enum as
+  // VendorMaster.Capabilities so both feed the same stage-filtered assign
+  // menu. Empty = no restriction (shows on every stage) so existing users
+  // keep appearing everywhere until an admin tags them.
+  Capabilities: {
+    type: [String],
+    enum: ['design', 'print', 'postprint', 'delivery'],
+    default: [],
+  },
   permissions: {
     type: {
       sidebarGroups: { type: [String], default: [] }, // empty = show all role-allowed groups

@@ -6,6 +6,12 @@ const statusSchema = new mongoose.Schema(
   {
     Task: { type: String, required: true },
     Assigned: { type: String, required: true },
+    // 'user' (in-house employee) or 'vendor' (freelancer/vendor/contractor,
+    // all stored in VendorMaster) — lets the pending-tasks overview tag each
+    // assignee without re-deriving it by name lookup. Defaults to 'user' so
+    // every pre-existing Status entry (written before this field existed)
+    // still reads as an employee assignment.
+    AssignedType: { type: String, enum: ['user', 'vendor'], default: 'user' },
     AssignedBy: { type: String, default: '' },
     Delivery_Date: { type: Date, required: true },
     Status_number: { type: Number, required: true },
@@ -221,7 +227,11 @@ const OrdersSchema = new mongoose.Schema(
     approvalRounds: { type: [approvalRoundSchema], default: [] },
     priority: { type: String, enum: ["low", "medium", "high"], default: "medium", index: true },
     dueDate: { type: Date, default: null, index: true },
+    // ref is a hint for populate() only, not an enforced constraint — when
+    // assignedToType is 'vendor' this id points into vendor_masters instead
+    // of Users, resolved explicitly by whichever service reads it.
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "Users", default: null, index: true },
+    assignedToType: { type: String, enum: ["user", "vendor"], default: "user", index: true },
     driveFile: {
       status: { type: String, enum: ["pending", "created", "failed", "skipped"], default: "pending" },
       templateFileId: { type: String, default: null },

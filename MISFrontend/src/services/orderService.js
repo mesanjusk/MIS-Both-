@@ -62,7 +62,11 @@ export const fetchPendingTasksOverview = () => axios.get('/api/orders/tasks/over
 // pass `userId`/`userName` keep working alongside newer `assignedTo` callers.
 export const assignOrderToUser = (orderId, payload = {}) => {
   const assignedTo = payload.assignedTo ?? payload.userId ?? payload.userName ?? '';
-  return axios.patch(`/order/${orderId}/assign`, { assignedTo, assignedBy: payload.assignedBy });
+  return axios.patch(`/order/${orderId}/assign`, {
+    assignedTo,
+    assignedToType: payload.assignedToType || 'user',
+    assignedBy: payload.assignedBy,
+  });
 };
 
 // Moves an order to a different pipeline stage (Design/Print/Post Print/

@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
+const VendorMaster = require('../repositories/vendorMaster');
 const Customers = require('../repositories/customer');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
@@ -173,6 +174,7 @@ async function getPendingTasksOverview() {
       stage: row.stage,
       task: decorated.latestStatusTask?.Task || row.stage || 'Task',
       assignedTo: normalizeAssignedLabel(decorated.latestStatusTask?.Assigned),
+      assignedToType: decorated.latestStatusTask?.AssignedType || 'user',
       assignedBy: decorated.latestStatusTask?.AssignedBy || '',
       dueDate: row.dueDate,
       overdue: decorated.overdue,
@@ -183,7 +185,13 @@ async function getPendingTasksOverview() {
   const byUserMap = new Map();
   for (const task of tasks) {
     if (!byUserMap.has(task.assignedTo)) {
-      byUserMap.set(task.assignedTo, { userName: task.assignedTo, count: 0, overdueCount: 0, tasks: [] });
+      byUserMap.set(task.assignedTo, {
+        userName: task.assignedTo,
+        assignedToType: task.assignedTo === 'Unassigned' ? '' : task.assignedToType,
+        count: 0,
+        overdueCount: 0,
+        tasks: [],
+      });
     }
     const group = byUserMap.get(task.assignedTo);
     group.count += 1;
@@ -298,15 +306,20 @@ async function getUnassignedOrders() {
 // other place a pending task can legitimately sit, per the order flow.
 const CUSTOMER_ASSIGNEE_LABEL = 'Customer';
 
-async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'System', via = 'app' }) {
+async function assignOrderToUser({ orderId, userId, userName, vendorId, assignedBy = 'System', via = 'app' }) {
   const filter = mongoose.isValidObjectId(orderId) ? { _id: orderId } : { Order_uuid: orderId };
   const order = await Orders.findOne(filter);
   if (!order) throw new Error('Order not found');
 
-  const isCustomerAssignment = !userId && String(userName || '').trim().toLowerCase() === 'customer';
+  const isVendorAssignment = Boolean(vendorId);
+  const isCustomerAssignment = !isVendorAssignment && !userId && String(userName || '').trim().toLowerCase() === 'customer';
 
   let user = null;
-  if (!isCustomerAssignment) {
+  let vendor = null;
+  if (isVendorAssignment) {
+    vendor = await VendorMaster.findOne({ $or: [{ Vendor_uuid: String(vendorId) }, ...(mongoose.isValidObjectId(vendorId) ? [{ _id: vendorId }] : [])] });
+    if (!vendor) throw new Error('Assignee vendor not found');
+  } else if (!isCustomerAssignment) {
     user = userId
       ? await Users.findById(userId)
       : await Users.findOne({ $or: [{ User_name: String(userName || '').trim() }, { User_uuid: String(userName || '').trim() }] });
@@ -314,9 +327,11 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
     if (!user) throw new Error('Assignee user not found');
   }
 
-  const assigneeLabel = isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
+  const assigneeLabel = isVendorAssignment ? vendor.Vendor_name : isCustomerAssignment ? CUSTOMER_ASSIGNEE_LABEL : user.User_name;
+  const assignedToType = isVendorAssignment ? 'vendor' : 'user';
 
-  order.assignedTo = isCustomerAssignment ? null : user._id;
+  order.assignedTo = isVendorAssignment ? vendor._id : isCustomerAssignment ? null : user._id;
+  order.assignedToType = assignedToType;
   order.dueDate = order.dueDate || buildDefaultDueDate();
   if (!order.stage || order.stage === 'enquiry') {
     order.stage = 'new_design';
@@ -335,6 +350,7 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
     order.Status = [{
       Task: 'Design',
       Assigned: assigneeLabel,
+      AssignedType: assignedToType,
       AssignedBy: assignedBy,
       Delivery_Date: order.dueDate,
       Status_number: 1,
@@ -343,6 +359,7 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   } else {
     const last = order.Status[order.Status.length - 1];
     last.Assigned = assigneeLabel;
+    last.AssignedType = assignedToType;
     last.AssignedBy = assignedBy;
     last.Delivery_Date = order.dueDate;
     last.CreatedAt = new Date();
@@ -366,13 +383,19 @@ async function assignOrderToUser({ orderId, userId, userName, assignedBy = 'Syst
   // card, admins get the same card plus the refreshed full pending-tasks
   // overview, but none of these should block the assign response. Nothing to
   // ping when the task is just waiting on the customer, so notifyUserOfAssignment
-  // is skipped in that case.
-  if (!isCustomerAssignment) {
+  // is skipped in that case. Vendor/freelancer assignments don't get the
+  // employee-style WhatsApp card either — those parties are notified through
+  // the existing vendor job flow, not the in-house task-assignment template.
+  if (!isCustomerAssignment && !isVendorAssignment) {
     notifyUserOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
       logger.error('[orderTask] Failed to notify assignee of assignment:', err.message);
     });
   }
-  notifyAdminsOfAssignment({ order: plain, user, assignedBy }).catch((err) => {
+  // Admin notify needs a User_name-shaped object regardless of assignee type
+  // — a vendor has no Users row, so build a synthetic one from the label
+  // already resolved above rather than falling through to the "Customer"
+  // default baked into notifyAdminsOfAssignment.
+  notifyAdminsOfAssignment({ order: plain, user: user || { User_name: assigneeLabel }, assignedBy }).catch((err) => {
     logger.error('[orderTask] Failed to notify admins of order assignment:', err.message);
   });
   notifyAdminsOfPendingOverview().catch((err) => {

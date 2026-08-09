@@ -48,6 +48,46 @@ export const STAGE_LABELS = {
 
 export const CLOSED_STAGES = new Set(['delivered', 'paid', 'lost', 'cancelled']);
 
+// Mirrors MISBackend/src/constants/orderStages.js STAGE_CAPABILITY — which
+// team "capability" tag can pick up work at each stage. Drives the
+// stage-filtered assignee picker on OrderTaskList: a design-stage task only
+// offers people/parties tagged 'design' (or untagged — untagged means no
+// restriction), a print-stage task only offers 'print', etc. Post-print
+// covers both fitting and bind_packing, same as WORKFLOW_GROUPS below.
+export const STAGE_TO_CAPABILITY = {
+  enquiry: 'design',
+  quoted: 'design',
+  approved: 'design',
+  new_design: 'design',
+  old_design: 'design',
+  approval: 'design',
+  hold: 'design',
+  customer: 'design',
+  ready_to_print: 'design',
+  print: 'print',
+  fitting: 'postprint',
+  bind_packing: 'postprint',
+  ready: 'delivery',
+  delivered: 'delivery',
+  paid: 'delivery',
+};
+
+export const CAPABILITY_LABELS = {
+  design: 'Design',
+  print: 'Print',
+  postprint: 'Post-Print (Fitting/Bind-Pack)',
+  delivery: 'Ready/Delivery',
+};
+
+// Badge labels for the assign menu — matches VendorMaster.Engagement_type
+// plus the fixed 'employee' type used for in-house Users.
+export const ASSIGNEE_TYPE_LABELS = {
+  employee: 'Employee',
+  freelancer: 'Freelancer',
+  vendor: 'Vendor',
+  contractor: 'Contractor',
+};
+
 // Cosmetic-only: a handful of older orders still carry a pre-migration
 // coarse stage value (e.g. plain 'design') that predates the granular list
 // above — display-only label so they read as "Design" instead of the raw

@@ -10,6 +10,7 @@ import {
   IconButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Menu,
   MenuItem,
   Stack,
@@ -27,8 +28,12 @@ import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
-import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
+
+// Display order for the type-grouped sections inside the assign menu —
+// in-house people first, then the external parties.
+const ASSIGNEE_TYPE_ORDER = ['employee', 'freelancer', 'vendor', 'contractor'];
 
 // Stages a task can be manually moved to from the Workflow widget — one per
 // remaining pipeline column, matching WORKFLOW_GROUPS in
@@ -54,7 +59,7 @@ const DELIVERED_STAGE = { stage: 'delivered', label: 'Delivered' };
 export default function OrderTaskList({
   tasks = [],
   view = 'table',
-  users = [],
+  assignees = [],
   assigningId = '',
   onAssign,
   movingId = '',
@@ -80,10 +85,10 @@ export default function OrderTaskList({
     setActiveTask(null);
   };
 
-  const handlePick = (assignedTo) => {
+  const handlePick = (assigneeId, assigneeType) => {
     const task = activeTask;
     closeAssignMenu();
-    if (task) onAssign(task.orderId, assignedTo);
+    if (task) onAssign(task.orderId, assigneeId, assigneeType);
   };
 
   const openMoveMenu = (event, task) => {
@@ -155,15 +160,36 @@ export default function OrderTaskList({
     );
   };
 
+  // Narrow the (potentially long) combined employee+freelancer+vendor+
+  // contractor list down to whoever can actually work the active task's
+  // stage — an assignee with no capabilities set is unrestricted (shows on
+  // every stage) so nothing vanishes from the menu until someone tags it.
+  // Falls back to the full list when the stage isn't mapped to a capability
+  // at all, so an unrecognized/legacy stage never leaves the menu empty.
+  const neededCapability = STAGE_TO_CAPABILITY[activeTask?.stage];
+  const eligibleAssignees = neededCapability
+    ? assignees.filter((a) => !a.capabilities?.length || a.capabilities.includes(neededCapability))
+    : assignees;
+
+  const assigneesByType = ASSIGNEE_TYPE_ORDER
+    .map((type) => ({ type, items: eligibleAssignees.filter((a) => a.type === type) }))
+    .filter((group) => group.items.length > 0);
+
   const assignMenu = canAssign && (
     <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeAssignMenu}>
-      {users.length === 0 && <MenuItem disabled>No users found</MenuItem>}
-      {users.map((user) => (
-        <MenuItem key={user._id} onClick={() => handlePick(user._id)}>
-          <ListItemText>{user.User_name}</ListItemText>
-        </MenuItem>
-      ))}
-      <MenuItem onClick={() => handlePick('Customer')}>
+      {eligibleAssignees.length === 0 && <MenuItem disabled>No one tagged for this stage yet</MenuItem>}
+      {assigneesByType.flatMap((group) => [
+        <ListSubheader key={`${group.type}-header`} sx={{ lineHeight: 2.2 }}>
+          {ASSIGNEE_TYPE_LABELS[group.type] || group.type}
+        </ListSubheader>,
+        ...group.items.map((assignee) => (
+          <MenuItem key={assignee.id} onClick={() => handlePick(assignee.id, assignee.type === 'employee' ? 'user' : 'vendor')}>
+            <ListItemText>{assignee.name}</ListItemText>
+          </MenuItem>
+        )),
+      ])}
+      <Divider />
+      <MenuItem onClick={() => handlePick('Customer', 'user')}>
         <ListItemIcon><SupportAgentRoundedIcon fontSize="small" /></ListItemIcon>
         <ListItemText>Waiting on customer</ListItemText>
       </MenuItem>

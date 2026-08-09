@@ -86,8 +86,12 @@ const TABS = [
     stageFilter: null, viewOnly: false, color: 'primary',
   },
   {
+    // "Draft" here just means "not yet linked to a real MIS order" — the
+    // normal state for most in-progress design work — so All Files (and the
+    // Design Board below) show every file regardless of draft status, same
+    // as before. Drafts is an additional filtered view, not a replacement.
     key: 'all', label: 'All Files', icon: FolderOpenRoundedIcon,
-    stageFilter: (file) => !file?.isDraft, viewOnly: false, color: 'default',
+    stageFilter: () => true, viewOnly: false, color: 'default',
   },
   {
     key: 'draft', label: 'Drafts', icon: DescriptionRoundedIcon,
@@ -1875,7 +1879,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
     // shrinking to fit still beats one column stranded alone below).
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 0.75, p: 0.75 }}>
       {BOARD_COLUMNS.map((col) => {
-        const colFiles = files.filter((f) => f.stageNumber === col.stageNumber && !f.isDraft);
+        const colFiles = files.filter((f) => f.stageNumber === col.stageNumber);
         return (
           <Box
             key={col.key}
@@ -2086,7 +2090,7 @@ export default function DesignFilesWidget() {
   const unmatchedInView = filteredFiles.filter((f) => !f.matched && !f.isDraft);
 
   function tabCount(tab) {
-    if (tab.key === 'board') return files.filter((f) => BOARD_STAGE_NUMBERS.has(f.stageNumber) && !f.isDraft).length;
+    if (tab.key === 'board') return files.filter((f) => BOARD_STAGE_NUMBERS.has(f.stageNumber)).length;
     if (!tab.stageFilter || !files.length) return 0;
     return files.filter((f) => tab.stageFilter(f)).length;
   }

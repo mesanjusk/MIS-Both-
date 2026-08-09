@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const Users = require('../repositories/users');
 const Customers = require('../repositories/customer');
 const Orders = require('../repositories/order');
 const Transaction = require('../repositories/transaction');
@@ -18,36 +17,19 @@ router.use(requireAuth);
 // assignees are sourced from Customers here, not VendorMaster.
 const ACCOUNT_PAYABLE_GROUP = /^account\s*payable$/i;
 
-// One combined "who can this task be assigned to" list — in-house employees
-// (Users) plus Account Payable parties (Customers), each tagged with a
-// `type` and `capabilities` so the frontend can filter a single big list
-// down to "who does design/print/postprint/delivery" per stage instead of
-// showing everyone everywhere.
-//
-// Employees: Capabilities empty = unrestricted (shows on every stage), since
-// Users is a small, admin-curated list — nothing disappears until tagged.
-//
-// Account Payable customers: only appear once an admin has explicitly
-// tagged them with at least one capability — that tag is both "yes, this is
-// a real assignable person" and "here's which stage they work."
+// The assign menu and Team & Partners report both list Account Payable
+// parties ONLY — employees are deliberately excluded here (they're assigned
+// through the office-staff default-assignment flow elsewhere, and tracked
+// on the Workflow board's "By User" tab / My Tasks, not through this
+// picker). A party only appears once an admin has explicitly tagged it
+// with at least one stage capability — that tag is both "yes, this is a
+// real assignable person" and "here's which stage they work."
 router.get('/', async (_req, res) => {
   try {
-    const [users, payableParties] = await Promise.all([
-      Users.find({}, { User_name: 1, Mobile_number: 1, User_group: 1, Capabilities: 1 }).sort({ User_name: 1 }).lean(),
-      Customers.find(
-        { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP, 'Capabilities.0': { $exists: true } },
-        { Customer_name: 1, Mobile_number: 1, Capabilities: 1 }
-      ).sort({ Customer_name: 1 }).lean(),
-    ]);
-
-    const employees = users.map((u) => ({
-      id: String(u._id),
-      name: u.User_name,
-      type: 'employee',
-      mobile: u.Mobile_number || '',
-      role: u.User_group || '',
-      capabilities: u.Capabilities || [],
-    }));
+    const payableParties = await Customers.find(
+      { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP, 'Capabilities.0': { $exists: true } },
+      { Customer_name: 1, Mobile_number: 1, Capabilities: 1 }
+    ).sort({ Customer_name: 1 }).lean();
 
     // Activity stats per party — some Account Payable parties get 1-5 tasks
     // a day, others go 2-3 months without a single one. One task list can't
@@ -78,7 +60,7 @@ router.get('/', async (_req, res) => {
       };
     });
 
-    res.json({ success: true, result: [...employees, ...externals] });
+    res.json({ success: true, result: externals });
   } catch (error) {
     logger.error('Error fetching assignees:', error);
     res.status(500).json({ success: false, message: error.message || 'Failed to fetch assignees' });

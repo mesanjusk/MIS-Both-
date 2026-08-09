@@ -31,9 +31,11 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
-// Display order for the type-grouped sections inside the assign menu —
-// in-house people first, then Account Payable parties.
-const ASSIGNEE_TYPE_ORDER = ['employee', 'payable'];
+// GET /api/assignees only ever returns Account Payable parties (see
+// MISBackend/src/routes/Assignees.js) — employees are deliberately not
+// assignable from this menu. Kept as an array (not a single constant) so a
+// future type can be added here without restructuring the grouping below.
+const ASSIGNEE_TYPE_ORDER = ['payable'];
 
 // Stages a task can be manually moved to from the Workflow widget — one per
 // remaining pipeline column, matching WORKFLOW_GROUPS in

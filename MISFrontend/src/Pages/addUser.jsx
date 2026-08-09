@@ -5,6 +5,9 @@ import axios from '../apiClient.js';
 import { toast, ToastContainer } from '../Components';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
+import { CAPABILITY_LABELS } from '../constants/orderStages';
+
+const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 
 export default function AddUser({ closeModal }) {
   const navigate = useNavigate();
@@ -14,6 +17,7 @@ export default function AddUser({ closeModal }) {
   const [Mobile_number, setMobile_Number] = useState('');
   const [User_group, setUser_Group] = useState('');
   const [Allowed_Task_Groups, setAllowed_Task_Groups] = useState([]);
+  const [Capabilities, setCapabilities] = useState([]);
   const [groupOptions, setGroupOptions] = useState([]);
   const [taskGroupOptions, setTaskGroupOptions] = useState([]);
   const [passwordStrength, setPasswordStrength] = useState('');
@@ -39,6 +43,11 @@ export default function AddUser({ closeModal }) {
   const handleTaskGroupChange = (e) => {
     const selected = typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value;
     setAllowed_Task_Groups(selected);
+  };
+
+  const handleCapabilitiesChange = (e) => {
+    const selected = typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value;
+    setCapabilities(selected);
   };
 
   const evaluatePasswordStrength = (password) => {
@@ -75,6 +84,7 @@ export default function AddUser({ closeModal }) {
         Mobile_number,
         User_group,
         Allowed_Task_Groups,
+        Capabilities,
       });
       toast.success('User added successfully');
       setTimeout(() => {
@@ -167,6 +177,23 @@ export default function AddUser({ closeModal }) {
 
           <Stack direction="row" spacing={0.75} flexWrap="wrap">
             {Allowed_Task_Groups.map((task) => <Chip key={task} size="small" label={task} color="primary" variant="outlined" />)}
+          </Stack>
+
+          <TextField
+            label="Works On (Stages)"
+            select
+            fullWidth
+            SelectProps={{ multiple: true, value: Capabilities, onChange: handleCapabilitiesChange }}
+            helperText="Filters this person into the stage-wise assign menu. Leave empty to show them on every stage."
+            size="small"
+            sx={compactFieldSx}
+          >
+            {CAPABILITY_OPTIONS.map((key) => (
+              <MenuItem key={key} value={key}>{CAPABILITY_LABELS[key]}</MenuItem>
+            ))}
+          </TextField>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap">
+            {Capabilities.map((cap) => <Chip key={cap} size="small" label={CAPABILITY_LABELS[cap]} color="secondary" variant="outlined" />)}
           </Stack>
         </Stack>
       </Paper>

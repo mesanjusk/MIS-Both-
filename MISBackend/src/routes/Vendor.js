@@ -60,6 +60,8 @@ async function ensureVendorMaster(vendorPayload = {}) {
     Notes: String(vendorPayload.notes || ''),
     Raw_material_capable: Boolean(vendorPayload.raw_material_capable),
     Jobwork_capable: vendorPayload.jobwork_capable !== false,
+    Engagement_type: ['vendor', 'freelancer', 'contractor'].includes(vendorPayload.engagement_type) ? vendorPayload.engagement_type : 'vendor',
+    Capabilities: Array.isArray(vendorPayload.capabilities) ? vendorPayload.capabilities : [],
   });
 
   if (created.Opening_balance > 0 && created.Opening_balance_type !== 'none') {
@@ -285,6 +287,8 @@ router.put('/masters/:vendorUuid', async (req, res) => {
           Notes: String(req.body.notes || ''),
           Raw_material_capable: Boolean(req.body.raw_material_capable),
           Jobwork_capable: req.body.jobwork_capable !== false,
+          Engagement_type: ['vendor', 'freelancer', 'contractor'].includes(req.body.engagement_type) ? req.body.engagement_type : 'vendor',
+          Capabilities: Array.isArray(req.body.capabilities) ? req.body.capabilities : [],
         },
       },
       { new: true }

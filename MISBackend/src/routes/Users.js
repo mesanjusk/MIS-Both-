@@ -79,6 +79,7 @@ router.post("/addUser", requireAuth, authLimiter, validate({ body: z.object({
   User_group: z.string().min(1, 'User_group is required'),
   Amount: z.any().optional(),
   Allowed_Task_Groups: z.any().optional(),
+  Capabilities: z.any().optional(),
 }) }), async (req, res) => {
   const {
     User_name,
@@ -86,7 +87,8 @@ router.post("/addUser", requireAuth, authLimiter, validate({ body: z.object({
     Mobile_number,
     Amount,
     User_group,
-    Allowed_Task_Groups
+    Allowed_Task_Groups,
+    Capabilities,
   } = req.body;
 
   try {
@@ -101,6 +103,7 @@ router.post("/addUser", requireAuth, authLimiter, validate({ body: z.object({
         User_group,
         Amount,
         Allowed_Task_Groups,
+        Capabilities: Array.isArray(Capabilities) ? Capabilities : [],
         User_uuid: uuid()
       });
       await newUser.save();
@@ -141,15 +144,16 @@ router.get("/GetUserList", requireAuth, async (req, res) => {
 // UPDATE USER BY ID (Method 1) — protected
 router.put("/updateUser/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
-  const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups } = req.body;
+  const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
 
   try {
     const updatePayload = {
       User_name,
       Mobile_number,
       User_group,
-      Allowed_Task_Groups
+      Allowed_Task_Groups,
     };
+    if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
     if (Password) {
       updatePayload.Password = isHashedPassword(Password) ? Password : hashPassword(Password);
@@ -255,12 +259,15 @@ router.get('/:id', requireAuth, async (req, res) => {
 // UPDATE USER BY ID (Method 2) — protected
 router.put('/update/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
-  const { User_name, Mobile_number, User_group, Allowed_Task_Groups } = req.body;
+  const { User_name, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
 
   try {
+    const updatePayload = { User_name, Mobile_number, User_group, Allowed_Task_Groups };
+    if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
+
     const updatedUser = await Users.findOneAndUpdate(
       { _id: id },
-      { User_name, Mobile_number, User_group, Allowed_Task_Groups },
+      updatePayload,
       { new: true }
     ).select('-Password');
 

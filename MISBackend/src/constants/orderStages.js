@@ -54,6 +54,35 @@ const LEGACY_STAGE_ALIASES = {
   finishing: 'bind_packing',
 };
 
+// Which team "capability" tag can pick up work at each stage — drives the
+// stage-filtered assignee picker (GET /api/assignees) so a design order only
+// offers designers/design-freelancers, a print order only offers printers/
+// print vendors, etc. Post-print here deliberately covers both fitting and
+// bind_packing (the shop treats those as one "post-print" skill), matching
+// how WORKFLOW_GROUPS folds the same two stages into one "Post Print" column
+// on the frontend Workflow board.
+const STAGE_CAPABILITY = {
+  enquiry: 'design',
+  quoted: 'design',
+  approved: 'design',
+  new_design: 'design',
+  old_design: 'design',
+  approval: 'design',
+  hold: 'design',
+  customer: 'design',
+  ready_to_print: 'design',
+  print: 'print',
+  fitting: 'postprint',
+  bind_packing: 'postprint',
+  ready: 'delivery',
+  delivered: 'delivery',
+  paid: 'delivery',
+};
+
+function capabilityForStage(stage) {
+  return STAGE_CAPABILITY[stage] || null;
+}
+
 const stageIndex = new Map(ORDER_STAGES.map((stage, index) => [stage, index]));
 
 function isValidStage(stage) {
@@ -90,9 +119,11 @@ module.exports = {
   PRE_WORK_STAGES,
   DESIGN_LOOP_STAGES,
   LEGACY_STAGE_ALIASES,
+  STAGE_CAPABILITY,
   stageIndex,
   isValidStage,
   isClosedStage,
   isForwardMove,
   normalizeLegacyStage,
+  capabilityForStage,
 };

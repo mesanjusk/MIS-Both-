@@ -57,10 +57,12 @@ router.get("/tasks/overview", async (req, res) => {
 router.patch("/:id/assign", async (req, res) => {
   try {
     const assignedValue = String(req.body?.assignedTo || "").trim();
+    const isVendor = String(req.body?.assignedToType || "").trim().toLowerCase() === "vendor";
     const updated = await assignOrderToUser({
       orderId: req.params.id,
-      userId: mongoose.isValidObjectId(assignedValue) ? assignedValue : null,
-      userName: mongoose.isValidObjectId(assignedValue) ? null : assignedValue,
+      vendorId: isVendor ? assignedValue : null,
+      userId: !isVendor && mongoose.isValidObjectId(assignedValue) ? assignedValue : null,
+      userName: !isVendor && !mongoose.isValidObjectId(assignedValue) ? assignedValue : null,
       assignedBy: req.body?.assignedBy || req.user?.userName || "System",
       via: "app",
     });

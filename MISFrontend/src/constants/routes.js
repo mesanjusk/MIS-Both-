@@ -69,6 +69,7 @@ export const ROUTES = {
   REPORTS_TASKS: '/reports/tasks',
   REPORTS_USERS: '/reports/users',
   REPORTS_VENDORS: '/reports/vendors',
+  REPORTS_TEAM: '/reports/team',
   REPORTS_DELIVERY: '/reports/delivery',
   REPORTS_BILLS: '/allBills',
   REPORTS_PRIORITY: '/priorityReport',

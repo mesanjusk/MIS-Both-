@@ -63,6 +63,7 @@ const PaymentReport = lazy(() => import('./Reports/paymentReport'));
 const ItemReport = lazy(() => import('./Reports/itemReport'));
 const TaskReport = lazy(() => import('./Reports/taskReport'));
 const UserReport = lazy(() => import('./Reports/userReport'));
+const TeamReport = lazy(() => import('./Reports/teamReport'));
 const AddPayable = lazy(() => import('./Pages/addPayable'));
 const AddRecievable = lazy(() => import('./Pages/addRecievable'));
 const AddPayment = lazy(() => import('./Pages/addPayment'));
@@ -237,6 +238,7 @@ export default function App() {
             <Route path="/taskReport" element={withSuspense(<TaskReport />)} />
             <Route path="/reports/users" element={withSuspense(<UserReport />)} />
             <Route path="/userReport" element={withSuspense(<UserReport />)} />
+            <Route path={ROUTES.REPORTS_TEAM} element={withSuspense(<TeamReport />)} />
             <Route path={ROUTES.REPORTS_BILLS} element={withSuspense(<AllBills />)} />
             <Route path={ROUTES.INVOICES_LIST} element={withSuspense(<InvoicesList />)} />
             <Route path={ROUTES.REPORTS_PRIORITY} element={withSuspense(<PriorityReport />)} />

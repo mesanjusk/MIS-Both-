@@ -483,7 +483,7 @@ export default function WorkflowWidget() {
                           <OrderTaskList
                             tasks={tasks}
                             view="stack"
-                            users={users}
+                            assignees={assignees}
                             assigningId={assigningId}
                             onAssign={handleAssign}
                             movingId={movingId}

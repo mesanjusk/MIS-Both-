@@ -7,6 +7,7 @@ const VendorMaster = require('../repositories/vendorMaster');
 const logger = require('../utils/logger');
 const { ORDER_STAGES } = require('../constants/orderStages');
 const { resolveOrderFilter } = require('../utils/orderFilter');
+const { updateOrderStage } = require('./orderLifecycleService');
 
 function normalizeItemName(name) {
   return String(name || '').trim().toLowerCase();
@@ -135,18 +136,22 @@ async function applyWorkflowToOrder(orderIdOrUuid, itemNames = []) {
     firstPending.status = 'active';
     firstPending.startedAt = new Date();
 
-    // Auto-advance order stage if step defines one and it's ahead of current
+    await order.save();
+
+    // Auto-advance order stage if step defines one and it's ahead of current,
+    // routed through orderLifecycleService (the one writer of order.stage)
+    // so the no-rollback rule and stage side effects apply uniformly.
     if (firstPending.stage) {
       const currentIdx = ORDER_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
       const stepIdx = ORDER_STAGES.indexOf(firstPending.stage);
       if (stepIdx > currentIdx) {
-        order.stage = firstPending.stage;
-        order.stageHistory = order.stageHistory || [];
-        order.stageHistory.push({ stage: firstPending.stage, timestamp: new Date() });
+        try {
+          await updateOrderStage({ orderId: order._id, stage: firstPending.stage });
+        } catch (stageErr) {
+          logger.error('workflowTemplateService: failed to auto-advance stage:', stageErr.message);
+        }
       }
     }
-
-    await order.save();
 
     // Auto-assign after save
     const assignedTo = await autoAssignStep(firstPending, order);
@@ -196,20 +201,24 @@ async function completeWorkflowStep(orderIdOrUuid, stepId) {
   if (nextStep) {
     nextStep.status = 'active';
     nextStep.startedAt = new Date();
-
-    // Auto-advance stage
-    if (nextStep.stage) {
-      const currentIdx = ORDER_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
-      const stepStageIdx = ORDER_STAGES.indexOf(nextStep.stage);
-      if (stepStageIdx > currentIdx) {
-        order.stage = nextStep.stage;
-        order.stageHistory = order.stageHistory || [];
-        order.stageHistory.push({ stage: nextStep.stage, timestamp: new Date() });
-      }
-    }
   }
 
   await order.save();
+
+  // Auto-advance stage, routed through orderLifecycleService (the one writer
+  // of order.stage) so the no-rollback rule and stage side effects apply
+  // uniformly.
+  if (nextStep && nextStep.stage) {
+    const currentIdx = ORDER_STAGES.indexOf(String(order.stage || 'enquiry').toLowerCase());
+    const stepStageIdx = ORDER_STAGES.indexOf(nextStep.stage);
+    if (stepStageIdx > currentIdx) {
+      try {
+        await updateOrderStage({ orderId: order._id, stage: nextStep.stage });
+      } catch (stageErr) {
+        logger.error('workflowTemplateService: failed to auto-advance stage:', stageErr.message);
+      }
+    }
+  }
 
   // Auto-assign next step after save
   if (nextStep) {

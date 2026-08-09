@@ -28,6 +28,7 @@ import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
@@ -72,6 +73,8 @@ export default function OrderTaskList({
   const [activeTask, setActiveTask] = useState(null);
   const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
   const [moveTask, setMoveTask] = useState(null);
+  const [chooserAnchor, setChooserAnchor] = useState(null);
+  const [chooserTask, setChooserTask] = useState(null);
 
   const canAssign = typeof onAssign === 'function';
   const canMove = typeof onMoveStage === 'function';
@@ -162,6 +165,43 @@ export default function OrderTaskList({
     );
   };
 
+  // Card/stack view (Print, Fitting/Bind-Pack, Ready columns) uses one kebab
+  // instead of two separate icon buttons — reassign and move both live in
+  // one small chooser menu so the card header's width goes to the customer
+  // name instead of being split with two buttons.
+  const openChooser = (event, task) => {
+    if (!canAssign && !canMove) return;
+    setChooserAnchor(event.currentTarget);
+    setChooserTask(task);
+  };
+  const closeChooser = () => { setChooserAnchor(null); setChooserTask(null); };
+  const chooseAssign = () => {
+    const task = chooserTask;
+    const anchor = chooserAnchor;
+    closeChooser();
+    if (task && anchor) openAssignMenu({ currentTarget: anchor }, task);
+  };
+  const chooseMove = () => {
+    const task = chooserTask;
+    const anchor = chooserAnchor;
+    closeChooser();
+    if (task && anchor) openMoveMenu({ currentTarget: anchor }, task);
+  };
+
+  const CardActionsButton = ({ task }) => {
+    if (!canAssign && !canMove) return null;
+    const isBusy = assigningId === task.orderId || movingId === task.orderId;
+    return (
+      <Tooltip title="Actions">
+        <span>
+          <IconButton size="small" disabled={isBusy} onClick={(event) => openChooser(event, task)} sx={{ color: 'action.active' }}>
+            {isBusy ? <CircularProgress size={16} /> : <MoreVertRoundedIcon fontSize="small" />}
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+  };
+
   // Narrow the (potentially long) combined employee + Account Payable list
   // down to whoever can actually work the active task's stage — an
   // assignee with no capabilities set is unrestricted (shows on
@@ -218,6 +258,23 @@ export default function OrderTaskList({
     </Menu>
   );
 
+  const chooserMenu = (canAssign || canMove) && (
+    <Menu anchorEl={chooserAnchor} open={Boolean(chooserAnchor)} onClose={closeChooser}>
+      {canAssign && (
+        <MenuItem onClick={chooseAssign}>
+          <ListItemIcon><SwapHorizRoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>{chooserTask?.assignedTo === 'Unassigned' ? 'Assign' : `Reassign — currently ${chooserTask?.assignedTo}`}</ListItemText>
+        </MenuItem>
+      )}
+      {canMove && (
+        <MenuItem onClick={chooseMove}>
+          <ListItemIcon><TrendingFlatRoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Move to another stage</ListItemText>
+        </MenuItem>
+      )}
+    </Menu>
+  );
+
   const dueCell = (task) =>
     task.overdue ? (
       <Chip size="small" color="error" label="Overdue" />
@@ -268,7 +325,7 @@ export default function OrderTaskList({
                 <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                   <Stack direction="row" alignItems="flex-start" spacing={0.5}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" fontWeight={700} noWrap title={task.customerName || undefined}>
+                      <Typography variant="body2" fontWeight={700} sx={{ wordBreak: 'break-word' }}>
                         {task.customerName || 'No customer name'}
                       </Typography>
                       <Stack direction="row" spacing={0.5} alignItems="center">
@@ -284,10 +341,9 @@ export default function OrderTaskList({
                         )}
                       </Stack>
                     </Box>
-                    <Stack direction="row" spacing={0} sx={{ flexShrink: 0, mt: -0.5, mr: -0.5 }}>
-                      <AssignIcon task={task} />
-                      <MoveIcon task={task} />
-                    </Stack>
+                    <Box sx={{ flexShrink: 0, mt: -0.5, mr: -0.5 }}>
+                      <CardActionsButton task={task} />
+                    </Box>
                   </Stack>
                   {task.description && (
                     <Tooltip title={task.description}>
@@ -351,6 +407,7 @@ export default function OrderTaskList({
         </Box>
         {assignMenu}
         {moveMenu}
+        {chooserMenu}
       </Box>
     );
   }

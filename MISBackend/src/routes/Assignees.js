@@ -49,14 +49,34 @@ router.get('/', async (_req, res) => {
       capabilities: u.Capabilities || [],
     }));
 
-    const externals = payableParties.map((c) => ({
-      id: String(c._id),
-      name: c.Customer_name,
-      type: 'payable',
-      mobile: c.Mobile_number || '',
-      role: 'Account Payable',
-      capabilities: c.Capabilities || [],
-    }));
+    // Activity stats per party — some Account Payable parties get 1-5 tasks
+    // a day, others go 2-3 months without a single one. One task list can't
+    // tell the two apart, so every payable party here carries how many
+    // orders it's ever been assigned and when it last was, computed across
+    // ALL orders (not just pending) so a dormant party still reads as
+    // dormant even after its old orders closed out.
+    const payableIds = payableParties.map((c) => c._id);
+    const activityRows = payableIds.length
+      ? await Orders.aggregate([
+          { $match: { assignedToType: 'vendor', assignedTo: { $in: payableIds } } },
+          { $group: { _id: '$assignedTo', lastActivityAt: { $max: '$updatedAt' }, taskCount: { $sum: 1 } } },
+        ])
+      : [];
+    const activityById = new Map(activityRows.map((row) => [String(row._id), row]));
+
+    const externals = payableParties.map((c) => {
+      const activity = activityById.get(String(c._id));
+      return {
+        id: String(c._id),
+        name: c.Customer_name,
+        type: 'payable',
+        mobile: c.Mobile_number || '',
+        role: 'Account Payable',
+        capabilities: c.Capabilities || [],
+        lastActivityAt: activity?.lastActivityAt || null,
+        taskCount: activity?.taskCount || 0,
+      };
+    });
 
     res.json({ success: true, result: [...employees, ...externals] });
   } catch (error) {

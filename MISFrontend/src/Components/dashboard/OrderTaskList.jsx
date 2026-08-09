@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Avatar,
   Box,
   Card,
   CardContent,
@@ -25,7 +26,9 @@ import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
 // Stages a task can be manually moved to from the Workflow widget — one per
 // remaining pipeline column, matching WORKFLOW_GROUPS in
@@ -210,35 +213,54 @@ export default function OrderTaskList({
       ? { display: 'flex', flexDirection: 'column', gap: 0.75 }
       : {
           display: 'grid',
-          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(8, minmax(110px, 1fr))' },
+          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
           gap: 1,
-          overflowX: 'auto',
         };
     return (
       <Box>
         <Box sx={gridSx}>
           {tasks.map((task) => {
             const isUnassigned = task.assignedTo === 'Unassigned';
+            // Left-edge accent gives an at-a-glance urgency read without
+            // having to scan the footer chips: red = overdue, amber =
+            // nobody owns it yet, green = on track and assigned.
+            const accentColor = task.overdue ? 'error.main' : isUnassigned ? 'warning.main' : 'success.light';
             return (
-              <Card variant="outlined" key={task.orderId}>
-                <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                  <Stack direction="row" alignItems="center" spacing={0.25}>
-                    <AssignIcon task={task} />
-                    <MoveIcon task={task} />
-                    <Typography variant="body2" fontWeight={700}>#{task.orderNumber}</Typography>
-                    {stageUpdatedLabel(task) && (
-                      <Tooltip title="Last moved on this date">
-                        <Typography variant="caption" color="text.disabled" sx={{ ml: 'auto' }}>
-                          {stageUpdatedLabel(task)}
+              <Card
+                variant="outlined"
+                key={task.orderId}
+                sx={{
+                  borderRadius: 2,
+                  borderLeft: '4px solid',
+                  borderLeftColor: accentColor,
+                  transition: 'box-shadow 0.15s ease',
+                  '&:hover': { boxShadow: 3 },
+                }}
+              >
+                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                  <Stack direction="row" alignItems="flex-start" spacing={0.5}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={700} noWrap title={task.customerName || undefined}>
+                        {task.customerName || 'No customer name'}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography variant="caption" color="text.secondary">
+                          #{task.orderNumber}
                         </Typography>
-                      </Tooltip>
-                    )}
+                        {stageUpdatedLabel(task) && (
+                          <Tooltip title="Last moved on this date">
+                            <Typography variant="caption" color="text.disabled">
+                              · {stageUpdatedLabel(task)}
+                            </Typography>
+                          </Tooltip>
+                        )}
+                      </Stack>
+                    </Box>
+                    <Stack direction="row" spacing={0} sx={{ flexShrink: 0, mt: -0.5, mr: -0.5 }}>
+                      <AssignIcon task={task} />
+                      <MoveIcon task={task} />
+                    </Stack>
                   </Stack>
-                  {task.customerName && (
-                    <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.25 }}>
-                      {task.customerName}
-                    </Typography>
-                  )}
                   {task.description && (
                     <Tooltip title={task.description}>
                       <Typography
@@ -249,30 +271,50 @@ export default function OrderTaskList({
                           WebkitLineClamp: 2,
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
-                          mt: 0.25,
+                          mt: 0.5,
                         }}
                       >
                         {task.description}
                       </Typography>
                     </Tooltip>
                   )}
-                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                  <Divider sx={{ my: 0.75 }} />
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Chip
                       size="small"
                       label={STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task}
                       variant="outlined"
                     />
-                    <Chip
-                      size="small"
-                      label={isUnassigned ? 'Unassigned' : task.assignedTo}
-                      color={isUnassigned ? 'warning' : 'default'}
-                    />
-                    {!isUnassigned && task.assignedBy && (
-                      <Typography variant="caption" color="text.secondary">
-                        by {task.assignedBy}
-                      </Typography>
-                    )}
-                    {dueCell(task)}
+                    <Tooltip title={isUnassigned ? 'Unassigned' : `Assigned to ${task.assignedTo}${task.assignedBy ? ` by ${task.assignedBy}` : ''}`}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Avatar
+                          sx={{
+                            width: 20,
+                            height: 20,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            bgcolor: isUnassigned ? 'transparent' : stringToColor(task.assignedTo),
+                            border: isUnassigned ? '1.5px dashed' : 'none',
+                            borderColor: 'warning.main',
+                            color: isUnassigned ? 'warning.main' : '#fff',
+                          }}
+                        >
+                          {isUnassigned ? '?' : initialsFor(task.assignedTo)}
+                        </Avatar>
+                        <Typography variant="caption" color={isUnassigned ? 'warning.main' : 'text.secondary'} fontWeight={isUnassigned ? 700 : 400} noWrap sx={{ maxWidth: 110 }}>
+                          {isUnassigned ? 'Unassigned' : task.assignedTo}
+                        </Typography>
+                      </Stack>
+                    </Tooltip>
+                    <Box sx={{ ml: 'auto' }}>
+                      {task.overdue ? (
+                        <Chip size="small" color="error" icon={<WarningAmberRoundedIcon />} label="Overdue" />
+                      ) : task.dueDate ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(task.dueDate).toLocaleDateString()}
+                        </Typography>
+                      ) : null}
+                    </Box>
                   </Stack>
                 </CardContent>
               </Card>

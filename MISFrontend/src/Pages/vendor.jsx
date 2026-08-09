@@ -478,7 +478,7 @@ export default function VendorPage() {
                 select
                 label="Works on (stages)"
                 SelectProps={{ multiple: true, value: vendorForm.capabilities, onChange: (e) => setVendorForm((prev) => ({ ...prev, capabilities: typeof e.target.value === 'string' ? e.target.value.split(',') : e.target.value })) }}
-                helperText="Filters into the stage-wise assign menu. Leave empty to show on every stage."
+                helperText="Required to appear in the task-assign menu at all — prevents auto-created/junk vendor records from showing up as assignable people."
               >
                 {CAPABILITY_OPTIONS.map((key) => (
                   <MenuItem key={key} value={key}>{CAPABILITY_LABELS[key]}</MenuItem>

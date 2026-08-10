@@ -1,16 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Paper, LinearProgress, Tabs, Tab } from '@mui/material';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
+import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
+import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
+import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import { useAuth } from '../context/AuthContext';
 
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
-import OutstandingReport from '../Reports/outstandingReport';
+
+const OutstandingReport = lazy(() => import('../Reports/outstandingReport'));
+const AllTransaction4D = lazy(() => import('../Reports/allTransaction4D'));
+const AllDelivery = lazy(() => import('../Reports/allDelivery'));
+const AllBills = lazy(() => import('../Reports/allBills'));
+const AllAttandance = lazy(() => import('./AllAttandance'));
+const RateCalculator = lazy(() => import('./RateCalculator'));
+const DayBook = lazy(() => import('./DayBook'));
 
 const HOME_TABS = [
-  { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon },
-  { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon },
+  { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
+  { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
+  { id: 'transaction4D', label: 'Transaction 4D', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
+  { id: 'delivery', label: 'Delivery', icon: LocalShippingRoundedIcon, Component: AllDelivery },
+  { id: 'bills', label: 'Bills', icon: ReceiptLongRoundedIcon, Component: AllBills },
+  { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AllAttandance },
+  { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
+  { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
 
 /* ─── Main Home Component ───────────────────────────────────────── */
@@ -33,6 +52,8 @@ export default function Home() {
   }, []);
 
   if (!loggedInUser) return <LinearProgress sx={{ borderRadius: 1, mt: 2, bgcolor: '#dcfce7' }} />;
+
+  const ActiveComponent = HOME_TABS.find((tab) => tab.id === activeTab)?.Component || WorkflowWidget;
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
@@ -104,7 +125,9 @@ export default function Home() {
             boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
           }}
         >
-          {activeTab === 'outstanding' ? <OutstandingReport /> : <WorkflowWidget />}
+          <Suspense fallback={<LinearProgress sx={{ borderRadius: 1, bgcolor: '#dcfce7' }} />}>
+            <ActiveComponent />
+          </Suspense>
         </Paper>
       </Box>
     </Box>

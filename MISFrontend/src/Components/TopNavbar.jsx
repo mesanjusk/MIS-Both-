@@ -35,6 +35,22 @@ import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
 
+/* ─── Google-colored name ────────────────────────────────────────── */
+const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
+
+function ColoredName({ name }) {
+  let ci = 0;
+  return (
+    <Box component="span">
+      {(name || '').split('').map((ch, i) => {
+        if (ch === ' ') return <Box key={i} component="span" sx={{ display: 'inline-block', width: '0.25em' }} />;
+        const col = GOOGLE_COLORS[ci++ % GOOGLE_COLORS.length];
+        return <Box key={i} component="span" sx={{ color: col }}>{ch}</Box>;
+      })}
+    </Box>
+  );
+}
+
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
   if (['admin', 'adminuser', 'superadmin', 'owner'].includes(text)) return 'Admin';
@@ -325,8 +341,8 @@ export default function TopNavbar() {
             {userName ? userName.slice(0, 2).toUpperCase() : 'NA'}
           </Avatar>
           <Box sx={{ display: { xs: 'none', sm: 'block' }, minWidth: 0 }}>
-            <Typography noWrap sx={{ fontSize: '0.76rem', fontWeight: 700, lineHeight: 1.2, color: 'text.primary' }}>
-              {userName || 'Guest'}
+            <Typography noWrap sx={{ fontSize: '0.76rem', fontWeight: 800, lineHeight: 1.2 }}>
+              <ColoredName name={userName || 'Guest'} />
             </Typography>
             <Typography noWrap sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>
               {userGroup || 'User'}

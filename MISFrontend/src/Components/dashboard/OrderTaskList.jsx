@@ -447,8 +447,9 @@ export default function OrderTaskList({
                   {/* Stage and owner share one row that never wraps — the
                       stage chip is coloured by how long the card has sat
                       here, and the owner is just an avatar + a few
-                      characters of the name (no "Unassigned" caption; an
-                      empty dashed avatar says it instead). */}
+                      characters of the name (no "Unassigned" caption; a
+                      solid amber "?" dot says it instead, which stays
+                      spottable in a column of small cards). */}
                   <Stack
                     direction="row"
                     spacing={0.5}
@@ -461,8 +462,8 @@ export default function OrderTaskList({
                         size="small"
                         label={truncate(stageLabel, stageChars)}
                         sx={{
-                          flexShrink: 0,
-                          maxWidth: '60%',
+                          flexShrink: 1,
+                          minWidth: 44,
                           height: compact ? 18 : 20,
                           fontSize: compact ? 10 : 11,
                           fontWeight: 700,
@@ -483,10 +484,8 @@ export default function OrderTaskList({
                             fontSize: compact ? 9 : 10,
                             fontWeight: 700,
                             flexShrink: 0,
-                            bgcolor: isUnassigned ? 'transparent' : stringToColor(task.assignedTo),
-                            border: isUnassigned ? '1.5px dashed' : 'none',
-                            borderColor: 'warning.main',
-                            color: isUnassigned ? 'warning.main' : '#fff',
+                            bgcolor: isUnassigned ? 'warning.main' : stringToColor(task.assignedTo),
+                            color: '#fff',
                           }}
                         >
                           {isUnassigned ? '?' : initialsFor(task.assignedTo)}
@@ -496,7 +495,7 @@ export default function OrderTaskList({
                             variant="caption"
                             color="text.secondary"
                             noWrap
-                            sx={{ fontSize: compact ? 10 : 11 }}
+                            sx={{ fontSize: compact ? 10 : 11, minWidth: 0 }}
                           >
                             {truncate(task.assignedTo, assigneeChars)}
                           </Typography>

@@ -443,15 +443,19 @@ export default function WorkflowWidget() {
                   <Chip size="small" label={groupCount} />
                 </Stack>
 
-                <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, gap: 0.75, overflowX: { xs: 'visible', md: 'auto' }, flex: 1, minHeight: 0 }}>
+                {/* Narrow columns on purpose: the cards inside render in
+                    OrderTaskList's compact "stack" form, so a tighter
+                    column (and tighter padding around it) fits noticeably
+                    more cards on screen before scrolling. */}
+                <Box sx={{ display: 'flex', flexWrap: { xs: 'wrap', md: 'nowrap' }, gap: 0.5, overflowX: { xs: 'visible', md: 'auto' }, flex: 1, minHeight: 0 }}>
                   {columns.map((section) => {
                     const tasks = sections.get(section.key) || [];
                     return (
                       <Box
                         key={section.key}
                         sx={{
-                          flex: { xs: '1 1 140px', md: '1 1 0' },
-                          minWidth: 140,
+                          flex: { xs: '1 1 120px', md: '1 1 0' },
+                          minWidth: 116,
                           display: 'flex',
                           flexDirection: 'column',
                           border: '1px solid',
@@ -467,19 +471,19 @@ export default function WorkflowWidget() {
                           alignItems="center"
                           spacing={0.5}
                           sx={{
-                            px: 1,
-                            py: 0.65,
+                            px: 0.75,
+                            py: 0.4,
                             borderBottom: '1px solid',
                             borderColor: 'divider',
                             bgcolor: 'rgba(240,253,244,0.6)',
                             flexShrink: 0,
                           }}
                         >
-                          <Typography variant="caption" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{section.label}</Typography>
-                          <Chip size="small" label={tasks.length} />
+                          <Typography variant="caption" fontWeight={800} sx={{ flex: 1, minWidth: 0, fontSize: 11, lineHeight: 1.2 }}>{section.label}</Typography>
+                          <Chip size="small" label={tasks.length} sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: 0.6 } }} />
                         </Stack>
 
-                        <Box sx={{ overflowY: 'auto', p: 0.75, flex: 1, minHeight: 0 }}>
+                        <Box sx={{ overflowY: 'auto', p: 0.5, flex: 1, minHeight: 0 }}>
                           <OrderTaskList
                             tasks={tasks}
                             view="stack"

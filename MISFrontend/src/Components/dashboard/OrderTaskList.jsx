@@ -27,7 +27,6 @@ import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
@@ -55,6 +54,48 @@ const MOVABLE_STAGES = [
 // another pipeline column, so it's visually split from the rest.
 const DELIVERED_STAGE = { stage: 'delivered', label: 'Delivered' };
 
+// Replaces the old red "Overdue" chip on the card: the stage chip itself
+// now carries the urgency, coloured by how long the order has been sitting
+// in its current stage — green under 24h, amber under 48h, red beyond
+// that. One less element on the card, and every card reads its own age.
+const STAGE_AGE_STYLES = {
+  fresh: { bg: '#dcfce7', fg: '#14532d', border: '#86efac', accent: '#22c55e', note: 'in this stage under 24h' },
+  aging: { bg: '#fef3c7', fg: '#78350f', border: '#fcd34d', accent: '#f59e0b', note: 'in this stage 24–48h' },
+  stale: { bg: '#fee2e2', fg: '#7f1d1d', border: '#fca5a5', accent: '#ef4444', note: 'in this stage over 48h' },
+  unknown: { bg: '#f1f5f9', fg: '#334155', border: '#cbd5e1', accent: '#94a3b8', note: 'no stage date on record' },
+};
+
+// Orders with no usable last-moved timestamp stay neutral grey rather than
+// being guessed into one of the three urgency colours.
+function stageAgeKey(task) {
+  if (!task?.stageUpdatedAt) return 'unknown';
+  const movedAt = new Date(task.stageUpdatedAt).getTime();
+  if (Number.isNaN(movedAt)) return 'unknown';
+  const hours = (Date.now() - movedAt) / 3600000;
+  if (hours < 24) return 'fresh';
+  if (hours < 48) return 'aging';
+  return 'stale';
+}
+
+// The pipeline columns are deliberately narrow, so a long stage label or
+// assignee name is cut to a few characters (the full text stays in the
+// tooltip) instead of wrapping the row onto a second line.
+function truncate(text, max) {
+  const value = String(text || '').trim();
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+// Menus are positioned from the button's on-screen rect rather than from
+// the button element itself: the card list re-renders (and remounts its
+// buttons) as soon as a menu opens, which left MUI holding a detached
+// anchor node and dropping the menu at the top-left corner of the page.
+// A plain {top,left} keeps the menu pinned under the kebab it came from.
+function anchorRectOf(event) {
+  const rect = event.currentTarget?.getBoundingClientRect?.();
+  if (!rect) return { top: 0, left: 0 };
+  return { top: rect.bottom, left: rect.right };
+}
+
 // Shared presentational list for order-based pending tasks — used for both
 // the "your tasks" and "team pending tasks" sections so the row shape,
 // assign control, and card/table rendering stay identical wherever a
@@ -69,11 +110,11 @@ export default function OrderTaskList({
   onMoveStage,
   emptyMessage = 'No pending tasks.',
 }) {
-  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [menuPos, setMenuPos] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
-  const [moveMenuAnchor, setMoveMenuAnchor] = useState(null);
+  const [moveMenuPos, setMoveMenuPos] = useState(null);
   const [moveTask, setMoveTask] = useState(null);
-  const [chooserAnchor, setChooserAnchor] = useState(null);
+  const [chooserPos, setChooserPos] = useState(null);
   const [chooserTask, setChooserTask] = useState(null);
 
   const canAssign = typeof onAssign === 'function';
@@ -81,12 +122,12 @@ export default function OrderTaskList({
 
   const openAssignMenu = (event, task) => {
     if (!canAssign) return;
-    setMenuAnchor(event.currentTarget);
+    setMenuPos(anchorRectOf(event));
     setActiveTask(task);
   };
 
   const closeAssignMenu = () => {
-    setMenuAnchor(null);
+    setMenuPos(null);
     setActiveTask(null);
   };
 
@@ -98,12 +139,12 @@ export default function OrderTaskList({
 
   const openMoveMenu = (event, task) => {
     if (!canMove) return;
-    setMoveMenuAnchor(event.currentTarget);
+    setMoveMenuPos(anchorRectOf(event));
     setMoveTask(task);
   };
 
   const closeMoveMenu = () => {
-    setMoveMenuAnchor(null);
+    setMoveMenuPos(null);
     setMoveTask(null);
   };
 
@@ -121,7 +162,10 @@ export default function OrderTaskList({
     );
   }
 
-  const AssignIcon = ({ task }) => {
+  // Rendered as plain functions rather than nested components: a nested
+  // component is a new type on every render, so React would tear down and
+  // rebuild these buttons mid-interaction.
+  const renderAssignIcon = (task) => {
     const isUnassigned = task.assignedTo === 'Unassigned';
     const isBusy = assigningId === task.orderId;
     return (
@@ -146,7 +190,7 @@ export default function OrderTaskList({
     );
   };
 
-  const MoveIcon = ({ task }) => {
+  const renderMoveIcon = (task) => {
     if (!canMove) return null;
     const isBusy = movingId === task.orderId;
     return (
@@ -171,31 +215,38 @@ export default function OrderTaskList({
   // name instead of being split with two buttons.
   const openChooser = (event, task) => {
     if (!canAssign && !canMove) return;
-    setChooserAnchor(event.currentTarget);
+    setChooserPos(anchorRectOf(event));
     setChooserTask(task);
   };
-  const closeChooser = () => { setChooserAnchor(null); setChooserTask(null); };
+  const closeChooser = () => { setChooserPos(null); setChooserTask(null); };
   const chooseAssign = () => {
     const task = chooserTask;
-    const anchor = chooserAnchor;
+    const pos = chooserPos;
     closeChooser();
-    if (task && anchor) openAssignMenu({ currentTarget: anchor }, task);
+    if (task && pos) { setMenuPos(pos); setActiveTask(task); }
   };
   const chooseMove = () => {
     const task = chooserTask;
-    const anchor = chooserAnchor;
+    const pos = chooserPos;
     closeChooser();
-    if (task && anchor) openMoveMenu({ currentTarget: anchor }, task);
+    if (task && pos) { setMoveMenuPos(pos); setMoveTask(task); }
   };
 
-  const CardActionsButton = ({ task }) => {
+  const renderCardActionsButton = (task, compact) => {
     if (!canAssign && !canMove) return null;
     const isBusy = assigningId === task.orderId || movingId === task.orderId;
     return (
       <Tooltip title="Actions">
         <span>
-          <IconButton size="small" disabled={isBusy} onClick={(event) => openChooser(event, task)} sx={{ color: 'action.active' }}>
-            {isBusy ? <CircularProgress size={16} /> : <MoreVertRoundedIcon fontSize="small" />}
+          <IconButton
+            size="small"
+            disabled={isBusy}
+            onClick={(event) => openChooser(event, task)}
+            sx={{ color: 'action.active', p: compact ? 0.25 : 0.5 }}
+          >
+            {isBusy
+              ? <CircularProgress size={compact ? 13 : 16} />
+              : <MoreVertRoundedIcon sx={{ fontSize: compact ? 16 : 20 }} />}
           </IconButton>
         </span>
       </Tooltip>
@@ -217,8 +268,17 @@ export default function OrderTaskList({
     .map((type) => ({ type, items: eligibleAssignees.filter((a) => a.type === type) }))
     .filter((group) => group.items.length > 0);
 
+  // Every menu opens anchored to the kebab's bottom-right corner and grows
+  // down-and-left from there, so it stays over the card it belongs to.
+  const positionedMenuProps = (pos) => ({
+    anchorReference: 'anchorPosition',
+    anchorPosition: pos || { top: 0, left: 0 },
+    transformOrigin: { vertical: 'top', horizontal: 'right' },
+    marginThreshold: 8,
+  });
+
   const assignMenu = canAssign && (
-    <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeAssignMenu}>
+    <Menu open={Boolean(menuPos)} onClose={closeAssignMenu} {...positionedMenuProps(menuPos)}>
       {eligibleAssignees.length === 0 && <MenuItem disabled>No one tagged for this stage yet</MenuItem>}
       {assigneesByType.flatMap((group) => [
         <ListSubheader key={`${group.type}-header`} sx={{ lineHeight: 2.2 }}>
@@ -239,7 +299,7 @@ export default function OrderTaskList({
   );
 
   const moveMenu = canMove && (
-    <Menu anchorEl={moveMenuAnchor} open={Boolean(moveMenuAnchor)} onClose={closeMoveMenu}>
+    <Menu open={Boolean(moveMenuPos)} onClose={closeMoveMenu} {...positionedMenuProps(moveMenuPos)}>
       {MOVABLE_STAGES.map(({ stage, label }) => (
         <MenuItem key={stage} disabled={moveTask?.stage === stage} onClick={() => handlePickStage(stage)}>
           <ListItemIcon><TrendingFlatRoundedIcon fontSize="small" /></ListItemIcon>
@@ -259,7 +319,7 @@ export default function OrderTaskList({
   );
 
   const chooserMenu = (canAssign || canMove) && (
-    <Menu anchorEl={chooserAnchor} open={Boolean(chooserAnchor)} onClose={closeChooser}>
+    <Menu open={Boolean(chooserPos)} onClose={closeChooser} {...positionedMenuProps(chooserPos)}>
       {canAssign && (
         <MenuItem onClick={chooseAssign}>
           <ListItemIcon><SwapHorizRoundedIcon fontSize="small" /></ListItemIcon>
@@ -294,58 +354,79 @@ export default function OrderTaskList({
   };
 
   if (view === 'card' || view === 'stack') {
-    const gridSx = view === 'stack'
-      ? { display: 'flex', flexDirection: 'column', gap: 0.75 }
+    // The stack view is what the narrow pipeline columns (Print, Fitting,
+    // Bind-Pack, Ready) render, so it runs compact: tight padding, one line
+    // per piece of information and no separators, which roughly doubles how
+    // many cards fit in a column before scrolling. The order note moves
+    // into the title tooltip rather than taking a row of its own.
+    const compact = view === 'stack';
+    const stageChars = compact ? 10 : 18;
+    const assigneeChars = compact ? 8 : 14;
+    const gridSx = compact
+      ? { display: 'flex', flexDirection: 'column', gap: 0.5 }
       : {
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-          gap: 1,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+          gap: 0.75,
         };
     return (
       <Box>
         <Box sx={gridSx}>
           {tasks.map((task) => {
             const isUnassigned = task.assignedTo === 'Unassigned';
-            // Left-edge accent gives an at-a-glance urgency read without
-            // having to scan the footer chips: red = overdue, amber =
-            // nobody owns it yet, green = on track and assigned.
-            const accentColor = task.overdue ? 'error.main' : isUnassigned ? 'warning.main' : 'success.light';
+            const age = STAGE_AGE_STYLES[stageAgeKey(task)];
+            const stageLabel = STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task || '—';
+            const movedLabel = stageUpdatedLabel(task);
+            const titleTooltip = [task.customerName || 'No customer name', task.description]
+              .filter(Boolean)
+              .join(' — ');
             return (
               <Card
                 variant="outlined"
                 key={task.orderId}
                 sx={{
-                  borderRadius: 2,
-                  borderLeft: '4px solid',
-                  borderLeftColor: accentColor,
+                  borderRadius: 1.5,
+                  borderLeft: '3px solid',
+                  borderLeftColor: age.accent,
                   transition: 'box-shadow 0.15s ease',
-                  '&:hover': { boxShadow: 3 },
+                  '&:hover': { boxShadow: 2 },
                 }}
               >
-                <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                  <Stack direction="row" alignItems="flex-start" spacing={0.5}>
+                <CardContent
+                  sx={{
+                    p: compact ? 0.75 : 1,
+                    '&:last-child': { pb: compact ? 0.75 : 1 },
+                  }}
+                >
+                  <Stack direction="row" alignItems="flex-start" spacing={0.25}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" fontWeight={700} sx={{ wordBreak: 'break-word' }}>
-                        {task.customerName || 'No customer name'}
-                      </Typography>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        <Typography variant="caption" color="text.secondary">
-                          #{task.orderNumber}
+                      <Tooltip title={titleTooltip}>
+                        <Typography
+                          variant="caption"
+                          fontWeight={700}
+                          noWrap
+                          display="block"
+                          sx={{ fontSize: compact ? 12 : 13, lineHeight: 1.35 }}
+                        >
+                          {task.customerName || 'No customer name'}
                         </Typography>
-                        {stageUpdatedLabel(task) && (
-                          <Tooltip title="Last moved on this date">
-                            <Typography variant="caption" color="text.disabled">
-                              · {stageUpdatedLabel(task)}
-                            </Typography>
-                          </Tooltip>
-                        )}
-                      </Stack>
+                      </Tooltip>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        noWrap
+                        display="block"
+                        sx={{ fontSize: compact ? 10 : 11, lineHeight: 1.35 }}
+                      >
+                        #{task.orderNumber}{movedLabel ? ` · ${movedLabel}` : ''}
+                      </Typography>
                     </Box>
-                    <Box sx={{ flexShrink: 0, mt: -0.5, mr: -0.5 }}>
-                      <CardActionsButton task={task} />
+                    <Box sx={{ flexShrink: 0, mt: -0.25, mr: -0.25 }}>
+                      {renderCardActionsButton(task, compact)}
                     </Box>
                   </Stack>
-                  {task.description && (
+
+                  {!compact && task.description && (
                     <Tooltip title={task.description}>
                       <Typography
                         variant="caption"
@@ -355,28 +436,53 @@ export default function OrderTaskList({
                           WebkitLineClamp: 2,
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
-                          mt: 0.5,
+                          mt: 0.25,
                         }}
                       >
                         {task.description}
                       </Typography>
                     </Tooltip>
                   )}
-                  <Divider sx={{ my: 0.75 }} />
-                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Chip
-                      size="small"
-                      label={STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task}
-                      variant="outlined"
-                    />
+
+                  {/* Stage and owner share one row that never wraps — the
+                      stage chip is coloured by how long the card has sat
+                      here, and the owner is just an avatar + a few
+                      characters of the name (no "Unassigned" caption; an
+                      empty dashed avatar says it instead). */}
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    alignItems="center"
+                    flexWrap="nowrap"
+                    sx={{ mt: 0.5, minWidth: 0 }}
+                  >
+                    <Tooltip title={`${stageLabel} — ${age.note}`}>
+                      <Chip
+                        size="small"
+                        label={truncate(stageLabel, stageChars)}
+                        sx={{
+                          flexShrink: 0,
+                          maxWidth: '60%',
+                          height: compact ? 18 : 20,
+                          fontSize: compact ? 10 : 11,
+                          fontWeight: 700,
+                          bgcolor: age.bg,
+                          color: age.fg,
+                          border: '1px solid',
+                          borderColor: age.border,
+                          '& .MuiChip-label': { px: 0.75 },
+                        }}
+                      />
+                    </Tooltip>
                     <Tooltip title={isUnassigned ? 'Unassigned' : `Assigned to ${task.assignedTo}${task.assignedBy ? ` by ${task.assignedBy}` : ''}`}>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
+                      <Stack direction="row" spacing={0.4} alignItems="center" sx={{ minWidth: 0, ml: 'auto' }}>
                         <Avatar
                           sx={{
-                            width: 20,
-                            height: 20,
-                            fontSize: 11,
+                            width: compact ? 16 : 18,
+                            height: compact ? 16 : 18,
+                            fontSize: compact ? 9 : 10,
                             fontWeight: 700,
+                            flexShrink: 0,
                             bgcolor: isUnassigned ? 'transparent' : stringToColor(task.assignedTo),
                             border: isUnassigned ? '1.5px dashed' : 'none',
                             borderColor: 'warning.main',
@@ -385,20 +491,18 @@ export default function OrderTaskList({
                         >
                           {isUnassigned ? '?' : initialsFor(task.assignedTo)}
                         </Avatar>
-                        <Typography variant="caption" color={isUnassigned ? 'warning.main' : 'text.secondary'} fontWeight={isUnassigned ? 700 : 400} noWrap sx={{ maxWidth: 110 }}>
-                          {isUnassigned ? 'Unassigned' : task.assignedTo}
-                        </Typography>
+                        {!isUnassigned && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            noWrap
+                            sx={{ fontSize: compact ? 10 : 11 }}
+                          >
+                            {truncate(task.assignedTo, assigneeChars)}
+                          </Typography>
+                        )}
                       </Stack>
                     </Tooltip>
-                    <Box sx={{ ml: 'auto' }}>
-                      {task.overdue ? (
-                        <Chip size="small" color="error" icon={<WarningAmberRoundedIcon />} label="Overdue" />
-                      ) : task.dueDate ? (
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(task.dueDate).toLocaleDateString()}
-                        </Typography>
-                      ) : null}
-                    </Box>
                   </Stack>
                 </CardContent>
               </Card>
@@ -427,8 +531,8 @@ export default function OrderTaskList({
             <TableRow key={task.orderId}>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
                 <Stack direction="row" spacing={0.25} alignItems="center">
-                  <AssignIcon task={task} />
-                  <MoveIcon task={task} />
+                  {renderAssignIcon(task)}
+                  {renderMoveIcon(task)}
                   <Typography variant="body2" fontWeight={600}>#{task.orderNumber}</Typography>
                   {task.customerName && (
                     <Typography variant="caption" color="text.secondary" noWrap>

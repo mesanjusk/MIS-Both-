@@ -211,6 +211,12 @@ const OrdersSchema = new mongoose.Schema(
     billPaidNote: { type: String, default: null },
     billPaidTxnUuid: { type: String, default: null },
     billPaidTxnId: { type: Number, default: null },
+    // Invoice-level charges (freight, packing, …) shown on the invoice and
+    // included in the sale posting raised for the order.
+    extraCharges: {
+      type: [new mongoose.Schema({ label: { type: String, default: "" }, amount: { type: Number, default: 0 } }, { _id: false })],
+      default: [],
+    },
     invoiceTxnUuid: { type: String, default: null },
     invoiceTxnId: { type: Number, default: null },
     deliveryNotifiedAt: { type: Date, default: null },

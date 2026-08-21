@@ -1,5 +1,5 @@
 // src/Pages/AllTransaction3.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import axios from '../apiClient.js';
@@ -13,6 +13,8 @@ import { saveAs } from 'file-saver';
 // NEW: reusable modal
 import TransactionEditModal from '../Components/TransactionEditModal';
 import TransactionDocumentModal from '../Components/TransactionDocumentModal';
+import UpdateDelivery from '../Pages/updateDelivery';
+import { getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
 
 const AllTransaction3 = () => {
   const [transactions, setTransactions] = useState([]);
@@ -32,12 +34,25 @@ const AllTransaction3 = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTxn, setEditingTxn] = useState(null);
 
+  // Sale invoices are edited as invoices (items × rate), not as a raw amount
+  const [invoiceEdit, setInvoiceEdit] = useState(null); // { order, transaction }
+  const [loadingInvoiceFor, setLoadingInvoiceFor] = useState(null); // Transaction_uuid
+
   // Invoice / voucher viewer opened from the "No" column
   const [docRow, setDocRow] = useState(null);
 
   const location = useLocation();
   const navigate = useNavigate();
   const { uuid: customerUuid, name: customerName } = location.state?.customer || {};
+
+  const refreshTransactions = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/transaction');
+      if (res.data?.success) setTransactions(res.data.result || []);
+    } catch (error) {
+      console.error("Error refreshing transactions:", error);
+    }
+  }, []);
 
   useEffect(() => {
     if (!customerUuid || !customerName) {
@@ -205,13 +220,28 @@ const AllTransaction3 = () => {
     setSortConfig({ key, direction });
   };
 
+  // Voucher details for one ledger row, shared by the table and the exports.
+  const voucherFor = (transaction, entry) => {
+    const counterEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
+    return getVoucherInfo({
+      transaction,
+      entry,
+      counterIsCashOrBank: !!counterEntry && cashOrBankUuids.has(counterEntry.Account_id),
+    });
+  };
+
   const handleExportPDF = () => {
     const doc = new jsPDF();
     doc.text(`Transactions for ${customerName}`, 10, 10);
     let y = 20;
-    sortedCustomerTransactions.forEach((t, idx) => {
+    sortedCustomerTransactions.forEach((t) => {
       (t.Journal_entry || []).filter(e => e.Account_id === customerUuid).forEach(e => {
-        doc.text(`${idx + 1}. ${t.Description || ''} - ${e.Type}: ₹${e.Amount}`, 10, y);
+        const voucher = voucherFor(t, e);
+        doc.text(
+          `${t.Transaction_id ?? ''} | ${voucher.display || '-'} | ${t.Description || ''} - ${e.Type}: ₹${e.Amount}`,
+          10,
+          y
+        );
         y += 10;
       });
     });
@@ -224,8 +254,11 @@ const AllTransaction3 = () => {
       (transaction.Journal_entry || [])
         .filter(entry => entry.Account_id === customerUuid)
         .forEach(entry => {
+          const voucher = voucherFor(transaction, entry);
           rows.push({
-            TransactionID: transaction.Transaction_id,
+            TransactionNo: transaction.Transaction_id,
+            VoucherNo: voucher.display,
+            VoucherType: voucher.label,
             Date: new Date(transaction.Transaction_date).toLocaleDateString(),
             Description: transaction.Description,
             Type: entry.Type,
@@ -246,7 +279,35 @@ const AllTransaction3 = () => {
   const closeModal = () => setShowOrderModal(false);
 
   // ---------- Admin-only: Edit/Delete ----------
-  const openEdit = (transaction) => {
+  // A sale invoice must be edited as an invoice (items, rates, extra charges)
+  // so the ledger amount stays derived from the document the customer received.
+  // Everything else (receipts, payments, journals) keeps the simple amount form.
+  const openEdit = async (transaction) => {
+    if (isSalesInvoiceTransaction(transaction)) {
+      const orderRef = transaction.Order_uuid || transaction.Order_number;
+      setLoadingInvoiceFor(transaction.Transaction_uuid);
+      try {
+        const res = await axios.get(`/order/${encodeURIComponent(orderRef)}`);
+        const order = res.data?.result || res.data;
+        if (order && (order._id || order.Order_uuid)) {
+          setInvoiceEdit({
+            transaction,
+            order: {
+              ...order,
+              Customer_name: lookupName(order.Customer_uuid) || customerName,
+            },
+          });
+          return;
+        }
+        toast.error('Linked order not found — editing the ledger entry instead');
+      } catch (err) {
+        console.error('Could not load the order for this invoice:', err);
+        toast.error('Could not load the invoice — editing the ledger entry instead');
+      } finally {
+        setLoadingInvoiceFor(null);
+      }
+    }
+
     setEditingTxn(transaction);   // store full transaction; modal derives its fields below
     setShowEditModal(true);
   };
@@ -368,7 +429,8 @@ const AllTransaction3 = () => {
             <table className="min-w-full border-collapse">
               <thead className="bg-gray-200">
                 <tr>
-                  <th className="py-2 px-4" title="Click a number to view the invoice / voucher shared with the customer">No</th>
+                  <th className="py-2 px-4" title="Running number of the ledger posting">Txn No</th>
+                  <th className="py-2 px-4" title="Click a number to view the invoice / voucher shared with the customer">Voucher No</th>
                   <th className="py-2 px-4 cursor-pointer" onClick={() => sortTable("Transaction_date")}>
                     Date {sortConfig.key === "Transaction_date" && (sortConfig.direction === "asc" ? "▲" : "▼")}
                   </th>
@@ -388,6 +450,7 @@ const AllTransaction3 = () => {
 
               <tbody>
                 <tr className="bg-yellow-100 font-semibold">
+                  <td className="py-2 px-4" />
                   <td className="py-2 px-4" />
                   <td className="py-2 px-4" />
                   <td className="py-2 px-4" colSpan={1}>Opening Balance</td>
@@ -413,9 +476,12 @@ const AllTransaction3 = () => {
                               ? secondEntry.Account_name
                               : (lookupName(secondEntry.Account_id) || 'N/A'))
                           : 'N/A';
+                        const counterIsCashOrBank = !!secondEntry && cashOrBankUuids.has(secondEntry.Account_id);
+                        const voucher = getVoucherInfo({ transaction, entry, counterIsCashOrBank });
 
                         return (
                           <tr key={`${index}-${entryIndex}`} className="border-t hover:bg-gray-50">
+                            <td className="py-2 px-4">{transaction.Transaction_id}</td>
                             <td className="py-2 px-4">
                               <button
                                 type="button"
@@ -423,12 +489,12 @@ const AllTransaction3 = () => {
                                   transaction,
                                   entry,
                                   counterAccountName: secondCustomerName,
-                                  counterIsCashOrBank: !!secondEntry && cashOrBankUuids.has(secondEntry.Account_id),
+                                  counterIsCashOrBank,
                                 })}
                                 className="text-blue-600 font-semibold hover:underline"
-                                title="View the invoice / voucher shared with the customer"
+                                title={`View the ${voucher.label.toLowerCase()} shared with the customer`}
                               >
-                                {transaction.Transaction_id}
+                                {voucher.display || '—'}
                               </button>
                             </td>
                             <td className="py-2 px-4">{new Date(transaction.Transaction_date).toLocaleDateString()}</td>
@@ -444,10 +510,12 @@ const AllTransaction3 = () => {
                             {userRole === 'Admin User' && (
                               <td className="py-2 px-4 text-center whitespace-nowrap">
                                 <button
-                                  className="text-blue-600 hover:underline mr-3"
+                                  className="text-blue-600 hover:underline mr-3 disabled:opacity-50"
+                                  disabled={loadingInvoiceFor === transaction.Transaction_uuid}
                                   onClick={() => openEdit(transaction)}
+                                  title={voucher.type === 'invoice' ? 'Edit this sale invoice' : 'Edit this entry'}
                                 >
-                                  Edit
+                                  {loadingInvoiceFor === transaction.Transaction_uuid ? 'Opening…' : 'Edit'}
                                 </button>
                                 <button
                                   className="text-red-600 hover:underline"
@@ -464,6 +532,7 @@ const AllTransaction3 = () => {
                 })()}
 
                 <tr className="bg-blue-100 font-semibold">
+                  <td className="py-2 px-4" />
                   <td className="py-2 px-4" />
                   <td className="py-2 px-4" />
                   <td className="py-2 px-4" colSpan={1}>Closing Balance</td>
@@ -511,6 +580,17 @@ const AllTransaction3 = () => {
         counterAccountName={docRow?.counterAccountName || ''}
         counterIsCashOrBank={!!docRow?.counterIsCashOrBank}
       />
+
+      {/* Sale invoices open the full invoice editor instead of the amount form */}
+      {invoiceEdit && (
+        <UpdateDelivery
+          mode="edit"
+          order={invoiceEdit.order}
+          invoiceTxn={invoiceEdit.transaction}
+          onClose={() => { setInvoiceEdit(null); refreshTransactions(); }}
+          onSaved={() => refreshTransactions()}
+        />
+      )}
 
       {showOrderModal && <AddOrder1 closeModal={closeModal} />}
     </>

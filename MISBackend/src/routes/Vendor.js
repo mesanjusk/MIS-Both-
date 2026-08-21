@@ -60,6 +60,7 @@ async function ensureVendorMaster(vendorPayload = {}) {
     Notes: String(vendorPayload.notes || ''),
     Raw_material_capable: Boolean(vendorPayload.raw_material_capable),
     Jobwork_capable: vendorPayload.jobwork_capable !== false,
+    In_house: Boolean(vendorPayload.in_house),
   });
 
   if (created.Opening_balance > 0 && created.Opening_balance_type !== 'none') {
@@ -285,6 +286,7 @@ router.put('/masters/:vendorUuid', async (req, res) => {
           Notes: String(req.body.notes || ''),
           Raw_material_capable: Boolean(req.body.raw_material_capable),
           Jobwork_capable: req.body.jobwork_capable !== false,
+          In_house: Boolean(req.body.in_house),
         },
       },
       { new: true }

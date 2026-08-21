@@ -17,6 +17,10 @@ const vendorMasterSchema = new mongoose.Schema(
     Notes: { type: String, default: '' },
     Raw_material_capable: { type: Boolean, default: false },
     Jobwork_capable: { type: Boolean, default: true },
+    // Work done in our own workshop is still mapped to a vendor account so
+    // every order carries a cost side; this flag keeps it out of the
+    // outsourcing spend when reports separate the two.
+    In_house: { type: Boolean, default: false, index: true },
   },
   { timestamps: true, collection: 'vendor_masters' }
 );

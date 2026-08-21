@@ -77,6 +77,58 @@ function calcPoTotal(items = []) {
   return items.reduce((sum, item) => sum + toNumber(item.amount, 0), 0);
 }
 
+/**
+ * Create or refresh the purchase posting for a PO: Purchase (Dr) / vendor
+ * payable (Cr). This is what maps an order's cost to a vendor account, so it
+ * runs on create as well as on every edit, keyed by the PO's own source code.
+ */
+async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } = {}) {
+  const extraTotal = (po.extraCharges || []).reduce((sum, c) => sum + toNumber(c.amount, 0), 0);
+  const total      = toNumber(po.totalAmount, 0) + extraTotal;
+  const txnSource  = `business:purchase:${po.PO_uuid}`;
+
+  if (total <= 0) return null;
+
+  const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
+  const existingTxn = await Transaction.findOne({ Source: txnSource });
+
+  if (existingTxn) {
+    // Reverse the old balance impact before applying the updated amounts
+    const reversalLines = existingTxn.Journal_entry.map((line) => ({
+      ...((line._doc || line)),
+      Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
+    }));
+    await updateBalancesForJournal(reversalLines).catch(() => {});
+
+    const [debitLine, creditLine] = await Promise.all([
+      buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  total),
+      buildLine(vendorAccountId,          'Credit', total),
+    ]);
+    existingTxn.Journal_entry = [debitLine, creditLine];
+    existingTxn.Total_Debit   = total;
+    existingTxn.Total_Credit  = total;
+    existingTxn.Description   = `PO #${po.PO_Number} from ${po.Vendor_name} (updated)`;
+    existingTxn.Order_uuid    = po.Order_uuid || existingTxn.Order_uuid || null;
+    if (txnDate) existingTxn.Transaction_date = new Date(txnDate);
+    await existingTxn.save();
+    await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
+    return existingTxn;
+  }
+
+  return postBalancedTransaction({
+    amount:         total,
+    debitAccount:   SYSTEM_ACCOUNTS.PURCHASE,
+    creditAccount:  vendorAccountId,
+    paymentMode:    'Journal',
+    description:    `PO #${po.PO_Number} from ${po.Vendor_name}`,
+    orderUuid:      po.Order_uuid || '',
+    transactionDate: txnDate ? new Date(txnDate) : undefined,
+    createdBy,
+    source:         txnSource,
+    allowDuplicate: false,
+  });
+}
+
 /** Parse "DD.MM.YYYY" from a notes string into a UTC midnight Date. */
 function parseDateFromNotes(notes = '') {
   const m = String(notes).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
@@ -98,6 +150,10 @@ router.post('/create', async (req, res) => {
 
     const items    = normalizeItems(req.body.Items || req.body.items || []);
     const poTotal  = calcPoTotal(items);
+    const status   = ['draft', 'sent', 'received', 'cancelled'].includes(
+      String(req.body.status || '').toLowerCase()
+    ) ? String(req.body.status).toLowerCase() : 'draft';
+    const poDate   = req.body.poDate ? new Date(req.body.poDate) : null;
 
     const po = await PurchaseOrder.create({
       PO_Number:        await nextPoNumber(),
@@ -106,13 +162,29 @@ router.post('/create', async (req, res) => {
       Vendor_name:      vendor.Vendor_name,
       Items:            items,
       totalAmount:      poTotal,
-      status:           ['draft', 'sent', 'received', 'cancelled'].includes(
-                          String(req.body.status || '').toLowerCase()
-                        ) ? String(req.body.status).toLowerCase() : 'draft',
+      status,
+      poDate,
+      extraCharges:     Array.isArray(req.body.extraCharges)
+        ? req.body.extraCharges
+            .filter((c) => c.label && Number(c.amount) > 0)
+            .map((c) => ({ label: String(c.label).trim(), amount: Number(c.amount) }))
+        : [],
       expectedDelivery: req.body.expectedDelivery || null,
+      receivedDate:     status === 'received' ? (req.body.receivedDate || poDate || new Date()) : null,
       notes:            String(req.body.notes || ''),
       createdBy:        String(req.body.createdBy || req.user?.userName || ''),
     });
+
+    // Post the vendor cost immediately so the order is mapped to a vendor
+    // account from the moment the PO exists, not only after its first edit.
+    try {
+      await syncPurchasePosting(po, {
+        txnDate:   poDate,
+        createdBy: String(req.body.createdBy || req.user?.userName || 'system'),
+      });
+    } catch (txnErr) {
+      logger.error(`Transaction posting failed for new PO ${po.PO_uuid}: ${txnErr.message}`);
+    }
 
     res.status(201).json({ success: true, result: po });
   } catch (error) {
@@ -193,6 +265,8 @@ router.put('/:id', async (req, res) => {
 
     if (Array.isArray(req.body.Items)) po.Items = normalizeItems(req.body.Items);
     if (typeof req.body.notes !== 'undefined') po.notes = String(req.body.notes || '');
+    // Linking a stray PO to the order it paid for — an empty string unlinks it.
+    if (typeof req.body.Order_uuid !== 'undefined') po.Order_uuid = String(req.body.Order_uuid || '');
     if (req.body.expectedDelivery) po.expectedDelivery = new Date(req.body.expectedDelivery);
     if (req.body.poDate) po.poDate = new Date(req.body.poDate);
     if (req.body.status && ['draft', 'sent', 'received', 'cancelled'].includes(req.body.status)) {
@@ -206,51 +280,13 @@ router.put('/:id', async (req, res) => {
 
     const saved = await po.save();
 
-    // Upsert purchase ledger transaction — create on first edit, update on subsequent edits
-    const extraTotal = (saved.extraCharges || []).reduce((s, c) => s + Number(c.amount || 0), 0);
-    const newTotal   = Number(saved.totalAmount || 0) + extraTotal;
-    const txnSource  = `business:purchase:${po.PO_uuid}`;
-
-    if (newTotal > 0) {
-      try {
-        const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
-        const existingTxn = await Transaction.findOne({ Source: txnSource });
-
-        if (existingTxn) {
-          // Reverse old balance impact then apply updated amounts
-          const reversalLines = existingTxn.Journal_entry.map((line) => ({
-            ...((line._doc || line)),
-            Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
-          }));
-          await updateBalancesForJournal(reversalLines).catch(() => {});
-
-          const [debitLine, creditLine] = await Promise.all([
-            buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  newTotal),
-            buildLine(vendorAccountId,           'Credit', newTotal),
-          ]);
-          existingTxn.Journal_entry = [debitLine, creditLine];
-          existingTxn.Total_Debit   = newTotal;
-          existingTxn.Total_Credit  = newTotal;
-          existingTxn.Description   = `PO #${po.PO_Number} from ${po.Vendor_name} (updated)`;
-          if (req.body.poDate) existingTxn.Transaction_date = new Date(req.body.poDate);
-          await existingTxn.save();
-          await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
-        } else {
-          await postBalancedTransaction({
-            amount:          newTotal,
-            debitAccount:    SYSTEM_ACCOUNTS.PURCHASE,
-            creditAccount:   vendorAccountId,
-            paymentMode:     'Journal',
-            description:     `PO #${po.PO_Number} from ${po.Vendor_name}`,
-            orderUuid:       po.Order_uuid || '',
-            createdBy:       req.user?.userName || 'system',
-            source:          txnSource,
-            allowDuplicate:  false,
-          });
-        }
-      } catch (txnErr) {
-        logger.error(`Transaction upsert failed for PO ${po.PO_uuid}: ${txnErr.message}`);
-      }
+    try {
+      await syncPurchasePosting(saved, {
+        txnDate:   req.body.poDate || saved.poDate || null,
+        createdBy: req.user?.userName || 'system',
+      });
+    } catch (txnErr) {
+      logger.error(`Transaction upsert failed for PO ${po.PO_uuid}: ${txnErr.message}`);
     }
 
     res.json({ success: true, result: saved });

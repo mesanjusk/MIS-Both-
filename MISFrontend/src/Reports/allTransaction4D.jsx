@@ -19,6 +19,7 @@ import {
   Typography,
 } from '@mui/material';
 import axios from '../apiClient.js';
+import { getVoucherInfo } from '../utils/voucher';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
@@ -26,7 +27,9 @@ const fmtDate = (d) =>
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 // ── Section table (same columns as Day Book) ──────────────────────────────────
-function TxnTable({ rows, title, color, customerMap = {} }) {
+// `kind` is the direction of the section: money in is a receipt for the party,
+// money out a payment. Both legs of every row here are cash or bank.
+function TxnTable({ rows, title, color, customerMap = {}, kind = 'receipt' }) {
   if (!rows.length) return null;
   const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
   return (
@@ -42,7 +45,8 @@ function TxnTable({ rows, title, color, customerMap = {} }) {
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 700, width: 55 }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 55 }}>Txn #</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 90 }}>Voucher #</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Account</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Mode</TableCell>
@@ -53,6 +57,13 @@ function TxnTable({ rows, title, color, customerMap = {} }) {
             {rows.map((row, i) => (
               <TableRow key={i} hover>
                 <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>{row.txn.Transaction_id}</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  {getVoucherInfo({
+                    transaction: row.txn,
+                    entry: { Type: kind === 'receipt' ? 'Credit' : 'Debit' },
+                    counterIsCashOrBank: true,
+                  }).display || '—'}
+                </TableCell>
                 <TableCell>
                   <Typography variant="body2">{row.txn.Description}</Typography>
                 </TableCell>
@@ -257,10 +268,10 @@ export default function AllTransaction() {
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" customerMap={customerMap} />
+                    <TxnTable rows={cashIn} kind="receipt"  title="Cash Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" customerMap={customerMap} />
+                    <TxnTable rows={cashOut} kind="payment" title="Cash Payments (OUT)" color="error.dark" customerMap={customerMap} />
                   </Box>
                 </Stack>
               )}
@@ -283,10 +294,10 @@ export default function AllTransaction() {
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={bankIn}  title="Bank Receipts (IN)"  color="success.dark" customerMap={customerMap} />
+                    <TxnTable rows={bankIn} kind="receipt"  title="Bank Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>
                   <Box sx={{ flex: 1 }}>
-                    <TxnTable rows={bankOut} title="Bank Payments (OUT)" color="error.dark" customerMap={customerMap} />
+                    <TxnTable rows={bankOut} kind="payment" title="Bank Payments (OUT)" color="error.dark" customerMap={customerMap} />
                   </Box>
                 </Stack>
               )}

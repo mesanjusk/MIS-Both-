@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import axios from '../apiClient';
+import { getVoucherInfo } from '../utils/voucher';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 const ymd = (value) => value ? new Date(value).toISOString().slice(0, 10) : '';
@@ -62,6 +63,13 @@ export default function AllTransaction() {
       inAmount,
       outAmount,
       transactionKind: inAmount >= outAmount ? 'Receipt' : 'Payment',
+      // Money in is a receipt for the party, money out a payment; an
+      // order-backed sale keeps its invoice number either way.
+      voucher: getVoucherInfo({
+        transaction: txn,
+        entry: { Type: inAmount >= outAmount ? 'Credit' : 'Debit' },
+        counterIsCashOrBank: true,
+      }),
     };
   }).sort((a, b) => new Date(b.Transaction_date) - new Date(a.Transaction_date)), [transactions, customerMap]);
 
@@ -72,7 +80,7 @@ export default function AllTransaction() {
     if (filters.paymentMode !== 'All' && txn.Payment_mode !== filters.paymentMode) return false;
     if (filters.transactionType !== 'All' && txn.transactionKind !== filters.transactionType) return false;
     const q = filters.search.toLowerCase();
-    if (q && ![txn.Description, txn.Order_number, txn.Order_Number, txn.customerName].join(' ').toLowerCase().includes(q)) return false;
+    if (q && ![txn.Description, txn.Order_number, txn.Order_Number, txn.customerName, txn.Transaction_id, txn.voucher?.display].join(' ').toLowerCase().includes(q)) return false;
     return true;
   }), [normalized, filters]);
 
@@ -103,6 +111,7 @@ export default function AllTransaction() {
     const rows = filtered.map((txn) => ({
       Date: prettyDate(txn.Transaction_date),
       'Txn #': txn.Transaction_id,
+      'Voucher #': txn.voucher?.display || '',
       Description: txn.Description,
       'Order #': txn.Order_number || txn.Order_Number || '',
       Customer: txn.customerName,
@@ -138,7 +147,7 @@ export default function AllTransaction() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1 }}><Tab label="Transactions" /><Tab label="Account Ledger" /></Tabs>
       {tab === 0 ? (
         <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <TableContainer sx={{ maxHeight: '70vh' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Date', 'Txn #', 'Description', 'Order #', 'Customer', 'Mode', 'Debit (In)', 'Credit (Out)', 'Created By'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{pageRows.map((txn) => <TableRow key={txn.id} hover sx={{ bgcolor: txn.transactionKind === 'Receipt' ? 'rgba(46,125,50,0.05)' : 'rgba(211,47,47,0.05)' }}><TableCell>{prettyDate(txn.Transaction_date)}</TableCell><TableCell>{txn.Transaction_id}</TableCell><TableCell>{txn.Description}</TableCell><TableCell>{txn.Order_number || txn.Order_Number || '-'}</TableCell><TableCell>{txn.customerName || '-'}</TableCell><TableCell><Chip size="small" label={customerMap[txn.Payment_mode] || txn.Payment_mode || '-'} /></TableCell><TableCell>{money(txn.inAmount)}</TableCell><TableCell>{money(txn.outAmount)}</TableCell><TableCell>{txn.Created_by || '-'}</TableCell></TableRow>)}</TableBody></Table></TableContainer><TablePagination component="div" count={filtered.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={50} rowsPerPageOptions={[50]} /></Paper>
+          <TableContainer sx={{ maxHeight: '70vh' }}><Table stickyHeader size="small"><TableHead><TableRow>{['Date', 'Txn #', 'Voucher #', 'Description', 'Order #', 'Customer', 'Mode', 'Debit (In)', 'Credit (Out)', 'Created By'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{pageRows.map((txn) => <TableRow key={txn.id} hover sx={{ bgcolor: txn.transactionKind === 'Receipt' ? 'rgba(46,125,50,0.05)' : 'rgba(211,47,47,0.05)' }}><TableCell>{prettyDate(txn.Transaction_date)}</TableCell><TableCell>{txn.Transaction_id}</TableCell><TableCell sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{txn.voucher?.display || '-'}</TableCell><TableCell>{txn.Description}</TableCell><TableCell>{txn.Order_number || txn.Order_Number || '-'}</TableCell><TableCell>{txn.customerName || '-'}</TableCell><TableCell><Chip size="small" label={customerMap[txn.Payment_mode] || txn.Payment_mode || '-'} /></TableCell><TableCell>{money(txn.inAmount)}</TableCell><TableCell>{money(txn.outAmount)}</TableCell><TableCell>{txn.Created_by || '-'}</TableCell></TableRow>)}</TableBody></Table></TableContainer><TablePagination component="div" count={filtered.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={50} rowsPerPageOptions={[50]} /></Paper>
       ) : (
         <Paper variant="outlined" sx={{ p: 1, borderRadius: 3 }}><FormControl size="small" sx={{ minWidth: 240, mb: 1 }}><InputLabel>Account</InputLabel><Select label="Account" value={filters.account} onChange={(e) => setFilters((p) => ({ ...p, account: e.target.value }))}>{accounts.map((account) => <MenuItem key={account} value={account}>{account}</MenuItem>)}</Select></FormControl><TableContainer><Table size="small"><TableHead><TableRow><TableCell>Date</TableCell><TableCell>Description</TableCell><TableCell align="right">Debit</TableCell><TableCell align="right">Credit</TableCell><TableCell align="right">Running Balance</TableCell></TableRow></TableHead><TableBody>{ledgerRows.map((row, index) => <TableRow key={`${row.txn.id}-${index}`}><TableCell>{prettyDate(row.txn.Transaction_date)}</TableCell><TableCell>{row.txn.Description}</TableCell><TableCell align="right">{money(row.debit)}</TableCell><TableCell align="right">{money(row.credit)}</TableCell><TableCell align="right">{money(row.balance)}</TableCell></TableRow>)}</TableBody></Table></TableContainer></Paper>
       )}

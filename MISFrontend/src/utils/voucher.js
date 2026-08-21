@@ -69,6 +69,31 @@ export function isSalesInvoiceTransaction(transaction) {
 }
 
 /**
+ * Pick the leg of a posting that belongs to the party the voucher is addressed
+ * to. Party-scoped reports already know which leg that is; a general journal
+ * list does not, so it resolves in this order: the transaction's own
+ * Customer_uuid, then any leg the caller recognises as a party account, then
+ * the debit leg, then whatever came first.
+ *
+ * @param {object}   transaction
+ * @param {function} isPartyAccount  (accountId) => boolean
+ */
+export function pickPartyLeg(transaction, isPartyAccount = () => false) {
+  const legs = transaction?.Journal_entry || [];
+  if (!legs.length) return null;
+
+  if (transaction.Customer_uuid) {
+    const own = legs.find((l) => l.Account_id === transaction.Customer_uuid);
+    if (own) return own;
+  }
+
+  const party = legs.find((l) => isPartyAccount(l.Account_id));
+  if (party) return party;
+
+  return legs.find((l) => lower(l.Type) === 'debit') || legs[0];
+}
+
+/**
  * Classify a ledger row and derive its voucher number.
  *
  * @param {object}  transaction          the transaction document

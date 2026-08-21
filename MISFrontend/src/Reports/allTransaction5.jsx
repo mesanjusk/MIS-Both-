@@ -1,7 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 import TransactionEditModal from '../Components/TransactionEditModal';
+import TransactionDocumentModal from '../Components/TransactionDocumentModal';
+import UpdateDelivery from '../Pages/updateDelivery';
+import { getVoucherInfo, isSalesInvoiceTransaction, pickPartyLeg } from '../utils/voucher';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -23,8 +26,24 @@ export default function AllTransaction5() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTxn,    setEditingTxn]   = useState(null);
 
+  // Sale invoices are edited as invoices (items × rate), not as a raw amount
+  const [invoiceEdit,       setInvoiceEdit]       = useState(null); // { order, transaction }
+  const [loadingInvoiceFor, setLoadingInvoiceFor] = useState(null); // Transaction_uuid
+
+  // Invoice / voucher viewer opened from the Voucher No column
+  const [docRow, setDocRow] = useState(null);
+
   const userRole = localStorage.getItem('User_group') || '';
   const isAdmin  = userRole === 'Admin User';
+
+  const refreshTransactions = useCallback(async () => {
+    try {
+      const res = await axios.get('/api/transaction');
+      if (res.data?.success) setTransactions(res.data.result || []);
+    } catch (err) {
+      console.error('Error refreshing transactions:', err);
+    }
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -69,25 +88,49 @@ export default function AllTransaction5() {
     return customerMap[leg.Account_id] || accountsMap[leg.Account_id] || leg.Account_id || '—';
   };
 
-  // For each transaction derive debit/credit leg for display
+  // Accounts that hold money (chart of accounts + bank ledgers). A debit against
+  // one of these is a payment out rather than a charge raised on the party.
+  const cashOrBankUuids = useMemo(() => {
+    const set = new Set();
+    accounts.forEach((a) => { if (a.Account_uuid) set.add(a.Account_uuid); });
+    customers.forEach((c) => { if (c.Customer_group === 'Bank and Account') set.add(c.Customer_uuid); });
+    return set;
+  }, [accounts, customers]);
+
+  // A party account is a customer ledger that is not a cash / bank account.
+  const isPartyAccount = useCallback(
+    (id) => Boolean(id) && Boolean(customerMap[id]) && !cashOrBankUuids.has(id),
+    [customerMap, cashOrBankUuids]
+  );
+
+  // For each transaction derive debit/credit leg for display, plus the voucher
+  // number of the document the party was given.
   const rows = useMemo(() => transactions.map((txn) => {
     const journal  = txn.Journal_entry || [];
     const debitLeg = journal.find((e) => e.Type === 'Debit');
     const creditLeg= journal.find((e) => e.Type === 'Credit');
+    const partyLeg = pickPartyLeg(txn, isPartyAccount);
+    const counterLeg = journal.find((e) => e !== partyLeg) || null;
+    const counterIsCashOrBank = !!counterLeg && cashOrBankUuids.has(counterLeg.Account_id);
     return {
       txn,
       debitName:  resolveName(debitLeg),
       creditName: resolveName(creditLeg),
       amount:     txn.Total_Debit || txn.Total_Credit || 0,
+      partyLeg,
+      partyName:  resolveName(partyLeg),
+      counterName: resolveName(counterLeg),
+      counterIsCashOrBank,
+      voucher: getVoucherInfo({ transaction: txn, entry: partyLeg, counterIsCashOrBank }),
     };
-  }), [transactions, customerMap, accountsMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [transactions, customerMap, accountsMap, isPartyAccount, cashOrBankUuids]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     const nameLower   = searchName.trim().toLowerCase();
     const amountQuery = searchAmount.trim();
     const amtNum      = parseFloat(amountQuery.replace(/[₹,\s]/g, ''));
 
-    return rows.filter(({ txn, debitName, creditName, amount }) => {
+    return rows.filter(({ txn, debitName, creditName, amount, voucher }) => {
       if (startDate && new Date(txn.Transaction_date) < new Date(startDate)) return false;
       if (endDate   && new Date(txn.Transaction_date) > new Date(endDate + 'T23:59:59')) return false;
 
@@ -97,6 +140,8 @@ export default function AllTransaction5() {
           debitName,
           creditName,
           txn.Payment_mode,
+          txn.Transaction_id,
+          voucher.display,
         ].join(' ').toLowerCase();
         if (!haystack.includes(nameLower)) return false;
       }
@@ -142,7 +187,31 @@ export default function AllTransaction5() {
   const totalCredit = filtered.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
 
   // ── Edit / Delete ─────────────────────────────────────────────────────────
-  const openEdit = (txn) => {
+  // A sale invoice is edited as an invoice (items, rates, extra charges) so the
+  // ledger amount stays derived from the document the customer received.
+  const openEdit = async (txn) => {
+    if (isSalesInvoiceTransaction(txn)) {
+      const orderRef = txn.Order_uuid || txn.Order_number;
+      setLoadingInvoiceFor(txn.Transaction_uuid);
+      try {
+        const res = await axios.get(`/order/${encodeURIComponent(orderRef)}`);
+        const order = res.data?.result || res.data;
+        if (order && (order._id || order.Order_uuid)) {
+          setInvoiceEdit({
+            transaction: txn,
+            order: { ...order, Customer_name: lookupName(order.Customer_uuid) },
+          });
+          return;
+        }
+        toast.error('Linked order not found — editing the ledger entry instead');
+      } catch (err) {
+        console.error('Could not load the order for this invoice:', err);
+        toast.error('Could not load the invoice — editing the ledger entry instead');
+      } finally {
+        setLoadingInvoiceFor(null);
+      }
+    }
+
     const journal   = txn.Journal_entry || [];
     const creditLeg = journal.find((e) => String(e.Type).toLowerCase() === 'credit');
     const debitLeg  = journal.find((e) => String(e.Type).toLowerCase() === 'debit');
@@ -293,8 +362,11 @@ export default function AllTransaction5() {
           <table className="min-w-full border-collapse text-sm bg-white">
             <thead className="bg-gray-100 text-gray-700">
               <tr>
-                <th className="py-2 px-3 text-left cursor-pointer whitespace-nowrap" onClick={() => sort('Transaction_id')}>
-                  #{ arrow('Transaction_id') }
+                <th className="py-2 px-3 text-left cursor-pointer whitespace-nowrap" onClick={() => sort('Transaction_id')} title="Running number of the ledger posting">
+                  Txn #{ arrow('Transaction_id') }
+                </th>
+                <th className="py-2 px-3 text-left whitespace-nowrap" title="Number on the invoice / voucher shared with the party — click to open it">
+                  Voucher #
                 </th>
                 <th className="py-2 px-3 text-left cursor-pointer whitespace-nowrap" onClick={() => sort('Transaction_date')}>
                   Date{ arrow('Transaction_date') }
@@ -318,17 +390,33 @@ export default function AllTransaction5() {
             <tbody>
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="py-10 text-center text-gray-400">
+                  <td colSpan={isAdmin ? 9 : 8} className="py-10 text-center text-gray-400">
                     No transactions found
                   </td>
                 </tr>
               )}
-              {sorted.map(({ txn, debitName, creditName, amount }, idx) => (
+              {sorted.map(({ txn, debitName, creditName, amount, voucher, partyLeg, partyName, counterName, counterIsCashOrBank }, idx) => (
                 <tr
                   key={txn._id || idx}
                   className="border-t hover:bg-blue-50 transition-colors"
                 >
                   <td className="py-2 px-3 text-gray-400 text-xs">{txn.Transaction_id}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setDocRow({
+                        transaction: txn,
+                        entry: partyLeg,
+                        partyName,
+                        counterAccountName: counterName,
+                        counterIsCashOrBank,
+                      })}
+                      className="text-blue-600 font-semibold text-xs hover:underline"
+                      title={`View the ${voucher.label.toLowerCase()} shared with the party`}
+                    >
+                      {voucher.display || '—'}
+                    </button>
+                  </td>
                   <td className="py-2 px-3 whitespace-nowrap">{fmtDate(txn.Transaction_date)}</td>
                   <td className="py-2 px-3 max-w-[200px] truncate" title={txn.Description}>
                     {txn.Description || '—'}
@@ -350,10 +438,12 @@ export default function AllTransaction5() {
                   {isAdmin && (
                     <td className="py-2 px-3 text-center whitespace-nowrap">
                       <button
-                        className="text-blue-600 hover:underline text-xs mr-3"
+                        className="text-blue-600 hover:underline text-xs mr-3 disabled:opacity-50"
+                        disabled={loadingInvoiceFor === txn.Transaction_uuid}
                         onClick={() => openEdit(txn)}
+                        title={voucher.type === 'invoice' ? 'Edit this sale invoice' : 'Edit this entry'}
                       >
-                        Edit
+                        {loadingInvoiceFor === txn.Transaction_uuid ? 'Opening…' : 'Edit'}
                       </button>
                       <button
                         className="text-red-500 hover:underline text-xs"
@@ -377,6 +467,28 @@ export default function AllTransaction5() {
         onSave={saveEdit}
         initialData={editingTxn}
         accountOptions={accountOptions}
+      />
+
+      {/* ── Sale invoices open the full invoice editor ── */}
+      {invoiceEdit && (
+        <UpdateDelivery
+          mode="edit"
+          order={invoiceEdit.order}
+          invoiceTxn={invoiceEdit.transaction}
+          onClose={() => { setInvoiceEdit(null); refreshTransactions(); }}
+          onSaved={() => refreshTransactions()}
+        />
+      )}
+
+      {/* ── Invoice / voucher shared with the party ── */}
+      <TransactionDocumentModal
+        open={!!docRow}
+        onClose={() => setDocRow(null)}
+        transaction={docRow?.transaction}
+        entry={docRow?.entry}
+        partyName={docRow?.partyName || ''}
+        counterAccountName={docRow?.counterAccountName || ''}
+        counterIsCashOrBank={!!docRow?.counterIsCashOrBank}
       />
     </div>
   );

@@ -42,6 +42,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import axios from '../apiClient';
+import { getVoucherInfo } from '../utils/voucher';
 import { ROUTES } from '../constants/routes';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
@@ -299,7 +300,9 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
   const totalBankIn  = bankIn.reduce((s, r)  => s + (r.txn.Total_Debit  || 0), 0);
   const totalBankOut = bankOut.reduce((s, r) => s + (r.txn.Total_Credit || 0), 0);
 
-  const TxnTable = ({ rows, color, title }) => (
+  // `kind` is the direction of the section: money in is a receipt for the party,
+  // money out a payment. Both legs of every row here are cash or bank.
+  const TxnTable = ({ rows, color, title, kind = 'receipt' }) => (
     <Box sx={{ mb: 2 }}>
       <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
         <Typography variant="caption" fontWeight={700} color={color} sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -313,7 +316,8 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>#</TableCell>
+              <TableCell>Txn #</TableCell>
+              <TableCell>Voucher #</TableCell>
               <TableCell>Description</TableCell>
               <TableCell>Account</TableCell>
               <TableCell>Mode</TableCell>
@@ -324,6 +328,13 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
             {rows.map(({ txn, account }) => (
               <TableRow key={txn._id} hover>
                 <TableCell sx={{ color: 'text.disabled', fontSize: 11 }}>{txn.Transaction_id}</TableCell>
+                <TableCell sx={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  {getVoucherInfo({
+                    transaction: txn,
+                    entry: { Type: kind === 'receipt' ? 'Credit' : 'Debit' },
+                    counterIsCashOrBank: true,
+                  }).display || '—'}
+                </TableCell>
                 <TableCell>
                   <Typography variant="body2">{txn.Description}</Typography>
                 </TableCell>
@@ -372,10 +383,10 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
       {/* Cash sections side by side */}
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ mb: 2 }}>
         <Box sx={{ flex: 1 }}>
-          <TxnTable rows={cashIn}  title="Cash Receipts (IN)"  color="success.dark" />
+          <TxnTable rows={cashIn} kind="receipt"  title="Cash Receipts (IN)"  color="success.dark" />
         </Box>
         <Box sx={{ flex: 1 }}>
-          <TxnTable rows={cashOut} title="Cash Payments (OUT)" color="error.dark" />
+          <TxnTable rows={cashOut} kind="payment" title="Cash Payments (OUT)" color="error.dark" />
         </Box>
       </Stack>
 
@@ -388,12 +399,12 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
             {bankIn.length > 0 && (
               <Box sx={{ flex: 1 }}>
-                <TxnTable rows={bankIn} title="Bank Receipts (IN)" color="info.dark" />
+                <TxnTable rows={bankIn} kind="receipt" title="Bank Receipts (IN)" color="info.dark" />
               </Box>
             )}
             {bankOut.length > 0 && (
               <Box sx={{ flex: 1 }}>
-                <TxnTable rows={bankOut} title="Bank Receipts (OUT)" color="warning.dark" />
+                <TxnTable rows={bankOut} kind="payment" title="Bank Receipts (OUT)" color="warning.dark" />
               </Box>
             )}
           </Stack>

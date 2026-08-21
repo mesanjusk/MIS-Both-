@@ -12,6 +12,7 @@ import { saveAs } from 'file-saver';
 
 // NEW: reusable modal
 import TransactionEditModal from '../Components/TransactionEditModal';
+import TransactionDocumentModal from '../Components/TransactionDocumentModal';
 
 const AllTransaction3 = () => {
   const [transactions, setTransactions] = useState([]);
@@ -30,6 +31,9 @@ const AllTransaction3 = () => {
   // Edit modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTxn, setEditingTxn] = useState(null);
+
+  // Invoice / voucher viewer opened from the "No" column
+  const [docRow, setDocRow] = useState(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -93,6 +97,22 @@ const AllTransaction3 = () => {
 
   // Resolve any UUID to a display name (checks both customers and accounts)
   const lookupName = (id) => customerMap[id] || accountMap[id] || id || '';
+
+  // Accounts that represent money (cash / bank), used to tell a payment out from
+  // a charge raised on the party when labelling the voucher.
+  const cashOrBankUuids = useMemo(() => {
+    const set = new Set();
+    for (const acct of accounts) if (acct.Account_uuid) set.add(acct.Account_uuid);
+    for (const cust of customers) {
+      if (cust.Customer_group === 'Bank and Account') set.add(cust.Customer_uuid);
+    }
+    return set;
+  }, [accounts, customers]);
+
+  const customerMobile = useMemo(() => {
+    const cust = customers.find(c => c.Customer_uuid === customerUuid);
+    return cust?.Mobile_number || cust?.mobile || cust?.phone || '';
+  }, [customers, customerUuid]);
 
   const customerTransactions = useMemo(
     () =>
@@ -348,7 +368,7 @@ const AllTransaction3 = () => {
             <table className="min-w-full border-collapse">
               <thead className="bg-gray-200">
                 <tr>
-                  <th className="py-2 px-4">No</th>
+                  <th className="py-2 px-4" title="Click a number to view the invoice / voucher shared with the customer">No</th>
                   <th className="py-2 px-4 cursor-pointer" onClick={() => sortTable("Transaction_date")}>
                     Date {sortConfig.key === "Transaction_date" && (sortConfig.direction === "asc" ? "▲" : "▼")}
                   </th>
@@ -396,7 +416,21 @@ const AllTransaction3 = () => {
 
                         return (
                           <tr key={`${index}-${entryIndex}`} className="border-t hover:bg-gray-50">
-                            <td className="py-2 px-4">{transaction.Transaction_id}</td>
+                            <td className="py-2 px-4">
+                              <button
+                                type="button"
+                                onClick={() => setDocRow({
+                                  transaction,
+                                  entry,
+                                  counterAccountName: secondCustomerName,
+                                  counterIsCashOrBank: !!secondEntry && cashOrBankUuids.has(secondEntry.Account_id),
+                                })}
+                                className="text-blue-600 font-semibold hover:underline"
+                                title="View the invoice / voucher shared with the customer"
+                              >
+                                {transaction.Transaction_id}
+                              </button>
+                            </td>
                             <td className="py-2 px-4">{new Date(transaction.Transaction_date).toLocaleDateString()}</td>
                             <td className="py-2 px-4">{secondCustomerName}</td>
                             <td className="py-2 px-4">{transaction.Description}</td>
@@ -464,6 +498,18 @@ const AllTransaction3 = () => {
           };
         })() : null}
         accountOptions={accountOptions}
+      />
+
+      {/* Invoice / voucher shared with the customer for a ledger row */}
+      <TransactionDocumentModal
+        open={!!docRow}
+        onClose={() => setDocRow(null)}
+        transaction={docRow?.transaction}
+        entry={docRow?.entry}
+        partyName={customerName}
+        customerMobile={customerMobile}
+        counterAccountName={docRow?.counterAccountName || ''}
+        counterIsCashOrBank={!!docRow?.counterIsCashOrBank}
       />
 
       {showOrderModal && <AddOrder1 closeModal={closeModal} />}

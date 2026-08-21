@@ -10,7 +10,12 @@ const publicInvoiceSchema = new mongoose.Schema(
       index: true,
       default: () => crypto.randomBytes(6).toString('hex'),
     },
-    orderNumber: { type: String, default: '' },
+    // 'invoice'  → sale invoice built from an order
+    // 'receipt'  → money-received / money-paid voucher built from a ledger transaction
+    docType:     { type: String, enum: ['invoice', 'receipt'], default: 'invoice', index: true },
+    // 'receipt' (money in) | 'payment' (money out) | 'journal' — only used when docType === 'receipt'
+    voucherType: { type: String, default: '' },
+    orderNumber: { type: String, default: '', index: true },
     partyName:   { type: String, default: '' },
     dateStr:     { type: String, default: '' },
     // business profile snapshot at time of invoice
@@ -21,6 +26,12 @@ const publicInvoiceSchema = new mongoose.Schema(
     gst:    { type: String, default: '' },
     upiId:  { type: String, default: '' },
     upiName:{ type: String, default: '' },
+    // ledger transaction back-reference (receipt vouchers)
+    transactionUuid: { type: String, default: '', index: true },
+    transactionId:   { type: String, default: '' },
+    paymentMode:     { type: String, default: '' },
+    narration:       { type: String, default: '' },
+    amount:          { type: Number, default: 0 },
     // line items
     items: { type: mongoose.Schema.Types.Mixed, default: [] },
     extraCharges: { type: mongoose.Schema.Types.Mixed, default: [] },

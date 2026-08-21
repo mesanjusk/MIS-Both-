@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Alert, Box, CircularProgress, Container, Stack } from '@mui/material';
 import InvoicePreview from '../Components/InvoicePreview';
+import ReceiptVoucher from '../Components/ReceiptVoucher';
 import { getApiBase } from '../apiClient.js';
 
 export default function PublicInvoice() {
@@ -37,6 +38,28 @@ export default function PublicInvoice() {
       <Container maxWidth="xs" sx={{ py: 4 }}>
         <Alert severity="error">{error || 'Invoice not found'}</Alert>
       </Container>
+    );
+  }
+
+  if (inv.docType === 'receipt') {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5', py: 3 }}>
+        <ReceiptVoucher
+          store={inv.storeName}
+          addressLines={inv.addressLines || []}
+          phone={inv.phone}
+          email={inv.email}
+          gst={inv.gst}
+          voucherType={inv.voucherType}
+          voucherNo={inv.transactionId}
+          dateStr={inv.dateStr}
+          partyName={inv.partyName}
+          amount={inv.amount ?? inv.grandTotal}
+          paymentMode={inv.paymentMode}
+          narration={inv.narration}
+          orderNumber={inv.orderNumber}
+        />
+      </Box>
     );
   }
 

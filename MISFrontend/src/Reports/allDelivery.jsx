@@ -121,6 +121,9 @@ export default function AllDelivery() {
   // PO extra charges (for edit dialog)
   const [editPOExtraCharges, setEditPOExtraCharges] = useState([]);
 
+  // Remark opened from the narrow cell — the full text lives in a dialog
+  const [remarkOrder, setRemarkOrder] = useState(null);
+
   // Vendor mapping: every order needs a cost side, not just a customer bill
   const [assignVendorOrder, setAssignVendorOrder] = useState(null);
   const [showUnmappedOnly, setShowUnmappedOnly] = useState(false);
@@ -263,6 +266,33 @@ export default function AllDelivery() {
       setSelectedOrder((s) => (s ? { ...s, ...nextOrder } : s));
     }
   }, [hasBillableAmount, selectedOrder]);
+
+  // Older POs were created without a ledger posting (it only happened on the
+  // first edit), so their vendors never saw the bill. This posts the missing
+  // ones and refreshes the vendor ledger rows.
+  const [syncingLedger, setSyncingLedger] = useState(false);
+  const handleSyncVendorLedger = useCallback(async () => {
+    if (!window.confirm("Post the missing vendor bills for purchase orders that never reached the ledger?")) return;
+    setSyncingLedger(true);
+    try {
+      const res = await axios.post("/api/purchaseorder/backfill-postings");
+      const r = res.data?.result;
+      if (res.data?.success) {
+        toast.success(
+          r?.posted
+            ? `Posted ${r.posted} missing vendor bill${r.posted > 1 ? "s" : ""}`
+            : "Every purchase order was already posted"
+        );
+      } else {
+        toast.error(res.data?.message || "Could not sync the vendor ledger");
+      }
+    } catch (err) {
+      console.error("Ledger sync error:", err);
+      toast.error("Could not sync the vendor ledger");
+    } finally {
+      setSyncingLedger(false);
+    }
+  }, []);
 
   // Map a stray purchase order onto the customer order it paid for
   const handleLinkPO = useCallback(async () => {
@@ -1085,14 +1115,14 @@ export default function AllDelivery() {
                             onChange={handleSelectAll}
                           />
                         </TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 60 }}>#</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
-                        <TableCell sx={{ fontWeight: 700, width: 190 }} title="The vendor account this order's work is mapped to">
+                        <TableCell sx={{ fontWeight: 700, width: 46, px: 0.75 }}>#</TableCell>
+                        <TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 90, px: 0.75 }}>Remark</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 140, px: 0.75 }} title="The vendor account this order's work is mapped to">
                           Vendor
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Amount</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Action</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, width: 86, px: 0.75 }}>Amount</TableCell>
+                        <TableCell align="center" sx={{ fontWeight: 700, width: 44, px: 0.5 }}>·</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1111,93 +1141,115 @@ export default function AllDelivery() {
                                 onChange={() => handleSelectOrder(rowId)}
                               />
                             </TableCell>
-                            <TableCell>
-                              <Typography variant="body2" fontWeight={700}>#{o.Order_Number}</Typography>
+                            <TableCell sx={{ px: 0.75 }}>
+                              <Typography variant="caption" fontWeight={700}>#{o.Order_Number}</Typography>
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ px: 0.75 }}>
                               <Stack direction="row" spacing={0.5} alignItems="center">
-                                <Button
-                                  variant="text" size="small"
-                                  color={knownCustomer ? "primary" : "warning"}
-                                  onClick={() => handleOrderUpdateClick(o)}
-                                  sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
-                                >
-                                  {o.Customer_name}
-                                </Button>
+                                <Tooltip title={o.Customer_name}>
+                                  <Button
+                                    variant="text" size="small"
+                                    color={knownCustomer ? "primary" : "warning"}
+                                    onClick={() => handleOrderUpdateClick(o)}
+                                    sx={{
+                                      p: 0, fontWeight: 700, textTransform: "none", minWidth: 0,
+                                      fontSize: "0.78rem", maxWidth: 130,
+                                      display: "block", overflow: "hidden",
+                                      textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {o.Customer_name}
+                                  </Button>
+                                </Tooltip>
                                 {!knownCustomer && (
                                   <Tooltip title="This order is not mapped to a customer account — open it to set the customer">
                                     <Chip
-                                      size="small" color="warning" variant="outlined" label="No account"
-                                      sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700 }}
+                                      size="small" color="warning" variant="outlined" label="!"
+                                      sx={{ height: 16, width: 20, fontSize: "0.62rem", fontWeight: 700, "& .MuiChip-label": { px: 0 } }}
                                     />
                                   </Tooltip>
                                 )}
                               </Stack>
                             </TableCell>
-                            <TableCell>
-                              <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                {getFirstRemark(o) || "—"}
-                              </Typography>
+                            <TableCell sx={{ px: 0.75 }}>
+                              {getFirstRemark(o) ? (
+                                <Tooltip title="Click for the full details">
+                                  <Typography
+                                    variant="caption"
+                                    onClick={() => setRemarkOrder(o)}
+                                    sx={{
+                                      cursor: "pointer",
+                                      display: "block",
+                                      maxWidth: 90,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      textDecoration: "underline dotted",
+                                    }}
+                                  >
+                                    {getFirstRemark(o)}
+                                  </Typography>
+                                </Tooltip>
+                              ) : (
+                                <Typography variant="caption" color="text.disabled">—</Typography>
+                              )}
                             </TableCell>
-                            <TableCell>
+                            <TableCell sx={{ px: 0.75 }}>
                               {vendorLinks.mapped ? (
                                 <Tooltip
-                                  title={vendorLinks.links
+                                  title={`${vendorLinks.links
                                     .map((l) => `${l.vendorName} · ${money(l.amount)} (${l.ref})`)
-                                    .join(" · ")}
+                                    .join(" · ")} — click to add another vendor`}
                                 >
-                                  <Stack
-                                    direction="row" spacing={0.5} alignItems="center"
-                                    sx={{ cursor: "pointer" }}
-                                    onClick={() => setAssignVendorOrder(o)}
-                                  >
-                                    <Chip
-                                      size="small"
-                                      color="error"
-                                      variant="outlined"
-                                      label={
-                                        vendorLinks.vendorNames.length > 1
-                                          ? `${vendorLinks.vendorNames[0]} +${vendorLinks.vendorNames.length - 1}`
-                                          : vendorLinks.vendorNames[0]
-                                      }
-                                      sx={{ maxWidth: 130, fontWeight: 600 }}
-                                    />
+                                  <Box sx={{ cursor: "pointer" }} onClick={() => setAssignVendorOrder(o)}>
+                                    <Typography
+                                      variant="caption"
+                                      fontWeight={700}
+                                      sx={{
+                                        display: "block", maxWidth: 130, overflow: "hidden",
+                                        textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {vendorLinks.vendorNames[0]}
+                                      {vendorLinks.vendorNames.length > 1 && ` +${vendorLinks.vendorNames.length - 1}`}
+                                    </Typography>
                                     <Typography variant="caption" color="error.dark" fontWeight={700}>
                                       {money(vendorLinks.vendorCost)}
                                     </Typography>
-                                  </Stack>
+                                  </Box>
                                 </Tooltip>
                               ) : (
                                 <Button
                                   size="small"
                                   variant="outlined"
                                   color="warning"
-                                  startIcon={<StorefrontIcon fontSize="small" />}
                                   onClick={() => setAssignVendorOrder(o)}
-                                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.1, fontSize: "0.7rem" }}
+                                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0, px: 1, minWidth: 0, fontSize: "0.68rem" }}
                                 >
                                   Assign
                                 </Button>
                               )}
                             </TableCell>
-                            <TableCell align="right">
-                              <Typography variant="body2" fontWeight={700}>
+                            <TableCell align="right" sx={{ px: 0.75 }}>
+                              <Typography variant="caption" fontWeight={700} display="block">
                                 {o.totalAmount > 0 ? money(o.totalAmount) : "—"}
                               </Typography>
                               {vendorLinks.mapped && o.totalAmount > 0 && (
                                 <Typography
                                   variant="caption"
                                   display="block"
+                                  sx={{ fontSize: "0.65rem" }}
                                   color={o.totalAmount - vendorLinks.vendorCost >= 0 ? "success.dark" : "error.dark"}
                                 >
-                                  {money(o.totalAmount - vendorLinks.vendorCost)} net
+                                  {money(o.totalAmount - vendorLinks.vendorCost)}
                                 </Typography>
                               )}
                             </TableCell>
-                            <TableCell align="center">
+                            <TableCell align="center" sx={{ px: 0.5 }}>
                               <Tooltip title={hasItems ? "Edit Invoice" : "Create Invoice"}>
                                 <IconButton
                                   size="small"
+                                  sx={{ p: 0.4 }}
                                   color={hasItems ? "primary" : "success"}
                                   onClick={() => handleEditClick(o)}
                                 >
@@ -1244,8 +1296,22 @@ export default function AllDelivery() {
                       }
                       sx={{ m: 0 }}
                     />
+                    <Tooltip title="Post vendor bills for purchase orders that never reached the ledger">
+                      <span>
+                        <Button
+                          size="small"
+                          variant="text"
+                          color="error"
+                          disabled={syncingLedger}
+                          onClick={handleSyncVendorLedger}
+                          sx={{ textTransform: "none", fontSize: "0.68rem", minWidth: 0, px: 0.75 }}
+                        >
+                          {syncingLedger ? "Syncing…" : "Sync ledger"}
+                        </Button>
+                      </span>
+                    </Tooltip>
                     <Typography variant="subtitle2" fontWeight={700} color="error.dark">
-                      {money(filteredPOs.reduce((s, po) => s + Number(po.totalAmount || 0), 0))}
+                      {money(filteredPOs.reduce((s, po) => s + poTotal(po), 0))}
                     </Typography>
                   </Stack>
                 </Stack>
@@ -1310,15 +1376,15 @@ export default function AllDelivery() {
                               onChange={handlePOSelectAll}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 60 }}>PO #</TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 110 }} title="The customer order this cost belongs to">
+                          <TableCell sx={{ fontWeight: 700, width: 46, px: 0.75 }}>PO #</TableCell>
+                          <TableCell sx={{ fontWeight: 700, px: 0.75 }}>Vendor</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 78, px: 0.75 }} title="The customer order this cost belongs to">
                             Order
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
-                          <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
-                          <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Edit</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 90, px: 0.75 }}>Items</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 68, px: 0.75 }}>Date</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, width: 80, px: 0.75 }}>Total</TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 700, width: 44, px: 0.5 }}>·</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1341,23 +1407,34 @@ export default function AllDelivery() {
                                   onChange={() => handlePOSelect(poKey)}
                                 />
                               </TableCell>
-                              <TableCell>
-                                <Typography variant="body2" fontWeight={700}>#{po.PO_Number}</Typography>
+                              <TableCell sx={{ px: 0.75 }}>
+                                <Typography variant="caption" fontWeight={700}>#{po.PO_Number}</Typography>
                               </TableCell>
-                              <TableCell>
-                                <Typography variant="body2" fontWeight={600}>{po.Vendor_name || "—"}</Typography>
+                              <TableCell sx={{ px: 0.75 }}>
+                                <Tooltip title={po.Vendor_name || ""}>
+                                  <Typography
+                                    variant="caption"
+                                    fontWeight={700}
+                                    sx={{
+                                      display: "block", maxWidth: 130, overflow: "hidden",
+                                      textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {po.Vendor_name || "—"}
+                                  </Typography>
+                                </Tooltip>
                               </TableCell>
-                              <TableCell>
+                              <TableCell sx={{ px: 0.75 }}>
                                 {linkedOrder ? (
                                   <Tooltip title={`${linkedOrder.Customer_name} · ${money(linkedOrder.totalAmount)}`}>
                                     <Chip
                                       size="small"
                                       color="success"
                                       variant="outlined"
-                                      icon={<LinkIcon sx={{ fontSize: 14 }} />}
+                                      icon={<LinkIcon sx={{ fontSize: 12 }} />}
                                       label={`#${linkedOrder.Order_Number}`}
                                       onClick={() => handleOrderUpdateClick(linkedOrder)}
-                                      sx={{ fontWeight: 700 }}
+                                      sx={{ fontWeight: 700, height: 20, fontSize: "0.65rem" }}
                                     />
                                   </Tooltip>
                                 ) : po.Order_uuid ? (
@@ -1378,26 +1455,34 @@ export default function AllDelivery() {
                                   </Tooltip>
                                 )}
                               </TableCell>
-                              <TableCell>
-                                <Tooltip title={itemSummary}>
-                                  <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                              <TableCell sx={{ px: 0.75 }}>
+                                <Tooltip title={`${itemSummary} — click to open the PO`}>
+                                  <Typography
+                                    variant="caption"
+                                    onClick={() => handleEditPOClick(po)}
+                                    sx={{
+                                      cursor: "pointer", display: "block", maxWidth: 90,
+                                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                      textDecoration: "underline dotted",
+                                    }}
+                                  >
                                     {itemSummary}
                                   </Typography>
                                 </Tooltip>
                               </TableCell>
-                              <TableCell>
-                                <Typography variant="caption" color="text.secondary">
+                              <TableCell sx={{ px: 0.75 }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
                                   {fmtDate(po.poDate || po.createdAt)}
                                 </Typography>
                               </TableCell>
-                              <TableCell align="right">
-                                <Typography variant="body2" fontWeight={700} color="error.dark">
+                              <TableCell align="right" sx={{ px: 0.75 }}>
+                                <Typography variant="caption" fontWeight={700} color="error.dark">
                                   {poTotal(po) > 0 ? money(poTotal(po)) : "—"}
                                 </Typography>
                               </TableCell>
-                              <TableCell align="center">
+                              <TableCell align="center" sx={{ px: 0.5 }}>
                                 <Tooltip title="Edit PO">
-                                  <IconButton size="small" color="primary" onClick={() => handleEditPOClick(po)}>
+                                  <IconButton size="small" sx={{ p: 0.4 }} color="primary" onClick={() => handleEditPOClick(po)}>
                                     <EditIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
@@ -1415,6 +1500,95 @@ export default function AllDelivery() {
         </Box>
       </Box>
 
+      {/* Full order details behind the narrow remark cell */}
+      <Dialog open={!!remarkOrder} onClose={() => setRemarkOrder(null)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" fontWeight={800}>Order #{remarkOrder?.Order_Number}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {remarkOrder?.Customer_name} · {money(remarkOrder?.totalAmount || 0)} · {fmtDate(remarkOrder?.createdAt)}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            {Array.isArray(remarkOrder?.Items) && remarkOrder.Items.length > 0 ? (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Item</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 60 }}>Qty</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 80 }}>Rate</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Amount</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {remarkOrder.Items.map((it, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>{it.Item || "—"}</Typography>
+                        {it.Remark && (
+                          <Typography variant="caption" color="text.secondary">{it.Remark}</Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">{it.Quantity}</TableCell>
+                      <TableCell align="right">{money(it.Rate)}</TableCell>
+                      <TableCell align="right">{money(it.Amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                {remarkOrder?.orderNote || "No items on this order yet."}
+              </Typography>
+            )}
+
+            {remarkOrder && (() => {
+              const links = vendorLinksFor(remarkOrder);
+              return (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Vendor mapping</Typography>
+                  {links.mapped ? (
+                    <Stack sx={{ mt: 0.5 }} spacing={0.5}>
+                      {links.links.map((l, i) => (
+                        <Stack key={i} direction="row" justifyContent="space-between">
+                          <Typography variant="body2">{l.vendorName} <Typography component="span" variant="caption" color="text.secondary">({l.ref})</Typography></Typography>
+                          <Typography variant="body2" fontWeight={700} color="error.dark">{money(l.amount)}</Typography>
+                        </Stack>
+                      ))}
+                      <Divider />
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2" fontWeight={700}>Net</Typography>
+                        <Typography
+                          variant="body2" fontWeight={800}
+                          color={remarkOrder.totalAmount - links.vendorCost >= 0 ? "success.dark" : "error.dark"}
+                        >
+                          {money(remarkOrder.totalAmount - links.vendorCost)}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  ) : (
+                    <Alert severity="warning" sx={{ mt: 0.5, borderRadius: 2 }}>
+                      No vendor mapped to this order yet.
+                    </Alert>
+                  )}
+                </Box>
+              );
+            })()}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            onClick={() => { setAssignVendorOrder(remarkOrder); setRemarkOrder(null); }}
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            Assign vendor
+          </Button>
+          <Button onClick={() => setRemarkOrder(null)} variant="contained" sx={{ textTransform: "none" }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Map an order to the vendor that did the work */}
       <AssignVendorDialog
         open={!!assignVendorOrder}
@@ -1422,8 +1596,13 @@ export default function AllDelivery() {
         poIndex={poIndex}
         defaultDate={selectedDate}
         onClose={() => setAssignVendorOrder(null)}
-        onAssigned={async (po) => {
-          toast.success(`Order mapped to ${po?.Vendor_name || "vendor"}`);
+        onAssigned={async (created) => {
+          const names = (created || []).map((po) => po?.Vendor_name).filter(Boolean);
+          toast.success(
+            names.length > 1
+              ? `Order mapped to ${names.length} vendors`
+              : `Order mapped to ${names[0] || "vendor"}`
+          );
           await refreshPurchaseOrders();
         }}
       />

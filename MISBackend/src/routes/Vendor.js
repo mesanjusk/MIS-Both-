@@ -11,6 +11,7 @@ const Customers = require('../repositories/customer');
 const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whatsappAttendanceService');
 const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
+const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 
 function toNumber(value, fallback = 0) {
@@ -255,6 +256,32 @@ router.get('/masters', async (req, res) => {
     );
     res.json({ success: true, result });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/vendors/payable-parties
+// The money-out side of the party list: active Customers in the admin-kept
+// "Account Payable" group (vendors, freelancers, contractors, and any
+// in-house account registered the same way). This is what vendor pickers
+// show — vendor_masters is auto-populated and not safe to pick from.
+router.get('/payable-parties', async (_req, res) => {
+  try {
+    const parties = await Customers.find(
+      { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP },
+      { Customer_uuid: 1, Customer_name: 1, Mobile_number: 1 }
+    ).sort({ Customer_name: 1 }).lean();
+
+    res.json({
+      success: true,
+      result: parties.map((c) => ({
+        Vendor_uuid: c.Customer_uuid,
+        Vendor_name: c.Customer_name,
+        Mobile_number: c.Mobile_number || '',
+      })),
+    });
+  } catch (error) {
+    logger.error('Failed to list payable parties', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

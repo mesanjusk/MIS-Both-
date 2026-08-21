@@ -5,6 +5,10 @@ const unwrap = (response) => response?.data?.result ?? response?.data ?? [];
 export const addVendor = (payload) => axios.post('/api/vendors/addVendor', payload);
 
 export const fetchVendorMasters = async () => unwrap(await axios.get('/api/vendors/masters'));
+
+// Money-out parties: active customers in the admin-kept "Account Payable"
+// group. Vendor pickers use this, not vendor_masters, which is auto-populated.
+export const fetchPayableParties = async () => unwrap(await axios.get('/api/vendors/payable-parties'));
 export const createVendorMaster = async (payload) => unwrap(await axios.post('/api/vendors/masters', payload));
 export const updateVendorMaster = async (vendorUuid, payload) => unwrap(await axios.put(`/vendors/masters/${vendorUuid}`, payload));
 

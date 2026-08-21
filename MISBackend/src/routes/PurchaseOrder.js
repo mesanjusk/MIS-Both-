@@ -7,6 +7,9 @@ const PurchaseOrder = require('../repositories/purchaseOrder');
 const Transaction   = require('../repositories/transaction');
 const Accounts      = require('../repositories/accounts');
 const VendorMaster  = require('../repositories/vendorMaster');
+const VendorLedger  = require('../repositories/vendorLedger');
+const Customers     = require('../repositories/customer');
+const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 const { postBalancedTransaction, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
 const { updateBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
@@ -40,6 +43,23 @@ async function resolveVendorAccount(vendorName) {
 
   invalidateCache();
   return newId;
+}
+
+/**
+ * The party a purchase order is owed to. "Account Payable" is the real,
+ * admin-maintained Customer_group this business uses for vendors, freelancers
+ * and contractors, so a PO raised against one of those parties credits that
+ * party's own ledger — the same ledger the party's statement is built from.
+ * Legacy vendors that exist only in vendor_masters still fall back to a
+ * payable account resolved from the vendor's name.
+ */
+async function resolvePayableParty(vendorUuid) {
+  const uuid = String(vendorUuid || '').trim();
+  if (!uuid) return null;
+  return Customers.findOne(
+    { Customer_uuid: uuid, Customer_group: ACCOUNT_PAYABLE_GROUP },
+    { Customer_uuid: 1, Customer_name: 1 }
+  ).lean();
 }
 
 const toNumber = (value, fallback = 0) => {
@@ -89,7 +109,11 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
 
   if (total <= 0) return null;
 
-  const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
+  // Credit the payable party itself when the vendor is one, so the cost lands
+  // in that party's ledger rather than in a separate name-derived account.
+  const party = await resolvePayableParty(po.Vendor_uuid);
+  const vendorAccountId = party ? party.Customer_uuid : await resolveVendorAccount(po.Vendor_name);
+  const postedAt = txnDate ? new Date(txnDate) : (po.poDate ? new Date(po.poDate) : new Date());
   const existingTxn = await Transaction.findOne({ Source: txnSource });
 
   if (existingTxn) {
@@ -112,21 +136,61 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
     if (txnDate) existingTxn.Transaction_date = new Date(txnDate);
     await existingTxn.save();
     await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
+    await syncVendorLedgerEntry(po, { total, postedAt, transactionUuid: existingTxn.Transaction_uuid });
     return existingTxn;
   }
 
-  return postBalancedTransaction({
+  const posted = await postBalancedTransaction({
     amount:         total,
     debitAccount:   SYSTEM_ACCOUNTS.PURCHASE,
     creditAccount:  vendorAccountId,
     paymentMode:    'Journal',
     description:    `PO #${po.PO_Number} from ${po.Vendor_name}`,
     orderUuid:      po.Order_uuid || '',
-    transactionDate: txnDate ? new Date(txnDate) : undefined,
+    transactionDate: postedAt,
     createdBy,
     source:         txnSource,
     allowDuplicate: false,
   });
+
+  await syncVendorLedgerEntry(po, {
+    total,
+    postedAt,
+    transactionUuid: posted?.transaction?.Transaction_uuid || '',
+  });
+
+  return posted;
+}
+
+/**
+ * Mirror the PO into the vendor's own ledger, keyed by the PO so an edit
+ * updates the same row instead of stacking a second bill on the vendor.
+ */
+async function syncVendorLedgerEntry(po, { total, postedAt, transactionUuid = '' }) {
+  if (!po?.Vendor_uuid || !(total > 0)) return null;
+  try {
+    return await VendorLedger.findOneAndUpdate(
+      { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
+      {
+        $set: {
+          vendor_uuid:  String(po.Vendor_uuid),
+          vendor_name:  String(po.Vendor_name || ''),
+          date:         postedAt,
+          entry_type:   'material_bill',
+          order_uuid:   po.Order_uuid || '',
+          amount:       total,
+          dr_cr:        'cr',
+          narration:    `PO #${po.PO_Number}${po.Order_uuid ? ` for order ${po.Order_uuid}` : ''}`,
+          transaction_uuid: transactionUuid,
+        },
+        $setOnInsert: { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+  } catch (err) {
+    logger.error(`Vendor ledger sync failed for PO ${po.PO_uuid}: ${err.message}`);
+    return null;
+  }
 }
 
 /** Parse "DD.MM.YYYY" from a notes string into a UTC midnight Date. */
@@ -145,7 +209,12 @@ router.post('/create', async (req, res) => {
     const vendorUuid = String(req.body.Vendor_uuid || req.body.vendorUuid || '').trim();
     if (!vendorUuid) return res.status(400).json({ success: false, message: 'Vendor is required' });
 
-    const vendor = await VendorMaster.findOne({ Vendor_uuid: vendorUuid }).lean();
+    // The vendor may be an Account Payable party (the list the pickers show)
+    // or a legacy vendor_masters row.
+    const party  = await resolvePayableParty(vendorUuid);
+    const vendor = party
+      ? { Vendor_uuid: party.Customer_uuid, Vendor_name: party.Customer_name }
+      : await VendorMaster.findOne({ Vendor_uuid: vendorUuid }).lean();
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
     const items    = normalizeItems(req.body.Items || req.body.items || []);
@@ -247,6 +316,54 @@ const buildPoLookup = (id) => {
 };
 
 // GET /api/purchase-order/:id
+// POST /api/purchaseorder/backfill-postings
+// PO creation used to leave the ledger untouched until the PO's first edit, so
+// older purchase orders can be sitting on an order with no cost posted against
+// the vendor at all. This re-runs the posting for every PO that is missing one
+// (and refreshes its vendor ledger row), skipping the ones already posted.
+router.post('/backfill-postings', async (req, res) => {
+  try {
+    const dryRun = String(req.query.dryRun || req.body?.dryRun || '').toLowerCase() === 'true';
+    const pos = await PurchaseOrder.find({ status: { $ne: 'cancelled' } }).lean();
+
+    let posted = 0;
+    let skipped = 0;
+    let failed = 0;
+    const missing = [];
+
+    for (const po of pos) {
+      const extraTotal = (po.extraCharges || []).reduce((sum, c) => sum + toNumber(c.amount, 0), 0);
+      const total = toNumber(po.totalAmount, 0) + extraTotal;
+      if (total <= 0) { skipped += 1; continue; }
+
+      const existing = await Transaction.findOne({ Source: `business:purchase:${po.PO_uuid}` }).lean();
+      if (existing) { skipped += 1; continue; }
+
+      missing.push({ PO_Number: po.PO_Number, Vendor_name: po.Vendor_name, total });
+      if (dryRun) continue;
+
+      try {
+        await syncPurchasePosting(po, {
+          txnDate:   po.poDate || po.createdAt || null,
+          createdBy: req.user?.userName || 'backfill',
+        });
+        posted += 1;
+      } catch (err) {
+        failed += 1;
+        logger.error(`Backfill posting failed for PO ${po.PO_uuid}: ${err.message}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      result: { scanned: pos.length, posted, skipped, failed, dryRun, missing: missing.slice(0, 50) },
+    });
+  } catch (error) {
+    logger.error('PO backfill failed', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id)).lean();

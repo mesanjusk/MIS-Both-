@@ -6,6 +6,21 @@ const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
 const { AppSetting } = require('../repositories/appSetting');
 
+// Business profile snapshot stored on every shared document, so a link keeps
+// showing the letterhead that was in force when it was sent.
+async function loadProfileSnapshot() {
+  const profile = (await AppSetting.getSetting('business_profile', {})) || {};
+  return {
+    storeName:    profile.name || 'S.K. Digital',
+    addressLines: [profile.addressLine1, profile.addressLine2, profile.city].filter(Boolean),
+    phone:   profile.phone   || '',
+    email:   profile.email   || '',
+    gst:     profile.gst     || '',
+    upiId:   profile.upiId   || '',
+    upiName: profile.upiName || '',
+  };
+}
+
 // List all invoices (authenticated, paginated)
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -41,14 +56,7 @@ router.get('/', requireAuth, async (req, res) => {
 router.post('/migrate', requireAuth, async (req, res) => {
   try {
     // Fetch business profile snapshot
-    const profile = (await AppSetting.getSetting('business_profile', {})) || {};
-    const storeName    = profile.name        || 'S.K. Digital';
-    const addressLines = [profile.addressLine1, profile.addressLine2, profile.city].filter(Boolean);
-    const phone   = profile.phone   || '';
-    const email   = profile.email   || '';
-    const gst     = profile.gst     || '';
-    const upiId   = profile.upiId   || '';
-    const upiName = profile.upiName || '';
+    const { storeName, addressLines, phone, email, gst, upiId, upiName } = await loadProfileSnapshot();
 
     // Find orders that have at least one item with Amount > 0 (invoiced orders)
     const orders = await Orders.find({
@@ -72,7 +80,8 @@ router.post('/migrate', requireAuth, async (req, res) => {
 
     // Get already-migrated order numbers to avoid duplicates
     const existingNums = new Set(
-      (await PublicInvoice.find({}, { orderNumber: 1 }).lean()).map((d) => String(d.orderNumber))
+      (await PublicInvoice.find({ docType: { $ne: 'receipt' } }, { orderNumber: 1 }).lean())
+        .map((d) => String(d.orderNumber))
     );
 
     let migrated = 0;
@@ -98,6 +107,7 @@ router.post('/migrate', requireAuth, async (req, res) => {
         : new Date().toLocaleDateString('en-GB');
 
       docs.push({
+        docType:       'invoice',
         orderNumber:   num,
         partyName:     cust.Customer_name || order.Customer_uuid || 'Customer',
         dateStr,
@@ -136,13 +146,15 @@ router.post('/', requireAuth, async (req, res) => {
       items, extraCharges, grandTotal, cloudinaryUrl,
     } = req.body;
 
-    // Upsert: if same order number re-saved, update rather than duplicate
-    const filter = orderNumber ? { orderNumber: String(orderNumber) } : null;
+    // Upsert: if same order number re-saved, update rather than duplicate.
+    // docType is $ne-matched so legacy docs (saved before docType existed) still match.
+    const filter = orderNumber ? { orderNumber: String(orderNumber), docType: { $ne: 'receipt' } } : null;
     let doc;
     if (filter) {
       doc = await PublicInvoice.findOneAndUpdate(
         filter,
-        { orderNumber, partyName, dateStr, storeName, addressLines, phone, email, gst, upiId, upiName,
+        { docType: 'invoice',
+          orderNumber, partyName, dateStr, storeName, addressLines, phone, email, gst, upiId, upiName,
           items: items || [], extraCharges: extraCharges || [], grandTotal: grandTotal || 0,
           ...(cloudinaryUrl ? { cloudinaryUrl } : {}),
         },
@@ -150,6 +162,7 @@ router.post('/', requireAuth, async (req, res) => {
       );
     } else {
       doc = await PublicInvoice.create({
+        docType: 'invoice',
         orderNumber, partyName, dateStr, storeName, addressLines, phone, email, gst, upiId, upiName,
         items: items || [], extraCharges: extraCharges || [], grandTotal: grandTotal || 0,
         cloudinaryUrl: cloudinaryUrl || '',
@@ -171,6 +184,77 @@ router.patch('/:shareToken/pdf', requireAuth, async (req, res) => {
       { $set: { cloudinaryUrl } }
     );
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Look up the shared sale invoice for an order number (authenticated)
+router.get('/by-order/:orderNumber', requireAuth, async (req, res) => {
+  try {
+    const doc = await PublicInvoice.findOne({
+      orderNumber: String(req.params.orderNumber),
+      docType: { $ne: 'receipt' },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (!doc) return res.status(404).json({ success: false, message: 'Invoice not found for this order' });
+    res.json({ success: true, result: doc });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Look up the shared voucher for a ledger transaction (authenticated)
+router.get('/by-transaction/:transactionUuid', requireAuth, async (req, res) => {
+  try {
+    const doc = await PublicInvoice.findOne({
+      transactionUuid: String(req.params.transactionUuid),
+      docType: 'receipt',
+    }).lean();
+    if (!doc) return res.status(404).json({ success: false, message: 'Voucher not found for this transaction' });
+    res.json({ success: true, result: doc });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Create (or refresh) the shareable voucher for a receipt / payment transaction.
+// Idempotent per transaction so the same link keeps working after a re-open.
+router.post('/receipt', requireAuth, async (req, res) => {
+  try {
+    const {
+      transactionUuid, transactionId, orderNumber,
+      partyName, dateStr, amount, paymentMode, narration, voucherType,
+    } = req.body;
+
+    if (!transactionUuid) {
+      return res.status(400).json({ success: false, message: 'transactionUuid is required' });
+    }
+
+    const profile = await loadProfileSnapshot();
+    const doc = await PublicInvoice.findOneAndUpdate(
+      { transactionUuid: String(transactionUuid), docType: 'receipt' },
+      {
+        docType: 'receipt',
+        voucherType: ['receipt', 'payment', 'journal'].includes(voucherType) ? voucherType : 'receipt',
+        transactionUuid: String(transactionUuid),
+        transactionId:   transactionId != null ? String(transactionId) : '',
+        orderNumber:     orderNumber != null ? String(orderNumber) : '',
+        partyName:       partyName || '',
+        dateStr:         dateStr || new Date().toLocaleDateString('en-GB'),
+        amount:          Number(amount) || 0,
+        grandTotal:      Number(amount) || 0,
+        paymentMode:     paymentMode || '',
+        narration:       narration || '',
+        items: [],
+        extraCharges: [],
+        ...profile,
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ success: true, result: doc });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

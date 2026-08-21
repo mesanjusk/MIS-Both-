@@ -2,11 +2,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// yyyy-mm-dd (the date inputs) → dd/mm/yyyy for the printed statement
+const fmtDMY = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB');
+};
 import axios from '../apiClient.js';
 import { useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import AddOrder1 from "../Pages/addOrder1";
-import jsPDF from 'jspdf';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
@@ -14,6 +20,7 @@ import { saveAs } from 'file-saver';
 import TransactionEditModal from '../Components/TransactionEditModal';
 import TransactionDocumentModal from '../Components/TransactionDocumentModal';
 import UpdateDelivery from '../Pages/updateDelivery';
+import StatementModal from '../Components/StatementModal';
 import { getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
 
 const AllTransaction3 = () => {
@@ -40,6 +47,9 @@ const AllTransaction3 = () => {
 
   // Invoice / voucher viewer opened from the "No" column
   const [docRow, setDocRow] = useState(null);
+
+  // Full A4 account statement (preview → share / print / download)
+  const [showStatement, setShowStatement] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -196,6 +206,45 @@ const AllTransaction3 = () => {
     });
   }, [filteredTransactions, sortConfig, customerUuid, customerMap]);
 
+  // Every row shown in the ledger, with its running balance and voucher details.
+  // The table, the exports and the shared statement all read from this list so
+  // they can never drift apart.
+  const ledgerRows = useMemo(() => {
+    let running = openingBalance;
+    const out = [];
+
+    for (const transaction of sortedCustomerTransactions) {
+      const legs = transaction.Journal_entry || [];
+      const counterEntry = legs.find(e => e.Account_id !== customerUuid);
+      const counterName = counterEntry
+        ? ((counterEntry.Account_name && !UUID_RE.test(counterEntry.Account_name))
+            ? counterEntry.Account_name
+            : (lookupName(counterEntry.Account_id) || 'N/A'))
+        : 'N/A';
+      const counterIsCashOrBank = !!counterEntry && cashOrBankUuids.has(counterEntry.Account_id);
+
+      for (const entry of legs.filter(e => e.Account_id === customerUuid)) {
+        const debit  = entry.Type === 'Debit'  ? (entry.Amount || 0) : 0;
+        const credit = entry.Type === 'Credit' ? (entry.Amount || 0) : 0;
+        running += debit - credit;
+
+        out.push({
+          transaction,
+          entry,
+          counterName,
+          counterIsCashOrBank,
+          voucher: getVoucherInfo({ transaction, entry, counterIsCashOrBank }),
+          debit,
+          credit,
+          balance: running,
+        });
+      }
+    }
+
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedCustomerTransactions, openingBalance, customerUuid, cashOrBankUuids, customerMap, accountMap]);
+
   const calculateTotals = () => {
     const totals = filteredTransactions.reduce(
       (acc, transaction) => {
@@ -220,52 +269,60 @@ const AllTransaction3 = () => {
     setSortConfig({ key, direction });
   };
 
-  // Voucher details for one ledger row, shared by the table and the exports.
-  const voucherFor = (transaction, entry) => {
-    const counterEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
-    return getVoucherInfo({
-      transaction,
-      entry,
-      counterIsCashOrBank: !!counterEntry && cashOrBankUuids.has(counterEntry.Account_id),
-    });
-  };
-
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    doc.text(`Transactions for ${customerName}`, 10, 10);
-    let y = 20;
-    sortedCustomerTransactions.forEach((t) => {
-      (t.Journal_entry || []).filter(e => e.Account_id === customerUuid).forEach(e => {
-        const voucher = voucherFor(t, e);
-        doc.text(
-          `${t.Transaction_id ?? ''} | ${voucher.display || '-'} | ${t.Description || ''} - ${e.Type}: ₹${e.Amount}`,
-          10,
-          y
-        );
-        y += 10;
-      });
-    });
-    doc.save('transactions.pdf');
-  };
+  // The statement the PDF renders and the share link serves: the period, the
+  // letterhead totals and every row on screen.
+  const statementPayload = useMemo(() => ({
+    partyUuid: customerUuid,
+    partyName: customerName,
+    periodFrom: fmtDMY(startDate),
+    periodTo: fmtDMY(endDate),
+    generatedOn: new Date().toLocaleDateString('en-GB'),
+    openingBalance,
+    totalDebit: totals.debit,
+    totalCredit: totals.credit,
+    closingBalance: totals.total,
+    rows: ledgerRows.map(row => ({
+      txnNo:       row.transaction.Transaction_id ?? '',
+      voucherNo:   row.voucher.display,
+      voucherType: row.voucher.label,
+      dateStr:     new Date(row.transaction.Transaction_date).toLocaleDateString('en-GB'),
+      particulars: row.counterName,
+      description: row.transaction.Description || '',
+      debit:       row.debit,
+      credit:      row.credit,
+      balance:     row.balance,
+    })),
+  }), [
+    customerUuid, customerName, startDate, endDate,
+    openingBalance, totals.debit, totals.credit, totals.total, ledgerRows,
+  ]);
 
   const handleExportExcel = () => {
-    const rows = [];
-    sortedCustomerTransactions.forEach(transaction => {
-      (transaction.Journal_entry || [])
-        .filter(entry => entry.Account_id === customerUuid)
-        .forEach(entry => {
-          const voucher = voucherFor(transaction, entry);
-          rows.push({
-            TransactionNo: transaction.Transaction_id,
-            VoucherNo: voucher.display,
-            VoucherType: voucher.label,
-            Date: new Date(transaction.Transaction_date).toLocaleDateString(),
-            Description: transaction.Description,
-            Type: entry.Type,
-            Amount: entry.Amount,
-          });
-        });
-    });
+    const rows = [
+      {
+        TransactionNo: '', VoucherNo: '', VoucherType: '', Date: '',
+        Name: 'Opening Balance', Description: '', Debit: '', Credit: '',
+        Balance: Number(openingBalance.toFixed(2)),
+      },
+      ...ledgerRows.map(row => ({
+        TransactionNo: row.transaction.Transaction_id,
+        VoucherNo:     row.voucher.display,
+        VoucherType:   row.voucher.label,
+        Date:          new Date(row.transaction.Transaction_date).toLocaleDateString(),
+        Name:          row.counterName,
+        Description:   row.transaction.Description,
+        Debit:         row.debit || '',
+        Credit:        row.credit || '',
+        Balance:       Number(row.balance.toFixed(2)),
+      })),
+      {
+        TransactionNo: '', VoucherNo: '', VoucherType: '', Date: '',
+        Name: 'Closing Balance', Description: '',
+        Debit: Number(totals.debit.toFixed(2)),
+        Credit: Number(totals.credit.toFixed(2)),
+        Balance: Number(totals.total.toFixed(2)),
+      },
+    ];
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -392,7 +449,13 @@ const AllTransaction3 = () => {
             </h2>
           </div>
           <div className="space-x-2">
-            <button onClick={handleExportPDF} className="px-4 py-1 bg-red-500 text-white rounded">PDF</button>
+            <button
+              onClick={() => setShowStatement(true)}
+              className="px-4 py-1 bg-red-500 text-white rounded"
+              title="Preview, share or download the full A4 account statement"
+            >
+              Statement PDF
+            </button>
             <button onClick={handleExportExcel} className="px-4 py-1 bg-blue-600 text-white rounded">Excel</button>
           </div>
         </div>
@@ -461,75 +524,57 @@ const AllTransaction3 = () => {
                   {userRole === 'Admin User' && <td className="py-2 px-4" />}
                 </tr>
 
-                {(() => {
-                  let runningBalance = openingBalance;
-                  return sortedCustomerTransactions.flatMap((transaction, index) =>
-                    (transaction.Journal_entry || [])
-                      .filter(entry => entry.Account_id === customerUuid)
-                      .map((entry, entryIndex) => {
-                        if (entry.Type === 'Debit') runningBalance += entry.Amount || 0;
-                        if (entry.Type === 'Credit') runningBalance -= entry.Amount || 0;
+                {ledgerRows.map((row, index) => {
+                  const { transaction, entry, counterName, counterIsCashOrBank, voucher } = row;
+                  return (
+                    <tr key={`${transaction.Transaction_uuid || transaction.Transaction_id}-${index}`} className="border-t hover:bg-gray-50">
+                      <td className="py-2 px-4">{transaction.Transaction_id}</td>
+                      <td className="py-2 px-4">
+                        <button
+                          type="button"
+                          onClick={() => setDocRow({
+                            transaction,
+                            entry,
+                            counterAccountName: counterName,
+                            counterIsCashOrBank,
+                          })}
+                          className="text-blue-600 font-semibold hover:underline"
+                          title={`View the ${voucher.label.toLowerCase()} shared with the customer`}
+                        >
+                          {voucher.display || '—'}
+                        </button>
+                      </td>
+                      <td className="py-2 px-4">{new Date(transaction.Transaction_date).toLocaleDateString()}</td>
+                      <td className="py-2 px-4">{counterName}</td>
+                      <td className="py-2 px-4">{transaction.Description}</td>
+                      <td className="py-2 px-4">{row.debit || ''}</td>
+                      <td className="py-2 px-4">{row.credit || ''}</td>
+                      <td className={`py-2 px-4 ${row.balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        {row.balance.toFixed(2)}
+                      </td>
 
-                        const secondEntry = (transaction.Journal_entry || []).find(e => e.Account_id !== customerUuid);
-                        const secondCustomerName = secondEntry
-                          ? ((secondEntry.Account_name && !UUID_RE.test(secondEntry.Account_name))
-                              ? secondEntry.Account_name
-                              : (lookupName(secondEntry.Account_id) || 'N/A'))
-                          : 'N/A';
-                        const counterIsCashOrBank = !!secondEntry && cashOrBankUuids.has(secondEntry.Account_id);
-                        const voucher = getVoucherInfo({ transaction, entry, counterIsCashOrBank });
-
-                        return (
-                          <tr key={`${index}-${entryIndex}`} className="border-t hover:bg-gray-50">
-                            <td className="py-2 px-4">{transaction.Transaction_id}</td>
-                            <td className="py-2 px-4">
-                              <button
-                                type="button"
-                                onClick={() => setDocRow({
-                                  transaction,
-                                  entry,
-                                  counterAccountName: secondCustomerName,
-                                  counterIsCashOrBank,
-                                })}
-                                className="text-blue-600 font-semibold hover:underline"
-                                title={`View the ${voucher.label.toLowerCase()} shared with the customer`}
-                              >
-                                {voucher.display || '—'}
-                              </button>
-                            </td>
-                            <td className="py-2 px-4">{new Date(transaction.Transaction_date).toLocaleDateString()}</td>
-                            <td className="py-2 px-4">{secondCustomerName}</td>
-                            <td className="py-2 px-4">{transaction.Description}</td>
-                            <td className="py-2 px-4">{entry.Type === 'Debit' ? entry.Amount : ''}</td>
-                            <td className="py-2 px-4">{entry.Type === 'Credit' ? entry.Amount : ''}</td>
-                            <td className={`py-2 px-4 ${runningBalance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                              {runningBalance.toFixed(2)}
-                            </td>
-
-                            {/* Admin-only actions per transaction (edit/delete) */}
-                            {userRole === 'Admin User' && (
-                              <td className="py-2 px-4 text-center whitespace-nowrap">
-                                <button
-                                  className="text-blue-600 hover:underline mr-3 disabled:opacity-50"
-                                  disabled={loadingInvoiceFor === transaction.Transaction_uuid}
-                                  onClick={() => openEdit(transaction)}
-                                  title={voucher.type === 'invoice' ? 'Edit this sale invoice' : 'Edit this entry'}
-                                >
-                                  {loadingInvoiceFor === transaction.Transaction_uuid ? 'Opening…' : 'Edit'}
-                                </button>
-                                <button
-                                  className="text-red-600 hover:underline"
-                                  onClick={() => handleDelete(transaction)}
-                                >
-                                  Delete
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })
+                      {/* Admin-only actions per transaction (edit/delete) */}
+                      {userRole === 'Admin User' && (
+                        <td className="py-2 px-4 text-center whitespace-nowrap">
+                          <button
+                            className="text-blue-600 hover:underline mr-3 disabled:opacity-50"
+                            disabled={loadingInvoiceFor === transaction.Transaction_uuid}
+                            onClick={() => openEdit(transaction)}
+                            title={voucher.type === 'invoice' ? 'Edit this sale invoice' : 'Edit this entry'}
+                          >
+                            {loadingInvoiceFor === transaction.Transaction_uuid ? 'Opening…' : 'Edit'}
+                          </button>
+                          <button
+                            className="text-red-600 hover:underline"
+                            onClick={() => handleDelete(transaction)}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
+                    </tr>
                   );
-                })()}
+                })}
 
                 <tr className="bg-blue-100 font-semibold">
                   <td className="py-2 px-4" />
@@ -591,6 +636,14 @@ const AllTransaction3 = () => {
           onSaved={() => refreshTransactions()}
         />
       )}
+
+      {/* Full A4 account statement — shareable exactly like an invoice */}
+      <StatementModal
+        open={showStatement}
+        onClose={() => setShowStatement(false)}
+        statement={statementPayload}
+        partyMobile={customerMobile}
+      />
 
       {showOrderModal && <AddOrder1 closeModal={closeModal} />}
     </>

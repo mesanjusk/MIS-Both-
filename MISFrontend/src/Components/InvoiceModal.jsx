@@ -59,6 +59,8 @@ export default function InvoiceModal({
   customerMobile = "",
   onWhatsApp,
   onReady,
+  // Re-issuing an existing invoice keeps its original date; a new one is dated today.
+  dateStr: dateStrProp = "",
 }) {
   const previewRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -68,7 +70,10 @@ export default function InvoiceModal({
   const [profile, setProfile] = useState(DEFAULT_PROFILE);
   const [copied, setCopied] = useState(false);
 
-  const dateStr = useMemo(() => new Date().toLocaleDateString("en-GB"), [open, orderNumber]);
+  const dateStr = useMemo(
+    () => dateStrProp || new Date().toLocaleDateString("en-GB"),
+    [open, orderNumber, dateStrProp]
+  );
 
   // Fetch business profile once per open
   useEffect(() => {

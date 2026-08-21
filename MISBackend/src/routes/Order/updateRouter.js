@@ -155,12 +155,13 @@ router.put("/updateOrder/:id", async (req, res) => {
 /* ----------------------- UPDATE DELIVERY (Items only) ----------------------- */
 router.put("/updateDelivery/:id", async (req, res) => {
   const { id } = req.params;
-  const { Customer_uuid, Items, invoiceTxnUuid, invoiceTxnId } = req.body;
+  const { Customer_uuid, Items, extraCharges, invoiceTxnUuid, invoiceTxnId } = req.body;
   try {
     const isObjectId = mongoose.isValidObjectId(id);
     const filter = isObjectId ? { _id: id } : { Order_uuid: id };
     const incoming = normalizeItems(Items || []);
-    if (!Customer_uuid && incoming.length === 0 && !invoiceTxnUuid) {
+    const hasCharges = Array.isArray(extraCharges);
+    if (!Customer_uuid && incoming.length === 0 && !invoiceTxnUuid && !hasCharges) {
       return res.status(400).json({ success: false, message: "Nothing to update" });
     }
     const update = {};
@@ -169,6 +170,12 @@ router.put("/updateDelivery/:id", async (req, res) => {
     if (invoiceTxnUuid) setFields.invoiceTxnUuid = String(invoiceTxnUuid);
     if (invoiceTxnId != null) setFields.invoiceTxnId = Number(invoiceTxnId);
     if (incoming.length > 0) setFields.Items = incoming;
+    // An empty array is meaningful here: it clears charges removed on the invoice.
+    if (hasCharges) {
+      setFields.extraCharges = extraCharges
+        .filter((c) => c && String(c.label || "").trim() && Number(c.amount) > 0)
+        .map((c) => ({ label: String(c.label).trim(), amount: Number(c.amount) }));
+    }
     if (Object.keys(setFields).length) update.$set = setFields;
     const result = await Orders.updateOne(filter, update, { runValidators: false });
     if (result.matchedCount === 0) {

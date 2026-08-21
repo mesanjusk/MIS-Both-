@@ -10,6 +10,7 @@ import axios from "../apiClient.js";
 import Select from "react-select";
 import toast from "react-hot-toast";
 import normalizeWhatsAppNumber from "../utils/normalizeNumber";
+import { isSalesInvoiceTransaction } from "../utils/voucher";
 import { LoadingSpinner } from "../Components";
 
 const InvoiceModal = lazy(() => import("../Components/InvoiceModal"));
@@ -79,6 +80,10 @@ export default function UpdateDelivery({
   mode = "edit",
   onOrderPatched = () => {},
   onOrderReplaced = () => {},
+  // The sale-invoice posting this editor was opened on (ledger "Edit" flow).
+  // When given, that posting is the one updated instead of looking one up.
+  invoiceTxn = null,
+  onSaved = () => {},
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -257,7 +262,14 @@ export default function UpdateDelivery({
           Remark: i.Remark || "",
         }));
 
-        const totalAmount = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
+        const validCharges = extraCharges
+          .filter((c) => c.label?.trim() && Number(c.amount) > 0)
+          .map((c) => ({ label: String(c.label).trim(), amount: Number(c.amount) }));
+
+        // The ledger must carry what the invoice shows, extra charges included.
+        const itemsTotal = +itemLines.reduce((s, i) => s + (Number(i.Amount) || 0), 0).toFixed(2);
+        const chargesTotal = +validCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0).toFixed(2);
+        const totalAmount = +(itemsTotal + chargesTotal).toFixed(2);
         const resolvedName = customerMap[Customer_uuid] || Customer_name || Customer_uuid;
         const orderUuid = order.Order_uuid || null;
 
@@ -265,36 +277,41 @@ export default function UpdateDelivery({
         let invoiceTxnUuid = null;
         let invoiceTxnId = null;
         try {
+          // Reuse the posting this editor was opened on; otherwise find the one
+          // already raised for the order so an edit updates the ledger row
+          // instead of posting a second sale.
+          let existingInvoice = invoiceTxn || null;
+          if (!existingInvoice && orderUuid) {
+            const existing = await axios.get(`/api/transaction`, { params: { orderUuid, limit: 5 } });
+            existingInvoice = (existing?.data?.result || []).find(
+              (t) => t.Source === "invoice" || isSalesInvoiceTransaction(t)
+            ) || null;
+          }
+
           const journal = [
             { Account_id: Customer_uuid, Account_name: resolvedName, Type: "Debit",  Amount: totalAmount },
             { Account_id: "Sales",       Account_name: "Sales",       Type: "Credit", Amount: totalAmount },
           ];
           const txnPayload = {
             Description:      resolvedName,
-            Order_uuid:       orderUuid,
-            Order_number:     order.Order_Number || null,
-            Transaction_date: new Date().toISOString(),
+            Order_uuid:       orderUuid || existingInvoice?.Order_uuid || null,
+            Order_number:     order.Order_Number || existingInvoice?.Order_number || null,
+            // Keep the original invoice date on an edit; only a new invoice is dated today.
+            Transaction_date: existingInvoice?.Transaction_date
+              ? new Date(existingInvoice.Transaction_date).toISOString()
+              : new Date().toISOString(),
             Total_Credit:     totalAmount,
             Total_Debit:      totalAmount,
             Payment_mode:     Customer_uuid,
             Journal_entry:    journal,
-            Created_by:       loggedInUser,
+            Created_by:       existingInvoice?.Created_by || loggedInUser,
             Customer_uuid:    Customer_uuid || null,
-            Source:           "invoice",
+            Source:           existingInvoice?.Source || "invoice",
           };
 
-          let txnRes;
-          if (orderUuid) {
-            const existing = await axios.get(`/api/transaction`, { params: { orderUuid, limit: 5 } });
-            const existingInvoice = (existing?.data?.result || []).find((t) => t.Source === "invoice");
-            if (existingInvoice) {
-              txnRes = await axios.put(`/api/transaction/${existingInvoice.Transaction_uuid}`, txnPayload);
-            } else {
-              txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
-            }
-          } else {
-            txnRes = await axios.post(`/api/transaction/addTransaction`, txnPayload);
-          }
+          const txnRes = existingInvoice?.Transaction_uuid
+            ? await axios.put(`/api/transaction/${existingInvoice.Transaction_uuid}`, txnPayload)
+            : await axios.post(`/api/transaction/addTransaction`, txnPayload);
 
           if (txnRes?.data?.success) {
             invoiceTxnUuid = txnRes.data.result?.Transaction_uuid || null;
@@ -310,7 +327,6 @@ export default function UpdateDelivery({
         }
 
         // ── Step 2: update order with items + transaction back-reference ──
-        const validCharges = extraCharges.filter((c) => c.label?.trim() && Number(c.amount) > 0);
         const orderPayload = {
           Customer_uuid,
           Items: itemLines,
@@ -331,6 +347,16 @@ export default function UpdateDelivery({
           Customer_uuid,
           Customer_name: resolvedName,
           ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
+        });
+
+        onSaved({
+          Order_uuid: order.Order_uuid || null,
+          Order_Number: order.Order_Number || null,
+          Items: itemLines,
+          extraCharges: validCharges,
+          totalAmount,
+          invoiceTxnUuid,
+          invoiceTxnId,
         });
 
         toast.success("Order saved");
@@ -585,6 +611,11 @@ export default function UpdateDelivery({
           open={showInvoiceModal}
           onClose={() => setShowInvoiceModal(false)}
           orderNumber={order.Order_Number}
+          dateStr={
+            invoiceTxn?.Transaction_date
+              ? new Date(invoiceTxn.Transaction_date).toLocaleDateString("en-GB")
+              : ""
+          }
           partyName={customerMap[Customer_uuid] || Customer_name}
           items={items}
           extraCharges={extraCharges}

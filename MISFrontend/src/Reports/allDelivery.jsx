@@ -9,6 +9,8 @@ import * as XLSX from "xlsx";
 
 import UpdateDelivery from "../Pages/updateDelivery";
 import OrderUpdate from "../Pages/OrderUpdate";
+import AssignVendorDialog from "../Components/AssignVendorDialog";
+import { buildPoIndex, collectVendorLinks, poTotal, summarizeMapping } from "../utils/vendorMapping";
 
 import {
   Alert,
@@ -57,6 +59,8 @@ import EventIcon from "@mui/icons-material/Event";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import LinkIcon from "@mui/icons-material/Link";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
 
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -117,6 +121,13 @@ export default function AllDelivery() {
   // PO extra charges (for edit dialog)
   const [editPOExtraCharges, setEditPOExtraCharges] = useState([]);
 
+  // Vendor mapping: every order needs a cost side, not just a customer bill
+  const [assignVendorOrder, setAssignVendorOrder] = useState(null);
+  const [showUnmappedOnly, setShowUnmappedOnly] = useState(false);
+  const [linkPO, setLinkPO] = useState(null);          // PO being linked to an order
+  const [linkOrderUuid, setLinkOrderUuid] = useState("");
+  const [linkingPO, setLinkingPO] = useState(false);
+
   const hasBillableAmount = useCallback(
     (items) => Array.isArray(items) && items.some((it) => Number(it?.Amount) > 0),
     []
@@ -176,6 +187,18 @@ export default function AllDelivery() {
     })();
     return () => { isMounted = false; };
   }, []);
+
+  const refreshPurchaseOrders = useCallback(async () => {
+    try {
+      const res = await axios.get("/api/purchaseorder/list");
+      setPurchaseOrders(res.data?.result ?? []);
+    } catch (err) {
+      console.error("PO refresh error:", err?.message || err);
+    }
+  }, []);
+
+  // Every PO that was raised for an order, keyed by that order
+  const poIndex = useMemo(() => buildPoIndex(purchaseOrders), [purchaseOrders]);
 
   // POs filtered by toggle and by the sidebar's selected date (uses poDate, falls back to createdAt)
   const filteredPOs = useMemo(() => {
@@ -241,6 +264,31 @@ export default function AllDelivery() {
     }
   }, [hasBillableAmount, selectedOrder]);
 
+  // Map a stray purchase order onto the customer order it paid for
+  const handleLinkPO = useCallback(async () => {
+    if (!linkPO || !linkOrderUuid) return;
+    setLinkingPO(true);
+    try {
+      const id = linkPO.PO_uuid || linkPO._id;
+      const res = await axios.put(`/api/purchaseorder/${id}`, { Order_uuid: linkOrderUuid });
+      if (res.data?.success) {
+        setPurchaseOrders((prev) =>
+          prev.map((po) => ((po.PO_uuid || po._id) === id ? { ...po, Order_uuid: linkOrderUuid } : po))
+        );
+        toast.success("Purchase order linked to the customer order");
+        setLinkPO(null);
+        setLinkOrderUuid("");
+      } else {
+        toast.error(res.data?.message || "Could not link the purchase order");
+      }
+    } catch (err) {
+      console.error("Link PO error:", err);
+      toast.error("Could not link the purchase order");
+    } finally {
+      setLinkingPO(false);
+    }
+  }, [linkPO, linkOrderUuid]);
+
   // Enrich orders with computed fields
   const enriched = useMemo(() =>
     orders.map((o) => ({
@@ -277,13 +325,32 @@ export default function AllDelivery() {
     return filteredOrders.filter((o) => o.orderDate === selectedDate);
   }, [filteredOrders, selectedDate]);
 
-  // Orders shown in the Deliveries to Customers table (respects showEmptyItems + showOnly99 toggles)
+  // Vendor mapping for the day: which orders have a cost side and which don't
+  const mapping = useMemo(
+    () => summarizeMapping(dateOrders, poIndex),
+    [dateOrders, poIndex]
+  );
+
+  // Per-order vendor links, so the table and the exports read the same thing
+  const vendorLinksByOrder = useMemo(() => {
+    const map = new Map();
+    for (const o of dateOrders) map.set(o.Order_uuid || o._id, collectVendorLinks(o, poIndex));
+    return map;
+  }, [dateOrders, poIndex]);
+
+  const vendorLinksFor = useCallback(
+    (o) => vendorLinksByOrder.get(o.Order_uuid || o._id) || { links: [], vendorCost: 0, vendorNames: [], mapped: false },
+    [vendorLinksByOrder]
+  );
+
+  // Orders shown in the Deliveries to Customers table (respects showEmptyItems + showOnly99 + unmapped toggles)
   const deliveryTableOrders = useMemo(() => {
     let rows = dateOrders;
     if (showEmptyItems) rows = rows.filter((o) => !hasBillableAmount(o.Items));
     if (showOnly99) rows = rows.filter((o) => o.totalAmount === 99);
+    if (showUnmappedOnly) rows = rows.filter((o) => !vendorLinksFor(o).mapped);
     return rows;
-  }, [dateOrders, showEmptyItems, showOnly99, hasBillableAmount]);
+  }, [dateOrders, showEmptyItems, showOnly99, showUnmappedOnly, hasBillableAmount, vendorLinksFor]);
 
   // Count of orders with amount exactly ₹99 (from all date-filtered orders)
   const ninety9Count = useMemo(
@@ -300,7 +367,8 @@ export default function AllDelivery() {
   // Summary stats
   const stats = useMemo(() => {
     const deliveryValue = dateOrders.reduce((s, o) => s + o.totalAmount, 0);
-    const vendorCost = filteredPOs.reduce((s, po) => s + Number(po.totalAmount || 0), 0);
+    // Cost of the POs listed beside the deliveries, whichever order they belong to
+    const vendorCost = filteredPOs.reduce((s, po) => s + poTotal(po), 0);
     return {
       orderCount: dateOrders.length,
       deliveryValue,
@@ -487,16 +555,28 @@ export default function AllDelivery() {
     doc.text("Delivery Report", 14, 15);
     doc.setFontSize(10);
     doc.text(`Date: ${selectedDate ? fmtDate(selectedDate) : "All Dates"}`, 14, 22);
+    doc.text(
+      `Vendor mapped: ${mapping.mapped}/${mapping.total}` +
+        (mapping.unmapped ? `  ·  ${mapping.unmapped} without a vendor` : ""),
+      14,
+      27
+    );
     doc.autoTable({
-      head: [["#", "Customer", "Remark", "Amount", "Date"]],
-      body: dateOrders.map((o) => [
-        o.Order_Number || "",
-        o.Customer_name || "",
-        getFirstRemark(o) || "",
-        money(o.totalAmount),
-        fmtDate(o.createdAt),
-      ]),
-      startY: 27,
+      head: [["#", "Customer", "Remark", "Vendor", "Cost", "Amount", "Net", "Date"]],
+      body: dateOrders.map((o) => {
+        const v = vendorLinksFor(o);
+        return [
+          o.Order_Number || "",
+          o.Customer_name || "",
+          getFirstRemark(o) || "",
+          v.mapped ? v.vendorNames.join(", ") : "— not mapped —",
+          v.mapped ? money(v.vendorCost) : "",
+          money(o.totalAmount),
+          v.mapped ? money(o.totalAmount - v.vendorCost) : "",
+          fmtDate(o.createdAt),
+        ];
+      }),
+      startY: 32,
       styles: { fontSize: 9 },
       headStyles: { fillColor: [34, 139, 34] },
     });
@@ -505,14 +585,18 @@ export default function AllDelivery() {
       doc.setFontSize(14);
       doc.text("Purchase Orders", 14, 15);
       doc.autoTable({
-        head: [["PO #", "Vendor", "Items", "Total", "Date"]],
-        body: filteredPOs.map((po) => [
-          po.PO_Number,
-          po.Vendor_name || "",
-          Array.isArray(po.Items) ? po.Items.map((it) => it.itemName || it.Item || "").join(", ") : "",
-          money(po.totalAmount),
-          fmtDate(po.poDate || po.createdAt),
-        ]),
+        head: [["PO #", "Vendor", "Order", "Items", "Total", "Date"]],
+        body: filteredPOs.map((po) => {
+          const linked = po.Order_uuid ? dateOrders.find((o) => o.Order_uuid === po.Order_uuid) : null;
+          return [
+            po.PO_Number,
+            po.Vendor_name || "",
+            linked ? `#${linked.Order_Number}` : (po.Order_uuid ? "linked" : "— unlinked —"),
+            Array.isArray(po.Items) ? po.Items.map((it) => it.itemName || it.Item || "").join(", ") : "",
+            money(poTotal(po)),
+            fmtDate(po.poDate || po.createdAt),
+          ];
+        }),
         startY: 20,
         styles: { fontSize: 9 },
         headStyles: { fillColor: [200, 50, 50] },
@@ -524,16 +608,23 @@ export default function AllDelivery() {
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
-    const ws1 = XLSX.utils.json_to_sheet(dateOrders.map((o) => ({
+    const ws1 = XLSX.utils.json_to_sheet(dateOrders.map((o) => {
+      const v = vendorLinksFor(o);
+      return {
       "Order #": o.Order_Number || "",
       Customer: o.Customer_name || "",
       Remark: getFirstRemark(o) || "",
+      Vendor: v.mapped ? v.vendorNames.join(", ") : "",
+      "Vendor Cost": v.vendorCost,
+      "Vendor Mapped": v.mapped ? "Yes" : "No",
       Amount: o.totalAmount,
+      Net: o.totalAmount - v.vendorCost,
       "Item Count": Array.isArray(o.Items) ? o.Items.length : 0,
       Date: fmtDate(o.createdAt),
       "Delivery Date": o.highestStatusTask?.Delivery_Date ? fmtDate(o.highestStatusTask.Delivery_Date) : "",
       Status: o.highestStatusTask?.Task || "",
-    })));
+      };
+    }));
     XLSX.utils.book_append_sheet(wb, ws1, "Deliveries");
     if (filteredPOs.length) {
       const ws2 = XLSX.utils.json_to_sheet(
@@ -542,6 +633,9 @@ export default function AllDelivery() {
             ? po.Items.map((it) => ({
                 "PO #": po.PO_Number,
                 Vendor: po.Vendor_name || "",
+                "Order #": po.Order_uuid
+                  ? (dateOrders.find((o) => o.Order_uuid === po.Order_uuid)?.Order_Number || "linked")
+                  : "",
                 Item: it.itemName || it.Item || "",
                 Qty: it.qty ?? it.Quantity ?? 0,
                 Rate: it.rate ?? it.Rate ?? 0,
@@ -553,6 +647,9 @@ export default function AllDelivery() {
             : [{
                 "PO #": po.PO_Number,
                 Vendor: po.Vendor_name || "",
+                "Order #": po.Order_uuid
+                  ? (dateOrders.find((o) => o.Order_uuid === po.Order_uuid)?.Order_Number || "linked")
+                  : "",
                 Item: "", Qty: 0, Rate: 0, Amount: 0,
                 Status: po.status || "draft",
                 Date: fmtDate(po.poDate || po.createdAt),
@@ -824,6 +921,12 @@ export default function AllDelivery() {
               { label: "Delivery Value",  value: stats.deliveryValue, color: "success.dark",  fmt: money },
               { label: "Vendor Cost",     value: stats.vendorCost,   color: "error.dark",    fmt: money },
               { label: "Net",             value: stats.net,          color: stats.net >= 0 ? "success.dark" : "error.dark", fmt: money },
+              {
+                label: "Vendor Mapped",
+                value: mapping.total ? `${mapping.mapped}/${mapping.total}` : "—",
+                color: mapping.unmapped > 0 ? "warning.dark" : "success.dark",
+                fmt: (v) => v,
+              },
             ].map(({ label, value, color, fmt }) => (
               <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
                 <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
@@ -874,6 +977,34 @@ export default function AllDelivery() {
                             {emptyItemsCount > 0 && (
                               <Chip
                                 label={emptyItemsCount}
+                                size="small"
+                                color="warning"
+                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, "& .MuiChip-label": { px: 0.75 } }}
+                              />
+                            )}
+                          </Stack>
+                        }
+                        sx={{ ml: 0.5, mr: 0 }}
+                      />
+                    </Tooltip>
+                    <Tooltip title={showUnmappedOnly ? "Showing orders with no vendor — click to show all" : "Show only orders with no vendor mapped"}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={showUnmappedOnly}
+                            onChange={(e) => setShowUnmappedOnly(e.target.checked)}
+                            color="warning"
+                          />
+                        }
+                        label={
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <Typography variant="caption" color={showUnmappedOnly ? "warning.dark" : "text.secondary"} fontWeight={600}>
+                              No Vendor
+                            </Typography>
+                            {mapping.unmapped > 0 && (
+                              <Chip
+                                label={mapping.unmapped}
                                 size="small"
                                 color="warning"
                                 sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, "& .MuiChip-label": { px: 0.75 } }}
@@ -957,6 +1088,9 @@ export default function AllDelivery() {
                         <TableCell sx={{ fontWeight: 700, width: 60 }}>#</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Remark</TableCell>
+                        <TableCell sx={{ fontWeight: 700, width: 190 }} title="The vendor account this order's work is mapped to">
+                          Vendor
+                        </TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700, width: 100 }}>Amount</TableCell>
                         <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Action</TableCell>
                       </TableRow>
@@ -966,6 +1100,8 @@ export default function AllDelivery() {
                         const key = o._id || o.Order_uuid || `o-${o.Order_Number}`;
                         const rowId = o._id || o.Order_uuid;
                         const hasItems = hasBillableAmount(o.Items);
+                        const vendorLinks = vendorLinksFor(o);
+                        const knownCustomer = Boolean(customers[o.Customer_uuid]);
                         return (
                           <TableRow key={key} hover selected={selectedOrders.has(rowId)}>
                             <TableCell padding="checkbox">
@@ -979,23 +1115,84 @@ export default function AllDelivery() {
                               <Typography variant="body2" fontWeight={700}>#{o.Order_Number}</Typography>
                             </TableCell>
                             <TableCell>
-                              <Button
-                                variant="text" size="small"
-                                onClick={() => handleOrderUpdateClick(o)}
-                                sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
-                              >
-                                {o.Customer_name}
-                              </Button>
+                              <Stack direction="row" spacing={0.5} alignItems="center">
+                                <Button
+                                  variant="text" size="small"
+                                  color={knownCustomer ? "primary" : "warning"}
+                                  onClick={() => handleOrderUpdateClick(o)}
+                                  sx={{ p: 0, fontWeight: 700, textTransform: "none", minWidth: 0 }}
+                                >
+                                  {o.Customer_name}
+                                </Button>
+                                {!knownCustomer && (
+                                  <Tooltip title="This order is not mapped to a customer account — open it to set the customer">
+                                    <Chip
+                                      size="small" color="warning" variant="outlined" label="No account"
+                                      sx={{ height: 18, fontSize: "0.62rem", fontWeight: 700 }}
+                                    />
+                                  </Tooltip>
+                                )}
+                              </Stack>
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
                                 {getFirstRemark(o) || "—"}
                               </Typography>
                             </TableCell>
+                            <TableCell>
+                              {vendorLinks.mapped ? (
+                                <Tooltip
+                                  title={vendorLinks.links
+                                    .map((l) => `${l.vendorName} · ${money(l.amount)} (${l.ref})`)
+                                    .join(" · ")}
+                                >
+                                  <Stack
+                                    direction="row" spacing={0.5} alignItems="center"
+                                    sx={{ cursor: "pointer" }}
+                                    onClick={() => setAssignVendorOrder(o)}
+                                  >
+                                    <Chip
+                                      size="small"
+                                      color="error"
+                                      variant="outlined"
+                                      label={
+                                        vendorLinks.vendorNames.length > 1
+                                          ? `${vendorLinks.vendorNames[0]} +${vendorLinks.vendorNames.length - 1}`
+                                          : vendorLinks.vendorNames[0]
+                                      }
+                                      sx={{ maxWidth: 130, fontWeight: 600 }}
+                                    />
+                                    <Typography variant="caption" color="error.dark" fontWeight={700}>
+                                      {money(vendorLinks.vendorCost)}
+                                    </Typography>
+                                  </Stack>
+                                </Tooltip>
+                              ) : (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  startIcon={<StorefrontIcon fontSize="small" />}
+                                  onClick={() => setAssignVendorOrder(o)}
+                                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.1, fontSize: "0.7rem" }}
+                                >
+                                  Assign
+                                </Button>
+                              )}
+                            </TableCell>
                             <TableCell align="right">
                               <Typography variant="body2" fontWeight={700}>
                                 {o.totalAmount > 0 ? money(o.totalAmount) : "—"}
                               </Typography>
+                              {vendorLinks.mapped && o.totalAmount > 0 && (
+                                <Typography
+                                  variant="caption"
+                                  display="block"
+                                  color={o.totalAmount - vendorLinks.vendorCost >= 0 ? "success.dark" : "error.dark"}
+                                >
+                                  {money(o.totalAmount - vendorLinks.vendorCost)} net
+                                </Typography>
+                              )}
                             </TableCell>
                             <TableCell align="center">
                               <Tooltip title={hasItems ? "Edit Invoice" : "Create Invoice"}>
@@ -1115,6 +1312,9 @@ export default function AllDelivery() {
                           </TableCell>
                           <TableCell sx={{ fontWeight: 700, width: 60 }}>PO #</TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
+                          <TableCell sx={{ fontWeight: 700, width: 110 }} title="The customer order this cost belongs to">
+                            Order
+                          </TableCell>
                           <TableCell sx={{ fontWeight: 700 }}>Items</TableCell>
                           <TableCell sx={{ fontWeight: 700, width: 90 }}>Date</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 700, width: 90 }}>Total</TableCell>
@@ -1124,6 +1324,9 @@ export default function AllDelivery() {
                       <TableBody>
                         {filteredPOs.map((po) => {
                           const poKey = po.PO_uuid || po._id;
+                          const linkedOrder = po.Order_uuid
+                            ? dateOrders.find((o) => o.Order_uuid === po.Order_uuid)
+                            : null;
                           const itemSummary = Array.isArray(po.Items) && po.Items.length
                             ? po.Items.map((it) =>
                                 `${it.itemName || it.Item || "—"}${Number(it.qty || it.Quantity || 0) !== 1 ? ` ×${it.qty || it.Quantity}` : ""}`
@@ -1145,6 +1348,37 @@ export default function AllDelivery() {
                                 <Typography variant="body2" fontWeight={600}>{po.Vendor_name || "—"}</Typography>
                               </TableCell>
                               <TableCell>
+                                {linkedOrder ? (
+                                  <Tooltip title={`${linkedOrder.Customer_name} · ${money(linkedOrder.totalAmount)}`}>
+                                    <Chip
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                      icon={<LinkIcon sx={{ fontSize: 14 }} />}
+                                      label={`#${linkedOrder.Order_Number}`}
+                                      onClick={() => handleOrderUpdateClick(linkedOrder)}
+                                      sx={{ fontWeight: 700 }}
+                                    />
+                                  </Tooltip>
+                                ) : po.Order_uuid ? (
+                                  <Tooltip title="Linked to an order outside this date">
+                                    <Chip size="small" variant="outlined" label="Linked" sx={{ fontWeight: 600 }} />
+                                  </Tooltip>
+                                ) : (
+                                  <Tooltip title="This cost is not mapped to any order — click to link it">
+                                    <Button
+                                      size="small"
+                                      color="warning"
+                                      startIcon={<LinkOffIcon sx={{ fontSize: 14 }} />}
+                                      onClick={() => { setLinkPO(po); setLinkOrderUuid(""); }}
+                                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.1, fontSize: "0.7rem" }}
+                                    >
+                                      Link
+                                    </Button>
+                                  </Tooltip>
+                                )}
+                              </TableCell>
+                              <TableCell>
                                 <Tooltip title={itemSummary}>
                                   <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
                                     {itemSummary}
@@ -1158,7 +1392,7 @@ export default function AllDelivery() {
                               </TableCell>
                               <TableCell align="right">
                                 <Typography variant="body2" fontWeight={700} color="error.dark">
-                                  {po.totalAmount > 0 ? money(po.totalAmount) : "—"}
+                                  {poTotal(po) > 0 ? money(poTotal(po)) : "—"}
                                 </Typography>
                               </TableCell>
                               <TableCell align="center">
@@ -1180,6 +1414,56 @@ export default function AllDelivery() {
           )}
         </Box>
       </Box>
+
+      {/* Map an order to the vendor that did the work */}
+      <AssignVendorDialog
+        open={!!assignVendorOrder}
+        order={assignVendorOrder}
+        poIndex={poIndex}
+        defaultDate={selectedDate}
+        onClose={() => setAssignVendorOrder(null)}
+        onAssigned={async (po) => {
+          toast.success(`Order mapped to ${po?.Vendor_name || "vendor"}`);
+          await refreshPurchaseOrders();
+        }}
+      />
+
+      {/* Link a stray purchase order to a delivered order */}
+      <Dialog open={!!linkPO} onClose={linkingPO ? undefined : () => setLinkPO(null)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography variant="h6" fontWeight={800}>Link PO #{linkPO?.PO_Number}</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {linkPO?.Vendor_name} · {money(poTotal(linkPO || {}))}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            select
+            fullWidth
+            label="Customer order"
+            value={linkOrderUuid}
+            onChange={(e) => setLinkOrderUuid(e.target.value)}
+            helperText={`Delivered orders for ${fmtDate(selectedDate)}`}
+          >
+            {dateOrders.map((o) => (
+              <MenuItem key={o.Order_uuid || o._id} value={o.Order_uuid}>
+                #{o.Order_Number} — {o.Customer_name} · {money(o.totalAmount)}
+              </MenuItem>
+            ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setLinkPO(null)} disabled={linkingPO} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button
+            onClick={handleLinkPO}
+            disabled={linkingPO || !linkOrderUuid}
+            variant="contained"
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            {linkingPO ? "Linking…" : "Link"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* UpdateDelivery — renders its own fixed overlay */}
       {editOpen && (

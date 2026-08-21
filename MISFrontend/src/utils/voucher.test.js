@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getVoucherInfo, isSalesInvoiceTransaction } from './voucher';
+import { getVoucherInfo, isSalesInvoiceTransaction, pickPartyLeg } from './voucher';
 
 const salesInvoice = {
   Transaction_id: 782,
@@ -88,5 +88,37 @@ describe('getVoucherInfo', () => {
 
   it('returns empty details with no transaction', () => {
     expect(getVoucherInfo({}).display).toBe('');
+  });
+});
+
+describe('pickPartyLeg', () => {
+  const cashLeg = { Account_id: 'acct-cash', Account_name: 'Cash', Type: 'Debit', Amount: 500 };
+  const custLeg = { Account_id: 'cust-1', Account_name: 'Anand Colour Lab', Type: 'Credit', Amount: 500 };
+  const isParty = (id) => id === 'cust-1';
+
+  it('prefers the leg matching the posting\'s own customer', () => {
+    const txn = { Customer_uuid: 'cust-1', Journal_entry: [cashLeg, custLeg] };
+    expect(pickPartyLeg(txn, () => false)).toBe(custLeg);
+  });
+
+  it('falls back to a leg the caller recognises as a party account', () => {
+    const txn = { Journal_entry: [cashLeg, custLeg] };
+    expect(pickPartyLeg(txn, isParty)).toBe(custLeg);
+  });
+
+  it('falls back to the debit leg when neither side is a known party', () => {
+    const txn = { Journal_entry: [custLeg, cashLeg] };
+    expect(pickPartyLeg(txn, () => false)).toBe(cashLeg);
+  });
+
+  it('returns null for a posting with no journal', () => {
+    expect(pickPartyLeg({ Journal_entry: [] }, isParty)).toBeNull();
+    expect(pickPartyLeg(undefined, isParty)).toBeNull();
+  });
+
+  it('gives a receipt voucher when paired with getVoucherInfo', () => {
+    const txn = { Transaction_id: 91, Customer_uuid: 'cust-1', Journal_entry: [cashLeg, custLeg] };
+    const leg = pickPartyLeg(txn, isParty);
+    expect(getVoucherInfo({ transaction: txn, entry: leg, counterIsCashOrBank: true }).display).toBe('RCT-91');
   });
 });

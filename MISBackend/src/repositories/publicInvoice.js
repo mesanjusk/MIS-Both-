@@ -10,9 +10,10 @@ const publicInvoiceSchema = new mongoose.Schema(
       index: true,
       default: () => crypto.randomBytes(6).toString('hex'),
     },
-    // 'invoice'  → sale invoice built from an order
-    // 'receipt'  → money-received / money-paid voucher built from a ledger transaction
-    docType:     { type: String, enum: ['invoice', 'receipt'], default: 'invoice', index: true },
+    // 'invoice'   → sale invoice built from an order
+    // 'receipt'   → money-received / money-paid voucher built from a ledger transaction
+    // 'statement' → running account statement for one party over a date range
+    docType:     { type: String, enum: ['invoice', 'receipt', 'statement'], default: 'invoice', index: true },
     // 'receipt' (money in) | 'payment' (money out) | 'journal' — only used when docType === 'receipt'
     voucherType: { type: String, default: '' },
     orderNumber: { type: String, default: '', index: true },
@@ -32,6 +33,16 @@ const publicInvoiceSchema = new mongoose.Schema(
     paymentMode:     { type: String, default: '' },
     narration:       { type: String, default: '' },
     amount:          { type: Number, default: 0 },
+    // account statement (docType === 'statement')
+    partyUuid:      { type: String, default: '', index: true },
+    periodFrom:     { type: String, default: '' },
+    periodTo:       { type: String, default: '' },
+    generatedOn:    { type: String, default: '' },
+    openingBalance: { type: Number, default: 0 },
+    totalDebit:     { type: Number, default: 0 },
+    totalCredit:    { type: Number, default: 0 },
+    closingBalance: { type: Number, default: 0 },
+    rows: { type: mongoose.Schema.Types.Mixed, default: [] },
     // line items
     items: { type: mongoose.Schema.Types.Mixed, default: [] },
     extraCharges: { type: mongoose.Schema.Types.Mixed, default: [] },

@@ -260,6 +260,82 @@ router.post('/receipt', requireAuth, async (req, res) => {
   }
 });
 
+// Create (or refresh) the shareable account statement for one party and period.
+// Idempotent per party + period so re-sharing the same range keeps one link.
+const MAX_STATEMENT_ROWS = 2000;
+
+router.post('/statement', requireAuth, async (req, res) => {
+  try {
+    const {
+      partyUuid, partyName, periodFrom, periodTo, generatedOn,
+      openingBalance, totalDebit, totalCredit, closingBalance, rows,
+    } = req.body;
+
+    if (!partyUuid && !partyName) {
+      return res.status(400).json({ success: false, message: 'partyUuid or partyName is required' });
+    }
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ success: false, message: 'rows must be an array' });
+    }
+    if (rows.length > MAX_STATEMENT_ROWS) {
+      return res.status(400).json({
+        success: false,
+        message: `A statement can hold at most ${MAX_STATEMENT_ROWS} rows — narrow the date range.`,
+      });
+    }
+
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const cleanRows = rows.map((r) => ({
+      txnNo:       r?.txnNo ?? '',
+      voucherNo:   String(r?.voucherNo || ''),
+      voucherType: String(r?.voucherType || ''),
+      dateStr:     String(r?.dateStr || ''),
+      particulars: String(r?.particulars || ''),
+      description: String(r?.description || ''),
+      debit:       num(r?.debit),
+      credit:      num(r?.credit),
+      balance:     num(r?.balance),
+    }));
+
+    const profile = await loadProfileSnapshot();
+    const doc = await PublicInvoice.findOneAndUpdate(
+      {
+        docType: 'statement',
+        partyUuid: String(partyUuid || ''),
+        periodFrom: String(periodFrom || ''),
+        periodTo: String(periodTo || ''),
+      },
+      {
+        docType: 'statement',
+        partyUuid:  String(partyUuid || ''),
+        partyName:  partyName || '',
+        periodFrom: String(periodFrom || ''),
+        periodTo:   String(periodTo || ''),
+        generatedOn: generatedOn || new Date().toLocaleDateString('en-GB'),
+        dateStr:     generatedOn || new Date().toLocaleDateString('en-GB'),
+        openingBalance: num(openingBalance),
+        totalDebit:     num(totalDebit),
+        totalCredit:    num(totalCredit),
+        closingBalance: num(closingBalance),
+        grandTotal:     num(closingBalance),
+        amount:         num(closingBalance),
+        rows: cleanRows,
+        items: [],
+        extraCharges: [],
+        // A statement is a point-in-time view: refresh the letterhead and the
+        // expiry every time it is re-shared.
+        expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        ...profile,
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ success: true, result: doc });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // Public read — no auth
 router.get('/p/:shareToken', async (req, res) => {
   try {

@@ -18,7 +18,8 @@
  *   GET /api/design-files/order/:uuid     — live stage of files for one order
  *   POST /api/design-files/auto-temp-orders — create temp orders for unmatched files
  *   GET /api/design-files/scan-archive    — scan month-wise archive folder
- *   POST /api/design-files/renumber       — bulk "<orderNumber> - <name>" rename
+ *   POST /api/design-files/renumber       — renumber archive Final files and
+ *                                           create their Printing folders
  *
  * Vendor bills and purchase orders are never raised from here: creating an
  * order only creates its empty "<orderNumber>" folder inside that day's
@@ -42,6 +43,10 @@ const Usertasks = require('../repositories/usertask');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const {
   ensureArchiveOrderFolderSafe,
+  ensurePrintingFolder,
+  ensureOrderFolderInPrinting,
+  listSubfolders,
+  isOrderFolderName,
   parseFolderDate,
   monthFolderSortKey,
 } = require('../services/driveArchiveFolderService');
@@ -932,10 +937,11 @@ router.post('/auto-temp-orders', async (req, res) => {
         { upsert: true }
       );
 
-      // Empty folder named after the order number inside today's archive
-      // Printing folder — best effort, never fails the order creation.
+      // Empty folder named after the order number in the Printing folder
+      // beside the file — best effort, never fails the order creation.
       const printFolder = await ensureArchiveOrderFolderSafe({
         orderNumber: orderNum,
+        fileId: file.fileId,
         drive: batchDrive,
       });
       if (printFolder?.orderFolderId) {
@@ -1416,10 +1422,10 @@ router.post('/confirm-final', async (req, res) => {
       logger.warn('rename block error — %s', renameBlockErr?.message);
     }
 
-    // Every new order gets an empty folder named after its order number
-    // inside today's archive Printing folder — best effort, never fails the
-    // confirm (see driveArchiveFolderService).
-    const printFolder = await ensureArchiveOrderFolderSafe({ orderNumber: orderNum });
+    // Every new order gets an empty folder named after its order number in
+    // the Printing folder of the same date folder the design file lives in —
+    // best effort, never fails the confirm (see driveArchiveFolderService).
+    const printFolder = await ensureArchiveOrderFolderSafe({ orderNumber: orderNum, fileId });
     if (printFolder?.orderFolderId) {
       await DesignFileLink.updateOne(
         { driveFileId: fileId },
@@ -1843,12 +1849,12 @@ router.post('/validate-print-jobs', async (req, res) => {
  * Used by the confirm/auto-temp flows and by the bulk renumber endpoint below,
  * so the scheme lives in exactly one place.
  *
- * Printing files are deliberately out of scope — they keep their own naming
- * (see rename-print-file) and the archive Printing folders are never touched.
+ * Only the archive's Final folders are renumbered. Printing files keep their
+ * own naming (see rename-print-file) and the daily "0 Today" folders are left
+ * alone entirely.
  */
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
-const PRINTING_STAGE = 6;
 const RENUMBER_CONCURRENCY = 4;
 
 /** Strips a leading "<digits><separator>" from a file name. */
@@ -1900,42 +1906,21 @@ async function mapWithConcurrency(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/** Design files sitting in today's numbered stage folders (Printing excluded). */
-async function collectDailyDesignFiles(drive) {
-  const dailyFolderId = process.env.DRIVE_DAILY_FOLDER_ID;
-  if (!dailyFolderId) return [];
-
-  const folders = await listChildren(drive, dailyFolderId, FOLDER_MIME_TYPE);
-  const stageFolders = folders
-    .map((f) => ({ ...f, stageNumber: folderStageNumber(f.name) }))
-    .filter((f) => f.stageNumber !== null && f.stageNumber !== PRINTING_STAGE)
-    .sort((a, b) => a.stageNumber - b.stageNumber);
-
-  const out = [];
-  for (const folder of stageFolders) {
-    const files = await listChildren(drive, folder.id);
-    files
-      .filter((f) => f.mimeType !== FOLDER_MIME_TYPE)
-      .forEach((f) => out.push({ fileId: f.id, fileName: f.name, location: folder.name }));
-  }
-  return out;
-}
+const FINAL_STAGE = 5;
 
 /**
- * Design files in the month/date archive tree. Printing sections are skipped
- * entirely; Final (and any other non-print section), plus one nested level
- * inside it and loose files sitting directly in a date folder, are included.
+ * Every file inside the archive's Final folders:
+ *   <archive>/04 April 2026/01.04.2026/Final/*
+ *
+ * Each row carries the date folder it came from, because that is where the
+ * matching Printing folder lives. The daily "0 Today" tree and every Printing
+ * folder are deliberately not walked — those files are never renumbered.
  */
-async function collectArchiveDesignFiles(drive) {
+async function collectFinalDesignFiles(drive) {
   const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
   if (!archiveFolderId) return [];
 
-  const out = [];
-  const push = (file, location) => {
-    if (file.mimeType === FOLDER_MIME_TYPE) return;
-    out.push({ fileId: file.id, fileName: file.name, location });
-  };
-
+  const rows = [];
   const months = await listChildren(drive, archiveFolderId, FOLDER_MIME_TYPE);
   months.sort((a, b) => {
     const [ya, ma] = monthFolderSortKey(a.name);
@@ -1946,49 +1931,97 @@ async function collectArchiveDesignFiles(drive) {
   for (const month of months) {
     const dateFolders = await listChildren(drive, month.id, FOLDER_MIME_TYPE);
     for (const dateFolder of dateFolders) {
-      const datePath = `${month.name}/${dateFolder.name}`;
-      (await listChildren(drive, dateFolder.id)).forEach((f) => push(f, datePath));
-
       const sections = await listChildren(drive, dateFolder.id, FOLDER_MIME_TYPE);
-      for (const section of sections) {
-        if (archiveSectionStage(section.name) === PRINTING_STAGE) continue;
-        const sectionPath = `${datePath}/${section.name}`;
-        (await listChildren(drive, section.id)).forEach((f) => push(f, sectionPath));
+      const finalSections = sections.filter((f) => archiveSectionStage(f.name) === FINAL_STAGE);
 
-        const subFolders = await listChildren(drive, section.id, FOLDER_MIME_TYPE);
-        for (const sub of subFolders) {
-          const subPath = `${sectionPath}/${sub.name}`;
-          (await listChildren(drive, sub.id)).forEach((f) => push(f, subPath));
-        }
+      for (const section of finalSections) {
+        const files = await listChildren(drive, section.id);
+        files
+          .filter((f) => f.mimeType !== FOLDER_MIME_TYPE)
+          .forEach((f) => rows.push({
+            fileId: f.id,
+            fileName: f.name,
+            location: `${month.name}/${dateFolder.name}/${section.name}`,
+            dateFolderId: dateFolder.id,
+            dateFolderName: dateFolder.name,
+          }));
       }
     }
   }
-  return out;
+  return rows;
+}
+
+/**
+ * Makes sure every order number found in a date's Final files has a folder of
+ * that name in the same date's Printing folder. Mutates each row's
+ * folderStatus: 'exists' | 'pending' | 'created' | 'failed'.
+ */
+async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun }) {
+  const setAll = (subset, status, error) => subset.forEach((r) => {
+    r.folderStatus = status;
+    if (error) r.folderError = error;
+  });
+
+  let printing = null;
+  try {
+    printing = await ensurePrintingFolder(drive, dateFolderId, { create: !dryRun });
+  } catch (err) {
+    logger.warn('design-files/renumber: Printing folder lookup failed — %s', err?.message);
+    setAll(rows, 'failed', err?.message || 'Printing folder lookup failed');
+    return;
+  }
+
+  // Dry run on a date that has no Printing folder yet: nothing exists, so
+  // every number is reported as still to be created.
+  const existing = printing ? await listSubfolders(drive, printing.id) : [];
+
+  const numbers = [...new Set(rows.map((r) => r.orderNumber))];
+  for (const orderNumber of numbers) {
+    const rowsForNumber = rows.filter((r) => r.orderNumber === orderNumber);
+
+    if (existing.some((f) => isOrderFolderName(f.name, orderNumber))) {
+      setAll(rowsForNumber, 'exists');
+      continue;
+    }
+    if (dryRun) {
+      setAll(rowsForNumber, 'pending');
+      continue;
+    }
+    try {
+      const made = await ensureOrderFolderInPrinting(drive, printing.id, orderNumber);
+      existing.push({ id: made.id, name: made.name });
+      setAll(rowsForNumber, made.created ? 'created' : 'exists');
+    } catch (err) {
+      logger.warn('design-files/renumber: folder %s failed — %s', orderNumber, err?.message);
+      setAll(rowsForNumber, 'failed', err?.message || 'Folder creation failed');
+    }
+  }
 }
 
 // ─── POST /api/design-files/renumber ─────────────────────────────────────────
 /**
- * Bulk-applies the order-number naming rule to design files.
+ * Renumbers the archive's Final design files and gives each one a folder of
+ * the same number in that date's Printing folder:
  *
- * Body: { scope: 'daily' | 'archive' | 'all', dryRun: boolean }
- *   dryRun (default true) reports what *would* change without touching Drive.
+ *   1 Month/04 April 2026/01.04.2026/Final/153 - Customer - Card.cdr
+ *   1 Month/04 April 2026/01.04.2026/Printing/153      ← created here
  *
- * A file's order number comes from its DesignFileLink first, and from the
- * number already in its name otherwise; files with neither are reported as
- * 'no-order' and left alone (no temp orders are created here).
+ * Body: { dryRun: boolean }  — dryRun (default true) only reports.
+ *
+ * A file's number comes from its DesignFileLink first and from the number
+ * already in its name otherwise; files with neither are reported as
+ * 'no-order' and left completely alone. Printing files and the daily
+ * "0 Today" folders are never touched.
  */
 router.post('/renumber', requireAdmin, async (req, res) => {
   try {
-    const scope = ['daily', 'archive', 'all'].includes(req.body?.scope) ? req.body.scope : 'all';
+    if (!process.env.DRIVE_ARCHIVE_FOLDER_ID) {
+      return res.status(400).json({ success: false, message: 'DRIVE_ARCHIVE_FOLDER_ID not configured' });
+    }
     const dryRun = req.body?.dryRun !== false;
-
     const drive = await getAuthorizedDriveClient();
 
-    const collected = [];
-    if (scope === 'daily' || scope === 'all') collected.push(...(await collectDailyDesignFiles(drive)));
-    if (scope === 'archive' || scope === 'all') collected.push(...(await collectArchiveDesignFiles(drive)));
-
-    // A file can appear once per scope only — de-dupe by Drive file id.
+    const collected = await collectFinalDesignFiles(drive);
     const byId = new Map();
     collected.forEach((f) => { if (!byId.has(f.fileId)) byId.set(f.fileId, f); });
     const files = [...byId.values()];
@@ -2005,19 +2038,20 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     const report = files.map((file) => {
       const orderNumber = orderNumberByFileId[file.fileId] ?? extractOrderNumber(file.fileName);
       if (!orderNumber) {
-        return { ...file, orderNumber: null, newName: null, status: 'no-order' };
+        return { ...file, orderNumber: null, newName: null, status: 'no-order', folderStatus: null };
       }
-      if (alreadyPrefixedWithOrder(file.fileName, orderNumber)) {
-        return { ...file, orderNumber, newName: file.fileName, status: 'already-ok' };
-      }
+      const alreadyOk = alreadyPrefixedWithOrder(file.fileName, orderNumber);
       return {
         ...file,
         orderNumber,
-        newName: buildDesignFileName(file.fileName, orderNumber),
-        status: 'pending',
+        newName: alreadyOk ? file.fileName : buildDesignFileName(file.fileName, orderNumber),
+        status: alreadyOk ? 'already-ok' : 'pending',
+        folderStatus: null,
       };
     });
 
+    // Renames first, so a folder is only ever created for a file that is
+    // (or already was) correctly numbered.
     if (!dryRun) {
       const pending = report.filter((r) => r.status === 'pending');
       await mapWithConcurrency(pending, RENUMBER_CONCURRENCY, async (row) => {
@@ -2032,12 +2066,29 @@ router.post('/renumber', requireAdmin, async (req, res) => {
       });
     }
 
-    const summary = report.reduce(
-      (acc, row) => { acc[row.status] = (acc[row.status] || 0) + 1; return acc; },
-      { total: report.length }
-    );
+    // One Printing folder pass per date folder.
+    const numbered = report.filter((r) => r.orderNumber != null && r.status !== 'failed');
+    const byDate = new Map();
+    numbered.forEach((row) => {
+      if (!byDate.has(row.dateFolderId)) byDate.set(row.dateFolderId, []);
+      byDate.get(row.dateFolderId).push(row);
+    });
+    for (const [dateFolderId, rows] of byDate) {
+      await ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun });
+    }
 
-    return res.json({ success: true, scope, dryRun, summary, files: report });
+    const summary = report.reduce(
+      (acc, row) => {
+        acc[row.status] = (acc[row.status] || 0) + 1;
+        if (row.folderStatus) acc.folders[row.folderStatus] = (acc.folders[row.folderStatus] || 0) + 1;
+        return acc;
+      },
+      { total: report.length, folders: {} }
+    );
+    // Folder counts are per file above; report distinct order folders too.
+    summary.folderNumbers = new Set(numbered.map((r) => r.orderNumber)).size;
+
+    return res.json({ success: true, dryRun, summary, files: report });
   } catch (err) {
     logger.error({ err }, 'design-files/renumber error');
     if (err?.reconnectRequired) {

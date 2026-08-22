@@ -143,13 +143,73 @@ async function ensureArchiveOrderFolder({ orderNumber, date = new Date(), drive 
 }
 
 /**
+ * Finds (or creates) the "Printing" folder that sits next to a date folder's
+ * other sections. `create: false` returns null instead of creating one.
+ */
+async function ensurePrintingFolder(drive, dateFolderId, { create = true } = {}) {
+  const siblings = await listSubfolders(drive, dateFolderId);
+  const found = siblings.find((f) => String(f.name).toLowerCase().includes('print'));
+  if (found) return { id: found.id, name: found.name, created: false };
+  if (!create) return null;
+  const made = await createFolder(drive, dateFolderId, 'Printing');
+  return { id: made.id, name: made.name, created: true };
+}
+
+/** Order-number folder inside a known Printing folder. */
+async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber) {
+  return findOrCreateFolder(drive, printingFolderId, {
+    match: (name) => isOrderFolderName(name, orderNumber),
+    createName: String(orderNumber),
+  });
+}
+
+/**
+ * Creates the "<orderNumber>" folder in the Printing folder belonging to the
+ * SAME date folder the design file itself lives in — i.e. a file in
+ *   .../04 April 2026/01.04.2026/Final/153 - ....cdr
+ * gets its folder at
+ *   .../04 April 2026/01.04.2026/Printing/153
+ *
+ * The file's own location decides the date, so confirming an old file never
+ * writes into today's folder. Falls back to today's archive date folder when
+ * the file's parents cannot be resolved (e.g. it has no date folder above it).
+ */
+async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null }) {
+  if (orderNumber == null || orderNumber === '') return null;
+  const client = drive || (await getAuthorizedDriveClient());
+
+  let dateFolderId = null;
+  if (fileId) {
+    const file = await client.files.get({ fileId, fields: 'id,parents', supportsAllDrives: true });
+    const sectionId = file.data.parents?.[0];
+    if (sectionId) {
+      const section = await client.files.get({ fileId: sectionId, fields: 'id,name,parents', supportsAllDrives: true });
+      dateFolderId = section.data.parents?.[0] || null;
+    }
+  }
+
+  if (!dateFolderId) return ensureArchiveOrderFolder({ orderNumber, drive: client });
+
+  const printing = await ensurePrintingFolder(client, dateFolderId);
+  const orderFolder = await ensureOrderFolderInPrinting(client, printing.id, orderNumber);
+  return {
+    orderFolderId: orderFolder.id,
+    orderFolderName: orderFolder.name,
+    printingFolderId: printing.id,
+    created: orderFolder.created,
+  };
+}
+
+/**
  * ensureArchiveOrderFolder that can never break its caller — every Drive
  * failure is logged and swallowed, exactly like the existing rename blocks in
  * the design-files flow. Returns null when nothing could be created.
  */
-async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive }) {
+async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive, fileId = null }) {
   try {
-    return await ensureArchiveOrderFolder({ orderNumber, date, drive });
+    return fileId
+      ? await ensureOrderFolderBesideFile({ fileId, orderNumber, drive })
+      : await ensureArchiveOrderFolder({ orderNumber, date, drive });
   } catch (err) {
     logger.warn(
       'driveArchiveFolderService: could not ensure Printing folder for order %s — %s',
@@ -166,6 +226,11 @@ module.exports = {
   monthFolderSortKey,
   monthFolderName,
   dateFolderName,
+  listSubfolders,
+  isOrderFolderName,
+  ensurePrintingFolder,
+  ensureOrderFolderInPrinting,
+  ensureOrderFolderBesideFile,
   ensureArchiveOrderFolder,
   ensureArchiveOrderFolderSafe,
 };

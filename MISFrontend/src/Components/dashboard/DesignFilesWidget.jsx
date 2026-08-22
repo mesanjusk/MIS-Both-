@@ -1840,18 +1840,11 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 
 // ─── Renumber design files ────────────────────────────────────────────────────
 /**
- * Bulk-applies the "<orderNumber> - <name>" rule to design files. Always
- * previews first (server-side dry run) — nothing in Drive is touched until
- * Apply is pressed. Printing files are never included.
+ * Renumbers the archive's Final files to "<orderNumber> - <name>" and creates
+ * a folder of the same number in that date's Printing folder. Always previews
+ * first (server-side dry run) — nothing in Drive changes until Apply.
  */
-const RENUMBER_SCOPES = [
-  { value: 'all', label: 'Both' },
-  { value: 'daily', label: "Today's folders" },
-  { value: 'archive', label: 'Archive' },
-];
-
 function RenumberDialog({ open, onClose, onSuccess }) {
-  const [scope, setScope] = useState('all');
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -1865,11 +1858,15 @@ function RenumberDialog({ open, onClose, onSuccess }) {
     if (dryRun) setLoading(true); else setApplying(true);
     setError('');
     try {
-      const res = await axios.post('/api/design-files/renumber', { scope, dryRun });
+      const res = await axios.post('/api/design-files/renumber', { dryRun });
       setReport(res.data);
       if (!dryRun) {
         const renamed = res.data?.summary?.renamed || 0;
-        onSuccess(`${renamed} file${renamed === 1 ? '' : 's'} renumbered`, renamed ? 'success' : 'info');
+        const folders = res.data?.summary?.folders?.created || 0;
+        onSuccess(
+          `${renamed} file${renamed === 1 ? '' : 's'} renumbered · ${folders} Printing folder${folders === 1 ? '' : 's'} created`,
+          renamed || folders ? 'success' : 'info'
+        );
       }
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Renumber failed');
@@ -1879,14 +1876,21 @@ function RenumberDialog({ open, onClose, onSuccess }) {
   };
 
   const summary = report?.summary || {};
+  const folderCounts = summary.folders || {};
   const rows = report?.files || [];
-  const pending = rows.filter((r) => r.status === 'pending');
-  const failed = rows.filter((r) => r.status === 'failed');
+  const pendingRenames = rows.filter((r) => r.status === 'pending');
+  const pendingFolders = rows.filter((r) => r.folderStatus === 'pending');
+  const failed = rows.filter((r) => r.status === 'failed' || r.folderStatus === 'failed');
+  const todo = pendingRenames.length + new Set(pendingFolders.map((r) => r.orderNumber)).size;
+  const visible = [...new Map(
+    [...failed, ...pendingRenames, ...pendingFolders].map((r) => [r.fileId, r])
+  ).values()];
 
   const exportReport = () => {
-    const head = ['Status', 'Order', 'Location', 'Current name', 'New name', 'Error'];
+    const head = ['Rename', 'Folder', 'Order', 'Location', 'Current name', 'New name', 'Error'];
     const body = rows.map((r) => [
-      r.status, r.orderNumber ?? '', r.location || '', r.fileName || '', r.newName || '', r.error || '',
+      r.status, r.folderStatus || '', r.orderNumber ?? '', r.location || '',
+      r.fileName || '', r.newName || '', r.error || r.folderError || '',
     ]);
     const csv = [head, ...body]
       .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -1896,24 +1900,20 @@ function RenumberDialog({ open, onClose, onSuccess }) {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Renumber design files</DialogTitle>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Renumber Final files</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Renames every design file to <strong>&lt;order number&gt; - &lt;name&gt;</strong>, using the
-          order it is linked to (or the number already in its name). Printing files are never touched,
-          and files with no order at all are left alone.
+          Goes through every <strong>Final</strong> folder in the archive, renames each file to{' '}
+          <strong>&lt;order number&gt; - &lt;name&gt;</strong>, and creates a folder with that same
+          number in the <strong>Printing</strong> folder of the same date.
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+          e.g. <code>04 April 2026 / 01.04.2026 / Final / 153 - ….cdr</code> →{' '}
+          <code>04 April 2026 / 01.04.2026 / Printing / 153</code>. Printing files and the daily
+          folders are never touched, and files with no order are skipped.
         </Typography>
 
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap">
-          <ToggleButtonGroup
-            size="small" exclusive value={scope}
-            onChange={(_, v) => { if (v) { setScope(v); setReport(null); } }}
-            sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.3, fontSize: 11, textTransform: 'none' } }}
-          >
-            {RENUMBER_SCOPES.map((s) => (
-              <ToggleButton key={s.value} value={s.value}>{s.label}</ToggleButton>
-            ))}
-          </ToggleButtonGroup>
           <Button
             size="small" variant="outlined" onClick={() => run(true)} disabled={loading || applying}
             startIcon={loading ? <CircularProgress size={12} /> : <TagRoundedIcon sx={{ fontSize: '14px !important' }} />}
@@ -1933,37 +1933,49 @@ function RenumberDialog({ open, onClose, onSuccess }) {
         {report && (
           <>
             <Stack direction="row" spacing={0.75} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
-              <Chip size="small" label={`${summary.total || 0} scanned`} />
+              <Chip size="small" label={`${summary.total || 0} Final files`} />
               {summary.pending > 0 && <Chip size="small" color="primary" label={`${summary.pending} to rename`} />}
               {summary.renamed > 0 && <Chip size="small" color="success" label={`${summary.renamed} renamed`} />}
-              {summary['already-ok'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-ok']} already correct`} />}
+              {summary['already-ok'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-ok']} already numbered`} />}
               {summary['no-order'] > 0 && <Chip size="small" color="warning" label={`${summary['no-order']} no order`} />}
-              {summary.failed > 0 && <Chip size="small" color="error" label={`${summary.failed} failed`} />}
+              {folderCounts.pending > 0 && <Chip size="small" color="primary" variant="outlined" label={`${new Set(pendingFolders.map((r) => r.orderNumber)).size} folders to create`} />}
+              {folderCounts.created > 0 && <Chip size="small" color="success" variant="outlined" label={`${folderCounts.created} folders created`} />}
+              {folderCounts.exists > 0 && <Chip size="small" variant="outlined" label={`${folderCounts.exists} folders already there`} />}
+              {(summary.failed > 0 || folderCounts.failed > 0) && (
+                <Chip size="small" color="error" label={`${(summary.failed || 0) + (folderCounts.failed || 0)} failed`} />
+              )}
             </Stack>
 
-            {(pending.length > 0 || failed.length > 0) && (
+            {visible.length > 0 && (
               <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Location</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Date folder</TableCell>
                       <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Current name</TableCell>
                       <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>New name</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Printing folder</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {[...failed, ...pending].slice(0, 200).map((r) => (
+                    {visible.slice(0, 200).map((r) => (
                       <TableRow key={r.fileId}>
-                        <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{r.location}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{r.dateFolderName}</TableCell>
                         <TableCell sx={{ fontSize: 11 }}>{r.fileName}</TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.status === 'failed' ? 'error.main' : 'success.main' }}>
-                          {r.status === 'failed' ? (r.error || 'Rename failed') : r.newName}
+                          {r.status === 'failed' ? (r.error || 'Rename failed')
+                            : r.status === 'pending' || r.status === 'renamed' ? r.newName : '—'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 11, color: r.folderStatus === 'failed' ? 'error.main' : 'text.secondary' }}>
+                          {r.folderStatus === 'failed' ? (r.folderError || 'Failed')
+                            : r.folderStatus === 'exists' ? 'already there'
+                            : r.orderNumber != null ? `Printing/${r.orderNumber}` : '—'}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-                {pending.length + failed.length > 200 && (
+                {visible.length > 200 && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', p: 1 }}>
                     Showing first 200 — download the CSV for the full list.
                   </Typography>
@@ -1971,8 +1983,10 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               </Box>
             )}
 
-            {report.dryRun && pending.length === 0 && !error && (
-              <Alert severity="success">Nothing to renumber — every scanned file already has the right number.</Alert>
+            {report.dryRun && todo === 0 && !error && (
+              <Alert severity="success">
+                Nothing to do — every Final file is numbered and has its Printing folder.
+              </Alert>
             )}
           </>
         )}
@@ -1981,11 +1995,11 @@ function RenumberDialog({ open, onClose, onSuccess }) {
         <Button size="small" onClick={onClose}>Close</Button>
         <Button
           size="small" variant="contained" color="warning"
-          disabled={!report?.dryRun || pending.length === 0 || applying || loading}
+          disabled={!report?.dryRun || todo === 0 || applying || loading}
           onClick={() => run(false)}
           startIcon={applying ? <CircularProgress size={12} color="inherit" /> : null}
         >
-          Apply to {pending.length} file{pending.length === 1 ? '' : 's'}
+          Apply ({todo})
         </Button>
       </DialogActions>
     </Dialog>
@@ -2274,7 +2288,7 @@ export default function DesignFilesWidget() {
 
         {/* Renumber design files (admin) */}
         {isAdmin && (
-          <Tooltip title="Renumber design files to order numbers">
+          <Tooltip title="Renumber Final files and create their Printing folders">
             <IconButton size="small" onClick={() => setRenumberOpen(true)} sx={{ p: 0.4 }}>
               <TagRoundedIcon sx={{ fontSize: 16 }} />
             </IconButton>

@@ -2009,9 +2009,12 @@ async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun 
  * Body: { dryRun: boolean }  — dryRun (default true) only reports.
  *
  * A file's number comes from its DesignFileLink first and from the number
- * already in its name otherwise; files with neither are reported as
- * 'no-order' and left completely alone. Printing files and the daily
- * "0 Today" folders are never touched.
+ * already in its name otherwise. A file with neither gets a brand-new
+ * temporary order (same shape as auto-temp-orders: temp customer, stage
+ * 'print', dated from its date folder) so that it can be numbered too —
+ * pass createOrders: false to skip those files instead.
+ *
+ * Printing files and the daily "0 Today" folders are never touched.
  */
 router.post('/renumber', requireAdmin, async (req, res) => {
   try {
@@ -2019,6 +2022,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'DRIVE_ARCHIVE_FOLDER_ID not configured' });
     }
     const dryRun = req.body?.dryRun !== false;
+    const createOrders = req.body?.createOrders !== false;
     const drive = await getAuthorizedDriveClient();
 
     const collected = await collectFinalDesignFiles(drive);
@@ -2050,7 +2054,67 @@ router.post('/renumber', requireAdmin, async (req, res) => {
       };
     });
 
-    // Renames first, so a folder is only ever created for a file that is
+    // Files with no order at all get one before anything else runs, so the
+    // rename and the Printing folder below treat them like any other file.
+    if (!dryRun && createOrders) {
+      const missing = report.filter((r) => r.status === 'no-order');
+      if (missing.length) {
+        const tempCustomer = await getOrCreateTempCustomer();
+        // Sequential on purpose — every order takes the next number.
+        for (const row of missing) {
+          try {
+            const orderNum = await nextOrderNumber();
+            const orderUuid = uuidv4();
+            const folderDate = parseFolderDate(row.dateFolderName);
+
+            const order = new Orders({
+              Order_uuid: orderUuid,
+              Order_Number: orderNum,
+              Customer_uuid: tempCustomer.Customer_uuid,
+              orderNote: `[TEMP] ${row.dateFolderName} ${row.fileName}`,
+              orderMode: 'note',
+              stage: 'print',
+              stageHistory: [{ stage: 'print', timestamp: folderDate || new Date() }],
+              priority: 'medium',
+              isTemporary: true,
+              driveFile: { status: 'skipped' },
+            });
+            await order.save();
+            // Archive files belong to the day their folder is named after,
+            // not to the day the renumber happened to run.
+            if (folderDate) {
+              await Orders.collection.updateOne({ _id: order._id }, { $set: { createdAt: folderDate } });
+            }
+
+            await DesignFileLink.updateOne(
+              { driveFileId: row.fileId },
+              {
+                $set: {
+                  orderUuid,
+                  orderNumber: orderNum,
+                  fileName: row.fileName,
+                  stageNumber: FINAL_STAGE,
+                  stageLabel: stageLabel(FINAL_STAGE),
+                  linkedAt: new Date(),
+                },
+              },
+              { upsert: true }
+            );
+
+            row.orderNumber = orderNum;
+            row.orderCreated = true;
+            row.status = 'pending';
+            row.newName = buildDesignFileName(row.fileName, orderNum);
+          } catch (err) {
+            logger.warn('design-files/renumber: temp order failed for %s — %s', row.fileId, err?.message);
+            row.status = 'failed';
+            row.error = err?.message || 'Could not create order';
+          }
+        }
+      }
+    }
+
+    // Renames next, so a folder is only ever created for a file that is
     // (or already was) correctly numbered.
     if (!dryRun) {
       const pending = report.filter((r) => r.status === 'pending');
@@ -2087,8 +2151,9 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     );
     // Folder counts are per file above; report distinct order folders too.
     summary.folderNumbers = new Set(numbered.map((r) => r.orderNumber)).size;
+    summary.ordersCreated = report.filter((r) => r.orderCreated).length;
 
-    return res.json({ success: true, dryRun, summary, files: report });
+    return res.json({ success: true, dryRun, createOrders, summary, files: report });
   } catch (err) {
     logger.error({ err }, 'design-files/renumber error');
     if (err?.reconnectRequired) {

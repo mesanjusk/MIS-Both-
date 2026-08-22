@@ -1881,9 +1881,12 @@ function RenumberDialog({ open, onClose, onSuccess }) {
   const pendingRenames = rows.filter((r) => r.status === 'pending');
   const pendingFolders = rows.filter((r) => r.folderStatus === 'pending');
   const failed = rows.filter((r) => r.status === 'failed' || r.folderStatus === 'failed');
-  const todo = pendingRenames.length + new Set(pendingFolders.map((r) => r.orderNumber)).size;
+  const noOrder = rows.filter((r) => r.status === 'no-order');
+  const todo = pendingRenames.length
+    + noOrder.length
+    + new Set(pendingFolders.map((r) => r.orderNumber)).size;
   const visible = [...new Map(
-    [...failed, ...pendingRenames, ...pendingFolders].map((r) => [r.fileId, r])
+    [...failed, ...pendingRenames, ...noOrder, ...pendingFolders].map((r) => [r.fileId, r])
   ).values()];
 
   const exportReport = () => {
@@ -1909,8 +1912,9 @@ function RenumberDialog({ open, onClose, onSuccess }) {
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
           e.g. <code>04 April 2026 / 01.04.2026 / Final / 153 - ….cdr</code> →{' '}
-          <code>04 April 2026 / 01.04.2026 / Printing / 153</code>. Printing files and the daily
-          folders are never touched, and files with no order are skipped.
+          <code>04 April 2026 / 01.04.2026 / Printing / 153</code>. A file with no order at all
+          gets a new temporary order (dated from its own date folder) so it can be numbered too.
+          Printing files and the daily folders are never touched.
         </Typography>
 
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap">
@@ -1937,7 +1941,12 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               {summary.pending > 0 && <Chip size="small" color="primary" label={`${summary.pending} to rename`} />}
               {summary.renamed > 0 && <Chip size="small" color="success" label={`${summary.renamed} renamed`} />}
               {summary['already-ok'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-ok']} already numbered`} />}
-              {summary['no-order'] > 0 && <Chip size="small" color="warning" label={`${summary['no-order']} no order`} />}
+              {summary['no-order'] > 0 && (
+                <Chip size="small" color="warning" label={`${summary['no-order']} need a new order`} />
+              )}
+              {summary.ordersCreated > 0 && (
+                <Chip size="small" color="success" label={`${summary.ordersCreated} orders created`} />
+              )}
               {folderCounts.pending > 0 && <Chip size="small" color="primary" variant="outlined" label={`${new Set(pendingFolders.map((r) => r.orderNumber)).size} folders to create`} />}
               {folderCounts.created > 0 && <Chip size="small" color="success" variant="outlined" label={`${folderCounts.created} folders created`} />}
               {folderCounts.exists > 0 && <Chip size="small" variant="outlined" label={`${folderCounts.exists} folders already there`} />}
@@ -1964,6 +1973,7 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                         <TableCell sx={{ fontSize: 11 }}>{r.fileName}</TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.status === 'failed' ? 'error.main' : 'success.main' }}>
                           {r.status === 'failed' ? (r.error || 'Rename failed')
+                            : r.status === 'no-order' ? 'new order number'
                             : r.status === 'pending' || r.status === 'renamed' ? r.newName : '—'}
                         </TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.folderStatus === 'failed' ? 'error.main' : 'text.secondary' }}>

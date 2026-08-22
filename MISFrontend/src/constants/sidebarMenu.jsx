@@ -51,6 +51,9 @@ export const SIDEBAR_GROUPS = [
       { label: 'Attendance Report', path: ROUTES.ATTENDANCE_REPORT, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Order Tasks', path: ROUTES.PENDING_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'My Day', path: ROUTES.MY_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ['all'] },
+      // Margins, vendor cost and per-person figures — the narrowest audience
+      // in the app, so Admin and Owner only, and the page checks again itself.
+      { label: 'Business Reports', path: ROUTES.REPORTS_BUSINESS, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Users Report', path: ROUTES.REPORTS_USERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Team & Partners Report', path: ROUTES.REPORTS_TEAM, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add User', path: ROUTES.ADD_USER, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

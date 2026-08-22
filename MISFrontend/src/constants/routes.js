@@ -71,6 +71,8 @@ export const ROUTES = {
   REPORTS_VENDORS: '/reports/vendors',
   REPORTS_TEAM: '/reports/team',
   REPORTS_DELIVERY: '/reports/delivery',
+  // The admin-only hub: profit and the item/order/vendor/employee splits.
+  REPORTS_BUSINESS: '/reports/business',
   REPORTS_BILLS: '/allBills',
   REPORTS_PRIORITY: '/priorityReport',
   AGING_REPORT: '/reports/aging',

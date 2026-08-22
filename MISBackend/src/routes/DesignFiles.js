@@ -172,6 +172,9 @@ function alreadyPrefixedWithOrder(fileName, orderNumber) {
  */
 function isBackupFile(name = '') {
   const n = String(name);
+  const bare = n.toLowerCase();
+  // OS clutter that Windows/Drive drop into every folder
+  if (bare === 'thumbs.db' || bare === 'desktop.ini' || bare === '.ds_store') return true;
   if (n.startsWith('~$')) return true;
   if (n.startsWith('.')) return true;
   const lower = n.toLowerCase();
@@ -1889,7 +1892,7 @@ function buildDesignFileName(fileName, orderNumber) {
  * carries the right prefix. Returns { status, newName } with status
  * 'renamed' | 'already-ok' | 'failed'.
  */
-async function renumberDesignFile(drive, { fileId, fileName, orderNumber }) {
+async function renumberDesignFile(drive, { fileId, fileName, orderNumber, kind = 'file' }) {
   if (alreadyPrefixedWithOrder(fileName, orderNumber)) {
     return { status: 'already-ok', newName: fileName };
   }
@@ -1902,7 +1905,11 @@ async function renumberDesignFile(drive, { fileId, fileName, orderNumber }) {
       requestBody: { name: newName },
       fields: 'id,name',
     });
-    await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+    // Job folders are not design files — they never get a DesignFileLink row,
+    // their number lives in the folder name itself.
+    if (kind !== 'folder') {
+      await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+    }
     return { status: 'renamed', newName };
   } catch (err) {
     logger.warn('design-files/renumber: Drive rename failed for %s — %s', fileId, err?.message);
@@ -1965,21 +1972,42 @@ async function findFinalFolders(drive, parent, path, depth, out) {
   }
 }
 
-/** Files directly in a folder, plus one level of subfolders below it. */
-async function filesInFolderTree(drive, folder) {
-  const found = [];
-  const children = await listChildren(drive, folder.id);
-  children
-    .filter((f) => f.mimeType !== FOLDER_MIME_TYPE && f.mimeType !== SHORTCUT_MIME_TYPE)
-    .forEach((f) => found.push({ file: f, suffix: '' }));
+/**
+ * What a Final folder holds, as renumbering sees it:
+ *
+ *  - files sitting directly in Final   → the design files themselves
+ *  - folders sitting directly in Final → one job each ("Satish Guruji - I card
+ *    - 9673415158"), whose *folder* carries the number
+ *
+ * Nothing deeper is returned. Files below a job folder are that job's working
+ * material — customer photos, name lists, scans — and renaming those would be
+ * wrong. A job folder's number comes from its own name, or from a numbered
+ * design file sitting directly inside it.
+ */
+async function itemsInFinalFolder(drive, finalFolder) {
+  const items = [];
+  const children = await listChildren(drive, finalFolder.id);
 
-  for (const sub of children.map(asFolder).filter(Boolean)) {
-    const subChildren = await listChildren(drive, sub.id);
-    subChildren
-      .filter((f) => f.mimeType !== FOLDER_MIME_TYPE && f.mimeType !== SHORTCUT_MIME_TYPE)
-      .forEach((f) => found.push({ file: f, suffix: `/${sub.name}` }));
+  for (const child of children) {
+    const folder = asFolder(child);
+    if (!folder) {
+      if (child.mimeType === SHORTCUT_MIME_TYPE) continue;
+      items.push({ kind: 'file', id: child.id, name: child.name, hintOrderNumber: null });
+      continue;
+    }
+
+    // Number hint from a numbered design file directly inside the job folder.
+    let hintOrderNumber = null;
+    if (!extractOrderNumber(folder.name)) {
+      const inner = await listChildren(drive, folder.id);
+      for (const f of inner) {
+        const num = f.mimeType !== FOLDER_MIME_TYPE ? extractOrderNumber(f.name) : null;
+        if (num) { hintOrderNumber = num; break; }
+      }
+    }
+    items.push({ kind: 'folder', id: folder.id, name: folder.name, hintOrderNumber });
   }
-  return found;
+  return items;
 }
 
 /**
@@ -2018,6 +2046,7 @@ async function collectFinalDesignFiles(drive) {
       dateFolders: childFolders.length,
       finalFolders: 0,
       files: 0,
+      emptyDates: [],
       sampleFolders: childFolders.slice(0, 12).map((f) => f.name),
     };
 
@@ -2040,20 +2069,27 @@ async function collectFinalDesignFiles(drive) {
       }
       monthStat.finalFolders += finals.length;
 
+      let itemsHere = 0;
       for (const { finalFolder, dateFolder, path } of finals) {
-        const found = await filesInFolderTree(drive, finalFolder);
-        found.forEach(({ file, suffix }) => {
+        const items = await itemsInFinalFolder(drive, finalFolder);
+        items.forEach((item) => {
           rows.push({
-            fileId: file.id,
-            fileName: file.name,
-            location: `${path}${suffix}`,
+            fileId: item.id,
+            fileName: item.name,
+            kind: item.kind,
+            hintOrderNumber: item.hintOrderNumber,
+            location: path,
             dateFolderId: dateFolder.id,
             dateFolderName: dateFolder.name,
             monthFolderName: month.name,
           });
           monthStat.files += 1;
+          itemsHere += 1;
         });
       }
+      // A date whose Final folder held nothing is worth naming — that is
+      // usually a sync gap between the office PC and Drive.
+      if (itemsHere === 0) monthStat.emptyDates.push(child.name);
     }
 
     scan.months.push(monthStat);
@@ -2119,6 +2155,10 @@ async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun 
  *
  * Body: { dryRun: boolean }  — dryRun (default true) only reports.
  *
+ * Only the direct contents of a Final folder are touched: its design files,
+ * and any job folder sitting in it (the folder itself is renamed, never the
+ * working files inside it).
+ *
  * A file's number comes from its DesignFileLink first and from the number
  * already in its name otherwise. A file with neither gets a brand-new
  * temporary order (same shape as auto-temp-orders: temp customer, stage
@@ -2151,7 +2191,10 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     links.forEach((l) => { if (l.orderNumber != null) orderNumberByFileId[l.driveFileId] = l.orderNumber; });
 
     const report = files.map((file) => {
-      const orderNumber = orderNumberByFileId[file.fileId] ?? extractOrderNumber(file.fileName);
+      const orderNumber = orderNumberByFileId[file.fileId]
+        ?? extractOrderNumber(file.fileName)
+        ?? file.hintOrderNumber
+        ?? null;
       if (!orderNumber) {
         return { ...file, orderNumber: null, newName: null, status: 'no-order', folderStatus: null };
       }
@@ -2197,20 +2240,22 @@ router.post('/renumber', requireAdmin, async (req, res) => {
               await Orders.collection.updateOne({ _id: order._id }, { $set: { createdAt: folderDate } });
             }
 
-            await DesignFileLink.updateOne(
-              { driveFileId: row.fileId },
-              {
-                $set: {
-                  orderUuid,
-                  orderNumber: orderNum,
-                  fileName: row.fileName,
-                  stageNumber: FINAL_STAGE,
-                  stageLabel: stageLabel(FINAL_STAGE),
-                  linkedAt: new Date(),
+            if (row.kind !== 'folder') {
+              await DesignFileLink.updateOne(
+                { driveFileId: row.fileId },
+                {
+                  $set: {
+                    orderUuid,
+                    orderNumber: orderNum,
+                    fileName: row.fileName,
+                    stageNumber: FINAL_STAGE,
+                    stageLabel: stageLabel(FINAL_STAGE),
+                    linkedAt: new Date(),
+                  },
                 },
-              },
-              { upsert: true }
-            );
+                { upsert: true }
+              );
+            }
 
             row.orderNumber = orderNum;
             row.orderCreated = true;
@@ -2234,6 +2279,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
           fileId: row.fileId,
           fileName: row.fileName,
           orderNumber: row.orderNumber,
+          kind: row.kind,
         });
         row.status = result.status;
         row.newName = result.newName;
@@ -2263,6 +2309,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     // Folder counts are per file above; report distinct order folders too.
     summary.folderNumbers = new Set(numbered.map((r) => r.orderNumber)).size;
     summary.ordersCreated = report.filter((r) => r.orderCreated).length;
+    summary.jobFolders = report.filter((r) => r.kind === 'folder').length;
 
     return res.json({ success: true, dryRun, createOrders, summary, scan, files: report });
   } catch (err) {

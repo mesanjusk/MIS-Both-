@@ -1890,9 +1890,9 @@ function RenumberDialog({ open, onClose, onSuccess }) {
   ).values()];
 
   const exportReport = () => {
-    const head = ['Rename', 'Folder', 'Order', 'Location', 'Current name', 'New name', 'Error'];
+    const head = ['Type', 'Rename', 'Folder', 'Order', 'Location', 'Current name', 'New name', 'Error'];
     const body = rows.map((r) => [
-      r.status, r.folderStatus || '', r.orderNumber ?? '', r.location || '',
+      r.kind || 'file', r.status, r.folderStatus || '', r.orderNumber ?? '', r.location || '',
       r.fileName || '', r.newName || '', r.error || r.folderError || '',
     ]);
     const csv = [head, ...body]
@@ -1906,9 +1906,11 @@ function RenumberDialog({ open, onClose, onSuccess }) {
       <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Renumber Final files</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Goes through every <strong>Final</strong> folder in the archive, renames each file to{' '}
-          <strong>&lt;order number&gt; - &lt;name&gt;</strong>, and creates a folder with that same
-          number in the <strong>Printing</strong> folder of the same date.
+          Goes through every <strong>Final</strong> folder in the archive, renames what sits{' '}
+          <strong>directly</strong> in it to <strong>&lt;order number&gt; - &lt;name&gt;</strong>, and
+          creates a folder with that same number in the <strong>Printing</strong> folder of the same
+          date. A job folder inside Final is renamed as a folder — the working files inside it
+          (photos, name lists, scans) are never touched.
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
           e.g. <code>04 April 2026 / 01.04.2026 / Final / 153 - ….cdr</code> →{' '}
@@ -1947,6 +1949,9 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               {summary.ordersCreated > 0 && (
                 <Chip size="small" color="success" label={`${summary.ordersCreated} orders created`} />
               )}
+              {summary.jobFolders > 0 && (
+                <Chip size="small" variant="outlined" label={`${summary.jobFolders} job folders`} />
+              )}
               {folderCounts.pending > 0 && <Chip size="small" color="primary" variant="outlined" label={`${new Set(pendingFolders.map((r) => r.orderNumber)).size} folders to create`} />}
               {folderCounts.created > 0 && <Chip size="small" color="success" variant="outlined" label={`${folderCounts.created} folders created`} />}
               {folderCounts.exists > 0 && <Chip size="small" variant="outlined" label={`${folderCounts.exists} folders already there`} />}
@@ -1980,6 +1985,12 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                             <Typography variant="caption" sx={{ display: 'block', color: 'warning.main', fontSize: 10 }}>
                               contains: {m.sampleFolders.join(', ')}
                               {m.dateFolders > m.sampleFolders.length ? ' …' : ''}
+                            </Typography>
+                          )}
+                          {m.emptyDates?.length > 0 && (
+                            <Typography variant="caption" sx={{ display: 'block', color: 'text.disabled', fontSize: 10 }}>
+                              empty Final: {m.emptyDates.slice(0, 10).join(', ')}
+                              {m.emptyDates.length > 10 ? ` … (+${m.emptyDates.length - 10})` : ''}
                             </Typography>
                           )}
                         </TableCell>
@@ -2016,7 +2027,12 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                     {visible.slice(0, 200).map((r) => (
                       <TableRow key={r.fileId}>
                         <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{r.dateFolderName}</TableCell>
-                        <TableCell sx={{ fontSize: 11 }}>{r.fileName}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }}>
+                          {r.kind === 'folder' && (
+                            <FolderOpenRoundedIcon sx={{ fontSize: 12, mr: 0.4, verticalAlign: 'middle', color: 'warning.main' }} />
+                          )}
+                          {r.fileName}
+                        </TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.status === 'failed' ? 'error.main' : 'success.main' }}>
                           {r.status === 'failed' ? (r.error || 'Rename failed')
                             : r.status === 'no-order' ? 'new order number'

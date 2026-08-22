@@ -198,7 +198,7 @@ async function listChildren(drive, folderId, mimeTypeFilter = null) {
   do {
     const res = await drive.files.list({
       q: q.join(' and '),
-      fields: 'nextPageToken, files(id,name,mimeType,modifiedTime,createdTime,size)',
+      fields: 'nextPageToken, files(id,name,mimeType,modifiedTime,createdTime,size,shortcutDetails(targetId,targetMimeType))',
       pageSize: 1000,
       pageToken,
       supportsAllDrives: true,
@@ -208,9 +208,10 @@ async function listChildren(drive, folderId, mimeTypeFilter = null) {
     pageToken = res.data.nextPageToken || null;
   } while (pageToken);
 
-  // Skip backup/temp files unless we are listing folders
+  // Skip backup/temp files — folders are never filtered by name, a folder
+  // called "Copy of ..." is still a real folder that must be walked.
   if (mimeTypeFilter === 'application/vnd.google-apps.folder') return files;
-  return files.filter((f) => !isBackupFile(f.name));
+  return files.filter((f) => f.mimeType === 'application/vnd.google-apps.folder' || !isBackupFile(f.name));
 }
 
 /**
@@ -1923,18 +1924,75 @@ async function mapWithConcurrency(items, limit, fn) {
 
 const FINAL_STAGE = 5;
 
+const SHORTCUT_MIME_TYPE = 'application/vnd.google-apps.shortcut';
+const FINAL_SEARCH_DEPTH = 4;
+
+/** A child that behaves like a folder — including a shortcut pointing at one. */
+function asFolder(child) {
+  if (child.mimeType === FOLDER_MIME_TYPE) return { id: child.id, name: child.name };
+  if (child.mimeType === SHORTCUT_MIME_TYPE && child.shortcutDetails?.targetMimeType === FOLDER_MIME_TYPE) {
+    return { id: child.shortcutDetails.targetId, name: child.name };
+  }
+  return null;
+}
+
+function isPrintingFolderName(name = '') {
+  return String(name).toLowerCase().includes('print');
+}
+
 /**
- * Every file inside the archive's Final folders:
+ * Finds every Final folder below `parent`, however deep the month folder
+ * happens to be organised — flat date folders, an extra week/section level,
+ * or shortcuts all resolve the same way. The folder that *contains* a Final
+ * folder is its date folder, which is where the sibling Printing folder is,
+ * so nothing here assumes a fixed number of levels.
+ *
+ * Printing folders are never descended into.
+ */
+async function findFinalFolders(drive, parent, path, depth, out) {
+  if (depth > FINAL_SEARCH_DEPTH) return;
+
+  const children = await listChildren(drive, parent.id);
+  const folders = children.map(asFolder).filter(Boolean);
+
+  for (const folder of folders) {
+    if (isPrintingFolderName(folder.name)) continue;
+    if (archiveSectionStage(folder.name) === FINAL_STAGE) {
+      out.push({ finalFolder: folder, dateFolder: parent, path: `${path}/${folder.name}` });
+      continue;
+    }
+    await findFinalFolders(drive, folder, `${path}/${folder.name}`, depth + 1, out);
+  }
+}
+
+/** Files directly in a folder, plus one level of subfolders below it. */
+async function filesInFolderTree(drive, folder) {
+  const found = [];
+  const children = await listChildren(drive, folder.id);
+  children
+    .filter((f) => f.mimeType !== FOLDER_MIME_TYPE && f.mimeType !== SHORTCUT_MIME_TYPE)
+    .forEach((f) => found.push({ file: f, suffix: '' }));
+
+  for (const sub of children.map(asFolder).filter(Boolean)) {
+    const subChildren = await listChildren(drive, sub.id);
+    subChildren
+      .filter((f) => f.mimeType !== FOLDER_MIME_TYPE && f.mimeType !== SHORTCUT_MIME_TYPE)
+      .forEach((f) => found.push({ file: f, suffix: `/${sub.name}` }));
+  }
+  return found;
+}
+
+/**
+ * Every file inside the archive's Final folders, e.g.
  *   <archive>/04 April 2026/01.04.2026/Final/*
- * and one level below that (e.g. Final/<customer>/*), since files are not
- * always kept flat.
  *
- * Each row carries the date folder it came from, because that is where the
- * matching Printing folder lives. The daily "0 Today" tree and every Printing
- * folder are deliberately not walked — those files are never renumbered.
+ * Each row carries the folder that holds the Final folder, because that is
+ * where the matching Printing folder lives. The daily "0 Today" tree and
+ * every Printing folder are deliberately never walked.
  *
- * Returns { rows, scan } where `scan` is a per-month breakdown so the caller
- * can see exactly which months, dates and Final folders were covered.
+ * Returns { rows, scan } where `scan` reports, per month folder, how many
+ * child folders and Final folders were seen and what those child folders are
+ * called — so a month organised differently is visible instead of silent.
  */
 async function collectFinalDesignFiles(drive) {
   const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
@@ -1943,7 +2001,8 @@ async function collectFinalDesignFiles(drive) {
   const rows = [];
   const scan = { months: [], datesWithoutFinal: [] };
 
-  const months = await listChildren(drive, archiveFolderId, FOLDER_MIME_TYPE);
+  const rootChildren = await listChildren(drive, archiveFolderId);
+  const months = rootChildren.map(asFolder).filter(Boolean);
   months.sort((a, b) => {
     const [ya, ma] = monthFolderSortKey(a.name);
     const [yb, mb] = monthFolderSortKey(b.name);
@@ -1951,47 +2010,52 @@ async function collectFinalDesignFiles(drive) {
   });
 
   for (const month of months) {
-    const monthStat = { name: month.name, dateFolders: 0, finalFolders: 0, files: 0 };
-    const dateFolders = await listChildren(drive, month.id, FOLDER_MIME_TYPE);
-    monthStat.dateFolders = dateFolders.length;
+    const monthChildren = await listChildren(drive, month.id);
+    const childFolders = monthChildren.map(asFolder).filter(Boolean);
 
-    for (const dateFolder of dateFolders) {
-      const sections = await listChildren(drive, dateFolder.id, FOLDER_MIME_TYPE);
-      const finalSections = sections.filter((f) => archiveSectionStage(f.name) === FINAL_STAGE);
+    const monthStat = {
+      name: month.name,
+      dateFolders: childFolders.length,
+      finalFolders: 0,
+      files: 0,
+      sampleFolders: childFolders.slice(0, 12).map((f) => f.name),
+    };
 
-      if (!finalSections.length) {
-        scan.datesWithoutFinal.push(`${month.name}/${dateFolder.name}`);
+    // Walked child by child so a child folder that leads to no Final folder
+    // at all can be named in the report instead of silently contributing 0.
+    for (const child of childFolders) {
+      if (isPrintingFolderName(child.name)) continue;
+
+      const childPath = `${month.name}/${child.name}`;
+      const finals = [];
+      if (archiveSectionStage(child.name) === FINAL_STAGE) {
+        finals.push({ finalFolder: child, dateFolder: month, path: childPath });
+      } else {
+        await findFinalFolders(drive, child, childPath, 2, finals);
+      }
+
+      if (!finals.length) {
+        scan.datesWithoutFinal.push(childPath);
         continue;
       }
-      monthStat.finalFolders += finalSections.length;
+      monthStat.finalFolders += finals.length;
 
-      for (const section of finalSections) {
-        const push = (file, location) => {
-          if (file.mimeType === FOLDER_MIME_TYPE) return;
+      for (const { finalFolder, dateFolder, path } of finals) {
+        const found = await filesInFolderTree(drive, finalFolder);
+        found.forEach(({ file, suffix }) => {
           rows.push({
             fileId: file.id,
             fileName: file.name,
-            location,
+            location: `${path}${suffix}`,
             dateFolderId: dateFolder.id,
             dateFolderName: dateFolder.name,
             monthFolderName: month.name,
           });
           monthStat.files += 1;
-        };
-
-        const sectionPath = `${month.name}/${dateFolder.name}/${section.name}`;
-        const children = await listChildren(drive, section.id);
-        children.forEach((f) => push(f, sectionPath));
-
-        // Files kept one level deeper inside Final (per-customer / per-job
-        // subfolders) count too.
-        const subFolders = children.filter((f) => f.mimeType === FOLDER_MIME_TYPE);
-        for (const sub of subFolders) {
-          const subChildren = await listChildren(drive, sub.id);
-          subChildren.forEach((f) => push(f, `${sectionPath}/${sub.name}`));
-        }
+        });
       }
     }
+
     scan.months.push(monthStat);
   }
 

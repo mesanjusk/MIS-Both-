@@ -1971,9 +1971,20 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                   <TableBody>
                     {report.scan.months.map((m) => (
                       <TableRow key={m.name}>
-                        <TableCell sx={{ fontSize: 11 }}>{m.name}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }}>
+                          {m.name}
+                          {/* When a month yields nothing, show what its child
+                              folders are actually called — that is usually the
+                              whole explanation. */}
+                          {m.finalFolders === 0 && m.sampleFolders?.length > 0 && (
+                            <Typography variant="caption" sx={{ display: 'block', color: 'warning.main', fontSize: 10 }}>
+                              contains: {m.sampleFolders.join(', ')}
+                              {m.dateFolders > m.sampleFolders.length ? ' …' : ''}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell sx={{ fontSize: 11 }} align="right">{m.dateFolders}</TableCell>
-                        <TableCell sx={{ fontSize: 11 }} align="right">{m.finalFolders}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: m.finalFolders === 0 ? 'warning.main' : 'inherit' }} align="right">{m.finalFolders}</TableCell>
                         <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">{m.files}</TableCell>
                       </TableRow>
                     ))}

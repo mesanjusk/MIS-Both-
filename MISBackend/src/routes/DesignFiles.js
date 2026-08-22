@@ -18,23 +18,33 @@
  *   GET /api/design-files/order/:uuid     — live stage of files for one order
  *   POST /api/design-files/auto-temp-orders — create temp orders for unmatched files
  *   GET /api/design-files/scan-archive    — scan month-wise archive folder
+ *   POST /api/design-files/renumber       — bulk "<orderNumber> - <name>" rename
+ *
+ * Vendor bills and purchase orders are never raised from here: creating an
+ * order only creates its empty "<orderNumber>" folder inside that day's
+ * archive Printing folder (see services/driveArchiveFolderService.js), and
+ * print jobs are always created by hand with a real vendor and amount.
  */
 
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
 const Orders = require('../repositories/order');
 const VendorMaster = require('../repositories/vendorMaster');
-const PurchaseOrder = require('../repositories/purchaseOrder');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
 const Usertasks = require('../repositories/usertask');
-const { postCustomerInvoice } = require('../services/accountingPostingService');
 const { upsertVendorJob } = require('../services/vendorJobService');
+const {
+  ensureArchiveOrderFolderSafe,
+  parseFolderDate,
+  monthFolderSortKey,
+} = require('../services/driveArchiveFolderService');
 const { assignOrderToUser } = require('../services/orderTaskService');
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const { normalizePhone } = require('../utils/phone');
@@ -216,20 +226,6 @@ async function nextOrderNumber() {
 }
 
 // ─── New helpers ──────────────────────────────────────────────────────────────
-
-const SUSPENSE_VENDOR_UUID = process.env.SUSPENSE_VENDOR_UUID || 'ffffffff-0000-susp-0000-v3nd0r0000001';
-
-async function getOrCreateSuspenseVendor() {
-  const existing = await VendorMaster.findOne({ Vendor_uuid: SUSPENSE_VENDOR_UUID }).lean();
-  if (existing) return existing;
-  return VendorMaster.create({
-    Vendor_uuid: SUSPENSE_VENDOR_UUID,
-    Vendor_name: 'Suspense Printer',
-    Mobile_number: '0000000000',
-    Vendor_type: 'mixed',
-    Active: true,
-  });
-}
 
 function sanitize(v) {
   return String(v || '').replace(/[\\/:*?"<>|#%{}~&]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -897,6 +893,12 @@ router.post('/auto-temp-orders', async (req, res) => {
     const tempCustomer = await getOrCreateTempCustomer();
     const results = [];
 
+    // One Drive client for the whole batch — used for the per-order Printing
+    // folders below and reused by the rename block further down. Null when
+    // Drive is not connected; every Drive step then simply skips.
+    let batchDrive = null;
+    try { batchDrive = await getAuthorizedDriveClient(); } catch (_) { /* no Drive auth */ }
+
     for (const file of toProcess) {
       const orderNum = await nextOrderNumber();
       const orderUuid = uuidv4();
@@ -930,14 +932,31 @@ router.post('/auto-temp-orders', async (req, res) => {
         { upsert: true }
       );
 
-      results.push({ fileId: file.fileId, orderNumber: orderNum, orderUuid });
+      // Empty folder named after the order number inside today's archive
+      // Printing folder — best effort, never fails the order creation.
+      const printFolder = await ensureArchiveOrderFolderSafe({
+        orderNumber: orderNum,
+        drive: batchDrive,
+      });
+      if (printFolder?.orderFolderId) {
+        await DesignFileLink.updateOne(
+          { driveFileId: file.fileId },
+          { $set: { printFolderId: printFolder.orderFolderId } }
+        );
+      }
+
+      results.push({
+        fileId: file.fileId,
+        orderNumber: orderNum,
+        orderUuid,
+        printFolderId: printFolder?.orderFolderId || null,
+      });
     }
 
     // Drive rename — isolated so it can never cause a 500 on the order creation
     const renameResults = {};
     try {
-      let drive = null;
-      try { drive = await getAuthorizedDriveClient(); } catch (_) { /* no Drive auth — skip */ }
+      const drive = batchDrive;
 
       if (drive) {
         for (const result of results) {
@@ -1397,99 +1416,27 @@ router.post('/confirm-final', async (req, res) => {
       logger.warn('rename block error — %s', renameBlockErr?.message);
     }
 
-    const itemsTotal = isDetailed
-      ? (orderDoc.items || []).reduce((s, it) => s + (Number(it.Amount) || 0), 0)
-      : 0;
-    if (itemsTotal > 0) {
-      try {
-        await postCustomerInvoice({
-          amount: itemsTotal,
-          orderUuid,
-          orderNumber: orderNum,
-          customerUuid,
-          description: `Order #${orderNum} - ${customer.Customer_name}`,
-          sourceSuffix: orderUuid,
-        });
-      } catch (acctErr) {
-        logger.warn({ acctErr }, 'confirm-final accounting post failed (non-fatal)');
-      }
+    // Every new order gets an empty folder named after its order number
+    // inside today's archive Printing folder — best effort, never fails the
+    // confirm (see driveArchiveFolderService).
+    const printFolder = await ensureArchiveOrderFolderSafe({ orderNumber: orderNum });
+    if (printFolder?.orderFolderId) {
+      await DesignFileLink.updateOne(
+        { driveFileId: fileId },
+        { $set: { printFolderId: printFolder.orderFolderId } }
+      );
     }
 
-    return res.json({ success: true, orderNumber: orderNum, orderUuid, newName, renamed });
+    return res.json({
+      success: true,
+      orderNumber: orderNum,
+      orderUuid,
+      newName,
+      renamed,
+      printFolderId: printFolder?.orderFolderId || null,
+    });
   } catch (err) {
     logger.error({ err }, 'design-files/confirm-final error');
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-// ─── POST /api/design-files/auto-print-job ───────────────────────────────────
-/**
- * Auto-creates purchase orders for Printing (stage 6) files that don't have a
- * print job yet.
- *
- * Body: { files: [{ fileId, fileName, orderUuid, orderNumber, stageNumber }] }
- */
-router.post('/auto-print-job', async (req, res) => {
-  try {
-    const { files = [] } = req.body || {};
-    if (!Array.isArray(files) || !files.length) {
-      return res.json({ success: true, created: 0, jobs: [] });
-    }
-
-    const fileIds = files.map((f) => f.fileId).filter(Boolean);
-
-    // Filter out files that already have printJobId in DesignFileLink
-    const existingLinks = await DesignFileLink.find(
-      { driveFileId: { $in: fileIds }, printJobId: { $exists: true, $ne: null } },
-      { driveFileId: 1 }
-    ).lean();
-    const alreadyHasJob = new Set(existingLinks.map((l) => l.driveFileId));
-    const toProcess = files.filter((f) => f.fileId && !alreadyHasJob.has(f.fileId));
-
-    if (!toProcess.length) {
-      return res.json({ success: true, created: 0, jobs: [] });
-    }
-
-    const suspenseVendor = await getOrCreateSuspenseVendor();
-    const results = [];
-
-    for (const file of toProcess) {
-      const fileOrderUuid = file.orderUuid || '';
-      const fileOrderNumber = file.orderNumber || null;
-
-      const { job } = await upsertVendorJob({
-        jobCategory: 'printing',
-        vendorUuid: suspenseVendor.Vendor_uuid,
-        vendorName: suspenseVendor.Vendor_name,
-        orderUuid: fileOrderUuid,
-        orderNumber: fileOrderNumber,
-        jobType: 'printing',
-        amount: 1,
-        status: 'draft',
-        notes: file.fileName || file.fileId,
-        driveFileId: file.fileId,
-        postAccountingBill: false,
-        referenceType: 'print_job',
-      });
-
-      await DesignFileLink.updateOne(
-        { driveFileId: file.fileId },
-        {
-          $set: {
-            linkStatus: 'printing',
-            printJobId: job.job_uuid,
-            printJobNumber: job.job_number,
-          },
-        },
-        { upsert: true }
-      );
-
-      results.push({ fileId: file.fileId, printJobNumber: job.job_number, workUuid: job.job_uuid });
-    }
-
-    return res.json({ success: true, created: results.length, jobs: results });
-  } catch (err) {
-    logger.error({ err }, 'design-files/auto-print-job error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -1844,7 +1791,9 @@ router.post('/create-print-job', async (req, res) => {
       notes: notes || JSON.stringify(items.map((i) => ({
         file: i.fileName, qty: i.qty, rate: i.rate, amount: i.amount,
       }))),
-      postAccountingBill: true,
+      // Vendor bills are raised manually from the Purchase Order screens —
+      // creating a print job never posts to accounting on its own.
+      postAccountingBill: false,
       referenceType: 'print_job',
     });
 
@@ -1888,213 +1837,209 @@ router.post('/validate-print-jobs', async (req, res) => {
   }
 });
 
-// ─── Auto Purchase Order from Print Vendor Folders ───────────────────────────
-
+// ─── Design file renumbering ─────────────────────────────────────────────────
 /**
- * Parse "DD.MM.YYYY" from an archive date folder name into a UTC midnight Date.
- * Returns null if the format is not recognised.
+ * One naming rule for every design file: "<orderNumber> - <rest of name>".
+ * Used by the confirm/auto-temp flows and by the bulk renumber endpoint below,
+ * so the scheme lives in exactly one place.
+ *
+ * Printing files are deliberately out of scope — they keep their own naming
+ * (see rename-print-file) and the archive Printing folders are never touched.
  */
-function parseFolderDate(name = '') {
-  const m = String(name).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
-  if (!m) return null;
-  const d = new Date(`${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T00:00:00.000Z`);
-  return Number.isNaN(d.getTime()) ? null : d;
+
+const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
+const PRINTING_STAGE = 6;
+const RENUMBER_CONCURRENCY = 4;
+
+/** Strips a leading "<digits><separator>" from a file name. */
+function stripLeadingOrderNumber(name = '') {
+  return String(name).replace(/^\s*\d+\s*[-_\s]\s*/, '').trim();
 }
 
-/** Sort key for month folder names like "04 April 2026" → [2026, 4]. */
-function monthFolderSortKey(name = '') {
-  const m = String(name).match(/^(\d+)\D+(\d{4})/);
-  return m ? [parseInt(m[2], 10), parseInt(m[1], 10)] : [0, 0];
-}
-
-/** Extract item name and qty from a print file name.
- *  "banner=5.pdf" → { itemName: "banner", qty: 5 }
- *  "visiting card=50.cdr" → { itemName: "visiting card", qty: 50 }
- *  "flex.pdf" → { itemName: "flex", qty: 1 }
- */
-function parsePrintFileName(rawName = '') {
-  const withoutExt = rawName.replace(/\.[^.]+$/, '').trim();
-  const m = withoutExt.match(/^(.+?)=(\d+(?:\.\d+)?)$/);
-  if (m) return { itemName: m[1].trim(), qty: Number(m[2]) };
-  return { itemName: withoutExt, qty: 1 };
-}
-
-/** Get next PO number using the shared counter. */
-async function nextAutoPONumber() {
-  const counter = await Counter.findByIdAndUpdate(
-    'purchase_order_number',
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  ).lean();
-  return Number(counter?.seq || 1);
+/** Builds the order-number-prefixed name for a design file. */
+function buildDesignFileName(fileName, orderNumber) {
+  const base = stripLeadingOrderNumber(fileName) || String(fileName || '').trim();
+  return `${orderNumber} - ${base}`;
 }
 
 /**
- * Find vendor by folder name (case-insensitive, first-word match).
- * Creates a new vendor if none found.
+ * Renames one design file onto the order-number scheme unless it already
+ * carries the right prefix. Returns { status, newName } with status
+ * 'renamed' | 'already-ok' | 'failed'.
  */
-async function findOrCreateVendorByFolderName(folderName = '') {
-  const normalized = folderName.trim().toLowerCase();
-  // Exact match first
-  let vendor = await VendorMaster.findOne({
-    Vendor_name: { $regex: new RegExp(`^${normalized}$`, 'i') },
-    Active: true,
-  }).lean();
-  if (vendor) return vendor;
+async function renumberDesignFile(drive, { fileId, fileName, orderNumber }) {
+  if (alreadyPrefixedWithOrder(fileName, orderNumber)) {
+    return { status: 'already-ok', newName: fileName };
+  }
+  const newName = buildDesignFileName(fileName, orderNumber);
+  if (!drive) return { status: 'failed', newName, error: 'Drive not connected' };
+  try {
+    await drive.files.update({
+      fileId,
+      supportsAllDrives: true,
+      requestBody: { name: newName },
+      fields: 'id,name',
+    });
+    await DesignFileLink.updateOne({ driveFileId: fileId }, { $set: { fileName: newName } });
+    return { status: 'renamed', newName };
+  } catch (err) {
+    logger.warn('design-files/renumber: Drive rename failed for %s — %s', fileId, err?.message);
+    return { status: 'failed', newName, error: err?.message || 'Rename failed' };
+  }
+}
 
-  // Starts-with match (folderName is first word of vendor name)
-  vendor = await VendorMaster.findOne({
-    Vendor_name: { $regex: new RegExp(`^${normalized}\\b`, 'i') },
-    Active: true,
-  }).lean();
-  if (vendor) return vendor;
+/** Runs fn over items with at most `limit` concurrent in-flight calls. */
+async function mapWithConcurrency(items, limit, fn) {
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const idx = next++;
+      await fn(items[idx], idx);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
-  // Create new vendor using folder name as vendor name (capitalized)
-  const vendorName = folderName.trim().replace(/^\w/, (c) => c.toUpperCase());
-  const created = await VendorMaster.create({
-    Vendor_name: vendorName,
-    Vendor_type: 'jobwork',
-    Active: true,
-    Notes: `Auto-created from Drive print folder: ${folderName}`,
-  });
-  logger.info({ vendorName, folderName }, '[auto-po] Created new vendor from Drive folder');
-  return created.toObject ? created.toObject() : created;
+/** Design files sitting in today's numbered stage folders (Printing excluded). */
+async function collectDailyDesignFiles(drive) {
+  const dailyFolderId = process.env.DRIVE_DAILY_FOLDER_ID;
+  if (!dailyFolderId) return [];
+
+  const folders = await listChildren(drive, dailyFolderId, FOLDER_MIME_TYPE);
+  const stageFolders = folders
+    .map((f) => ({ ...f, stageNumber: folderStageNumber(f.name) }))
+    .filter((f) => f.stageNumber !== null && f.stageNumber !== PRINTING_STAGE)
+    .sort((a, b) => a.stageNumber - b.stageNumber);
+
+  const out = [];
+  for (const folder of stageFolders) {
+    const files = await listChildren(drive, folder.id);
+    files
+      .filter((f) => f.mimeType !== FOLDER_MIME_TYPE)
+      .forEach((f) => out.push({ fileId: f.id, fileName: f.name, location: folder.name }));
+  }
+  return out;
 }
 
 /**
- * Scans the archive Drive folder, finds Print vendor subfolders without a PO
- * number prefix, creates PurchaseOrders, and renames the Drive folders.
- * Called by the daily 12:00 PM scheduler and the manual POST /auto-po endpoint.
+ * Design files in the month/date archive tree. Printing sections are skipped
+ * entirely; Final (and any other non-print section), plus one nested level
+ * inside it and loose files sitting directly in a date folder, are included.
  */
-async function autoPurchaseOrdersFromDrive() {
+async function collectArchiveDesignFiles(drive) {
   const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
-  if (!archiveFolderId) throw new Error('DRIVE_ARCHIVE_FOLDER_ID not configured');
+  if (!archiveFolderId) return [];
 
-  const drive = await getAuthorizedDriveClient();
+  const out = [];
+  const push = (file, location) => {
+    if (file.mimeType === FOLDER_MIME_TYPE) return;
+    out.push({ fileId: file.id, fileName: file.name, location });
+  };
 
-  // Scan ALL month subfolders in the archive root, sorted chronologically
-  const monthSubfolders = await listChildren(drive, archiveFolderId, 'application/vnd.google-apps.folder');
-  if (!monthSubfolders.length) return [];
-
-  monthSubfolders.sort((a, b) => {
+  const months = await listChildren(drive, archiveFolderId, FOLDER_MIME_TYPE);
+  months.sort((a, b) => {
     const [ya, ma] = monthFolderSortKey(a.name);
     const [yb, mb] = monthFolderSortKey(b.name);
     return ya !== yb ? ya - yb : ma - mb;
   });
 
-  const results = [];
-
-  for (const monthFolder of monthSubfolders) {
-    const dateFolders = await listChildren(drive, monthFolder.id, 'application/vnd.google-apps.folder');
-
-    // Sort date folders chronologically by their DD.MM.YYYY name
-    dateFolders.sort((a, b) => {
-      const da = parseFolderDate(a.name);
-      const db = parseFolderDate(b.name);
-      if (!da && !db) return 0;
-      if (!da) return 1;
-      if (!db) return -1;
-      return da - db;
-    });
-
+  for (const month of months) {
+    const dateFolders = await listChildren(drive, month.id, FOLDER_MIME_TYPE);
     for (const dateFolder of dateFolders) {
-      const poDate = parseFolderDate(dateFolder.name);
+      const datePath = `${month.name}/${dateFolder.name}`;
+      (await listChildren(drive, dateFolder.id)).forEach((f) => push(f, datePath));
 
-      const sectionFolders = await listChildren(drive, dateFolder.id, 'application/vnd.google-apps.folder');
+      const sections = await listChildren(drive, dateFolder.id, FOLDER_MIME_TYPE);
+      for (const section of sections) {
+        if (archiveSectionStage(section.name) === PRINTING_STAGE) continue;
+        const sectionPath = `${datePath}/${section.name}`;
+        (await listChildren(drive, section.id)).forEach((f) => push(f, sectionPath));
 
-      // Find the Print section folder
-      const printSection = sectionFolders.find((f) => f.name.toLowerCase().includes('print'));
-      if (!printSection) continue;
-
-      // List vendor subfolders inside Print
-      const vendorFolders = await listChildren(drive, printSection.id, 'application/vnd.google-apps.folder');
-
-      for (const vendorFolder of vendorFolders) {
-        // Skip folders that already start with a digit — they already have a PO number prefix
-        if (/^\d/.test(vendorFolder.name)) continue;
-
-        const files = await listChildren(drive, vendorFolder.id);
-        if (!files.length) continue;
-
-        const items = files.map((f) => {
-          const { itemName, qty } = parsePrintFileName(f.name);
-          return { itemName, qty, unit: 'Nos', rate: 1, amount: qty * 1 };
-        });
-
-        let vendor;
-        try {
-          vendor = await findOrCreateVendorByFolderName(vendorFolder.name);
-        } catch (vendorErr) {
-          logger.error({ err: vendorErr.message, folder: vendorFolder.name }, '[auto-po] Vendor find/create failed');
-          results.push({ date: dateFolder.name, folder: vendorFolder.name, error: vendorErr.message });
-          continue;
+        const subFolders = await listChildren(drive, section.id, FOLDER_MIME_TYPE);
+        for (const sub of subFolders) {
+          const subPath = `${sectionPath}/${sub.name}`;
+          (await listChildren(drive, sub.id)).forEach((f) => push(f, subPath));
         }
-
-        let po;
-        let poNumber;
-        try {
-          poNumber = await nextAutoPONumber();
-          po = await PurchaseOrder.create({
-            PO_Number: poNumber,
-            Vendor_uuid: vendor.Vendor_uuid,
-            Vendor_name: vendor.Vendor_name,
-            Items: items,
-            poDate: poDate || new Date(),
-            status: 'draft',
-            notes: `Auto-created from Drive: ${monthFolder.name}/${dateFolder.name}/Print/${vendorFolder.name}`,
-            createdBy: 'system',
-          });
-          // Override Mongoose-managed createdAt to match the actual folder date
-          if (poDate) {
-            await PurchaseOrder.collection.updateOne(
-              { _id: po._id },
-              { $set: { createdAt: poDate } }
-            );
-          }
-        } catch (poErr) {
-          logger.error({ err: poErr.message, folder: vendorFolder.name }, '[auto-po] PO creation failed');
-          results.push({ date: dateFolder.name, folder: vendorFolder.name, error: poErr.message });
-          continue;
-        }
-
-        // Rename Drive folder: "101 Anand" (PO number space vendor name)
-        const newFolderName = `${poNumber} ${vendorFolder.name}`;
-        try {
-          await drive.files.update({
-            fileId: vendorFolder.id,
-            supportsAllDrives: true,
-            requestBody: { name: newFolderName },
-          });
-        } catch (renameErr) {
-          logger.warn({ err: renameErr.message, folder: vendorFolder.name }, '[auto-po] Drive folder rename failed');
-        }
-
-        logger.info({ poNumber, vendor: vendor.Vendor_name, itemCount: items.length, poDate }, '[auto-po] PO created');
-        results.push({
-          date: dateFolder.name,
-          month: monthFolder.name,
-          originalFolderName: vendorFolder.name,
-          newFolderName,
-          vendorName: vendor.Vendor_name,
-          poNumber,
-          poDate: poDate ? poDate.toISOString().slice(0, 10) : null,
-          itemCount: items.length,
-          poUuid: po.PO_uuid,
-        });
       }
     }
   }
-
-  return results;
+  return out;
 }
 
-// POST /api/design-files/auto-po  — manual trigger
-router.post('/auto-po', async (_req, res) => {
+// ─── POST /api/design-files/renumber ─────────────────────────────────────────
+/**
+ * Bulk-applies the order-number naming rule to design files.
+ *
+ * Body: { scope: 'daily' | 'archive' | 'all', dryRun: boolean }
+ *   dryRun (default true) reports what *would* change without touching Drive.
+ *
+ * A file's order number comes from its DesignFileLink first, and from the
+ * number already in its name otherwise; files with neither are reported as
+ * 'no-order' and left alone (no temp orders are created here).
+ */
+router.post('/renumber', requireAdmin, async (req, res) => {
   try {
-    const results = await autoPurchaseOrdersFromDrive();
-    return res.json({ success: true, created: results.length, results });
+    const scope = ['daily', 'archive', 'all'].includes(req.body?.scope) ? req.body.scope : 'all';
+    const dryRun = req.body?.dryRun !== false;
+
+    const drive = await getAuthorizedDriveClient();
+
+    const collected = [];
+    if (scope === 'daily' || scope === 'all') collected.push(...(await collectDailyDesignFiles(drive)));
+    if (scope === 'archive' || scope === 'all') collected.push(...(await collectArchiveDesignFiles(drive)));
+
+    // A file can appear once per scope only — de-dupe by Drive file id.
+    const byId = new Map();
+    collected.forEach((f) => { if (!byId.has(f.fileId)) byId.set(f.fileId, f); });
+    const files = [...byId.values()];
+
+    const links = files.length
+      ? await DesignFileLink.find(
+          { driveFileId: { $in: files.map((f) => f.fileId) } },
+          { driveFileId: 1, orderNumber: 1 }
+        ).lean()
+      : [];
+    const orderNumberByFileId = {};
+    links.forEach((l) => { if (l.orderNumber != null) orderNumberByFileId[l.driveFileId] = l.orderNumber; });
+
+    const report = files.map((file) => {
+      const orderNumber = orderNumberByFileId[file.fileId] ?? extractOrderNumber(file.fileName);
+      if (!orderNumber) {
+        return { ...file, orderNumber: null, newName: null, status: 'no-order' };
+      }
+      if (alreadyPrefixedWithOrder(file.fileName, orderNumber)) {
+        return { ...file, orderNumber, newName: file.fileName, status: 'already-ok' };
+      }
+      return {
+        ...file,
+        orderNumber,
+        newName: buildDesignFileName(file.fileName, orderNumber),
+        status: 'pending',
+      };
+    });
+
+    if (!dryRun) {
+      const pending = report.filter((r) => r.status === 'pending');
+      await mapWithConcurrency(pending, RENUMBER_CONCURRENCY, async (row) => {
+        const result = await renumberDesignFile(drive, {
+          fileId: row.fileId,
+          fileName: row.fileName,
+          orderNumber: row.orderNumber,
+        });
+        row.status = result.status;
+        row.newName = result.newName;
+        if (result.error) row.error = result.error;
+      });
+    }
+
+    const summary = report.reduce(
+      (acc, row) => { acc[row.status] = (acc[row.status] || 0) + 1; return acc; },
+      { total: report.length }
+    );
+
+    return res.json({ success: true, scope, dryRun, summary, files: report });
   } catch (err) {
-    logger.error({ err }, 'design-files/auto-po error');
+    logger.error({ err }, 'design-files/renumber error');
     if (err?.reconnectRequired) {
       return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
     }
@@ -2103,4 +2048,3 @@ router.post('/auto-po', async (_req, res) => {
 });
 
 module.exports = router;
-module.exports.autoPurchaseOrdersFromDrive = autoPurchaseOrdersFromDrive;

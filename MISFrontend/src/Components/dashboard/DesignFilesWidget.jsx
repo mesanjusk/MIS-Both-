@@ -50,7 +50,6 @@ import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import AssignmentTurnedInRoundedIcon from '@mui/icons-material/AssignmentTurnedInRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
-import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
@@ -1487,7 +1486,6 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
-  const [autoPORunning, setAutoPORunning] = useState(false);
 
   const loadArchive = useCallback(async () => {
     setLoading(true); setError('');
@@ -1500,24 +1498,6 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
   }, []);
-
-  const runAutoPO = useCallback(async () => {
-    setAutoPORunning(true);
-    try {
-      const res = await axios.post('/api/design-files/auto-po');
-      const count = res.data?.created ?? 0;
-      if (count > 0) {
-        setArchiveToast({ message: `Auto PO: ${count} purchase order${count > 1 ? 's' : ''} created`, severity: 'success' });
-        await loadArchive();
-      } else {
-        setArchiveToast({ message: 'No new vendor folders found to process', severity: 'info' });
-      }
-    } catch (err) {
-      setArchiveToast({ message: err?.response?.data?.message || 'Auto PO failed', severity: 'error' });
-    } finally {
-      setAutoPORunning(false);
-    }
-  }, [loadArchive]);
 
   const toggleSelect = useCallback((file) => {
     setSelectedMap((prev) => {
@@ -1643,21 +1623,6 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
             </Tooltip>
           </>
         )}
-        <Tooltip title="Run Auto Purchase Order — creates POs from new vendor folders in Print section">
-          <span>
-            <IconButton
-              size="small"
-              onClick={runAutoPO}
-              disabled={autoPORunning || loading}
-              color="primary"
-              sx={{ p: 0.4 }}
-            >
-              {autoPORunning
-                ? <CircularProgress size={12} />
-                : <ShoppingCartRoundedIcon sx={{ fontSize: 14 }} />}
-            </IconButton>
-          </span>
-        </Tooltip>
         <Tooltip title="Refresh archive">
           <IconButton size="small" onClick={loadArchive} disabled={loading} sx={{ p: 0.4 }}>
             <RefreshRoundedIcon sx={{ fontSize: 14 }} />
@@ -1872,6 +1837,161 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 // a separate assigned-tasks query. No "move to stage" control here: a file's
 // column is decided purely by which Drive folder it's physically in, synced
 // automatically (see the backend's syncOrderStagesFromFolders).
+
+// ─── Renumber design files ────────────────────────────────────────────────────
+/**
+ * Bulk-applies the "<orderNumber> - <name>" rule to design files. Always
+ * previews first (server-side dry run) — nothing in Drive is touched until
+ * Apply is pressed. Printing files are never included.
+ */
+const RENUMBER_SCOPES = [
+  { value: 'all', label: 'Both' },
+  { value: 'daily', label: "Today's folders" },
+  { value: 'archive', label: 'Archive' },
+];
+
+function RenumberDialog({ open, onClose, onSuccess }) {
+  const [scope, setScope] = useState('all');
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) { setReport(null); setError(''); }
+  }, [open]);
+
+  const run = async (dryRun) => {
+    if (dryRun) setLoading(true); else setApplying(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/renumber', { scope, dryRun });
+      setReport(res.data);
+      if (!dryRun) {
+        const renamed = res.data?.summary?.renamed || 0;
+        onSuccess(`${renamed} file${renamed === 1 ? '' : 's'} renumbered`, renamed ? 'success' : 'info');
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Renumber failed');
+    } finally {
+      setLoading(false); setApplying(false);
+    }
+  };
+
+  const summary = report?.summary || {};
+  const rows = report?.files || [];
+  const pending = rows.filter((r) => r.status === 'pending');
+  const failed = rows.filter((r) => r.status === 'failed');
+
+  const exportReport = () => {
+    const head = ['Status', 'Order', 'Location', 'Current name', 'New name', 'Error'];
+    const body = rows.map((r) => [
+      r.status, r.orderNumber ?? '', r.location || '', r.fileName || '', r.newName || '', r.error || '',
+    ]);
+    const csv = [head, ...body]
+      .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    triggerDownload(csv, `design-renumber-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Renumber design files</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Renames every design file to <strong>&lt;order number&gt; - &lt;name&gt;</strong>, using the
+          order it is linked to (or the number already in its name). Printing files are never touched,
+          and files with no order at all are left alone.
+        </Typography>
+
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap">
+          <ToggleButtonGroup
+            size="small" exclusive value={scope}
+            onChange={(_, v) => { if (v) { setScope(v); setReport(null); } }}
+            sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.3, fontSize: 11, textTransform: 'none' } }}
+          >
+            {RENUMBER_SCOPES.map((s) => (
+              <ToggleButton key={s.value} value={s.value}>{s.label}</ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+          <Button
+            size="small" variant="outlined" onClick={() => run(true)} disabled={loading || applying}
+            startIcon={loading ? <CircularProgress size={12} /> : <TagRoundedIcon sx={{ fontSize: '14px !important' }} />}
+          >
+            Preview
+          </Button>
+          {rows.length > 0 && (
+            <Button size="small" onClick={exportReport} startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '14px !important' }} />}>
+              CSV
+            </Button>
+          )}
+        </Stack>
+
+        {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+        {(loading || applying) && <LinearProgress sx={{ mb: 1.5, height: 2 }} />}
+
+        {report && (
+          <>
+            <Stack direction="row" spacing={0.75} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={`${summary.total || 0} scanned`} />
+              {summary.pending > 0 && <Chip size="small" color="primary" label={`${summary.pending} to rename`} />}
+              {summary.renamed > 0 && <Chip size="small" color="success" label={`${summary.renamed} renamed`} />}
+              {summary['already-ok'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-ok']} already correct`} />}
+              {summary['no-order'] > 0 && <Chip size="small" color="warning" label={`${summary['no-order']} no order`} />}
+              {summary.failed > 0 && <Chip size="small" color="error" label={`${summary.failed} failed`} />}
+            </Stack>
+
+            {(pending.length > 0 || failed.length > 0) && (
+              <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Location</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Current name</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>New name</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {[...failed, ...pending].slice(0, 200).map((r) => (
+                      <TableRow key={r.fileId}>
+                        <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{r.location}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }}>{r.fileName}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: r.status === 'failed' ? 'error.main' : 'success.main' }}>
+                          {r.status === 'failed' ? (r.error || 'Rename failed') : r.newName}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {pending.length + failed.length > 200 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', p: 1 }}>
+                    Showing first 200 — download the CSV for the full list.
+                  </Typography>
+                )}
+              </Box>
+            )}
+
+            {report.dryRun && pending.length === 0 && !error && (
+              <Alert severity="success">Nothing to renumber — every scanned file already has the right number.</Alert>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button size="small" onClick={onClose}>Close</Button>
+        <Button
+          size="small" variant="contained" color="warning"
+          disabled={!report?.dryRun || pending.length === 0 || applying || loading}
+          onClick={() => run(false)}
+          startIcon={applying ? <CircularProgress size={12} color="inherit" /> : null}
+        >
+          Apply to {pending.length} file{pending.length === 1 ? '' : 's'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob }) {
   return (
     // Fixed 5-column grid, always one row — `auto-fit`+`minmax` used to wrap
@@ -1934,7 +2054,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
 
 // ─── Main widget ──────────────────────────────────────────────────────────────
 export default function DesignFilesWidget() {
-  const { userName } = useAuth();
+  const { userName, isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -1951,7 +2071,9 @@ export default function DesignFilesWidget() {
   const [deliverFile, setDeliverFile] = useState(null);
   const [autoTempOpen, setAutoTempOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [singlePrintFile, setSinglePrintFile] = useState(null);
   const [createFileOpen, setCreateFileOpen] = useState(false);
+  const [renumberOpen, setRenumberOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
 
@@ -1975,12 +2097,6 @@ export default function DesignFilesWidget() {
           files: trackedStages.map((f) => ({ fileId: f.fileId, fileName: f.fileName, stageNumber: f.stageNumber, stageLabel: f.stageLabel })),
         }).catch(() => {});
       }
-      const printingWithoutJob = allFiles.filter((f) => f.stageNumber === 6 && !f.printJobId);
-      if (printingWithoutJob.length) {
-        axios.post('/api/design-files/auto-print-job', {
-          files: printingWithoutJob.map((f) => ({ fileId: f.fileId, fileName: f.fileName, orderUuid: f.orderUuid || null, orderNumber: f.orderNumber || null, stageNumber: f.stageNumber })),
-        }).catch(() => {});
-      }
     } catch (err) {
       const msg = err?.response?.data?.message || err.message || '';
       if (err?.response?.data?.reconnectRequired) { setReconnectRequired(true); return; }
@@ -1991,28 +2107,11 @@ export default function DesignFilesWidget() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleCreatePrintJob = useCallback(async (file) => {
-    try {
-      const res = await axios.post('/api/design-files/auto-print-job', {
-        files: [{
-          fileId: file.fileId,
-          fileName: file.fileName,
-          orderUuid: file.orderUuid || null,
-          orderNumber: file.orderNumber || null,
-          stageNumber: file.stageNumber,
-        }],
-      });
-      const job = res.data?.jobs?.[0];
-      if (job) {
-        setToast({ message: `Print job ${pjLabel(job.printJobNumber)} created`, severity: 'success' });
-        load();
-      } else {
-        setToast({ message: 'Print job already exists for this file', severity: 'info' });
-      }
-    } catch (err) {
-      setToast({ message: err?.response?.data?.message || err.message || 'Failed to create print job', severity: 'error' });
-    }
-  }, [load]);
+  // No print job is ever created automatically — the row action opens the
+  // print bill dialog so a real vendor and amount are always chosen.
+  const handleCreatePrintJob = useCallback((file) => {
+    setSinglePrintFile(file);
+  }, []);
 
   const handleRename = useCallback(async (file) => {
     try {
@@ -2171,6 +2270,15 @@ export default function DesignFilesWidget() {
               </IconButton>
             </Tooltip>
           </>
+        )}
+
+        {/* Renumber design files (admin) */}
+        {isAdmin && (
+          <Tooltip title="Renumber design files to order numbers">
+            <IconButton size="small" onClick={() => setRenumberOpen(true)} sx={{ p: 0.4 }}>
+              <TagRoundedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
         )}
 
         {/* New design file */}
@@ -2366,9 +2474,15 @@ export default function DesignFilesWidget() {
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
       />
       <PrintJobDialog
-        open={printDialogOpen} selectedFiles={selectedFiles}
-        onClose={() => setPrintDialogOpen(false)}
-        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSelectedIds(new Set()); load(); }}
+        open={printDialogOpen || !!singlePrintFile}
+        selectedFiles={singlePrintFile ? [singlePrintFile] : selectedFiles}
+        onClose={() => { setPrintDialogOpen(false); setSinglePrintFile(null); }}
+        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSinglePrintFile(null); setSelectedIds(new Set()); load(); }}
+      />
+      <RenumberDialog
+        open={renumberOpen}
+        onClose={() => { setRenumberOpen(false); load(); }}
+        onSuccess={(msg, severity = 'success') => setToast({ message: msg, severity })}
       />
       <CreateFileDialog
         open={createFileOpen}

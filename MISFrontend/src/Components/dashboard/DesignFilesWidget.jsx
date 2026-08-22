@@ -1955,6 +1955,41 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               )}
             </Stack>
 
+            {/* What was actually walked — one row per month folder, so a
+                month or a date folder that was missed is visible at a glance. */}
+            {report.scan?.months?.length > 0 && (
+              <Box sx={{ mb: 1.5 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Month folder</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">Dates</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">Final folders</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">Files</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {report.scan.months.map((m) => (
+                      <TableRow key={m.name}>
+                        <TableCell sx={{ fontSize: 11 }}>{m.name}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }} align="right">{m.dateFolders}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }} align="right">{m.finalFolders}</TableCell>
+                        <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">{m.files}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {report.scan.datesWithoutFinal?.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 1, fontSize: 11, py: 0.25 }}>
+                    {report.scan.datesWithoutFinal.length} date folder
+                    {report.scan.datesWithoutFinal.length === 1 ? '' : 's'} have no Final folder:{' '}
+                    {report.scan.datesWithoutFinal.slice(0, 8).join(', ')}
+                    {report.scan.datesWithoutFinal.length > 8 ? ' …' : ''}
+                  </Alert>
+                )}
+              </Box>
+            )}
+
             {visible.length > 0 && (
               <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
                 <Table size="small" stickyHeader>

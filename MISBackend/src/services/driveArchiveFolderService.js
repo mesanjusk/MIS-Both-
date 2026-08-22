@@ -56,15 +56,23 @@ function dateFolderName(date) {
   return `${dd}.${mm}.${date.getFullYear()}`;
 }
 
+/** Every subfolder of a folder — follows pageToken, so nothing is cut off. */
 async function listSubfolders(drive, parentId) {
-  const res = await drive.files.list({
-    q: `'${parentId}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
-    fields: 'files(id,name)',
-    pageSize: 500,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  return res.data.files || [];
+  const folders = [];
+  let pageToken;
+  do {
+    const res = await drive.files.list({
+      q: `'${parentId}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
+      fields: 'nextPageToken, files(id,name)',
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    folders.push(...(res.data.files || []));
+    pageToken = res.data.nextPageToken || null;
+  } while (pageToken);
+  return folders;
 }
 
 async function createFolder(drive, parentId, name) {

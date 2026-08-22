@@ -181,18 +181,33 @@ function isBackupFile(name = '') {
   return false;
 }
 
-/** List immediate children of a Drive folder (excludes backup files) */
+/**
+ * List ALL immediate children of a Drive folder (excludes backup files).
+ *
+ * Drive returns at most one page per call — and may return fewer items than
+ * pageSize even when more exist — so every page must be followed. Without
+ * this loop a busy folder silently stopped at the first page, which is what
+ * made a whole archive look like it held exactly 500 files.
+ */
 async function listChildren(drive, folderId, mimeTypeFilter = null) {
   const q = [`'${folderId}' in parents`, `trashed = false`];
   if (mimeTypeFilter) q.push(`mimeType = '${mimeTypeFilter}'`);
-  const res = await drive.files.list({
-    q: q.join(' and '),
-    fields: 'files(id,name,mimeType,modifiedTime,createdTime,size)',
-    pageSize: 500,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const files = res.data.files || [];
+
+  const files = [];
+  let pageToken;
+  do {
+    const res = await drive.files.list({
+      q: q.join(' and '),
+      fields: 'nextPageToken, files(id,name,mimeType,modifiedTime,createdTime,size)',
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    files.push(...(res.data.files || []));
+    pageToken = res.data.nextPageToken || null;
+  } while (pageToken);
+
   // Skip backup/temp files unless we are listing folders
   if (mimeTypeFilter === 'application/vnd.google-apps.folder') return files;
   return files.filter((f) => !isBackupFile(f.name));
@@ -1911,16 +1926,23 @@ const FINAL_STAGE = 5;
 /**
  * Every file inside the archive's Final folders:
  *   <archive>/04 April 2026/01.04.2026/Final/*
+ * and one level below that (e.g. Final/<customer>/*), since files are not
+ * always kept flat.
  *
  * Each row carries the date folder it came from, because that is where the
  * matching Printing folder lives. The daily "0 Today" tree and every Printing
  * folder are deliberately not walked — those files are never renumbered.
+ *
+ * Returns { rows, scan } where `scan` is a per-month breakdown so the caller
+ * can see exactly which months, dates and Final folders were covered.
  */
 async function collectFinalDesignFiles(drive) {
   const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
-  if (!archiveFolderId) return [];
+  if (!archiveFolderId) return { rows: [], scan: { months: [], datesWithoutFinal: [] } };
 
   const rows = [];
+  const scan = { months: [], datesWithoutFinal: [] };
+
   const months = await listChildren(drive, archiveFolderId, FOLDER_MIME_TYPE);
   months.sort((a, b) => {
     const [ya, ma] = monthFolderSortKey(a.name);
@@ -1929,26 +1951,51 @@ async function collectFinalDesignFiles(drive) {
   });
 
   for (const month of months) {
+    const monthStat = { name: month.name, dateFolders: 0, finalFolders: 0, files: 0 };
     const dateFolders = await listChildren(drive, month.id, FOLDER_MIME_TYPE);
+    monthStat.dateFolders = dateFolders.length;
+
     for (const dateFolder of dateFolders) {
       const sections = await listChildren(drive, dateFolder.id, FOLDER_MIME_TYPE);
       const finalSections = sections.filter((f) => archiveSectionStage(f.name) === FINAL_STAGE);
 
+      if (!finalSections.length) {
+        scan.datesWithoutFinal.push(`${month.name}/${dateFolder.name}`);
+        continue;
+      }
+      monthStat.finalFolders += finalSections.length;
+
       for (const section of finalSections) {
-        const files = await listChildren(drive, section.id);
-        files
-          .filter((f) => f.mimeType !== FOLDER_MIME_TYPE)
-          .forEach((f) => rows.push({
-            fileId: f.id,
-            fileName: f.name,
-            location: `${month.name}/${dateFolder.name}/${section.name}`,
+        const push = (file, location) => {
+          if (file.mimeType === FOLDER_MIME_TYPE) return;
+          rows.push({
+            fileId: file.id,
+            fileName: file.name,
+            location,
             dateFolderId: dateFolder.id,
             dateFolderName: dateFolder.name,
-          }));
+            monthFolderName: month.name,
+          });
+          monthStat.files += 1;
+        };
+
+        const sectionPath = `${month.name}/${dateFolder.name}/${section.name}`;
+        const children = await listChildren(drive, section.id);
+        children.forEach((f) => push(f, sectionPath));
+
+        // Files kept one level deeper inside Final (per-customer / per-job
+        // subfolders) count too.
+        const subFolders = children.filter((f) => f.mimeType === FOLDER_MIME_TYPE);
+        for (const sub of subFolders) {
+          const subChildren = await listChildren(drive, sub.id);
+          subChildren.forEach((f) => push(f, `${sectionPath}/${sub.name}`));
+        }
       }
     }
+    scan.months.push(monthStat);
   }
-  return rows;
+
+  return { rows, scan };
 }
 
 /**
@@ -2025,7 +2072,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     const createOrders = req.body?.createOrders !== false;
     const drive = await getAuthorizedDriveClient();
 
-    const collected = await collectFinalDesignFiles(drive);
+    const { rows: collected, scan } = await collectFinalDesignFiles(drive);
     const byId = new Map();
     collected.forEach((f) => { if (!byId.has(f.fileId)) byId.set(f.fileId, f); });
     const files = [...byId.values()];
@@ -2153,7 +2200,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     summary.folderNumbers = new Set(numbered.map((r) => r.orderNumber)).size;
     summary.ordersCreated = report.filter((r) => r.orderCreated).length;
 
-    return res.json({ success: true, dryRun, createOrders, summary, files: report });
+    return res.json({ success: true, dryRun, createOrders, summary, scan, files: report });
   } catch (err) {
     logger.error({ err }, 'design-files/renumber error');
     if (err?.reconnectRequired) {

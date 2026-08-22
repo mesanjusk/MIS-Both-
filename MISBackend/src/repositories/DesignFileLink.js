@@ -67,6 +67,13 @@ const DesignFileLinkSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Empty per-order folder created inside the archive's Printing folder
+    // when the order is created (see driveArchiveFolderService).
+    printFolderId: {
+      type: String,
+      default: null,
+    },
+
     // Print job reference (set when file enters Printing stage)
     printJobId: {
       type: String,

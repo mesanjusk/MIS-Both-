@@ -114,6 +114,7 @@ export const SIDEBAR_GROUPS = [
       // and per-person figures, so Admin and Owner only; the page checks again
       // for itself and the API enforces it regardless.
       { label: 'Business Reports', path: ROUTES.REPORTS_BUSINESS, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'API Performance', path: ROUTES.REPORTS_API_PERFORMANCE, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Customers Report', path: ROUTES.REPORTS_CUSTOMERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer', path: ROUTES.ADD_CUSTOMER, icon: <PersonAddRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer Group', path: ROUTES.ADD_CUSTOMER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

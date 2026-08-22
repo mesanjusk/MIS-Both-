@@ -6,6 +6,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
 import { useNavCustomize, isLeftItemVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
+import { usePageToggles } from '../hooks/usePageToggles';
 
 const DRAWER_WIDTH = 66;
 
@@ -94,6 +95,8 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
   const adminHiddenItems = useMemo(() => permissions?.leftHidden || [], [permissions]);
   const { prefs } = useNavCustomize();
   const { leftSidebarEnabled } = useSidebarVisibility();
+  // Pages an admin has switched off from Admin → API Performance.
+  const { isPageDisabled } = usePageToggles();
 
   const groups = useMemo(
     () =>
@@ -105,11 +108,12 @@ export default function Sidebar({ mobileOpen, onCloseMobile }) {
             (item) =>
               canShowItem(item, roleKey) &&
               !adminHiddenItems.includes(item.path) &&
+              !isPageDisabled(item.path) &&
               isLeftItemVisible(prefs, item.path),
           ),
         }))
         .filter((group) => group.items.length),
-    [roleKey, allowedGroups, adminHiddenItems, prefs],
+    [roleKey, allowedGroups, adminHiddenItems, prefs, isPageDisabled],
   );
 
   // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.

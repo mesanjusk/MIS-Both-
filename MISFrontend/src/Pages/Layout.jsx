@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+
+import PageToggleGuard from '../Components/PageToggleGuard';
 import {
   Alert,
   BottomNavigation,
@@ -180,7 +182,12 @@ export default function Layout() {
             }}
           >
             <Box sx={{ flex: 1, minHeight: 0, maxWidth: 1700, mx: 'auto', width: '100%', px: { xs: 0.65, md: 1 } }}>
-              <Outlet />
+              {/* A switched-off page renders its notice here, inside the
+                  navigation, so the user can go somewhere else rather than
+                  reaching for the back button. */}
+              <PageToggleGuard>
+                <Outlet />
+              </PageToggleGuard>
             </Box>
           </Box>
 

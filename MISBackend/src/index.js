@@ -17,6 +17,8 @@ const connectDB = require("./config/mongo");
 const compression = require("compression");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { requireAuth } = require("./middleware/auth");
+const { apiUsageMiddleware } = require("./middleware/apiUsage");
+const { featureToggleMiddleware } = require("./middleware/featureToggle");
 const corsOptions = require("./config/corsOptions");
 const { generalLimiter } = require("./middleware/rateLimit");
 const logger = require("./utils/logger");
@@ -67,6 +69,7 @@ const FlowRouter = require("./routes/Flow");
 const DesignFiles = require("./routes/DesignFiles");
 const DriveFolderReport = require("./routes/driveFolderReport");
 const BusinessReports = require("./routes/Reports");
+const ApiUsageRouter = require("./routes/ApiUsage");
 const UpiPayments = require("./routes/UpiPayments");
 const BusinessOps = require("./routes/BusinessOps");
 const WorkflowTemplate = require("./routes/workflowTemplate");
@@ -123,6 +126,14 @@ app.use(compression());
 // ---------- General rate limit (all /api routes) ----------
 app.use("/api", generalLimiter);
 
+// ---------- API usage telemetry + switched-off endpoints ----------
+// Usage is recorded on the way out (res 'finish'), so it must wrap the
+// routers; the toggle guard answers on the way in, before any handler runs.
+// Both sit after the rate limiter, so a throttled request is not counted as
+// real traffic and cannot be mistaken for use of an endpoint.
+app.use(apiUsageMiddleware);
+app.use(featureToggleMiddleware);
+
 // ---------- Health check ----------
 app.get("/", (_req, res) => res.json({ ok: true, service: "MIS Backend" }));
 
@@ -172,6 +183,7 @@ app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);
 app.use("/api/drive-folder-report", DriveFolderReport);
 app.use("/api/reports", BusinessReports);
+app.use("/api/api-usage", ApiUsageRouter);
 app.use("/api/social/accounts", SocialAccountsRouter);
 app.use("/api/social/posts", SocialPostsRouter);
 app.use("/api/social/calendar", SocialCalendarRouter);

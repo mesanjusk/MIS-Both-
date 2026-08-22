@@ -51,9 +51,6 @@ export const SIDEBAR_GROUPS = [
       { label: 'Attendance Report', path: ROUTES.ATTENDANCE_REPORT, icon: <EventAvailableRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Order Tasks', path: ROUTES.PENDING_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'My Day', path: ROUTES.MY_TASKS, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ['all'] },
-      // Margins, vendor cost and per-person figures — the narrowest audience
-      // in the app, so Admin and Owner only, and the page checks again itself.
-      { label: 'Business Reports', path: ROUTES.REPORTS_BUSINESS, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Users Report', path: ROUTES.REPORTS_USERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Team & Partners Report', path: ROUTES.REPORTS_TEAM, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add User', path: ROUTES.ADD_USER, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
@@ -111,6 +108,12 @@ export const SIDEBAR_GROUPS = [
   {
     label: 'Dashboard Reports',
     items: [
+      // Profit and the item/order/vendor/employee splits. Lives here because
+      // this group is what the top navbar's "Reports" dropdown opens — the
+      // only nav always on screen, since the left sidebar is opt-in. Margins
+      // and per-person figures, so Admin and Owner only; the page checks again
+      // for itself and the API enforces it regardless.
+      { label: 'Business Reports', path: ROUTES.REPORTS_BUSINESS, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Customers Report', path: ROUTES.REPORTS_CUSTOMERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer', path: ROUTES.ADD_CUSTOMER, icon: <PersonAddRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer Group', path: ROUTES.ADD_CUSTOMER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

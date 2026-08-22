@@ -73,6 +73,8 @@ export const ROUTES = {
   REPORTS_DELIVERY: '/reports/delivery',
   // The admin-only hub: profit and the item/order/vendor/employee splits.
   REPORTS_BUSINESS: '/reports/business',
+  // Which endpoints and pages are used, and the switches for each.
+  REPORTS_API_PERFORMANCE: '/reports/api-performance',
   REPORTS_BILLS: '/allBills',
   REPORTS_PRIORITY: '/priorityReport',
   AGING_REPORT: '/reports/aging',

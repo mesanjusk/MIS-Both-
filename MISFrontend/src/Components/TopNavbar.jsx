@@ -32,6 +32,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
+import { usePageToggles } from '../hooks/usePageToggles';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
 
@@ -85,10 +86,15 @@ function NavDropdown({ label, groups, roleKey, onNavigate }) {
   };
 
   const handleClose = () => setAnchorEl(null);
+  // Pages an admin has switched off from Admin → API Performance. This is the
+  // navigation most users actually see, so a page left here would still be
+  // reachable after being switched off.
+  const { isPageDisabled } = usePageToggles();
 
   const matchedGroups = SIDEBAR_GROUPS.filter((g) => groups.includes(g.label)).map((g) => ({
     ...g,
     items: g.items.filter((item) => {
+      if (isPageDisabled(item.path)) return false;
       const roles = item.roles || ['Admin'];
       return roles.includes('all') || roles.includes(roleKey) || (roleKey === 'Admin' && !item.hideForAdmin);
     }),

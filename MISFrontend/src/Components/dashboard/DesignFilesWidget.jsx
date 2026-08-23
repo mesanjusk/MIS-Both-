@@ -21,6 +21,7 @@ import {
   InputAdornment,
   LinearProgress,
   ListItemIcon,
+  ListSubheader,
   Menu,
   MenuItem,
   Snackbar,
@@ -69,7 +70,12 @@ import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { fetchAssignees } from '../../services/assigneeService';
-import { STAGE_LABELS } from '../../constants/orderStages';
+import {
+  STAGE_TO_CAPABILITY,
+  CAPABILITY_LABELS,
+  WORKFLOW_SECTIONS,
+  WORKFLOW_GROUPS,
+} from '../../constants/orderStages';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 // "Design Board" is the default landing tab — it's the authoritative,
@@ -662,6 +668,17 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const updateCharge = (i, field, value) =>
     setExtraCharges((prev) => prev.map((c, idx) => (idx === i ? { ...c, [field]: value } : c)));
 
+  // Only the people tagged for the stage that was picked — the same rule the
+  // Workflow board's assign menu uses. Nobody tagged yet → everyone, so the
+  // picker is never a dead end.
+  const stageCapability = STAGE_TO_CAPABILITY[stage] || 'design';
+  const stageAssignees = assignees.filter((a) => a.capabilities?.includes(stageCapability));
+  const assigneeOptions = stageAssignees.length ? stageAssignees : assignees;
+
+  useEffect(() => {
+    if (assigneeId && !assigneeOptions.some((a) => a.id === assigneeId)) setAssigneeId('');
+  }, [stage, assigneeOptions, assigneeId]);
+
   const itemsTotal = items.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
   const chargesTotal = extraCharges.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
   const grandTotal = itemsTotal + chargesTotal;
@@ -760,19 +777,30 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               onChange={(e) => setStage(e.target.value)} disabled={submitting}
               sx={{ flex: 1 }}
             >
-              {Object.entries(STAGE_LABELS).map(([value, label]) => (
-                <MenuItem key={value} value={value} sx={{ fontSize: 13 }}>{label}</MenuItem>
-              ))}
+              {STAGE_GROUPS.flatMap((group) => [
+                <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {group.label}
+                </ListSubheader>,
+                ...group.sections.map((section) => (
+                  <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
+                    {section.label}
+                  </MenuItem>
+                )),
+              ])}
             </TextField>
             <TextField
               select label="Assign to" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
               disabled={submitting || loadingData}
-              helperText="Account Payable parties · goes on the Printing folder"
+              helperText={
+                stageAssignees.length
+                  ? `${CAPABILITY_LABELS[stageCapability] || 'Stage'} parties · goes on the Printing folder`
+                  : `Nobody tagged for ${CAPABILITY_LABELS[stageCapability] || 'this stage'} yet — showing everyone`
+              }
               sx={{ flex: 1 }}
             >
               <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
-              {assignees.map((a) => (
+              {assigneeOptions.map((a) => (
                 <MenuItem key={a.id} value={a.id} sx={{ fontSize: 13 }}>{a.name}</MenuItem>
               ))}
             </TextField>
@@ -2004,6 +2032,29 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 // a separate assigned-tasks query. No "move to stage" control here: a file's
 // column is decided purely by which Drive folder it's physically in, synced
 // automatically (see the backend's syncOrderStagesFromFolders).
+
+// ─── Stage picker ─────────────────────────────────────────────────────────────
+// The confirm dialog offers exactly the columns the home Workflow board
+// shows, under the same four group headings. The Design group holds no
+// sectionKeys on the board (it renders this widget instead), so its stage
+// columns are named here.
+const DESIGN_SECTION_KEYS = ['todaysNew', 'oldPending', 'designApproval', 'hold', 'readyToPrint'];
+const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((sec) => [sec.key, sec]));
+
+// A column can cover several stages ("Today's New" is enquiry → new_design).
+// The stage an order actually lands on is the working one of that column.
+const SECTION_PRIMARY_STAGE = { todaysNew: 'new_design' };
+
+function sectionStage(section) {
+  return SECTION_PRIMARY_STAGE[section.key] || section.stages[0];
+}
+
+const STAGE_GROUPS = WORKFLOW_GROUPS.map((group) => ({
+  label: group.label,
+  sections: (group.sectionKeys.length ? group.sectionKeys : DESIGN_SECTION_KEYS)
+    .map((key) => SECTION_BY_KEY.get(key))
+    .filter(Boolean),
+}));
 
 // ─── Renumber design files ────────────────────────────────────────────────────
 /**

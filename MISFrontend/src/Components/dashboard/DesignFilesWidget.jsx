@@ -162,13 +162,28 @@ function buildCSV(files) {
 // capability, same as the order task-assign menu (see
 // MISBackend/src/routes/Assignees.js) — not employees.
 let _designAssigneesPromise = null;
-function loadDesignAssigneesCached() {
+function loadPayablesCached() {
   if (!_designAssigneesPromise) {
     _designAssigneesPromise = fetchAssignees()
-      .then((res) => (res.data?.result || []).filter((a) => a.capabilities?.includes('design')))
+      .then((res) => res.data?.result || [])
       .catch(() => { _designAssigneesPromise = null; return []; });
   }
   return _designAssigneesPromise;
+}
+
+/**
+ * Account Payable parties tagged with a capability. Nobody tagged for that
+ * stage yet → the full payable list, so the picker is never a dead end.
+ */
+function loadAssigneesFor(capability) {
+  return loadPayablesCached().then((list) => {
+    const tagged = list.filter((a) => a.capabilities?.includes(capability));
+    return tagged.length ? tagged : list;
+  });
+}
+
+function loadDesignAssigneesCached() {
+  return loadPayablesCached().then((list) => list.filter((a) => a.capabilities?.includes('design')));
 }
 
 function triggerDownload(content, filename, mime) {
@@ -262,11 +277,12 @@ function StatusBadges({ file, sx }) {
 // with 4-6 possible actions per file, spelling them all out inline left no
 // room for the filename in a narrow card. Everything that used to be its
 // own button is now a labeled menu item instead.
-function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly }) {
+function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly }) {
   const [anchor, setAnchor] = useState(null);
   const [view, setView] = useState('actions'); // 'actions' | 'assign'
   const [busy, setBusy] = useState(false);
   const [assignParties, setAssignParties] = useState(null);
+  const [printParties, setPrintParties] = useState(null);
   if (viewOnly) return null;
 
   const needsRename = file.matched && file.orderNumber != null && !alreadyPrefixedWithOrder(file.fileName, file.orderNumber);
@@ -286,6 +302,21 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   }
   if (needsRename && onRename) {
     actions.push({ key: 'rename', label: `Rename to start with #${file.orderNumber}`, icon: DriveFileRenameOutlineRoundedIcon, color: 'text.secondary', run: () => onRename(file) });
+  }
+  // Design Board → Print: one step that moves the order on, assigns it, and
+  // names its Printing folder after the person picked.
+  const canMoveToPrint = Boolean(
+    onMoveToPrint && file.orderUuid && file.orderStage && file.orderStage !== 'print'
+    && !['fitting', 'bind_packing', 'ready', 'delivered', 'paid', 'lost', 'cancelled'].includes(file.orderStage)
+  );
+  if (canMoveToPrint) {
+    actions.push({
+      key: 'movePrint',
+      label: `Move Order #${file.orderNumber} to Print & assign`,
+      icon: LocalPrintshopRoundedIcon,
+      color: 'primary.main',
+      submenu: 'print',
+    });
   }
   if (file.orderUuid && file.orderStage !== 'delivered' && onDeliver) {
     actions.push({ key: 'deliver', label: `Mark Order #${file.orderNumber} as delivered`, icon: LocalShippingRoundedIcon, color: 'success.main', run: () => onDeliver(file) });
@@ -311,6 +342,20 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
     if (assignParties === null) loadDesignAssigneesCached().then(setAssignParties);
   };
 
+  const openPrintView = (e) => {
+    e.stopPropagation();
+    setView('print');
+    if (printParties === null) loadAssigneesFor('print').then(setPrintParties);
+  };
+
+  const pickPrintAssignee = async (e, party) => {
+    e.stopPropagation();
+    closeMenu();
+    if (!onMoveToPrint || busy) return;
+    setBusy(true);
+    try { await onMoveToPrint(file, party); } finally { setBusy(false); }
+  };
+
   const pickAssignee = async (e, party) => {
     e.stopPropagation();
     closeMenu();
@@ -325,7 +370,19 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
         {busy ? <CircularProgress size={13} /> : <MoreVertRoundedIcon sx={{ fontSize: 16 }} />}
       </IconButton>
       <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu} onClick={(e) => e.stopPropagation()}>
-        {view === 'actions' ? (
+        {view === 'print' ? (
+          [
+            <MenuItem key="hdr" disabled sx={{ opacity: '1 !important', fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>
+              Move #{file.orderNumber} to Print — assign to
+            </MenuItem>,
+            <Divider key="div" />,
+            ...(printParties === null ? [<MenuItem key="loading" disabled>Loading…</MenuItem>] : []),
+            ...(printParties?.length === 0 ? [<MenuItem key="none" disabled>No Account Payable parties yet</MenuItem>] : []),
+            ...((printParties || []).map((p) => (
+              <MenuItem key={p.id} onClick={(e) => pickPrintAssignee(e, p)} sx={{ fontSize: 13 }}>{p.name}</MenuItem>
+            ))),
+          ]
+        ) : view === 'actions' ? (
           [
             // Confirmed orders say so at the top of the menu, matching the
             // green the card is filled with.
@@ -337,7 +394,11 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
               <Divider key="confirmed-div" />,
             ] : []),
             ...actions.map((a) => (
-              <MenuItem key={a.key} onClick={(e) => runAction(e, a.run)} sx={{ fontSize: 13 }}>
+              <MenuItem
+                key={a.key}
+                onClick={(e) => (a.submenu === 'print' ? openPrintView(e) : runAction(e, a.run))}
+                sx={{ fontSize: 13 }}
+              >
                 <ListItemIcon><a.icon fontSize="small" sx={{ color: a.color }} /></ListItemIcon>
                 {a.label}
               </MenuItem>
@@ -396,7 +457,7 @@ function rowColors(file, checked) {
 // hideStageChip skips the per-file stage chip entirely — used by the
 // Design Board, where every card in a column already shares one stage, so
 // repeating it on every card added noise without adding information.
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly, hideStageChip }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover, border } = rowColors(file, checked);
   const subText = file.isDraft
@@ -450,7 +511,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         </Tooltip>
 
         {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
-        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewOnly={viewOnly} />
+        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
       </Stack>
 
       {subText && (
@@ -467,7 +528,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, viewOnly, hideStageChip }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, border } = rowColors(file, checked);
   const subText = file.isDraft
@@ -503,7 +564,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
           )}
           {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
           <Box sx={{ flex: 1 }} />
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewOnly={viewOnly} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
         </Stack>
 
         <Stack direction="row" spacing={0.5} alignItems="flex-start">
@@ -2184,7 +2245,7 @@ function RenumberDialog({ open, onClose, onSuccess }) {
   );
 }
 
-function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob }) {
+function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onConfirm, onCreatePrintJob, onEditPrintJob, onMoveToPrint }) {
   return (
     // Fixed 5-column grid, always one row — `auto-fit`+`minmax` used to wrap
     // a 5th column onto its own row on narrower desktop widths (columns
@@ -2233,6 +2294,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
                     onRelink={onRelink}
                     onAssign={onAssign}
                     onDeliver={onDeliver}
+                    onMoveToPrint={onMoveToPrint}
                   />
                 ))
               )}
@@ -2304,6 +2366,28 @@ export default function DesignFilesWidget() {
   const handleCreatePrintJob = useCallback((file) => {
     setSinglePrintFile(file);
   }, []);
+
+  // Design Board → Print in one step: stage moves on, the person is assigned,
+  // and their name goes on the order's Printing folder.
+  const handleMoveToPrint = useCallback(async (file, party) => {
+    try {
+      const res = await axios.post('/api/design-files/move-to-print', {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        orderUuid: file.orderUuid,
+        orderNumber: file.orderNumber,
+        assigneeId: party.id,
+      });
+      const folder = res.data?.printFolderName ? ` · Printing/${res.data.printFolderName}` : '';
+      setToast({
+        message: `Order #${res.data?.orderNumber ?? file.orderNumber} moved to Print · ${res.data?.assignedToName || party.name}${folder}`,
+        severity: 'success',
+      });
+      load();
+    } catch (err) {
+      setToast({ message: err?.response?.data?.message || err.message || 'Could not move to Print', severity: 'error' });
+    }
+  }, [load]);
 
   const handleRename = useCallback(async (file) => {
     try {
@@ -2528,6 +2612,7 @@ export default function DesignFilesWidget() {
               onConfirm={setConfirmFile}
               onCreatePrintJob={handleCreatePrintJob}
               onEditPrintJob={setEditPrintJobFile}
+              onMoveToPrint={handleMoveToPrint}
             />
           </Box>
         ) : activeTab === 'archive' ? (
@@ -2559,6 +2644,7 @@ export default function DesignFilesWidget() {
                       onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                       onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                       onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
+                      onMoveToPrint={!activeTabDef.viewOnly ? handleMoveToPrint : undefined}
                     />
                   </Grid>
                 ))}
@@ -2579,6 +2665,7 @@ export default function DesignFilesWidget() {
                     onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
                     onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                     onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
+                    onMoveToPrint={!activeTabDef.viewOnly ? handleMoveToPrint : undefined}
                   />
                 ))}
               </Stack>

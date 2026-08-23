@@ -18,6 +18,8 @@
  *   GET /api/design-files/order/:uuid     — live stage of files for one order
  *   POST /api/design-files/auto-temp-orders — create temp orders for unmatched files
  *   GET /api/design-files/scan-archive    — scan month-wise archive folder
+ *   POST /api/design-files/move-to-print  — move an order to Print, assign it
+ *                                           and name its Printing folder
  *   POST /api/design-files/renumber       — renumber archive Final files and
  *                                           create their Printing folders
  *
@@ -880,6 +882,74 @@ router.post('/assign', async (req, res) => {
   } catch (err) {
     logger.error({ err }, 'design-files/assign error');
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/move-to-print ────────────────────────────────────
+/**
+ * Design Board → Print in one step: moves the file's order to the 'print'
+ * stage, assigns it to the chosen Account Payable party, and makes sure that
+ * order's folder in the date's Printing folder is named "<orderNumber>
+ * <assignee>" (e.g. "793 Anand").
+ *
+ * Body: { fileId, fileName, orderUuid, orderNumber, assigneeId }
+ */
+router.post('/move-to-print', async (req, res) => {
+  try {
+    const { fileId, fileName, orderUuid, assigneeId } = req.body || {};
+    if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
+    if (!orderUuid) return res.status(400).json({ success: false, message: 'This file is not linked to an order yet' });
+    if (!assigneeId) return res.status(400).json({ success: false, message: 'assigneeId required' });
+
+    const party = await Customers.findById(assigneeId);
+    if (!party) return res.status(404).json({ success: false, message: 'Account Payable party not found' });
+
+    const assignedBy = req.user?.userName || 'System';
+
+    await updateOrderStage({ orderId: orderUuid, stage: 'print' });
+
+    await assignOrderToUser({ orderId: orderUuid, vendorId: party._id, assignedBy, via: 'design-file' });
+
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          assignedTo: party._id,
+          assignedToType: 'vendor',
+          assignedToName: party.Customer_name,
+          assignedBy,
+          assignedAt: new Date(),
+          ...(fileName ? { fileName } : {}),
+        },
+        $setOnInsert: { linkStatus: 'draft' },
+      },
+      { upsert: true }
+    );
+
+    const order = await Orders.findOne({ Order_uuid: orderUuid }, { Order_Number: 1 }).lean();
+    const printFolder = await ensureArchiveOrderFolderSafe({
+      orderNumber: order?.Order_Number ?? req.body?.orderNumber ?? null,
+      fileId,
+      label: party.Customer_name,
+    });
+    if (printFolder?.orderFolderId) {
+      await DesignFileLink.updateOne(
+        { driveFileId: fileId },
+        { $set: { printFolderId: printFolder.orderFolderId } }
+      );
+    }
+
+    return res.json({
+      success: true,
+      stage: 'print',
+      assignedToName: party.Customer_name,
+      orderNumber: order?.Order_Number ?? null,
+      printFolderName: printFolder?.orderFolderName || null,
+    });
+  } catch (err) {
+    logger.error({ err }, 'design-files/move-to-print error');
+    const status = err?.statusCode || 500;
+    return res.status(status).json({ success: false, message: err.message });
   }
 });
 

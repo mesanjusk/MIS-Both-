@@ -40,7 +40,7 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
           userGroup: user.User_group,
         },
         process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: process.env.JWT_EXPIRY || "365d" }
+        { expiresIn: process.env.JWT_EXPIRY || "45d" }
       );
 
       // Migrate plain-text passwords to scrypt on first login

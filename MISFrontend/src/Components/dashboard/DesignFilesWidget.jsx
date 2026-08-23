@@ -768,7 +768,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               select label="Assign to" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
               disabled={submitting || loadingData}
-              helperText="Account Payable parties · names the Printing folder"
+              helperText="Account Payable parties · goes on the Printing folder"
               sx={{ flex: 1 }}
             >
               <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
@@ -2057,10 +2057,10 @@ function RenumberDialog({ open, onClose, onSuccess }) {
   ).values()];
 
   const exportReport = () => {
-    const head = ['Type', 'Rename', 'Folder', 'Order', 'Location', 'Current name', 'New name', 'Error'];
+    const head = ['Type', 'Rename', 'Folder', 'Printing folder', 'Order', 'Location', 'Current name', 'New name', 'Error'];
     const body = rows.map((r) => [
-      r.kind || 'file', r.status, r.folderStatus || '', r.orderNumber ?? '', r.location || '',
-      r.fileName || '', r.newName || '', r.error || r.folderError || '',
+      r.kind || 'file', r.status, r.folderStatus || '', r.folderName || '', r.orderNumber ?? '',
+      r.location || '', r.fileName || '', r.newName || '', r.error || r.folderError || '',
     ]);
     const csv = [head, ...body]
       .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
@@ -2075,8 +2075,8 @@ function RenumberDialog({ open, onClose, onSuccess }) {
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Goes through every <strong>Final</strong> folder in the archive, renames what sits{' '}
           <strong>directly</strong> in it to <strong>&lt;order number&gt; - &lt;name&gt;</strong>, and
-          creates a folder with that same number in the <strong>Printing</strong> folder of the same
-          date. A job folder inside Final is renamed as a folder — the working files inside it
+          creates that order's folder in the <strong>Printing</strong> folder of the same date, named{' '}
+          <strong>&lt;order number&gt; &lt;assignee&gt; - &lt;customer&gt;</strong>. A job folder inside Final is renamed as a folder — the working files inside it
           (photos, name lists, scans) are never touched.
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
@@ -2121,6 +2121,7 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               )}
               {folderCounts.pending > 0 && <Chip size="small" color="primary" variant="outlined" label={`${new Set(pendingFolders.map((r) => r.orderNumber)).size} folders to create`} />}
               {folderCounts.created > 0 && <Chip size="small" color="success" variant="outlined" label={`${folderCounts.created} folders created`} />}
+              {folderCounts.renamed > 0 && <Chip size="small" color="info" variant="outlined" label={`${folderCounts.renamed} folders renamed`} />}
               {folderCounts.exists > 0 && <Chip size="small" variant="outlined" label={`${folderCounts.exists} folders already there`} />}
               {(summary.failed > 0 || folderCounts.failed > 0) && (
                 <Chip size="small" color="error" label={`${(summary.failed || 0) + (folderCounts.failed || 0)} failed`} />
@@ -2208,6 +2209,7 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                         <TableCell sx={{ fontSize: 11, color: r.folderStatus === 'failed' ? 'error.main' : 'text.secondary' }}>
                           {r.folderStatus === 'failed' ? (r.folderError || 'Failed')
                             : r.folderStatus === 'exists' ? 'already there'
+                            : r.folderName ? `Printing/${r.folderName}`
                             : r.orderNumber != null ? `Printing/${r.orderNumber}` : '—'}
                         </TableCell>
                       </TableRow>

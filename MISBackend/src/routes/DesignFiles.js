@@ -44,6 +44,7 @@ const Counter = require('../repositories/counter');
 const Usertasks = require('../repositories/usertask');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const {
+  buildOrderFolderName,
   ensureArchiveOrderFolderSafe,
   ensurePrintingFolder,
   ensureOrderFolderInPrinting,
@@ -926,11 +927,14 @@ router.post('/move-to-print', async (req, res) => {
       { upsert: true }
     );
 
-    const order = await Orders.findOne({ Order_uuid: orderUuid }, { Order_Number: 1 }).lean();
+    const order = await Orders.findOne({ Order_uuid: orderUuid }, { Order_Number: 1, Customer_uuid: 1 }).lean();
+    const orderCustomer = order?.Customer_uuid
+      ? await Customers.findOne({ Customer_uuid: order.Customer_uuid }, { Customer_name: 1 }).lean()
+      : null;
     const printFolder = await ensureArchiveOrderFolderSafe({
       orderNumber: order?.Order_Number ?? req.body?.orderNumber ?? null,
       fileId,
-      label: party.Customer_name,
+      label: [party.Customer_name, orderCustomer?.Customer_name],
     });
     if (printFolder?.orderFolderId) {
       await DesignFileLink.updateOne(
@@ -1569,7 +1573,7 @@ router.post('/confirm-final', async (req, res) => {
     const printFolder = await ensureArchiveOrderFolderSafe({
       orderNumber: orderNum,
       fileId,
-      label: assigneeName,
+      label: [assigneeName, customer.Customer_name],
     });
     if (printFolder?.orderFolderId) {
       await DesignFileLink.updateOne(
@@ -2232,7 +2236,7 @@ async function collectFinalDesignFiles(drive) {
  * that name in the same date's Printing folder. Mutates each row's
  * folderStatus: 'exists' | 'pending' | 'created' | 'failed'.
  */
-async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun }) {
+async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun, labelForRow = null }) {
   const setAll = (subset, status, error) => subset.forEach((r) => {
     r.folderStatus = status;
     if (error) r.folderError = error;
@@ -2255,7 +2259,14 @@ async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun 
   for (const orderNumber of numbers) {
     const rowsForNumber = rows.filter((r) => r.orderNumber === orderNumber);
 
-    if (existing.some((f) => isOrderFolderName(f.name, orderNumber))) {
+    const label = labelForRow ? labelForRow(rowsForNumber[0]) : null;
+    const desiredName = buildOrderFolderName(orderNumber, label);
+    rowsForNumber.forEach((r) => { r.folderName = desiredName; });
+
+    const match = existing.find((f) => isOrderFolderName(f.name, orderNumber));
+    // An existing folder still counts as work when its name is only part of
+    // what it should be ("793" → "793 Anand - Ramesh Traders").
+    if (match && !(String(match.name).trim() !== desiredName && desiredName.startsWith(String(match.name).trim()))) {
       setAll(rowsForNumber, 'exists');
       continue;
     }
@@ -2264,9 +2275,11 @@ async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun 
       continue;
     }
     try {
-      const made = await ensureOrderFolderInPrinting(drive, printing.id, orderNumber);
-      existing.push({ id: made.id, name: made.name });
-      setAll(rowsForNumber, made.created ? 'created' : 'exists');
+      const made = await ensureOrderFolderInPrinting(drive, printing.id, orderNumber, label);
+      const idx = existing.findIndex((f) => f.id === made.id);
+      if (idx >= 0) existing[idx] = { id: made.id, name: made.name };
+      else existing.push({ id: made.id, name: made.name });
+      setAll(rowsForNumber, made.created ? 'created' : made.renamed ? 'renamed' : 'exists');
     } catch (err) {
       logger.warn('design-files/renumber: folder %s failed — %s', orderNumber, err?.message);
       setAll(rowsForNumber, 'failed', err?.message || 'Folder creation failed');
@@ -2313,11 +2326,15 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     const links = files.length
       ? await DesignFileLink.find(
           { driveFileId: { $in: files.map((f) => f.fileId) } },
-          { driveFileId: 1, orderNumber: 1 }
+          { driveFileId: 1, orderNumber: 1, assignedToName: 1 }
         ).lean()
       : [];
     const orderNumberByFileId = {};
-    links.forEach((l) => { if (l.orderNumber != null) orderNumberByFileId[l.driveFileId] = l.orderNumber; });
+    const assigneeByFileId = {};
+    links.forEach((l) => {
+      if (l.orderNumber != null) orderNumberByFileId[l.driveFileId] = l.orderNumber;
+      if (l.assignedToName) assigneeByFileId[l.driveFileId] = l.assignedToName;
+    });
 
     const report = files.map((file) => {
       const orderNumber = orderNumberByFileId[file.fileId]
@@ -2416,15 +2433,35 @@ router.post('/renumber', requireAdmin, async (req, res) => {
       });
     }
 
-    // One Printing folder pass per date folder.
+    // Folder names carry the same "<number> <assignee> - <customer>" shape the
+    // confirm and move-to-print flows use, resolved from the order behind each
+    // number.
     const numbered = report.filter((r) => r.orderNumber != null && r.status !== 'failed');
+    const numbers = [...new Set(numbered.map((r) => r.orderNumber))];
+    const orderDocs = numbers.length
+      ? await Orders.find({ Order_Number: { $in: numbers } }, { Order_Number: 1, Customer_uuid: 1 }).lean()
+      : [];
+    const customerUuidByNumber = {};
+    orderDocs.forEach((o) => { customerUuidByNumber[o.Order_Number] = o.Customer_uuid; });
+    const uuids = [...new Set(Object.values(customerUuidByNumber).filter(Boolean))];
+    const customerNameByUuid = {};
+    if (uuids.length) {
+      const docs = await Customers.find({ Customer_uuid: { $in: uuids } }, { Customer_uuid: 1, Customer_name: 1 }).lean();
+      docs.forEach((c) => { customerNameByUuid[c.Customer_uuid] = c.Customer_name; });
+    }
+    const labelForRow = (row) => [
+      assigneeByFileId[row.fileId] || null,
+      customerNameByUuid[customerUuidByNumber[row.orderNumber]] || null,
+    ];
+
+    // One Printing folder pass per date folder.
     const byDate = new Map();
     numbered.forEach((row) => {
       if (!byDate.has(row.dateFolderId)) byDate.set(row.dateFolderId, []);
       byDate.get(row.dateFolderId).push(row);
     });
     for (const [dateFolderId, rows] of byDate) {
-      await ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun });
+      await ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun, labelForRow });
     }
 
     const summary = report.reduce(

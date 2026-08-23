@@ -166,17 +166,50 @@ function sanitizeLabel(value = '') {
 }
 
 /**
+ * "793 Anand - Ramesh Traders" from its parts. Accepts a string or an array
+ * (assignee first, customer after); empty parts drop out.
+ */
+function buildOrderFolderName(orderNumber, label) {
+  const parts = (Array.isArray(label) ? label : [label])
+    .map((part) => sanitizeLabel(part))
+    .filter(Boolean);
+  return parts.length ? `${orderNumber} ${parts.join(' - ')}` : String(orderNumber);
+}
+
+/**
  * Order-number folder inside a known Printing folder. `label` (the assignee
  * picked when the order was confirmed) is appended, so the folder reads
  * "793 Anand" rather than a bare number. A folder already named after this
  * order number is reused as-is, whatever suffix it carries.
  */
 async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber, label = null) {
-  const suffix = sanitizeLabel(label);
-  return findOrCreateFolder(drive, printingFolderId, {
-    match: (name) => isOrderFolderName(name, orderNumber),
-    createName: suffix ? `${orderNumber} ${suffix}` : String(orderNumber),
-  });
+  const desired = buildOrderFolderName(orderNumber, label);
+  const existing = await listSubfolders(drive, printingFolderId);
+  const hit = existing.find((f) => isOrderFolderName(f.name, orderNumber));
+
+  if (!hit) {
+    const made = await createFolder(drive, printingFolderId, desired);
+    return { id: made.id, name: made.name, created: true };
+  }
+
+  // Fill in a name that is still missing pieces — "793" or "793 Anand"
+  // becomes "793 Anand - Ramesh Traders". A name that is anything else was
+  // typed by a person and is left exactly as it is.
+  const current = String(hit.name).trim();
+  if (current !== desired && desired.startsWith(current)) {
+    try {
+      await drive.files.update({
+        fileId: hit.id,
+        supportsAllDrives: true,
+        requestBody: { name: desired },
+        fields: 'id,name',
+      });
+      return { id: hit.id, name: desired, created: false, renamed: true };
+    } catch (err) {
+      logger.warn('driveArchiveFolderService: folder rename %s → %s failed — %s', current, desired, err?.message);
+    }
+  }
+  return { id: hit.id, name: hit.name, created: false };
 }
 
 /**
@@ -238,6 +271,7 @@ async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive, fileId =
 
 module.exports = {
   FOLDER_MIME,
+  buildOrderFolderName,
   parseFolderDate,
   monthFolderSortKey,
   monthFolderName,

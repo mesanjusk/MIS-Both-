@@ -109,7 +109,7 @@ function isOrderFolderName(name, orderNumber) {
  * Returns { orderFolderId, orderFolderName, printingFolderId, created } or
  * null when DRIVE_ARCHIVE_FOLDER_ID is not configured.
  */
-async function ensureArchiveOrderFolder({ orderNumber, date = new Date(), drive = null }) {
+async function ensureArchiveOrderFolder({ orderNumber, date = new Date(), drive = null, label = null }) {
   const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
   if (!archiveFolderId) return null;
   if (orderNumber == null || orderNumber === '') return null;
@@ -137,10 +137,7 @@ async function ensureArchiveOrderFolder({ orderNumber, date = new Date(), drive 
     createName: 'Printing',
   });
 
-  const orderFolder = await findOrCreateFolder(client, printing.id, {
-    match: (name) => isOrderFolderName(name, orderNumber),
-    createName: String(orderNumber),
-  });
+  const orderFolder = await ensureOrderFolderInPrinting(client, printing.id, orderNumber, label);
 
   return {
     orderFolderId: orderFolder.id,
@@ -163,11 +160,22 @@ async function ensurePrintingFolder(drive, dateFolderId, { create = true } = {})
   return { id: made.id, name: made.name, created: true };
 }
 
-/** Order-number folder inside a known Printing folder. */
-async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber) {
+/** Drive-safe version of a name fragment used in a folder name. */
+function sanitizeLabel(value = '') {
+  return String(value).replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Order-number folder inside a known Printing folder. `label` (the assignee
+ * picked when the order was confirmed) is appended, so the folder reads
+ * "793 Anand" rather than a bare number. A folder already named after this
+ * order number is reused as-is, whatever suffix it carries.
+ */
+async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber, label = null) {
+  const suffix = sanitizeLabel(label);
   return findOrCreateFolder(drive, printingFolderId, {
     match: (name) => isOrderFolderName(name, orderNumber),
-    createName: String(orderNumber),
+    createName: suffix ? `${orderNumber} ${suffix}` : String(orderNumber),
   });
 }
 
@@ -182,7 +190,7 @@ async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber)
  * writes into today's folder. Falls back to today's archive date folder when
  * the file's parents cannot be resolved (e.g. it has no date folder above it).
  */
-async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null }) {
+async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null, label = null }) {
   if (orderNumber == null || orderNumber === '') return null;
   const client = drive || (await getAuthorizedDriveClient());
 
@@ -196,10 +204,10 @@ async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null }
     }
   }
 
-  if (!dateFolderId) return ensureArchiveOrderFolder({ orderNumber, drive: client });
+  if (!dateFolderId) return ensureArchiveOrderFolder({ orderNumber, drive: client, label });
 
   const printing = await ensurePrintingFolder(client, dateFolderId);
-  const orderFolder = await ensureOrderFolderInPrinting(client, printing.id, orderNumber);
+  const orderFolder = await ensureOrderFolderInPrinting(client, printing.id, orderNumber, label);
   return {
     orderFolderId: orderFolder.id,
     orderFolderName: orderFolder.name,
@@ -213,11 +221,11 @@ async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null }
  * failure is logged and swallowed, exactly like the existing rename blocks in
  * the design-files flow. Returns null when nothing could be created.
  */
-async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive, fileId = null }) {
+async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive, fileId = null, label = null }) {
   try {
     return fileId
-      ? await ensureOrderFolderBesideFile({ fileId, orderNumber, drive })
-      : await ensureArchiveOrderFolder({ orderNumber, date, drive });
+      ? await ensureOrderFolderBesideFile({ fileId, orderNumber, drive, label })
+      : await ensureArchiveOrderFolder({ orderNumber, date, drive, label });
   } catch (err) {
     logger.warn(
       'driveArchiveFolderService: could not ensure Printing folder for order %s — %s',

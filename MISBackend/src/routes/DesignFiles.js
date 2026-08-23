@@ -55,6 +55,7 @@ const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const { normalizePhone } = require('../utils/phone');
 const { updateOrderStage } = require('../services/orderLifecycleService');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
+const { ORDER_STAGES } = require('../constants/orderStages');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -1337,8 +1338,16 @@ router.post('/proof-response', async (req, res) => {
  */
 router.post('/confirm-final', async (req, res) => {
   try {
-    const { fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items, fromArchive } = req.body || {};
-    const initialStage = fromArchive ? 'print' : 'new_design';
+    const {
+      fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items,
+      fromArchive, stage, assigneeId, extraCharges,
+    } = req.body || {};
+    // Stage is picked in the confirm dialog; the old fromArchive default is
+    // still what applies when nothing was chosen.
+    const requestedStage = String(stage || '').trim();
+    const initialStage = ORDER_STAGES.includes(requestedStage)
+      ? requestedStage
+      : (fromArchive ? 'print' : 'new_design');
 
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
@@ -1376,8 +1385,20 @@ router.post('/confirm-final', async (req, res) => {
         Quantity: Number(it.qty || 1),
         Rate: Number(it.rate || 0),
         Amount: Number(it.amount || 0),
-        Remark: '',
+        Remark: it.remark || '',
       }));
+      // Freight, packing and the like arrive as their own lines so they show
+      // on the order exactly as they were entered.
+      (Array.isArray(extraCharges) ? extraCharges : [])
+        .filter((c) => c && (c.label || '').trim() && Number(c.amount) > 0)
+        .forEach((c) => orderDoc.items.push({
+          Item_uuid: uuidv4(),
+          Item_name: String(c.label).trim(),
+          Quantity: 1,
+          Rate: Number(c.amount),
+          Amount: Number(c.amount),
+          Remark: 'Additional charge',
+        }));
     }
     const order = new Orders(orderDoc);
     await order.save();
@@ -1441,10 +1462,45 @@ router.post('/confirm-final', async (req, res) => {
       logger.warn('rename block error — %s', renameBlockErr?.message);
     }
 
-    // Every new order gets an empty folder named after its order number in
-    // the Printing folder of the same date folder the design file lives in —
-    // best effort, never fails the confirm (see driveArchiveFolderService).
-    const printFolder = await ensureArchiveOrderFolderSafe({ orderNumber: orderNum, fileId });
+    // Assign the order and the file to the chosen Account Payable party.
+    let assigneeName = null;
+    if (assigneeId) {
+      try {
+        const party = await Customers.findById(assigneeId);
+        if (party) {
+          assigneeName = party.Customer_name;
+          await DesignFileLink.updateOne(
+            { driveFileId: fileId },
+            {
+              $set: {
+                assignedTo: party._id,
+                assignedToType: 'vendor',
+                assignedToName: party.Customer_name,
+                assignedBy: req.user?.userName || 'System',
+                assignedAt: new Date(),
+              },
+            }
+          );
+          await assignOrderToUser({
+            orderId: orderUuid,
+            vendorId: party._id,
+            assignedBy: req.user?.userName || 'System',
+            via: 'design-file',
+          });
+        }
+      } catch (assignErr) {
+        logger.warn('design-files/confirm-final: assign failed — %s', assignErr?.message);
+      }
+    }
+
+    // Every new order gets an empty folder in the Printing folder of the same
+    // date folder the design file lives in, named "<orderNumber> <assignee>"
+    // — best effort, never fails the confirm (see driveArchiveFolderService).
+    const printFolder = await ensureArchiveOrderFolderSafe({
+      orderNumber: orderNum,
+      fileId,
+      label: assigneeName,
+    });
     if (printFolder?.orderFolderId) {
       await DesignFileLink.updateOne(
         { driveFileId: fileId },
@@ -1458,7 +1514,10 @@ router.post('/confirm-final', async (req, res) => {
       orderUuid,
       newName,
       renamed,
+      stage: initialStage,
+      assignedToName: assigneeName,
       printFolderId: printFolder?.orderFolderId || null,
+      printFolderName: printFolder?.orderFolderName || null,
     });
   } catch (err) {
     logger.error({ err }, 'design-files/confirm-final error');

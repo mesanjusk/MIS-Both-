@@ -69,6 +69,7 @@ import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { fetchAssignees } from '../../services/assigneeService';
+import { STAGE_LABELS } from '../../constants/orderStages';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
 // "Design Board" is the default landing tab — it's the authoritative,
@@ -116,6 +117,10 @@ const BOARD_COLUMNS = [
   { stageNumber: 4, key: 'readyToPrint', label: 'Ready to Print' },
 ];
 const BOARD_STAGE_NUMBERS = new Set(BOARD_COLUMNS.map((c) => c.stageNumber));
+
+// Printing (stage 6) — its files are hidden in the Archive tab, which lists
+// design files only.
+const PRINTING_STAGE_NUMBER = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function alreadyPrefixedWithOrder(fileName, orderNumber) {
@@ -285,8 +290,9 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   if (file.orderUuid && file.orderStage !== 'delivered' && onDeliver) {
     actions.push({ key: 'deliver', label: `Mark Order #${file.orderNumber} as delivered`, icon: LocalShippingRoundedIcon, color: 'success.main', run: () => onDeliver(file) });
   }
+  const confirmed = isConfirmedOrder(file);
   const hasAssign = !!onAssign;
-  if (!actions.length && !hasAssign) return null;
+  if (!actions.length && !hasAssign && !confirmed) return null;
 
   const openMenu = (e) => { e.stopPropagation(); setView('actions'); setAnchor(e.currentTarget); };
   const closeMenu = (e) => { e?.stopPropagation(); setAnchor(null); setView('actions'); };
@@ -321,6 +327,15 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
       <Menu anchorEl={anchor} open={!!anchor} onClose={closeMenu} onClick={(e) => e.stopPropagation()}>
         {view === 'actions' ? (
           [
+            // Confirmed orders say so at the top of the menu, matching the
+            // green the card is filled with.
+            ...(confirmed ? [
+              <MenuItem key="confirmed" disabled sx={{ opacity: '1 !important', fontSize: 12, fontWeight: 700, color: 'success.dark' }}>
+                <ListItemIcon><AssignmentTurnedInRoundedIcon fontSize="small" sx={{ color: 'success.main' }} /></ListItemIcon>
+                Confirmed as real MIS order{file.orderNumber != null ? ` #${file.orderNumber}` : ''}
+              </MenuItem>,
+              <Divider key="confirmed-div" />,
+            ] : []),
             ...actions.map((a) => (
               <MenuItem key={a.key} onClick={(e) => runAction(e, a.run)} sx={{ fontSize: 13 }}>
                 <ListItemIcon><a.icon fontSize="small" sx={{ color: a.color }} /></ListItemIcon>
@@ -355,14 +370,20 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // ─── List row ─────────────────────────────────────────────────────────────────
+/** A file confirmed as a real MIS order — not a draft, not a temp order. */
+function isConfirmedOrder(file) {
+  return Boolean(file?.matched && !file?.isDraft && !file?.isTemporaryOrder);
+}
+
 function rowColors(file, checked) {
   const hasPrintJob = file.printJobNumber != null;
-  const hasRealOrder = file.matched && !file.isDraft && !file.isTemporaryOrder;
+  const hasRealOrder = isConfirmedOrder(file);
   const isTempOrder = file.isTemporaryOrder;
   const isUnmatched = !file.matched && !file.isDraft;
   if (checked)      return { bg: 'primary.50',   bgHover: 'primary.100',   border: 'primary.main'  };
+  // Confirmed orders read green first — that is the state people scan for.
+  if (hasRealOrder) return { bg: '#e8f5e9',       bgHover: '#c8e6c9',       border: 'success.300'   };
   if (hasPrintJob)  return { bg: '#f3e5f5',       bgHover: '#e1bee7',       border: '#ce93d8'       };
-  if (hasRealOrder) return { bg: 'success.50',    bgHover: 'success.100',   border: 'success.200'   };
   if (isTempOrder)  return { bg: 'warning.50',    bgHover: 'warning.100',   border: 'warning.200'   };
   if (isUnmatched)  return { bg: 'warning.50',    bgHover: 'warning.100',   border: 'warning.200'   };
   return              { bg: 'transparent',        bgHover: 'action.hover',  border: 'divider'       };
@@ -524,8 +545,12 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const [mobileNumber, setMobileNumber] = useState('');
   const [orderMode, setOrderMode] = useState('note');
   const [noteText, setNoteText] = useState('');
-  const [items, setItems] = useState([{ itemName: '', qty: 1, rate: '', amount: '' }]);
+  const [items, setItems] = useState([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
+  const [extraCharges, setExtraCharges] = useState([]);
   const [itemOptions, setItemOptions] = useState([]);
+  const [stage, setStage] = useState(fromArchive ? 'print' : 'new_design');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [assignees, setAssignees] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -533,26 +558,33 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   useEffect(() => {
     if (!open) {
       setCustomer(null); setCustomerInput(''); setMobileNumber('');
-      setOrderMode('note'); setError('');
-      setItems([{ itemName: '', qty: 1, rate: '', amount: '' }]);
+      setOrderMode('note'); setError(''); setExtraCharges([]); setAssigneeId('');
+      setItems([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
       return;
     }
+    setStage(fromArchive ? 'print' : 'new_design');
     setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
     setLoadingData(true);
     Promise.all([
       axios.get('/api/customers/GetCustomerList'),
       axios.get('/api/items/GetItemList'),
+      fetchAssignees().catch(() => ({ data: { result: [] } })),
     ])
-      .then(([custRes, itemRes]) => {
+      .then(([custRes, itemRes, assigneeRes]) => {
         setCustomers(custRes.data?.result || []);
         setItemOptions(itemRes.data?.result || []);
+        // Account Payable parties only — same list the assign menu uses.
+        setAssignees((assigneeRes.data?.result || []).filter((a) => a.type === 'payable'));
       })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addItemRow = () => setItems((prev) => [...prev, { itemName: '', qty: 1, rate: '', amount: '' }]);
+  const addItemRow = () => setItems((prev) => [...prev, { itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
   const removeItemRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));
+  const sortItemsAZ = () => setItems((prev) => [...prev].sort((a, b) =>
+    String(a.itemName || '').localeCompare(String(b.itemName || ''), undefined, { sensitivity: 'base' })
+  ));
   const updateItem = (i, field, value) => {
     setItems((prev) => prev.map((row, idx) => {
       if (idx !== i) return row;
@@ -566,7 +598,12 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
     }));
   };
 
-  const total = items.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+  const updateCharge = (i, field, value) =>
+    setExtraCharges((prev) => prev.map((c, idx) => (idx === i ? { ...c, [field]: value } : c)));
+
+  const itemsTotal = items.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+  const chargesTotal = extraCharges.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+  const grandTotal = itemsTotal + chargesTotal;
 
   const handleSubmit = async () => {
     if (!customer) return;
@@ -582,11 +619,27 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
         mobileNumber: mobileNumber.trim(),
         orderMode: isDetailed ? 'items' : 'note',
         items: isDetailed
-          ? items.map((r) => ({ itemName: r.itemName, qty: parseFloat(r.qty) || 1, rate: parseFloat(r.rate) || 0, amount: parseFloat(r.amount) || 0 }))
+          ? items
+              .filter((r) => r.itemName.trim())
+              .map((r) => ({
+                itemName: r.itemName,
+                qty: parseFloat(r.qty) || 1,
+                rate: parseFloat(r.rate) || 0,
+                amount: parseFloat(r.amount) || 0,
+                remark: r.remark || '',
+              }))
           : [],
+        extraCharges: isDetailed
+          ? extraCharges
+              .filter((c) => String(c.label || '').trim() && parseFloat(c.amount) > 0)
+              .map((c) => ({ label: c.label.trim(), amount: parseFloat(c.amount) }))
+          : [],
+        stage,
+        assigneeId: assigneeId || null,
         fromArchive,
       });
-      onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed`, 'success');
+      const folderNote = res.data?.printFolderName ? ` · Printing/${res.data.printFolderName}` : '';
+      onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed${folderNote}`, 'success');
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to confirm');
@@ -638,6 +691,32 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
             />
           </Stack>
 
+          {/* Stage + assignee — the assignee also names the Printing folder
+              this order gets ("793 Anand"). */}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField
+              select label="Stage" size="small" value={stage}
+              onChange={(e) => setStage(e.target.value)} disabled={submitting}
+              sx={{ flex: 1 }}
+            >
+              {Object.entries(STAGE_LABELS).map(([value, label]) => (
+                <MenuItem key={value} value={value} sx={{ fontSize: 13 }}>{label}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select label="Assign to" size="small" value={assigneeId}
+              onChange={(e) => setAssigneeId(e.target.value)}
+              disabled={submitting || loadingData}
+              helperText="Account Payable parties · names the Printing folder"
+              sx={{ flex: 1 }}
+            >
+              <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
+              {assignees.map((a) => (
+                <MenuItem key={a.id} value={a.id} sx={{ fontSize: 13 }}>{a.name}</MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+
           {/* Order type toggle */}
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>Order type:</Typography>
@@ -658,77 +737,114 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               placeholder="e.g. Flex Banner 4x3, Visiting Card 100pcs"
             />
           ) : (
+            /* Same shape as the delivery report's Create Invoice form: one
+               row per line (item · qty · rate · amount · delete) with the
+               line remark under it, then additional charges and a grand
+               total. */
             <Box>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Item Name *</TableCell>
-                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 70 }}>Qty</TableCell>
-                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Rate (₹)</TableCell>
-                    <TableCell sx={{ fontSize: 11, fontWeight: 700, width: 90 }}>Amount (₹)</TableCell>
-                    <TableCell sx={{ width: 32 }} />
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {items.map((row, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <Autocomplete
-                          freeSolo
-                          options={itemOptions}
-                          value={row.itemName}
-                          onChange={(_, v) => updateItem(i, 'itemName', typeof v === 'string' ? v : v?.Item_name || '')}
-                          onInputChange={(_, v) => updateItem(i, 'itemName', v)}
-                          getOptionLabel={(o) => (typeof o === 'string' ? o : o?.Item_name || '')}
-                          disabled={submitting}
-                          renderInput={(params) => (
-                            <TextField {...params} size="small" placeholder="Item name…"
-                              inputProps={{ ...params.inputProps, style: { fontSize: 11, padding: '3px 6px' } }}
-                            />
-                          )}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField size="small" type="number" value={row.qty}
-                          onChange={(e) => updateItem(i, 'qty', e.target.value)}
-                          disabled={submitting} inputProps={{ min: 1, style: { fontSize: 11, padding: '3px 6px' } }}
-                          sx={{ width: 60 }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField size="small" type="number" value={row.rate}
-                          onChange={(e) => updateItem(i, 'rate', e.target.value)}
-                          disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
-                          sx={{ width: 80 }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField size="small" type="number" value={row.amount}
-                          onChange={(e) => updateItem(i, 'amount', e.target.value)}
-                          disabled={submitting} inputProps={{ min: 0, style: { fontSize: 11, padding: '3px 6px' } }}
-                          sx={{ width: 80 }}
-                        />
-                      </TableCell>
-                      <TableCell sx={{ p: 0.25 }}>
-                        {items.length > 1 && (
-                          <IconButton size="small" onClick={() => removeItemRow(i)} disabled={submitting} sx={{ color: 'error.main', p: 0.25 }}>
-                            <DeleteRoundedIcon sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow>
-                    <TableCell colSpan={3} sx={{ fontSize: 12, fontWeight: 700, textAlign: 'right', borderBottom: 'none' }}>Total</TableCell>
-                    <TableCell sx={{ fontSize: 12, fontWeight: 700, borderBottom: 'none' }}>₹{total.toFixed(2)}</TableCell>
-                    <TableCell sx={{ borderBottom: 'none' }} />
-                  </TableRow>
-                </TableBody>
-              </Table>
-              <Button size="small" startIcon={<AddRoundedIcon />} onClick={addItemRow} disabled={submitting}
-                sx={{ mt: 0.5, fontSize: 11 }}>
-                Add Item
-              </Button>
+              {items.map((row, i) => (
+                <Grid container spacing={1} key={i} alignItems="center" sx={{ mb: 1 }}>
+                  <Grid item xs={12} md={5}>
+                    <Autocomplete
+                      freeSolo
+                      options={itemOptions}
+                      value={row.itemName}
+                      onChange={(_, v) => updateItem(i, 'itemName', typeof v === 'string' ? v : v?.Item_name || '')}
+                      onInputChange={(_, v) => updateItem(i, 'itemName', v)}
+                      getOptionLabel={(o) => (typeof o === 'string' ? o : o?.Item_name || '')}
+                      disabled={submitting}
+                      renderInput={(params) => (
+                        <TextField {...params} size="small" placeholder="Select item" />
+                      )}
+                    />
+                  </Grid>
+                  <Grid item xs={4} md={2}>
+                    <TextField size="small" type="number" placeholder="Qty" fullWidth value={row.qty}
+                      onChange={(e) => updateItem(i, 'qty', e.target.value)}
+                      disabled={submitting} inputProps={{ min: 1 }}
+                    />
+                  </Grid>
+                  <Grid item xs={4} md={2}>
+                    <TextField size="small" type="number" placeholder="Rate" fullWidth value={row.rate}
+                      onChange={(e) => updateItem(i, 'rate', e.target.value)}
+                      disabled={submitting} inputProps={{ min: 0 }}
+                    />
+                  </Grid>
+                  <Grid item xs={3} md={2}>
+                    <Box sx={{ px: 1, py: 0.9, bgcolor: 'action.hover', borderRadius: 1, fontWeight: 700, fontSize: 13, textAlign: 'right' }}>
+                      ₹{Number(row.amount || 0).toLocaleString('en-IN')}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={1} md={1}>
+                    <IconButton size="small" onClick={() => removeItemRow(i)}
+                      disabled={submitting || items.length === 1}
+                      sx={{ color: 'error.main' }}
+                    >
+                      <DeleteRoundedIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField size="small" fullWidth placeholder="Remark (this line)"
+                      value={row.remark || ''} onChange={(e) => updateItem(i, 'remark', e.target.value)}
+                      disabled={submitting}
+                      inputProps={{ style: { fontSize: 12 } }}
+                    />
+                  </Grid>
+                </Grid>
+              ))}
+
+              <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+                <Button size="small" variant="contained" startIcon={<AddRoundedIcon />}
+                  onClick={addItemRow} disabled={submitting}
+                >
+                  Add Item
+                </Button>
+                <Button size="small" variant="outlined" onClick={sortItemsAZ}
+                  disabled={submitting || items.length < 2}
+                >
+                  Sort A→Z
+                </Button>
+              </Stack>
+
+              <Divider />
+
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.5, mb: 0.5 }}>
+                <Typography variant="body2" fontWeight={700}>Additional Charges</Typography>
+                <Button size="small" onClick={() => setExtraCharges((prev) => [...prev, { label: '', amount: '' }])}
+                  disabled={submitting}
+                >
+                  + Add
+                </Button>
+              </Stack>
+              {extraCharges.length === 0 ? (
+                <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                  No extra charges (e.g. freight, packing)
+                </Typography>
+              ) : extraCharges.map((c, i) => (
+                <Stack direction="row" spacing={1} alignItems="center" key={i} sx={{ mb: 0.75 }}>
+                  <TextField size="small" placeholder="Label (e.g. Freight)" value={c.label}
+                    onChange={(e) => updateCharge(i, 'label', e.target.value)}
+                    disabled={submitting} sx={{ flex: 1 }}
+                  />
+                  <TextField size="small" type="number" placeholder="Amount" value={c.amount}
+                    onChange={(e) => updateCharge(i, 'amount', e.target.value)}
+                    disabled={submitting} inputProps={{ min: 0 }} sx={{ width: 120 }}
+                  />
+                  <IconButton size="small" sx={{ color: 'error.main' }} disabled={submitting}
+                    onClick={() => setExtraCharges((prev) => prev.filter((_, idx) => idx !== i))}
+                  >
+                    <DeleteRoundedIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Stack>
+              ))}
+
+              <Divider sx={{ mt: 1.5 }} />
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ pt: 1.5 }}>
+                <Typography variant="body2" color="text.secondary">Grand Total</Typography>
+                <Typography variant="h6" fontWeight={800} color="primary.main">
+                  ₹{grandTotal.toLocaleString('en-IN')}
+                </Typography>
+              </Stack>
             </Box>
           )}
         </Stack>
@@ -1491,7 +1607,16 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
     setLoading(true); setError('');
     try {
       const res = await axios.get('/api/design-files/scan-archive');
-      setArchiveData(res.data);
+      // Printing folders are hidden here for now — this tab lists design
+      // files only.
+      const data = res.data || {};
+      const dates = (data.dates || [])
+        .map((d) => {
+          const sections = (d.sections || []).filter((sec) => sec.stageNumber !== PRINTING_STAGE_NUMBER);
+          return { ...d, sections, fileCount: sections.reduce((n, sec) => n + (sec.files?.length || 0), 0) };
+        })
+        .filter((d) => d.fileCount > 0);
+      setArchiveData({ ...data, dates });
       setLoaded(true);
       setSelectedMap({});
     } catch (err) {
@@ -1544,19 +1669,14 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   };
 
   // Derive "by type" data from dates
-  const { printingByDate, finalByDate } = (() => {
+  const { finalByDate } = (() => {
     const dates = archiveData?.dates || [];
-    const pbd = dates.map((d) => ({
-      dateName: d.dateName,
-      dateFolderId: d.dateFolderId,
-      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 6)),
-    })).filter((d) => d.files.length > 0);
     const fbd = dates.map((d) => ({
       dateName: d.dateName,
       dateFolderId: d.dateFolderId,
       files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 5)),
     })).filter((d) => d.files.length > 0);
-    return { printingByDate: pbd, finalByDate: fbd };
+    return { finalByDate: fbd };
   })();
 
   if (!loaded && !loading) {
@@ -1656,21 +1776,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
           </Stack>
         ) : (
           <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
-            <ArchiveTypeSection
-              label="Printing Files"
-              icon={LocalPrintshopRoundedIcon}
-              color="error"
-              stageNumber={9}
-              filesByDate={printingByDate}
-              onCreatePrintJob={handleSinglePrintJob}
-              onEditPrintJob={onEditPrintJob}
-              selectedIds={selectedIds}
-              onToggle={toggleSelect}
-              onRelink={(file) => setRelinkFile(file)}
-              onAssign={handleAssign}
-              onDeliver={(file) => setDeliverFile(file)}
-              viewMode={viewMode}
-            />
+            {/* Printing files are hidden here for now — design files only. */}
             <ArchiveTypeSection
               label="Design / Final Files"
               icon={DoneAllRoundedIcon}

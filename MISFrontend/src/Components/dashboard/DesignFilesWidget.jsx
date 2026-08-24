@@ -24,6 +24,7 @@ import {
   ListSubheader,
   Menu,
   MenuItem,
+  Paper,
   Snackbar,
   Stack,
   Table,
@@ -38,6 +39,8 @@ import {
   Typography,
 } from '@mui/material';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DesignServicesRoundedIcon from '@mui/icons-material/DesignServicesRounded';
@@ -717,7 +720,13 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
         fromArchive,
       });
       const folderNote = res.data?.printFolderName ? ` · Printing/${res.data.printFolderName}` : '';
-      onSuccess(`Order #${res.data.orderNumber} created — "${file.fileName}" confirmed${folderNote}`, 'success');
+      const billNote = res.data?.invoicePosted
+        ? ` · invoice ₹${Number(res.data.itemsTotal || 0).toLocaleString('en-IN')} posted`
+        : '';
+      onSuccess(
+        `Order #${res.data.orderNumber} created — "${file.fileName}" confirmed${billNote}${folderNote}`,
+        'success'
+      );
       onClose();
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to confirm');
@@ -1603,75 +1612,24 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
 }
 
 // "By Type" view — flat rows per type, grouped by date
-function ArchiveTypeSection({ label, icon: Icon, color, filesByDate, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, stageNumber, viewMode }) {
-  const [expanded, setExpanded] = useState(true);
-  const totalFiles = filesByDate.reduce((s, d) => s + d.files.length, 0);
-  if (!totalFiles) return null;
+/** One folder in the archive browser — month or date. */
+function FolderTile({ name, caption, onOpen }) {
   return (
-    <Box sx={{ mb: 1 }}>
-      <Stack
-        direction="row" alignItems="center" spacing={1}
-        onClick={() => setExpanded((v) => !v)}
-        sx={{ py: 0.7, px: 1.5, cursor: 'pointer', bgcolor: `${color}.50`, borderRadius: 1.5, '&:hover': { bgcolor: `${color}.100` }, border: '1px solid', borderColor: `${color}.200` }}
-      >
-        {expanded ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: `${color}.700` }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: `${color}.700` }} />}
-        <Icon sx={{ fontSize: 14, color: `${color}.700` }} />
-        <Typography variant="body2" fontWeight={700} color={`${color}.800`} sx={{ flex: 1, fontSize: 12 }}>{label}</Typography>
-        <Chip label={`${totalFiles} file${totalFiles !== 1 ? 's' : ''}`} size="small"
-          sx={{ fontSize: 10, height: 18, bgcolor: `${color}.100`, color: `${color}.800`, '& .MuiChip-label': { px: 0.75 } }} />
-      </Stack>
-      <Collapse in={expanded}>
-        <Stack spacing={0.5} sx={{ px: 1, pt: 0.6 }}>
-          {filesByDate.map((dg) => (
-            <Box key={dg.dateFolderId || dg.dateName} sx={{ mb: 0.5 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, fontWeight: 600, px: 0.5, display: 'block', mb: 0.25 }}>
-                {dg.dateName}
-              </Typography>
-              {viewMode === 'grid' ? (
-                <Grid container spacing={0.75} sx={{ pl: 1 }}>
-                  {dg.files.map((file) => (
-                    <Grid item xs={6} sm={4} md={3} key={file.fileId}>
-                      <FileCard
-                        file={file}
-                        viewOnly={false}
-                        hideStageChip
-                        checked={selectedIds?.has(file.fileId)}
-                        onToggle={onToggle ? () => onToggle(file) : undefined}
-                        onConfirm={stageNumber === 5 ? onConfirm : undefined}
-                        onCreatePrintJob={stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                        onEditPrintJob={stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
-                        onRelink={onRelink}
-                        onAssign={onAssign}
-                        onDeliver={onDeliver}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
-              ) : (
-                <Stack spacing={0.3} sx={{ pl: 1 }}>
-                  {dg.files.map((file) => (
-                    <FileListRow
-                      key={file.fileId}
-                      file={file}
-                      viewOnly={false}
-                      hideStageChip
-                      checked={selectedIds?.has(file.fileId)}
-                      onToggle={onToggle ? () => onToggle(file) : undefined}
-                      onConfirm={stageNumber === 5 ? onConfirm : undefined}
-                      onCreatePrintJob={stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
-                      onEditPrintJob={stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
-                      onRelink={onRelink}
-                      onAssign={onAssign}
-                      onDeliver={onDeliver}
-                    />
-                  ))}
-                </Stack>
-              )}
-            </Box>
-          ))}
-        </Stack>
-      </Collapse>
-    </Box>
+    <Paper
+      variant="outlined"
+      onClick={onOpen}
+      sx={{
+        p: 1, borderRadius: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1,
+        minWidth: 0, transition: 'background-color .12s, box-shadow .12s',
+        '&:hover': { bgcolor: 'action.hover', boxShadow: 1 },
+      }}
+    >
+      <FolderRoundedIcon sx={{ color: 'warning.main', fontSize: 26, flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={700} noWrap sx={{ fontSize: 12.5 }}>{name}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10.5 }}>{caption}</Typography>
+      </Box>
+    </Paper>
   );
 }
 
@@ -1681,7 +1639,8 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
-  const [archiveViewMode, setArchiveViewMode] = useState('byDate'); // 'byDate' | 'byType'
+  const [archiveViewMode, setArchiveViewMode] = useState('folders'); // 'folders' | 'list'
+  const [browsePath, setBrowsePath] = useState([]); // [] | [month] | [month, date]
 
   const [selectedMap, setSelectedMap] = useState({});
   const [relinkFile, setRelinkFile] = useState(null);
@@ -1707,6 +1666,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
         .filter((d) => d.fileCount > 0);
       setArchiveData({ ...data, dates });
       setLoaded(true);
+      setBrowsePath([]);
       setSelectedMap({});
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
@@ -1757,16 +1717,28 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
     triggerDownload(buildCSV(rows), `archive-${dateStr}.csv`, 'text/csv');
   };
 
-  // Derive "by type" data from dates
-  const { finalByDate } = (() => {
-    const dates = archiveData?.dates || [];
-    const fbd = dates.map((d) => ({
-      dateName: d.dateName,
-      dateFolderId: d.dateFolderId,
-      files: d.sections.flatMap((s) => s.files.filter((f) => f.stageNumber === 5)),
-    })).filter((d) => d.files.length > 0);
-    return { finalByDate: fbd };
+  // Folder view: month folders → date folders → the files in that date.
+  const monthFolders = (() => {
+    const order = archiveData?.months || [];
+    const map = new Map();
+    (archiveData?.dates || []).forEach((d) => {
+      const key = d.monthName || 'Other';
+      const cur = map.get(key) || { name: key, dates: 0, files: 0 };
+      cur.dates += 1;
+      cur.files += d.fileCount || 0;
+      map.set(key, cur);
+    });
+    // Newest month first, matching how the date list is already sorted.
+    return [...map.values()].sort((a, b) => order.indexOf(b.name) - order.indexOf(a.name));
   })();
+
+  const openMonth = browsePath[0] || null;
+  const dateFolders = openMonth
+    ? (archiveData?.dates || []).filter((d) => (d.monthName || 'Other') === openMonth)
+    : [];
+  const openDateGroup = browsePath[1]
+    ? dateFolders.find((d) => d.dateName === browsePath[1]) || null
+    : null;
 
   if (!loaded && !loading) {
     return (
@@ -1806,8 +1778,8 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
           size="small"
           sx={{ height: 24, '& .MuiToggleButton-root': { px: 0.75, py: 0, fontSize: 10, textTransform: 'none' } }}
         >
-          <ToggleButton value="byDate">By Date</ToggleButton>
-          <ToggleButton value="byType">By Type</ToggleButton>
+          <ToggleButton value="folders">Folders</ToggleButton>
+          <ToggleButton value="list">List</ToggleButton>
         </ToggleButtonGroup>
         {unmatchedFiles.length > 0 && (
           <Button size="small" variant="outlined" color="warning"
@@ -1845,7 +1817,86 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
           <Box sx={{ py: 3, textAlign: 'center' }}>
             <Typography variant="body2" color="text.secondary">No files found in archive folder.</Typography>
           </Box>
-        ) : archiveViewMode === 'byDate' ? (
+        ) : archiveViewMode === 'folders' ? (
+          /* Folder view — the archive as it looks on the drive: month
+             folders, then date folders, then the files themselves. */
+          <Box sx={{ px: 1, pb: 1 }}>
+            <Stack direction="row" alignItems="center" spacing={0.25} sx={{ mb: 1, flexWrap: 'wrap' }}>
+              <Button
+                size="small" onClick={() => setBrowsePath([])}
+                startIcon={<ArchiveRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                sx={{ textTransform: 'none', fontWeight: browsePath.length === 0 ? 700 : 500, minWidth: 0, px: 0.75, fontSize: 12 }}
+              >
+                Archive
+              </Button>
+              {browsePath.map((crumb, idx) => (
+                <Stack key={crumb} direction="row" alignItems="center" spacing={0.25}>
+                  <NavigateNextRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                  <Button
+                    size="small" onClick={() => setBrowsePath(browsePath.slice(0, idx + 1))}
+                    sx={{ textTransform: 'none', fontWeight: idx === browsePath.length - 1 ? 700 : 500, minWidth: 0, px: 0.75, fontSize: 12 }}
+                  >
+                    {crumb}
+                  </Button>
+                </Stack>
+              ))}
+            </Stack>
+
+            {browsePath.length === 0 && (
+              <Grid container spacing={0.75}>
+                {monthFolders.map((m) => (
+                  <Grid item xs={6} sm={4} md={3} key={m.name}>
+                    <FolderTile
+                      name={m.name}
+                      caption={`${m.dates} date${m.dates === 1 ? '' : 's'} · ${m.files} file${m.files === 1 ? '' : 's'}`}
+                      onOpen={() => setBrowsePath([m.name])}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+
+            {browsePath.length === 1 && (
+              <Grid container spacing={0.75}>
+                {dateFolders.map((d) => (
+                  <Grid item xs={6} sm={4} md={3} key={d.dateFolderId}>
+                    <FolderTile
+                      name={d.dateName}
+                      caption={`${d.fileCount} file${d.fileCount === 1 ? '' : 's'}`}
+                      onOpen={() => setBrowsePath([openMonth, d.dateName])}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+
+            {browsePath.length === 2 && (
+              openDateGroup ? (
+                <Stack spacing={0.75}>
+                  {openDateGroup.sections.map((section, i) => (
+                    <ArchiveDateSection
+                      key={i}
+                      section={section}
+                      onConfirm={onConfirm}
+                      onCreatePrintJob={handleSinglePrintJob}
+                      onEditPrintJob={onEditPrintJob}
+                      selectedIds={selectedIds}
+                      onToggle={toggleSelect}
+                      onRelink={(file) => setRelinkFile(file)}
+                      onAssign={handleAssign}
+                      onDeliver={(file) => setDeliverFile(file)}
+                      viewMode={viewMode}
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                  This folder is empty.
+                </Typography>
+              )
+            )}
+          </Box>
+        ) : (
           <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
             {dates.map((dateGroup) => (
               <ArchiveDateGroup
@@ -1862,24 +1913,6 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
                 viewMode={viewMode}
               />
             ))}
-          </Stack>
-        ) : (
-          <Stack spacing={0.5} sx={{ px: 1, pb: 1 }}>
-            {/* Printing files are hidden here for now — design files only. */}
-            <ArchiveTypeSection
-              label="Design / Final Files"
-              icon={DoneAllRoundedIcon}
-              color="success"
-              stageNumber={8}
-              filesByDate={finalByDate}
-              onConfirm={onConfirm}
-              selectedIds={selectedIds}
-              onToggle={toggleSelect}
-              onRelink={(file) => setRelinkFile(file)}
-              onAssign={handleAssign}
-              onDeliver={(file) => setDeliverFile(file)}
-              viewMode={viewMode}
-            />
           </Stack>
         )}
       </Box>

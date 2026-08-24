@@ -43,6 +43,7 @@ const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
 const Usertasks = require('../repositories/usertask');
 const { upsertVendorJob } = require('../services/vendorJobService');
+const { postCustomerInvoice } = require('../services/accountingPostingService');
 const {
   buildOrderFolderName,
   ensureArchiveOrderFolderSafe,
@@ -1453,29 +1454,55 @@ router.post('/confirm-final', async (req, res) => {
       driveFile: { status: 'skipped' },
     };
     if (isDetailed) {
-      orderDoc.items = items.map((it) => ({
-        Item_uuid: it.Item_uuid || uuidv4(),
-        Item_name: it.itemName || it.Item_name || '',
+      // Order.Items — the same shape the delivery report's invoice writes, so
+      // a detailed order confirmed here already reads as invoiced there
+      // instead of asking for the sale to be entered a second time.
+      orderDoc.Items = items.map((it) => ({
+        Item: it.itemName || it.Item_name || '',
+        Item_uuid: it.Item_uuid || '',
         Quantity: Number(it.qty || 1),
         Rate: Number(it.rate || 0),
         Amount: Number(it.amount || 0),
+        Priority: 'Normal',
         Remark: it.remark || '',
       }));
       // Freight, packing and the like arrive as their own lines so they show
       // on the order exactly as they were entered.
       (Array.isArray(extraCharges) ? extraCharges : [])
         .filter((c) => c && (c.label || '').trim() && Number(c.amount) > 0)
-        .forEach((c) => orderDoc.items.push({
-          Item_uuid: uuidv4(),
-          Item_name: String(c.label).trim(),
+        .forEach((c) => orderDoc.Items.push({
+          Item: String(c.label).trim(),
+          Item_uuid: '',
           Quantity: 1,
           Rate: Number(c.amount),
           Amount: Number(c.amount),
+          Priority: 'Normal',
           Remark: 'Additional charge',
         }));
     }
     const order = new Orders(orderDoc);
     await order.save();
+
+    // Detailed billing posts the customer sale exactly once, keyed by the
+    // order uuid, so the delivery report shows the invoice as already made.
+    const itemsTotal = (orderDoc.Items || []).reduce((sum, it) => sum + (Number(it.Amount) || 0), 0);
+    let invoicePosted = false;
+    if (itemsTotal > 0) {
+      try {
+        await postCustomerInvoice({
+          amount: itemsTotal,
+          orderUuid,
+          orderNumber: orderNum,
+          customerUuid,
+          description: `Order #${orderNum} - ${customer.Customer_name}`,
+          createdBy: req.user?.userName || 'System',
+          sourceSuffix: orderUuid,
+        });
+        invoicePosted = true;
+      } catch (acctErr) {
+        logger.warn({ acctErr }, 'confirm-final: customer invoice post failed (non-fatal)');
+      }
+    }
 
     // Build new filename
     const descPart = isDetailed ? sanitize(firstItemName) : sanitize(itemDetails);
@@ -1590,6 +1617,8 @@ router.post('/confirm-final', async (req, res) => {
       renamed,
       stage: initialStage,
       assignedToName: assigneeName,
+      itemsTotal,
+      invoicePosted,
       printFolderId: printFolder?.orderFolderId || null,
       printFolderName: printFolder?.orderFolderName || null,
     });

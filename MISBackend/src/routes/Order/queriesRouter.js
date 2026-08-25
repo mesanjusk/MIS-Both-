@@ -21,11 +21,12 @@ const { latestStatusProjectionStages } = require("./_shared");
  * receipts and advances posted against that order, so balance is simply
  * amount − paid and an order is "paid" once nothing is left.
  *
- * Query: from, to (ISO dates on createdAt), stage, search, payment=all|paid|balance
+ * Query: from, to (ISO dates on createdAt), stage, search,
+ *        payment=all|paid|balance, kind=all|temp|real
  */
 router.get("/reports/order-ledger", async (req, res) => {
   try {
-    const { from, to, stage, search, payment } = req.query;
+    const { from, to, stage, search, payment, kind } = req.query;
 
     const filter = {};
     if (from || to) {
@@ -38,10 +39,15 @@ router.get("/reports/order-ledger", async (req, res) => {
       }
     }
     if (stage) filter.stage = stage;
+    // Placeholder orders the design flow created for a file with no number of
+    // its own — worth being able to look at on their own.
+    if (kind === 'temp') filter.isTemporary = true;
+    if (kind === 'real') filter.isTemporary = { $ne: true };
 
     const orders = await Orders.find(filter, {
       Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, stage: 1,
       Items: 1, saleSubtotal: 1, Amount: 1, createdAt: 1, isTemporary: 1, orderNote: 1,
+      driveFile: 1,
     })
       .sort({ createdAt: -1 })
       .limit(5000)
@@ -82,6 +88,11 @@ router.get("/reports/order-ledger", async (req, res) => {
         customerName: nameByUuid.get(order.Customer_uuid) || (order.isTemporary ? "Temp – Design File" : ""),
         stage: order.stage || "",
         note: order.orderNote || "",
+        isTemporary: Boolean(order.isTemporary),
+        // The design file the order was created from, so a placeholder order
+        // can always be traced back to what produced it.
+        sourceFile: order.driveFile?.name || null,
+        sourceFileLink: order.driveFile?.webViewLink || null,
         amount: +amount.toFixed(2),
         paid: +paid.toFixed(2),
         balance,

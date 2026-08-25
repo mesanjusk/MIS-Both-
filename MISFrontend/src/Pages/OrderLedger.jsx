@@ -57,6 +57,8 @@ export default function OrderLedger() {
   // Both ticked = everything. Unticking one narrows the list to the other.
   const [showPaid, setShowPaid] = useState(true);
   const [showBalance, setShowBalance] = useState(true);
+  // Placeholder orders the design flow created for an unnumbered file.
+  const [kind, setKind] = useState('all'); // 'all' | 'temp' | 'real'
 
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState(null);
@@ -71,14 +73,17 @@ export default function OrderLedger() {
     setLoading(true); setError('');
     try {
       const res = await axios.get('/api/orders/reports/order-ledger', {
-        params: { from, to, stage: stage || undefined, search: search || undefined, payment },
+        params: {
+          from, to, stage: stage || undefined, search: search || undefined,
+          payment, kind: kind === 'all' ? undefined : kind,
+        },
       });
       setRows(res.data?.rows || []);
       setTotals(res.data?.totals || null);
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not load orders');
     } finally { setLoading(false); }
-  }, [from, to, stage, search, payment]);
+  }, [from, to, stage, search, payment, kind]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -89,6 +94,8 @@ export default function OrderLedger() {
     'Order No': r.orderNumber,
     Customer: r.customerName || '—',
     Status: stageLabel(r.stage),
+    Type: r.isTemporary ? 'Temp' : 'Order',
+    'From file': r.sourceFile || '',
     Amount: r.amount,
     Paid: r.paid,
     Balance: r.balance,
@@ -147,6 +154,14 @@ export default function OrderLedger() {
             onChange={(e) => setTo(e.target.value)}
             InputLabelProps={{ shrink: true }} sx={{ width: 150 }}
           />
+          <TextField
+            select label="Type" size="small" value={kind}
+            onChange={(e) => setKind(e.target.value)} sx={{ width: 150 }}
+          >
+            <MenuItem value="all"><em>All orders</em></MenuItem>
+            <MenuItem value="real">Real orders</MenuItem>
+            <MenuItem value="temp">Temp (from a file)</MenuItem>
+          </TextField>
           <TextField
             select label="Status" size="small" value={stage}
             onChange={(e) => setStage(e.target.value)} sx={{ width: 160 }}
@@ -235,7 +250,25 @@ export default function OrderLedger() {
                 <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.orderDate)}</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>#{r.orderNumber}</TableCell>
                 <TableCell>
-                  {r.customerName || <Typography variant="caption" color="text.disabled">No customer</Typography>}
+                  <Stack spacing={0} sx={{ minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <Typography variant="body2" noWrap>
+                        {r.customerName || <Typography component="span" variant="caption" color="text.disabled">No customer</Typography>}
+                      </Typography>
+                      {r.isTemporary && (
+                        <Chip size="small" color="warning" variant="outlined" label="temp"
+                          sx={{ height: 16, fontSize: 9.5, '& .MuiChip-label': { px: 0.5 } }} />
+                      )}
+                    </Stack>
+                    {/* Which design file produced this order. */}
+                    {r.sourceFile && (
+                      <Tooltip title={r.sourceFile}>
+                        <Typography variant="caption" color="text.disabled" noWrap sx={{ fontSize: 10.5, maxWidth: 320 }}>
+                          {r.sourceFile}
+                        </Typography>
+                      </Tooltip>
+                    )}
+                  </Stack>
                 </TableCell>
                 <TableCell>
                   <Chip size="small" variant="outlined" label={stageLabel(r.stage)} sx={{ height: 20, fontSize: 11 }} />

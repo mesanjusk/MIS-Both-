@@ -64,6 +64,7 @@ import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
+import CleaningServicesRoundedIcon from '@mui/icons-material/CleaningServicesRounded';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
@@ -2066,6 +2067,161 @@ function CreateFileDialog({ open, onClose, onSuccess }) {
 // column is decided purely by which Drive folder it's physically in, synced
 // automatically (see the backend's syncOrderStagesFromFolders).
 
+
+// ─── Duplicate Printing folders ───────────────────────────────────────────────
+/**
+ * Finds order folders that exist twice inside one Printing folder and clears
+ * the empty copies. Scans first; nothing on Drive changes until Clean up, and
+ * a copy with anything inside it is never touched.
+ */
+function CleanupFoldersDialog({ open, onClose, onSuccess }) {
+  const [report, setReport] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!open) { setReport(null); setError(''); } }, [open]);
+
+  const run = async (dryRun) => {
+    if (dryRun) setScanning(true); else setCleaning(true);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/cleanup-print-folders', { dryRun });
+      setReport(res.data);
+      if (!dryRun) {
+        const n = res.data?.stats?.trashed || 0;
+        onSuccess(`${n} empty duplicate folder${n === 1 ? '' : 's'} moved to Drive trash`, n ? 'success' : 'info');
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Scan failed');
+    } finally { setScanning(false); setCleaning(false); }
+  };
+
+  const stats = report?.stats || {};
+  const groups = report?.groups || [];
+  const printingDuplicates = report?.printingDuplicates || [];
+  const toTrash = groups.reduce(
+    (n, g) => n + g.folders.filter((f) => f.action === 'will-trash').length, 0
+  );
+
+  const exportReport = () => {
+    const head = ['Month', 'Date', 'Printing folder', 'Order', 'Folder name', 'Items inside', 'Action', 'Note'];
+    const body = groups.flatMap((g) => g.folders.map((f) => [
+      g.month, g.date, g.printingFolder, g.orderNumber, f.name,
+      f.children ?? '', f.action, f.reason || '',
+    ]));
+    const csv = [head, ...body]
+      .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    triggerDownload(csv, `duplicate-folders-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  };
+
+  const actionColor = (action) => (
+    action === 'keep' ? 'success.main'
+      : action === 'kept-has-files' ? 'warning.main'
+      : action === 'trashed' ? 'info.main'
+      : action === 'failed' || action === 'skipped' ? 'error.main'
+      : 'text.secondary'
+  );
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Duplicate Printing folders</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Looks through every date's <strong>Printing</strong> folder for an order number that has
+          more than one folder. The copy holding the most files stays (ties go to the oldest), an
+          empty copy is moved to the <strong>Drive trash</strong> so it can be restored, and{' '}
+          <strong>a copy with anything inside it is never touched</strong> — it is listed for you to
+          merge by hand.
+        </Typography>
+
+        <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap">
+          <Button
+            size="small" variant="outlined" onClick={() => run(true)} disabled={scanning || cleaning}
+            startIcon={scanning ? <CircularProgress size={12} /> : <CleaningServicesRoundedIcon sx={{ fontSize: '14px !important' }} />}
+          >
+            Scan
+          </Button>
+          {groups.length > 0 && (
+            <Button size="small" onClick={exportReport} startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '14px !important' }} />}>
+              CSV
+            </Button>
+          )}
+        </Stack>
+
+        {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+        {(scanning || cleaning) && <LinearProgress sx={{ mb: 1.5, height: 2 }} />}
+
+        {report && (
+          <>
+            <Stack direction="row" spacing={0.75} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={`${stats.dates || 0} dates · ${stats.orderFolders || 0} order folders`} />
+              <Chip size="small" color={stats.duplicateGroups ? 'warning' : 'success'}
+                label={`${stats.duplicateGroups || 0} duplicated order${stats.duplicateGroups === 1 ? '' : 's'}`} />
+              {toTrash > 0 && <Chip size="small" color="primary" label={`${toTrash} empty to remove`} />}
+              {stats.trashed > 0 && <Chip size="small" color="info" label={`${stats.trashed} moved to trash`} />}
+              {stats.copiesWithFiles > 0 && <Chip size="small" color="warning" variant="outlined" label={`${stats.copiesWithFiles} hold files — kept`} />}
+              {stats.failed > 0 && <Chip size="small" color="error" label={`${stats.failed} failed`} />}
+            </Stack>
+
+            {printingDuplicates.length > 0 && (
+              <Alert severity="warning" sx={{ mb: 1.5, fontSize: 12 }}>
+                {printingDuplicates.length} date folder{printingDuplicates.length === 1 ? ' has' : 's have'} more
+                than one Printing folder — left alone, merge by hand:{' '}
+                {printingDuplicates.slice(0, 5).map((d) => `${d.date} (${d.folders.join(', ')})`).join(' · ')}
+                {printingDuplicates.length > 5 ? ' …' : ''}
+              </Alert>
+            )}
+
+            {groups.length === 0 ? (
+              <Alert severity="success">No order number has a duplicate folder.</Alert>
+            ) : (
+              <Box sx={{ maxHeight: 340, overflowY: 'auto' }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Date</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Order</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Folder</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">Inside</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {groups.flatMap((g) => g.folders.map((f, i) => (
+                      <TableRow key={f.id}>
+                        <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{i === 0 ? g.date : ''}</TableCell>
+                        <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>{i === 0 ? g.orderNumber : ''}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }}>{f.name}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }} align="right">{f.children ?? '?'}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: actionColor(f.action) }}>
+                          {f.action}{f.reason ? ` — ${f.reason}` : ''}
+                        </TableCell>
+                      </TableRow>
+                    )))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button size="small" onClick={onClose}>Close</Button>
+        <Button
+          size="small" variant="contained" color="warning"
+          disabled={!report?.dryRun || toTrash === 0 || cleaning || scanning}
+          onClick={() => run(false)}
+          startIcon={cleaning ? <CircularProgress size={12} color="inherit" /> : null}
+        >
+          Clean up ({toTrash})
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // ─── Stage picker ─────────────────────────────────────────────────────────────
 // The confirm dialog offers exactly the columns the home Workflow board
 // shows, under the same four group headings. The Design group holds no
@@ -2414,6 +2570,7 @@ export default function DesignFilesWidget() {
   const [singlePrintFile, setSinglePrintFile] = useState(null);
   const [createFileOpen, setCreateFileOpen] = useState(false);
   const [renumberOpen, setRenumberOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
 
@@ -2634,6 +2791,15 @@ export default function DesignFilesWidget() {
           </>
         )}
 
+        {/* Clear duplicate Printing folders (admin) */}
+        {isAdmin && (
+          <Tooltip title="Find and clear duplicate Printing folders">
+            <IconButton size="small" onClick={() => setCleanupOpen(true)} sx={{ p: 0.4 }}>
+              <CleaningServicesRoundedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+
         {/* Renumber design files (admin) */}
         {isAdmin && (
           <Tooltip title="Renumber Final files and create their Printing folders">
@@ -2843,6 +3009,11 @@ export default function DesignFilesWidget() {
         selectedFiles={singlePrintFile ? [singlePrintFile] : selectedFiles}
         onClose={() => { setPrintDialogOpen(false); setSinglePrintFile(null); }}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSinglePrintFile(null); setSelectedIds(new Set()); load(); }}
+      />
+      <CleanupFoldersDialog
+        open={cleanupOpen}
+        onClose={() => setCleanupOpen(false)}
+        onSuccess={(msg, severity = 'success') => setToast({ message: msg, severity })}
       />
       <RenumberDialog
         open={renumberOpen}

@@ -20,6 +20,8 @@
  *   GET /api/design-files/scan-archive    — scan month-wise archive folder
  *   POST /api/design-files/move-to-print  — move an order to Print, assign it
  *                                           and name its Printing folder
+ *   POST /api/design-files/cleanup-print-folders — trash empty duplicate order
+ *                                           folders inside Printing
  *   POST /api/design-files/renumber       — renumber archive Final files and
  *                                           create their Printing folders
  *
@@ -46,6 +48,8 @@ const { upsertVendorJob } = require('../services/vendorJobService');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
 const {
   buildOrderFolderName,
+  countChildren,
+  trashFolder,
   ensureArchiveOrderFolderSafe,
   ensurePrintingFolder,
   ensureOrderFolderInPrinting,
@@ -2266,6 +2270,17 @@ async function collectFinalDesignFiles(drive) {
  * folderStatus: 'exists' | 'pending' | 'created' | 'failed'.
  */
 async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun, labelForRow = null }) {
+  // Only a real date folder gets a Printing folder — a Final folder or some
+  // in-between folder must never grow one of its own.
+  const dateName = rows[0]?.dateFolderName;
+  if (!parseFolderDate(dateName)) {
+    rows.forEach((r) => {
+      r.folderStatus = 'skipped';
+      r.folderError = `"${dateName}" is not a date folder`;
+    });
+    return;
+  }
+
   const setAll = (subset, status, error) => subset.forEach((r) => {
     r.folderStatus = status;
     if (error) r.folderError = error;
@@ -2509,6 +2524,140 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     return res.json({ success: true, dryRun, createOrders, summary, scan, files: report });
   } catch (err) {
     logger.error({ err }, 'design-files/renumber error');
+    if (err?.reconnectRequired) {
+      return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/cleanup-print-folders ────────────────────────────
+/**
+ * Finds order folders that exist more than once inside the same Printing
+ * folder and clears the empty copies.
+ *
+ * Body: { dryRun: boolean }  — dryRun (default true) only reports.
+ *
+ * Rules, in order:
+ *   - the copy holding the most files is the one that stays; ties go to the
+ *     oldest folder, so the original survives
+ *   - a copy with anything inside it is NEVER touched, it is reported for a
+ *     person to merge by hand
+ *   - an empty copy is moved to the Drive trash, not deleted outright, so a
+ *     mistake can be undone from Drive
+ *
+ * A date folder holding two Printing folders is reported the same way and
+ * never merged automatically.
+ */
+router.post('/cleanup-print-folders', requireAdmin, async (req, res) => {
+  try {
+    const archiveFolderId = process.env.DRIVE_ARCHIVE_FOLDER_ID;
+    if (!archiveFolderId) {
+      return res.status(400).json({ success: false, message: 'DRIVE_ARCHIVE_FOLDER_ID not configured' });
+    }
+    const dryRun = req.body?.dryRun !== false;
+    const drive = await getAuthorizedDriveClient();
+
+    const groups = [];
+    const printingDuplicates = [];
+    const stats = {
+      months: 0, dates: 0, printingFolders: 0, orderFolders: 0,
+      duplicateGroups: 0, emptyCopies: 0, copiesWithFiles: 0, trashed: 0, failed: 0,
+    };
+
+    const months = await listChildren(drive, archiveFolderId, FOLDER_MIME_TYPE);
+    months.sort((a, b) => {
+      const [ya, ma] = monthFolderSortKey(a.name);
+      const [yb, mb] = monthFolderSortKey(b.name);
+      return ya !== yb ? ya - yb : ma - mb;
+    });
+
+    for (const month of months) {
+      stats.months += 1;
+      const dateFolders = await listChildren(drive, month.id, FOLDER_MIME_TYPE);
+
+      for (const dateFolder of dateFolders) {
+        stats.dates += 1;
+        const sections = await listChildren(drive, dateFolder.id, FOLDER_MIME_TYPE);
+        const printFolders = sections.filter((f) => String(f.name).toLowerCase().includes('print'));
+
+        if (printFolders.length > 1) {
+          printingDuplicates.push({
+            month: month.name,
+            date: dateFolder.name,
+            folders: printFolders.map((f) => f.name),
+          });
+        }
+
+        for (const printing of printFolders) {
+          stats.printingFolders += 1;
+          const orderFolders = await listChildren(drive, printing.id, FOLDER_MIME_TYPE);
+          stats.orderFolders += orderFolders.length;
+
+          // Group by the order number the folder name starts with.
+          const byNumber = new Map();
+          orderFolders.forEach((f) => {
+            const match = String(f.name).trim().match(/^(\d+)(?:[\s\-_].*)?$/);
+            if (!match) return;
+            const key = String(Number(match[1]));
+            if (!byNumber.has(key)) byNumber.set(key, []);
+            byNumber.get(key).push(f);
+          });
+
+          for (const [orderNumber, folders] of byNumber) {
+            if (folders.length < 2) continue;
+            stats.duplicateGroups += 1;
+
+            const counts = await Promise.all(folders.map((f) => countChildren(drive, f.id).catch(() => null)));
+            const ranked = folders
+              .map((f, i) => ({ id: f.id, name: f.name, createdTime: f.createdTime || null, children: counts[i] }))
+              .sort((a, b) => ((b.children ?? 0) - (a.children ?? 0))
+                || String(a.createdTime || '').localeCompare(String(b.createdTime || '')));
+
+            const keep = ranked[0];
+            const entries = [{ ...keep, action: 'keep' }];
+
+            for (const copy of ranked.slice(1)) {
+              if (copy.children === null) {
+                stats.failed += 1;
+                entries.push({ ...copy, action: 'skipped', reason: 'could not read contents' });
+                continue;
+              }
+              if (copy.children > 0) {
+                stats.copiesWithFiles += 1;
+                entries.push({ ...copy, action: 'kept-has-files', reason: `${copy.children} item(s) inside — merge by hand` });
+                continue;
+              }
+              stats.emptyCopies += 1;
+              if (dryRun) {
+                entries.push({ ...copy, action: 'will-trash' });
+                continue;
+              }
+              try {
+                await trashFolder(drive, copy.id);
+                stats.trashed += 1;
+                entries.push({ ...copy, action: 'trashed' });
+              } catch (err) {
+                stats.failed += 1;
+                entries.push({ ...copy, action: 'failed', reason: err?.message || 'Trash failed' });
+              }
+            }
+
+            groups.push({
+              month: month.name,
+              date: dateFolder.name,
+              printingFolder: printing.name,
+              orderNumber: Number(orderNumber),
+              folders: entries,
+            });
+          }
+        }
+      }
+    }
+
+    return res.json({ success: true, dryRun, stats, groups, printingDuplicates });
+  } catch (err) {
+    logger.error({ err }, 'design-files/cleanup-print-folders error');
     if (err?.reconnectRequired) {
       return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
     }

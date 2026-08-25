@@ -63,7 +63,7 @@ async function listSubfolders(drive, parentId) {
   do {
     const res = await drive.files.list({
       q: `'${parentId}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`,
-      fields: 'nextPageToken, files(id,name)',
+      fields: 'nextPageToken, files(id,name,createdTime)',
       pageSize: 1000,
       pageToken,
       supportsAllDrives: true,
@@ -94,6 +94,28 @@ async function findOrCreateFolder(drive, parentId, { match, createName }) {
   if (hit) return { id: hit.id, name: hit.name, created: false };
   const made = await createFolder(drive, parentId, createName);
   return { id: made.id, name: made.name, created: true };
+}
+
+/** How many non-trashed children a folder has — 0 means safe to remove. */
+async function countChildren(drive, folderId) {
+  const res = await drive.files.list({
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: 'files(id)',
+    pageSize: 10,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  return (res.data.files || []).length;
+}
+
+/** Moves a folder to the Drive trash — recoverable, never a hard delete. */
+async function trashFolder(drive, folderId) {
+  await drive.files.update({
+    fileId: folderId,
+    supportsAllDrives: true,
+    requestBody: { trashed: true },
+    fields: 'id',
+  });
 }
 
 /** True when a folder name is exactly this order number (optionally suffixed). */
@@ -185,7 +207,23 @@ function buildOrderFolderName(orderNumber, label) {
 async function ensureOrderFolderInPrinting(drive, printingFolderId, orderNumber, label = null) {
   const desired = buildOrderFolderName(orderNumber, label);
   const existing = await listSubfolders(drive, printingFolderId);
-  const hit = existing.find((f) => isOrderFolderName(f.name, orderNumber));
+  const matches = existing.filter((f) => isOrderFolderName(f.name, orderNumber));
+
+  // More than one folder for the same order (from an earlier double run):
+  // work with the one that holds files, oldest first — never add another.
+  let hit = matches[0] || null;
+  if (matches.length > 1) {
+    const counts = await Promise.all(matches.map((f) => countChildren(drive, f.id).catch(() => 0)));
+    const ranked = matches
+      .map((f, i) => ({ folder: f, children: counts[i] }))
+      .sort((a, b) => (b.children - a.children)
+        || String(a.folder.createdTime || '').localeCompare(String(b.folder.createdTime || '')));
+    hit = ranked[0].folder;
+    logger.warn(
+      'driveArchiveFolderService: order %s has %d folders in one Printing folder — using "%s"',
+      orderNumber, matches.length, hit.name
+    );
+  }
 
   if (!hit) {
     const made = await createFolder(drive, printingFolderId, desired);
@@ -227,14 +265,27 @@ async function ensureOrderFolderBesideFile({ fileId, orderNumber, drive = null, 
   if (orderNumber == null || orderNumber === '') return null;
   const client = drive || (await getAuthorizedDriveClient());
 
+  // Walk up from the file until a folder named like a date turns up. A file
+  // sitting in Final/<job folder>/... is several levels below its date
+  // folder, and stopping short of it would put a Printing folder inside
+  // Final instead of beside it.
   let dateFolderId = null;
+  let parentId = null;
   if (fileId) {
-    const file = await client.files.get({ fileId, fields: 'id,parents', supportsAllDrives: true });
-    const sectionId = file.data.parents?.[0];
-    if (sectionId) {
-      const section = await client.files.get({ fileId: sectionId, fields: 'id,name,parents', supportsAllDrives: true });
-      dateFolderId = section.data.parents?.[0] || null;
+    try {
+      const file = await client.files.get({ fileId, fields: 'id,parents', supportsAllDrives: true });
+      parentId = file.data.parents?.[0] || null;
+    } catch (err) {
+      logger.warn('driveArchiveFolderService: could not read parents of %s — %s', fileId, err?.message);
     }
+  }
+  for (let depth = 0; parentId && depth < 6; depth += 1) {
+    const folder = await client.files.get({ fileId: parentId, fields: 'id,name,parents', supportsAllDrives: true });
+    if (parseFolderDate(folder.data.name)) {
+      dateFolderId = folder.data.id;
+      break;
+    }
+    parentId = folder.data.parents?.[0] || null;
   }
 
   if (!dateFolderId) return ensureArchiveOrderFolder({ orderNumber, drive: client, label });
@@ -272,6 +323,8 @@ async function ensureArchiveOrderFolderSafe({ orderNumber, date, drive, fileId =
 module.exports = {
   FOLDER_MIME,
   buildOrderFolderName,
+  countChildren,
+  trashFolder,
   parseFolderDate,
   monthFolderSortKey,
   monthFolderName,

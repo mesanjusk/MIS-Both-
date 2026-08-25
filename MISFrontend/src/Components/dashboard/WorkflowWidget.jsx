@@ -51,6 +51,9 @@ function normalizeMyOrder(order) {
     dueDate: order?.dueDate,
     overdue: Boolean(order?.overdue),
     stageUpdatedAt: latest?.CreatedAt || order?.updatedAt || null,
+    isTemporary: Boolean(order?.isTemporary),
+    sourceFile: order?.driveFile?.name || null,
+    sourceFileLink: order?.driveFile?.webViewLink || null,
   };
 }
 

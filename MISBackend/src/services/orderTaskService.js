@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Orders = require('../repositories/order');
 const Users = require('../repositories/users');
 const Customers = require('../repositories/customer');
+const DesignFileLink = require('../repositories/DesignFileLink');
 const { sendWhatsAppText } = require('./unifiedWhatsAppService');
 const { tierFor } = require('../utils/roleHierarchy');
 const { renderTemplate } = require('./whatsappTemplateService');
@@ -163,7 +164,24 @@ async function getPendingTasksOverview() {
     .lean()).filter((row) => !isLatestTaskClosed(row));
 
   const customerNames = await buildCustomerNameMap(rows);
+
+  // Orders created before the design file was recorded on the order itself
+  // still have their link — fall back to it so older temp orders can be
+  // traced back to their file too.
+  const missingSource = rows.filter((row) => !row.driveFile?.name && row.Order_uuid);
+  const linkByOrderUuid = new Map();
+  if (missingSource.length) {
+    const links = await DesignFileLink.find(
+      { orderUuid: { $in: missingSource.map((row) => row.Order_uuid) } },
+      { orderUuid: 1, fileName: 1, driveFileId: 1 }
+    ).lean();
+    links.forEach((link) => {
+      if (link.fileName && !linkByOrderUuid.has(link.orderUuid)) linkByOrderUuid.set(link.orderUuid, link);
+    });
+  }
+
   const tasks = rows.map((row) => {
+    const link = linkByOrderUuid.get(row.Order_uuid);
     const decorated = decorateOrder(row, now);
     return {
       orderId: String(row._id),
@@ -178,6 +196,13 @@ async function getPendingTasksOverview() {
       dueDate: row.dueDate,
       overdue: decorated.overdue,
       stageUpdatedAt: decorated.latestStatusTask?.CreatedAt || row.updatedAt || null,
+      // Where the order came from — the design file it was created off.
+      // A temp order has no customer name, so this is the only way to tell
+      // which file on Drive produced it.
+      isTemporary: Boolean(row.isTemporary),
+      sourceFile: row.driveFile?.name || link?.fileName || null,
+      sourceFileLink: row.driveFile?.webViewLink
+        || (link?.driveFileId ? `https://drive.google.com/file/d/${link.driveFileId}/view` : null),
     };
   });
 

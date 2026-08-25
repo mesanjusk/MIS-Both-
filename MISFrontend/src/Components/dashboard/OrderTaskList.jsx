@@ -25,6 +25,7 @@ import {
 import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import TrendingFlatRoundedIcon from '@mui/icons-material/TrendingFlatRounded';
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
@@ -377,7 +378,12 @@ export default function OrderTaskList({
             const age = STAGE_AGE_STYLES[stageAgeKey(task)];
             const stageLabel = STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task || '—';
             const movedLabel = stageUpdatedLabel(task);
-            const titleTooltip = [task.customerName || 'No customer name', task.description]
+            // A temp order carries no customer name — the design file it was
+            // created from is the only thing that identifies it, so that name
+            // becomes the title instead of "No customer name".
+            const sourceFileLabel = task.sourceFile ? task.sourceFile.replace(/\.[^.]+$/, '') : '';
+            const cardTitle = task.customerName || sourceFileLabel || 'No customer name';
+            const titleTooltip = [cardTitle, task.sourceFile, task.description]
               .filter(Boolean)
               .join(' — ');
             return (
@@ -408,7 +414,7 @@ export default function OrderTaskList({
                           display="block"
                           sx={{ fontSize: compact ? 12 : 13, lineHeight: 1.35 }}
                         >
-                          {task.customerName || 'No customer name'}
+                          {cardTitle}
                         </Typography>
                       </Tooltip>
                       <Typography
@@ -420,6 +426,19 @@ export default function OrderTaskList({
                       >
                         #{task.orderNumber}{movedLabel ? ` · ${movedLabel}` : ''}
                       </Typography>
+                      {/* Which file this order came from — shown whenever it
+                          is not already the title above. */}
+                      {task.sourceFile && task.customerName && (
+                        <Tooltip title={task.sourceFile}>
+                          <Typography
+                            variant="caption" color="text.disabled" noWrap display="block"
+                            sx={{ fontSize: compact ? 9.5 : 10.5, lineHeight: 1.3 }}
+                          >
+                            <InsertDriveFileRoundedIcon sx={{ fontSize: 10, mr: 0.3, verticalAlign: '-1px' }} />
+                            {task.sourceFile}
+                          </Typography>
+                        </Tooltip>
+                      )}
                     </Box>
                     <Box sx={{ flexShrink: 0, mt: -0.25, mr: -0.25 }}>
                       {renderCardActionsButton(task, compact)}
@@ -533,6 +552,11 @@ export default function OrderTaskList({
                   {renderAssignIcon(task)}
                   {renderMoveIcon(task)}
                   <Typography variant="body2" fontWeight={600}>#{task.orderNumber}</Typography>
+                  {!task.customerName && task.sourceFile && (
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {task.sourceFile}
+                    </Typography>
+                  )}
                   {task.customerName && (
                     <Typography variant="caption" color="text.secondary" noWrap>
                       {task.customerName}

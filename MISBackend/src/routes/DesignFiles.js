@@ -245,6 +245,20 @@ async function getOrCreateTempCustomer() {
   });
 }
 
+/**
+ * The design file an order was born from, stored on the order so every
+ * screen can say where it came from — an unnamed temp order is otherwise
+ * impossible to trace back to its file.
+ */
+function driveFileRef(fileId, fileName) {
+  return {
+    status: 'skipped',
+    fileId: fileId || null,
+    name: fileName || null,
+    webViewLink: fileId ? `https://drive.google.com/file/d/${fileId}/view` : null,
+  };
+}
+
 /** Get the next order number using the shared counter. */
 async function nextOrderNumber() {
   const lastOrder = await Orders.findOne({}, { Order_Number: 1 }).sort({ Order_Number: -1 }).lean();
@@ -1017,7 +1031,7 @@ router.post('/auto-temp-orders', async (req, res) => {
         stageHistory: [{ stage: initialStage, timestamp: new Date() }],
         priority: 'medium',
         isTemporary: true,
-        driveFile: { status: 'skipped' },
+        driveFile: driveFileRef(file.fileId, file.fileName),
       });
       await order.save();
 
@@ -1455,7 +1469,7 @@ router.post('/confirm-final', async (req, res) => {
       stage: initialStage,
       priority: 'medium',
       stageHistory: [{ stage: initialStage, timestamp: new Date() }],
-      driveFile: { status: 'skipped' },
+      driveFile: driveFileRef(fileId, fileName),
     };
     if (isDetailed) {
       // Order.Items — the same shape the delivery report's invoice writes, so
@@ -2421,7 +2435,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
               stageHistory: [{ stage: 'print', timestamp: folderDate || new Date() }],
               priority: 'medium',
               isTemporary: true,
-              driveFile: { status: 'skipped' },
+              driveFile: driveFileRef(row.fileId, row.fileName),
             });
             await order.save();
             // Archive files belong to the day their folder is named after,

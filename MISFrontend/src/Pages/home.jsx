@@ -9,6 +9,7 @@ import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import { useAuth } from '../context/AuthContext';
 
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
@@ -20,9 +21,11 @@ const AllBills = lazy(() => import('../Reports/allBills'));
 const AllAttandance = lazy(() => import('./AllAttandance'));
 const RateCalculator = lazy(() => import('./RateCalculator'));
 const DayBook = lazy(() => import('./DayBook'));
+const OrderLedger = lazy(() => import('./OrderLedger'));
 
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
+  { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: OrderLedger },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
   { id: 'transaction4D', label: 'Transaction 4D', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
   { id: 'delivery', label: 'Delivery', icon: LocalShippingRoundedIcon, Component: AllDelivery },

@@ -2,10 +2,117 @@
 const express = require("express");
 const router = express.Router();
 const Orders = require("../../repositories/order");
+const Customers = require("../../repositories/customer");
+const Transaction = require("../../repositories/transaction");
 const ProductionJob = require("../../repositories/productionJob");
 const logger = require("../../utils/logger");
 const { escapeRegex, idToFilter } = require("../../utils/orderHelpers");
 const { latestStatusProjectionStages } = require("./_shared");
+
+
+// ─── GET /api/orders/reports/order-ledger ────────────────────────────────────
+/**
+ * One row per order for the home screen's Orders tab: when it was taken, its
+ * number, the customer, the stage it sits at, what it is worth, and how much
+ * of that has been received.
+ *
+ * Amount comes off the order's own lines (saleSubtotal, falling back to the
+ * item lines or the legacy Amount field). Paid is the sum of customer
+ * receipts and advances posted against that order, so balance is simply
+ * amount − paid and an order is "paid" once nothing is left.
+ *
+ * Query: from, to (ISO dates on createdAt), stage, search, payment=all|paid|balance
+ */
+router.get("/reports/order-ledger", async (req, res) => {
+  try {
+    const { from, to, stage, search, payment } = req.query;
+
+    const filter = {};
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) {
+        const end = new Date(to);
+        end.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = end;
+      }
+    }
+    if (stage) filter.stage = stage;
+
+    const orders = await Orders.find(filter, {
+      Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, stage: 1,
+      Items: 1, saleSubtotal: 1, Amount: 1, createdAt: 1, isTemporary: 1, orderNote: 1,
+    })
+      .sort({ createdAt: -1 })
+      .limit(5000)
+      .lean();
+
+    const customerUuids = [...new Set(orders.map((o) => o.Customer_uuid).filter(Boolean))];
+    const customers = customerUuids.length
+      ? await Customers.find({ Customer_uuid: { $in: customerUuids } }, { Customer_uuid: 1, Customer_name: 1 }).lean()
+      : [];
+    const nameByUuid = new Map(customers.map((c) => [c.Customer_uuid, c.Customer_name]));
+
+    const orderUuids = orders.map((o) => o.Order_uuid).filter(Boolean);
+    const paidRows = orderUuids.length
+      ? await Transaction.aggregate([
+          {
+            $match: {
+              Order_uuid: { $in: orderUuids },
+              Source: { $regex: "^business:customer_(receipt|advance)" },
+            },
+          },
+          { $group: { _id: "$Order_uuid", paid: { $sum: "$Total_Debit" } } },
+        ])
+      : [];
+    const paidByOrder = new Map(paidRows.map((r) => [r._id, Number(r.paid) || 0]));
+
+    const needle = String(search || "").trim().toLowerCase();
+
+    let rows = orders.map((order) => {
+      const lineTotal = (order.Items || []).reduce((sum, it) => sum + (Number(it.Amount) || 0), 0);
+      const amount = Number(order.saleSubtotal) || lineTotal || Number(order.Amount) || 0;
+      const paid = paidByOrder.get(order.Order_uuid) || 0;
+      const balance = Math.max(0, +(amount - paid).toFixed(2));
+      return {
+        orderId: String(order._id),
+        orderUuid: order.Order_uuid,
+        orderDate: order.createdAt,
+        orderNumber: order.Order_Number,
+        customerName: nameByUuid.get(order.Customer_uuid) || (order.isTemporary ? "Temp – Design File" : ""),
+        stage: order.stage || "",
+        note: order.orderNote || "",
+        amount: +amount.toFixed(2),
+        paid: +paid.toFixed(2),
+        balance,
+        isPaid: amount > 0 && balance === 0,
+      };
+    });
+
+    if (needle) {
+      rows = rows.filter((r) => String(r.orderNumber || "").includes(needle)
+        || r.customerName.toLowerCase().includes(needle)
+        || r.note.toLowerCase().includes(needle));
+    }
+    if (payment === "paid") rows = rows.filter((r) => r.isPaid);
+    if (payment === "balance") rows = rows.filter((r) => !r.isPaid);
+
+    const totals = rows.reduce((acc, r) => {
+      acc.amount += r.amount;
+      acc.paid += r.paid;
+      acc.balance += r.balance;
+      return acc;
+    }, { count: rows.length, amount: 0, paid: 0, balance: 0 });
+    totals.amount = +totals.amount.toFixed(2);
+    totals.paid = +totals.paid.toFixed(2);
+    totals.balance = +totals.balance.toFixed(2);
+
+    return res.json({ success: true, rows, totals });
+  } catch (error) {
+    logger.error("reports/order-ledger error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 router.get("/all-data", async (_req, res) => {
   try {

@@ -65,6 +65,7 @@ import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import CleaningServicesRoundedIcon from '@mui/icons-material/CleaningServicesRounded';
+import BuildRoundedIcon from '@mui/icons-material/BuildRounded';
 import PersonAddAltRoundedIcon from '@mui/icons-material/PersonAddAltRounded';
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
@@ -2222,6 +2223,149 @@ function CleanupFoldersDialog({ open, onClose, onSuccess }) {
   );
 }
 
+
+// ─── Temp orders ──────────────────────────────────────────────────────────────
+/**
+ * The placeholder "Temp – Design File" orders the design flow created for
+ * files that had no number. Lists them with the file each came from, then
+ * cancels or deletes the ones that carry nothing at all.
+ *
+ * An order with items, an amount or a ledger entry is never touched, and no
+ * Drive file is renamed, moved or removed by any of this.
+ */
+function TempOrdersDialog({ open, onClose, onSuccess }) {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => { if (!open) { setReport(null); setError(''); } }, [open]);
+
+  const run = async (action) => {
+    if (action === 'preview') setLoading(true); else setBusy(action);
+    setError('');
+    try {
+      const res = await axios.post('/api/design-files/temp-orders', { action });
+      setReport(res.data);
+      if (action !== 'preview') {
+        const n = action === 'cancel' ? res.data?.summary?.cancelled : res.data?.summary?.deleted;
+        onSuccess(`${n || 0} temp order${n === 1 ? '' : 's'} ${action === 'cancel' ? 'cancelled' : 'deleted'}`, (n ? 'success' : 'info'));
+      }
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Failed');
+    } finally { setLoading(false); setBusy(''); }
+  };
+
+  const summary = report?.summary || {};
+  const orders = report?.orders || [];
+  const clearable = orders.filter((o) => o.action === 'will-clear');
+  const kept = orders.filter((o) => o.action === 'kept');
+
+  const exportReport = () => {
+    const head = ['Order', 'Stage', 'From file', 'Items', 'Amount', 'Ledger entries', 'Action', 'Reason'];
+    const body = orders.map((o) => [
+      o.orderNumber, o.stage, o.sourceFile || '', o.itemCount, o.amount, o.ledgerEntries,
+      o.action, o.reason || '',
+    ]);
+    const csv = [head, ...body]
+      .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    triggerDownload(csv, `temp-orders-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ fontSize: 15, fontWeight: 700 }}>Temp orders</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+          Placeholder orders created for a design file that had no order number — they show on the
+          board as <strong>Temp – Design File</strong>. Only an order carrying <strong>nothing</strong>{' '}
+          (no items, no amount, no ledger entry) can be cleared; anything with real work on it is
+          listed and left alone. <strong>No Drive file is renamed, moved or deleted by this.</strong>
+        </Typography>
+
+        <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap">
+          <Button
+            size="small" variant="outlined" onClick={() => run('preview')} disabled={loading || !!busy}
+            startIcon={loading ? <CircularProgress size={12} /> : null}
+          >
+            Scan
+          </Button>
+          {orders.length > 0 && (
+            <Button size="small" onClick={exportReport} startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '14px !important' }} />}>
+              CSV
+            </Button>
+          )}
+        </Stack>
+
+        {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+        {(loading || busy) && <LinearProgress sx={{ mb: 1.5, height: 2 }} />}
+
+        {report && (
+          <>
+            <Stack direction="row" spacing={0.75} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={`${summary.total || 0} temp orders`} />
+              {clearable.length > 0 && <Chip size="small" color="primary" label={`${clearable.length} empty`} />}
+              {kept.length > 0 && <Chip size="small" color="warning" variant="outlined" label={`${kept.length} hold work — kept`} />}
+              {summary.cancelled > 0 && <Chip size="small" color="info" label={`${summary.cancelled} cancelled`} />}
+              {summary.deleted > 0 && <Chip size="small" color="error" label={`${summary.deleted} deleted`} />}
+              {summary['already-cancelled'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-cancelled']} already cancelled`} />}
+            </Stack>
+
+            {orders.length === 0 ? (
+              <Alert severity="success">No temp orders at all.</Alert>
+            ) : (
+              <Box sx={{ maxHeight: 340, overflowY: 'auto' }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Order</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Stage</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>From file</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }} align="right">Amount</TableCell>
+                      <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>Action</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {orders.slice(0, 400).map((o) => (
+                      <TableRow key={o.orderUuid}>
+                        <TableCell sx={{ fontSize: 11, fontWeight: 700 }}>#{o.orderNumber}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: 'text.secondary' }}>{o.stage}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }}>{o.sourceFile || '—'}</TableCell>
+                        <TableCell sx={{ fontSize: 11 }} align="right">{o.amount ? `₹${o.amount}` : '—'}</TableCell>
+                        <TableCell sx={{ fontSize: 11, color: o.action === 'kept' ? 'warning.main' : o.action === 'failed' ? 'error.main' : 'text.secondary' }}>
+                          {o.action}{o.reason ? ` — ${o.reason}` : ''}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button size="small" onClick={onClose}>Close</Button>
+        <Button
+          size="small" variant="outlined" color="warning"
+          disabled={!clearable.length || !!busy || loading}
+          onClick={() => run('cancel')}
+        >
+          Cancel {clearable.length || ''}
+        </Button>
+        <Button
+          size="small" variant="contained" color="error"
+          disabled={!clearable.length || !!busy || loading}
+          onClick={() => run('delete')}
+        >
+          Delete {clearable.length || ''}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 // ─── Stage picker ─────────────────────────────────────────────────────────────
 // The confirm dialog offers exactly the columns the home Workflow board
 // shows, under the same four group headings. The Design group holds no
@@ -2323,7 +2467,8 @@ function RenumberDialog({ open, onClose, onSuccess }) {
           e.g. <code>04 April 2026 / 01.04.2026 / Final / 153 - ….cdr</code> →{' '}
           <code>04 April 2026 / 01.04.2026 / Printing / 153</code>. A file with no order at all
           gets a new temporary order (dated from its own date folder) so it can be numbered too.
-          Printing files and the daily folders are never touched.
+          Printing files and the daily folders are never touched, and no file is ever deleted —
+          this only renames and creates folders.
         </Typography>
 
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }} flexWrap="wrap">
@@ -2352,6 +2497,10 @@ function RenumberDialog({ open, onClose, onSuccess }) {
               {summary['already-ok'] > 0 && <Chip size="small" variant="outlined" label={`${summary['already-ok']} already numbered`} />}
               {summary['no-order'] > 0 && (
                 <Chip size="small" color="warning" label={`${summary['no-order']} need a new order`} />
+              )}
+              {summary.staleNumbers > 0 && (
+                <Chip size="small" color="warning" variant="outlined"
+                  label={`${summary.staleNumbers} carry a number with no order`} />
               )}
               {summary.ordersCreated > 0 && (
                 <Chip size="small" color="success" label={`${summary.ordersCreated} orders created`} />
@@ -2443,7 +2592,8 @@ function RenumberDialog({ open, onClose, onSuccess }) {
                         </TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.status === 'failed' ? 'error.main' : 'success.main' }}>
                           {r.status === 'failed' ? (r.error || 'Rename failed')
-                            : r.status === 'no-order' ? 'new order number'
+                            : r.status === 'no-order'
+                              ? (r.staleNumber ? `#${r.staleValue} no longer exists — new number` : 'new order number')
                             : r.status === 'pending' || r.status === 'renamed' ? r.newName : '—'}
                         </TableCell>
                         <TableCell sx={{ fontSize: 11, color: r.folderStatus === 'failed' ? 'error.main' : 'text.secondary' }}>
@@ -2571,6 +2721,9 @@ export default function DesignFilesWidget() {
   const [createFileOpen, setCreateFileOpen] = useState(false);
   const [renumberOpen, setRenumberOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [tempOrdersOpen, setTempOrdersOpen] = useState(false);
+  const [maintenanceAnchor, setMaintenanceAnchor] = useState(null);
+  const [maintenanceTools, setMaintenanceTools] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
 
@@ -2580,6 +2733,7 @@ export default function DesignFilesWidget() {
       const cfgRes = await axios.get('/api/design-files/config-check');
       if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
       setArchiveConfigured(!!cfgRes.data?.archiveConfigured);
+      setMaintenanceTools(cfgRes.data?.maintenanceTools !== false);
       const res = await axios.get('/api/design-files/scan');
       setData(res.data);
       setSelectedIds(new Set());
@@ -2791,22 +2945,44 @@ export default function DesignFilesWidget() {
           </>
         )}
 
-        {/* Clear duplicate Printing folders (admin) */}
-        {isAdmin && (
-          <Tooltip title="Find and clear duplicate Printing folders">
-            <IconButton size="small" onClick={() => setCleanupOpen(true)} sx={{ p: 0.4 }}>
-              <CleaningServicesRoundedIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-        )}
-
-        {/* Renumber design files (admin) */}
-        {isAdmin && (
-          <Tooltip title="Renumber Final files and create their Printing folders">
-            <IconButton size="small" onClick={() => setRenumberOpen(true)} sx={{ p: 0.4 }}>
-              <TagRoundedIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
+        {/* One-time maintenance tools (admin). Hidden for good by setting
+            DESIGN_MAINTENANCE_TOOLS=false on the server once the cleanup
+            has been run. */}
+        {isAdmin && maintenanceTools && (
+          <>
+            <Tooltip title="One-time maintenance">
+              <IconButton size="small" onClick={(e) => setMaintenanceAnchor(e.currentTarget)} sx={{ p: 0.4 }}>
+                <BuildRoundedIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={maintenanceAnchor}
+              open={!!maintenanceAnchor}
+              onClose={() => setMaintenanceAnchor(null)}
+            >
+              <MenuItem
+                onClick={() => { setMaintenanceAnchor(null); setRenumberOpen(true); }}
+                sx={{ fontSize: 13 }}
+              >
+                <ListItemIcon><TagRoundedIcon fontSize="small" /></ListItemIcon>
+                Renumber Final files
+              </MenuItem>
+              <MenuItem
+                onClick={() => { setMaintenanceAnchor(null); setCleanupOpen(true); }}
+                sx={{ fontSize: 13 }}
+              >
+                <ListItemIcon><CleaningServicesRoundedIcon fontSize="small" /></ListItemIcon>
+                Duplicate Printing folders
+              </MenuItem>
+              <MenuItem
+                onClick={() => { setMaintenanceAnchor(null); setTempOrdersOpen(true); }}
+                sx={{ fontSize: 13 }}
+              >
+                <ListItemIcon><DeleteRoundedIcon fontSize="small" /></ListItemIcon>
+                Temp orders
+              </MenuItem>
+            </Menu>
+          </>
         )}
 
         {/* New design file */}
@@ -3009,6 +3185,11 @@ export default function DesignFilesWidget() {
         selectedFiles={singlePrintFile ? [singlePrintFile] : selectedFiles}
         onClose={() => { setPrintDialogOpen(false); setSinglePrintFile(null); }}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setPrintDialogOpen(false); setSinglePrintFile(null); setSelectedIds(new Set()); load(); }}
+      />
+      <TempOrdersDialog
+        open={tempOrdersOpen}
+        onClose={() => { setTempOrdersOpen(false); load(); }}
+        onSuccess={(msg, severity = 'success') => setToast({ message: msg, severity })}
       />
       <CleanupFoldersDialog
         open={cleanupOpen}

@@ -20,6 +20,8 @@
  *   GET /api/design-files/scan-archive    — scan month-wise archive folder
  *   POST /api/design-files/move-to-print  — move an order to Print, assign it
  *                                           and name its Printing folder
+ *   POST /api/design-files/temp-orders    — list / cancel / delete the
+ *                                           placeholder "Temp" orders
  *   POST /api/design-files/cleanup-print-folders — trash empty duplicate order
  *                                           folders inside Printing
  *   POST /api/design-files/renumber       — renumber archive Final files and
@@ -43,6 +45,7 @@ const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
 const Customers = require('../repositories/customer');
 const Counter = require('../repositories/counter');
+const Transaction = require('../repositories/transaction');
 const Usertasks = require('../repositories/usertask');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const { postCustomerInvoice } = require('../services/accountingPostingService');
@@ -368,6 +371,10 @@ router.get('/config-check', (_req, res) => {
   return res.json({
     configured: !!process.env.DRIVE_DAILY_FOLDER_ID,
     archiveConfigured: !!process.env.DRIVE_ARCHIVE_FOLDER_ID,
+    // The renumber / duplicate-folder / temp-order tools are one-time
+    // cleanups. Set DESIGN_MAINTENANCE_TOOLS=false once the cleanup is done
+    // and they disappear from the board — no code change needed.
+    maintenanceTools: String(process.env.DESIGN_MAINTENANCE_TOOLS || 'true').toLowerCase() !== 'false',
   });
 });
 
@@ -2360,7 +2367,9 @@ async function ensurePrintingFoldersForDate(drive, dateFolderId, rows, { dryRun,
  * working files inside it).
  *
  * A file's number comes from its DesignFileLink first and from the number
- * already in its name otherwise. A file with neither gets a brand-new
+ * already in its name otherwise — and only counts when a live order carries
+ * that number, so a number left behind by a deleted order is replaced rather
+ * than trusted. A file with neither gets a brand-new
  * temporary order (same shape as auto-temp-orders: temp customer, stage
  * 'print', dated from its date folder) so that it can be numbered too —
  * pass createOrders: false to skip those files instead.
@@ -2394,13 +2403,35 @@ router.post('/renumber', requireAdmin, async (req, res) => {
       if (l.assignedToName) assigneeByFileId[l.driveFileId] = l.assignedToName;
     });
 
+    // A number in a file name only counts when an order actually carries it.
+    // Deleting a temp order leaves its number stranded on the file; treating
+    // that as valid would keep the stale number forever.
+    const candidateNumbers = [...new Set(files
+      .map((f) => orderNumberByFileId[f.fileId] ?? extractOrderNumber(f.fileName) ?? f.hintOrderNumber)
+      .filter(Boolean))];
+    const liveOrders = candidateNumbers.length
+      ? await Orders.find({ Order_Number: { $in: candidateNumbers } }, { Order_Number: 1 }).lean()
+      : [];
+    const liveNumbers = new Set(liveOrders.map((o) => o.Order_Number));
+
     const report = files.map((file) => {
-      const orderNumber = orderNumberByFileId[file.fileId]
+      const resolved = orderNumberByFileId[file.fileId]
         ?? extractOrderNumber(file.fileName)
         ?? file.hintOrderNumber
         ?? null;
+      const staleNumber = Boolean(resolved) && !liveNumbers.has(resolved);
+      const orderNumber = staleNumber ? null : resolved;
+
       if (!orderNumber) {
-        return { ...file, orderNumber: null, newName: null, status: 'no-order', folderStatus: null };
+        return {
+          ...file,
+          orderNumber: null,
+          newName: null,
+          status: 'no-order',
+          staleNumber,
+          staleValue: staleNumber ? resolved : null,
+          folderStatus: null,
+        };
       }
       const alreadyOk = alreadyPrefixedWithOrder(file.fileName, orderNumber);
       return {
@@ -2408,6 +2439,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
         orderNumber,
         newName: alreadyOk ? file.fileName : buildDesignFileName(file.fileName, orderNumber),
         status: alreadyOk ? 'already-ok' : 'pending',
+        staleNumber: false,
         folderStatus: null,
       };
     });
@@ -2534,6 +2566,7 @@ router.post('/renumber', requireAdmin, async (req, res) => {
     summary.folderNumbers = new Set(numbered.map((r) => r.orderNumber)).size;
     summary.ordersCreated = report.filter((r) => r.orderCreated).length;
     summary.jobFolders = report.filter((r) => r.kind === 'folder').length;
+    summary.staleNumbers = report.filter((r) => r.staleNumber).length;
 
     return res.json({ success: true, dryRun, createOrders, summary, scan, files: report });
   } catch (err) {
@@ -2675,6 +2708,141 @@ router.post('/cleanup-print-folders', requireAdmin, async (req, res) => {
     if (err?.reconnectRequired) {
       return res.status(401).json({ success: false, message: 'Google Drive disconnected. Please reconnect.', reconnectRequired: true });
     }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── POST /api/design-files/temp-orders ──────────────────────────────────────
+/**
+ * The placeholder orders the design flow created for files with no number of
+ * their own ("Temp – Design File"). Lists them, and cancels or deletes the
+ * ones that carry nothing.
+ *
+ * Body: { action: 'preview' | 'cancel' | 'delete', orderUuids?: [] }
+ *
+ * An order is only ever touched when it is empty of real work: no items, no
+ * amount, and no accounting entry against it. Anything else is reported and
+ * left exactly as it is. Drive is never touched by this endpoint — no file is
+ * renamed, moved or removed, whichever action is chosen.
+ */
+router.post('/temp-orders', requireAdmin, async (req, res) => {
+  try {
+    const action = ['preview', 'cancel', 'delete'].includes(req.body?.action) ? req.body.action : 'preview';
+    const only = Array.isArray(req.body?.orderUuids) && req.body.orderUuids.length
+      ? new Set(req.body.orderUuids.map(String))
+      : null;
+
+    const orders = await Orders.find(
+      { isTemporary: true },
+      {
+        Order_uuid: 1, Order_Number: 1, stage: 1, Items: 1, saleSubtotal: 1,
+        Amount: 1, orderNote: 1, createdAt: 1, driveFile: 1,
+      }
+    ).sort({ Order_Number: 1 }).lean();
+
+    const uuids = orders.map((o) => o.Order_uuid).filter(Boolean);
+    const postedRows = uuids.length
+      ? await Transaction.aggregate([
+          { $match: { Order_uuid: { $in: uuids } } },
+          { $group: { _id: '$Order_uuid', entries: { $sum: 1 } } },
+        ])
+      : [];
+    const entriesByOrder = new Map(postedRows.map((r) => [r._id, r.entries]));
+
+    const links = uuids.length
+      ? await DesignFileLink.find({ orderUuid: { $in: uuids } }, { orderUuid: 1, fileName: 1, driveFileId: 1 }).lean()
+      : [];
+    const linkByOrder = new Map(links.map((l) => [l.orderUuid, l]));
+
+    const report = [];
+    let cancelled = 0;
+    let deleted = 0;
+
+    for (const order of orders) {
+      const link = linkByOrder.get(order.Order_uuid);
+      const itemCount = (order.Items || []).length;
+      const amount = Number(order.saleSubtotal)
+        || (order.Items || []).reduce((sum, it) => sum + (Number(it.Amount) || 0), 0)
+        || Number(order.Amount) || 0;
+      const entries = entriesByOrder.get(order.Order_uuid) || 0;
+
+      const row = {
+        orderUuid: order.Order_uuid,
+        orderNumber: order.Order_Number,
+        stage: order.stage || '',
+        createdAt: order.createdAt,
+        sourceFile: order.driveFile?.name || link?.fileName || null,
+        itemCount,
+        amount: +amount.toFixed(2),
+        ledgerEntries: entries,
+        action: 'pending',
+      };
+
+      // Anything with real work on it is out of scope, always.
+      if (itemCount > 0 || amount > 0 || entries > 0) {
+        row.action = 'kept';
+        row.reason = [
+          itemCount ? `${itemCount} item(s)` : null,
+          amount ? `amount ${amount}` : null,
+          entries ? `${entries} ledger entr${entries === 1 ? 'y' : 'ies'}` : null,
+        ].filter(Boolean).join(', ');
+        report.push(row);
+        continue;
+      }
+      if (order.stage === 'cancelled') {
+        row.action = 'already-cancelled';
+        report.push(row);
+        continue;
+      }
+      if (only && !only.has(String(order.Order_uuid))) {
+        row.action = 'not-selected';
+        report.push(row);
+        continue;
+      }
+
+      if (action === 'preview') {
+        row.action = 'will-clear';
+        report.push(row);
+        continue;
+      }
+
+      try {
+        if (action === 'cancel') {
+          await Orders.updateOne(
+            { Order_uuid: order.Order_uuid },
+            {
+              $set: { stage: 'cancelled' },
+              $push: { stageHistory: { stage: 'cancelled', timestamp: new Date() } },
+            }
+          );
+          cancelled += 1;
+          row.action = 'cancelled';
+        } else {
+          await Orders.deleteOne({ Order_uuid: order.Order_uuid });
+          // The file keeps its name; only the link back to the deleted order
+          // is cleared, so the file simply reads as unlinked again.
+          await DesignFileLink.updateMany(
+            { orderUuid: order.Order_uuid },
+            { $set: { orderUuid: null, orderNumber: null, linkStatus: 'draft' } }
+          );
+          deleted += 1;
+          row.action = 'deleted';
+        }
+      } catch (err) {
+        row.action = 'failed';
+        row.reason = err?.message || 'Update failed';
+      }
+      report.push(row);
+    }
+
+    const summary = report.reduce(
+      (acc, row) => { acc[row.action] = (acc[row.action] || 0) + 1; return acc; },
+      { total: report.length, cancelled, deleted }
+    );
+
+    return res.json({ success: true, action, summary, orders: report });
+  } catch (err) {
+    logger.error({ err }, 'design-files/temp-orders error');
     return res.status(500).json({ success: false, message: err.message });
   }
 });

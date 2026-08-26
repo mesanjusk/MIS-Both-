@@ -26,6 +26,7 @@ const NAV_DROPDOWNS = {
   WhatsApp: ['WhatsApp', 'Email'],
   Social: ['Social Media'],
   'Call Logs': ['Call Logs'],
+  Operations: ['Operations'],
   SOP: ['SOP'],
   Admin: ['Admin'],
 };

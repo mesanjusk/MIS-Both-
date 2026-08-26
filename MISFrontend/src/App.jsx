@@ -101,6 +101,12 @@ const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions')
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
 const DriveFolderReport = lazy(() => import('./Pages/DriveFolderReport'));
 const SopPage = lazy(() => import('./Pages/SopPage'));
+const TeamOperations = lazy(() => import('./Pages/TeamOperations'));
+const MyOperations = lazy(() => import('./Pages/MyOperations'));
+const OperationsResponsibilities = lazy(() => import('./Pages/OperationsResponsibilities'));
+const OperationsSettings = lazy(() => import('./Pages/OperationsSettings'));
+const OperationsDailyReport = lazy(() => import('./Pages/OperationsDailyReport'));
+const UserOperationsProfile = lazy(() => import('./Pages/UserOperationsProfile'));
 const SocialOverview = lazy(() => import('./Pages/SocialOverview'));
 const SocialCreatePost = lazy(() => import('./Pages/SocialCreatePost'));
 const SocialCalendar = lazy(() => import('./Pages/SocialCalendar'));
@@ -258,6 +264,13 @@ export default function App() {
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={withSuspense(<WhatsAppActionLogPage />)} />
             <Route path={ROUTES.DRIVE_FOLDER_REPORT} element={withSuspense(<DriveFolderReport />)} />
             <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
+
+            <Route path={ROUTES.OPERATIONS} element={withSuspense(<TeamOperations />)} />
+            <Route path={ROUTES.OPERATIONS_MY} element={withSuspense(<MyOperations />)} />
+            <Route path={ROUTES.OPERATIONS_RESPONSIBILITIES} element={withSuspense(<OperationsResponsibilities />)} />
+            <Route path={ROUTES.OPERATIONS_SETTINGS} element={withSuspense(<OperationsSettings />)} />
+            <Route path={ROUTES.OPERATIONS_DAILY_REPORT} element={withSuspense(<OperationsDailyReport />)} />
+            <Route path={`${ROUTES.OPERATIONS_USERS}/:userUuid`} element={withSuspense(<UserOperationsProfile />)} />
 
             <Route path={ROUTES.SOCIAL_OVERVIEW} element={withSuspense(<SocialOverview />)} />
             <Route path={ROUTES.SOCIAL_CREATE_POST} element={withSuspense(<SocialCreatePost />)} />

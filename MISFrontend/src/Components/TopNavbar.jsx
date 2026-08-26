@@ -73,6 +73,7 @@ const NAV_DROPDOWN_DEFS = [
   { label: 'WhatsApp',   groups: ['WhatsApp', 'Email'] },
   { label: 'Social',     groups: ['Social Media'] },
   { label: 'Call Logs',  groups: ['Call Logs'] },
+  { label: 'Operations', groups: ['Operations'] },
   { label: 'SOP',        groups: ['SOP'] },
   { label: 'Admin',      groups: ['Admin'] },
 ];

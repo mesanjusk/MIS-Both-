@@ -4,6 +4,7 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const {
   getDailyStatus,
+  getDailyStatusForUser,
   markComplete,
   markSkipped,
   seedDefaultTasks,
@@ -32,6 +33,8 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
     const {
       title, description, section, frequency, timeOfDay,
       primaryGroup, fallbackGroups, isSkippable, isActive, sortOrder, kpi,
+      responsibility_uuid, primaryUserUuid, backup1UserUuid, backup2UserUuid,
+      scheduledTime, durationMinutes, weekDays, category,
     } = req.body;
     if (!title || !primaryGroup) {
       return res.status(400).json({ success: false, message: 'title and primaryGroup are required' });
@@ -49,6 +52,14 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       isActive: isActive !== false,
       sortOrder: Number(sortOrder) || 0,
       kpi: kpi?.trim() || '',
+      responsibility_uuid: responsibility_uuid?.trim() || '',
+      primaryUserUuid: primaryUserUuid?.trim() || '',
+      backup1UserUuid: backup1UserUuid?.trim() || '',
+      backup2UserUuid: backup2UserUuid?.trim() || '',
+      scheduledTime: scheduledTime?.trim() || '',
+      durationMinutes: Number(durationMinutes) || 0,
+      weekDays: Array.isArray(weekDays) ? weekDays.map(Number).filter((d) => d >= 0 && d <= 6) : [],
+      category: category?.trim() || 'general',
     });
     res.status(201).json({ success: true, result: task });
   } catch (err) {
@@ -61,7 +72,9 @@ router.put('/tasks/:id', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
     const allowed = ['title', 'description', 'section', 'frequency', 'timeOfDay',
-      'primaryGroup', 'fallbackGroups', 'isSkippable', 'isActive', 'sortOrder', 'kpi'];
+      'primaryGroup', 'fallbackGroups', 'isSkippable', 'isActive', 'sortOrder', 'kpi',
+      'responsibility_uuid', 'primaryUserUuid', 'backup1UserUuid', 'backup2UserUuid',
+      'scheduledTime', 'durationMinutes', 'weekDays', 'category'];
     const update = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
@@ -94,6 +107,21 @@ router.get('/daily', requireAuth, async (req, res, next) => {
     const userGroup = req.user?.userGroup || req.query.userGroup || '';
     if (!userGroup) return res.status(400).json({ success: false, message: 'userGroup required' });
     const status = await getDailyStatus(userGroup);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/sop/daily/me — today's checklist resolved through the user-level
+// responsibility chain rather than the caller's group.
+router.get('/daily/me', requireAuth, async (req, res, next) => {
+  try {
+    const User = require('../repositories/users');
+    const query = req.user?.id ? { _id: req.user.id } : { User_name: req.user?.userName };
+    const actor = await User.findOne(query).select('User_uuid').lean();
+    if (!actor) return res.status(404).json({ success: false, message: 'User not found' });
+    const status = await getDailyStatusForUser(actor.User_uuid);
     res.json({ success: true, ...status });
   } catch (err) {
     next(err);

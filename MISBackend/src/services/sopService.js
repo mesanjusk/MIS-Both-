@@ -36,6 +36,14 @@ async function getEffectiveGroup(task, date) {
   return task.primaryGroup;
 }
 
+// A task that an admin has linked to a Responsibility (or given explicit
+// user-level primary/backup slots) is owned by *people*, not by a group — it
+// is served by getDailyStatusForUser below and drops out of the group listing.
+// Tasks with no user-level chain keep the original group-fallback behaviour
+// untouched, so everything seeded before this module still works as before.
+const hasUserChain = (task) =>
+  Boolean(task.responsibility_uuid || task.primaryUserUuid || task.backup1UserUuid || task.backup2UserUuid);
+
 async function getTasksForGroup(userGroup, date) {
   const tasks = await SOPTask.find({ isActive: true, frequency: 'daily' })
     .sort({ sortOrder: 1 })
@@ -43,10 +51,80 @@ async function getTasksForGroup(userGroup, date) {
 
   const result = [];
   for (const task of tasks) {
+    if (hasUserChain(task)) continue;
     const effective = await getEffectiveGroup(task, date);
     if (effective === userGroup) result.push(task);
   }
   return result;
+}
+
+/**
+ * Today's checklist for one *user*, resolved through the responsibility chain
+ * (primary -> backup 1 -> backup 2 -> escalation) instead of the group
+ * fallback. Items the user only holds because someone above them is
+ * unavailable are flagged `transferred` so the covering user can see what they
+ * inherited rather than being handed unexplained work.
+ */
+async function getDailyStatusForUser(userUuid) {
+  // Required lazily: operationsService reads this module's models, and a
+  // top-level require would close the cycle.
+  const Responsibility = require('../repositories/responsibility');
+  const { buildAvailabilityMap, isAvailableFor } = require('./operationsService');
+
+  const date = getTodayDate();
+  const [allTasks, users, responsibilities] = await Promise.all([
+    SOPTask.find({ isActive: true, frequency: 'daily' }).sort({ sortOrder: 1 }).lean(),
+    User.find({}).select('-Password').lean(),
+    Responsibility.find({}).lean(),
+  ]);
+
+  const availabilityMap = await buildAvailabilityMap(users, { date });
+  const responsibilityByUuid = new Map(responsibilities.map((item) => [item.responsibility_uuid, item]));
+
+  const mine = [];
+  for (const task of allTasks) {
+    if (!hasUserChain(task)) continue;
+    const responsibility = task.responsibility_uuid
+      ? responsibilityByUuid.get(task.responsibility_uuid)
+      : null;
+    const category = task.category || responsibility?.category || 'general';
+    const slots = [
+      ['primary', task.primaryUserUuid || responsibility?.primaryUserUuid || ''],
+      ['backup1', task.backup1UserUuid || responsibility?.backup1UserUuid || ''],
+      ['backup2', task.backup2UserUuid || responsibility?.backup2UserUuid || ''],
+    ];
+
+    let owner = null;
+    for (const [role, uuid] of slots) {
+      if (!uuid || owner) continue;
+      const availability = availabilityMap.get(uuid);
+      if (!availability) continue;
+      if (role !== 'primary' && !availability.backupEligible) continue;
+      if (isAvailableFor(availability, category).available) owner = { role, uuid };
+    }
+
+    if (owner?.uuid === userUuid) {
+      mine.push({ ...task, ownerRole: owner.role, transferred: owner.role !== 'primary' });
+    }
+  }
+
+  const completions = await SOPCompletion.find({
+    sop_uuid: { $in: mine.map((task) => task.sop_uuid) },
+    date,
+  }).lean();
+  const completionMap = {};
+  for (const completion of completions) completionMap[completion.sop_uuid] = completion;
+
+  const blockingTasks = mine.filter((task) => !task.isSkippable && !completionMap[task.sop_uuid]);
+
+  return {
+    tasks: mine,
+    completionMap,
+    canEndDay: blockingTasks.length === 0,
+    blockingTasks,
+    transferred: mine.filter((task) => task.transferred),
+    date,
+  };
 }
 
 async function getDailyStatus(userGroup) {
@@ -158,6 +236,7 @@ async function seedUserGroups() {
 
 module.exports = {
   getDailyStatus,
+  getDailyStatusForUser,
   markComplete,
   markSkipped,
   seedDefaultTasks,

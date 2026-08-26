@@ -25,6 +25,39 @@ const nextUsertaskNumber = async () => {
 const normalizeStage = (stage) => String(stage || '').trim().toLowerCase();
 
 
+/**
+ * Ownership for an auto-created lifecycle task.
+ *
+ * Prefers the responsibility chain configured under Settings → Operations, so
+ * the task lands on the person management actually assigned and carries a
+ * backup chain. Falls back to the original group-regex lookup below when no
+ * responsibility is mapped, so behaviour is unchanged until someone configures
+ * one.
+ */
+const resolveLifecycleOwner = async (hookKey, fallbackQuery) => {
+  try {
+    const { resolveOwnerForHook } = require('./operationsTaskService');
+    const resolved = await resolveOwnerForHook(hookKey);
+    if (resolved) {
+      const ownerName = resolved.currentOwnerName
+        || (resolved.primaryUserUuid
+          ? (await Users.findOne({ User_uuid: resolved.primaryUserUuid }).select('User_name').lean())?.User_name
+          : '');
+      if (ownerName) {
+        const { currentOwnerName, ...chain } = resolved;
+        return { ownerName, chain };
+      }
+    }
+  } catch (err) {
+    // A misconfigured operations mapping must not stop an order advancing.
+    logger.warn({ err: err.message, hookKey }, 'Operations owner lookup failed; using group fallback');
+  }
+
+  const candidates = await Users.find(fallbackQuery).sort({ createdAt: 1 }).lean();
+  if (!candidates.length) return null;
+  return { ownerName: candidates[0].User_name, chain: null };
+};
+
 const autoCreateDesignerTask = async (order) => {
   try {
     if (!order) return null;
@@ -70,39 +103,6 @@ const autoCreateDesignerTask = async (order) => {
     logger.error('Failed to auto-create designer task:', err.message);
     return null;
   }
-};
-
-/**
- * Ownership for an auto-created lifecycle task.
- *
- * Prefers the responsibility chain configured under Settings → Operations, so
- * the task lands on the person management actually assigned and carries a
- * backup chain. Falls back to the original group-regex lookup below when no
- * responsibility is mapped, so behaviour is unchanged until someone configures
- * one.
- */
-const resolveLifecycleOwner = async (hookKey, fallbackQuery) => {
-  try {
-    const { resolveOwnerForHook } = require('./operationsTaskService');
-    const resolved = await resolveOwnerForHook(hookKey);
-    if (resolved) {
-      const ownerName = resolved.currentOwnerName
-        || (resolved.primaryUserUuid
-          ? (await Users.findOne({ User_uuid: resolved.primaryUserUuid }).select('User_name').lean())?.User_name
-          : '');
-      if (ownerName) {
-        const { currentOwnerName, ...chain } = resolved;
-        return { ownerName, chain };
-      }
-    }
-  } catch (err) {
-    // A misconfigured operations mapping must not stop an order advancing.
-    logger.warn({ err: err.message, hookKey }, 'Operations owner lookup failed; using group fallback');
-  }
-
-  const candidates = await Users.find(fallbackQuery).sort({ createdAt: 1 }).lean();
-  if (!candidates.length) return null;
-  return { ownerName: candidates[0].User_name, chain: null };
 };
 
 const autoCreatePostDesignTask = async (order) => {

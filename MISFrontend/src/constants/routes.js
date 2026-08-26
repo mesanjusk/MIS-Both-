@@ -112,6 +112,14 @@ export const ROUTES = {
   // SOP
   SOP: '/sop',
 
+  // Team Operations
+  OPERATIONS: '/operations',
+  OPERATIONS_MY: '/operations/me',
+  OPERATIONS_RESPONSIBILITIES: '/operations/responsibilities',
+  OPERATIONS_SETTINGS: '/operations/settings',
+  OPERATIONS_DAILY_REPORT: '/operations/daily-report',
+  OPERATIONS_USERS: '/operations/users',
+
   // Social Media
   SOCIAL_OVERVIEW: '/social',
   SOCIAL_CREATE_POST: '/social/create',

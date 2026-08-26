@@ -25,6 +25,39 @@ const nextUsertaskNumber = async () => {
 const normalizeStage = (stage) => String(stage || '').trim().toLowerCase();
 
 
+/**
+ * Ownership for an auto-created lifecycle task.
+ *
+ * Prefers the responsibility chain configured under Settings → Operations, so
+ * the task lands on the person management actually assigned and carries a
+ * backup chain. Falls back to the original group-regex lookup below when no
+ * responsibility is mapped, so behaviour is unchanged until someone configures
+ * one.
+ */
+const resolveLifecycleOwner = async (hookKey, fallbackQuery) => {
+  try {
+    const { resolveOwnerForHook } = require('./operationsTaskService');
+    const resolved = await resolveOwnerForHook(hookKey);
+    if (resolved) {
+      const ownerName = resolved.currentOwnerName
+        || (resolved.primaryUserUuid
+          ? (await Users.findOne({ User_uuid: resolved.primaryUserUuid }).select('User_name').lean())?.User_name
+          : '');
+      if (ownerName) {
+        const { currentOwnerName, ...chain } = resolved;
+        return { ownerName, chain };
+      }
+    }
+  } catch (err) {
+    // A misconfigured operations mapping must not stop an order advancing.
+    logger.warn({ err: err.message, hookKey }, 'Operations owner lookup failed; using group fallback');
+  }
+
+  const candidates = await Users.find(fallbackQuery).sort({ createdAt: 1 }).lean();
+  if (!candidates.length) return null;
+  return { ownerName: candidates[0].User_name, chain: null };
+};
+
 const autoCreateDesignerTask = async (order) => {
   try {
     if (!order) return null;
@@ -39,18 +72,17 @@ const autoCreateDesignerTask = async (order) => {
     }).lean();
     if (duplicate) return duplicate;
 
-    const designers = await Users.find({
+    const owner = await resolveLifecycleOwner('design_task', {
       $or: [
         { Role: 'Designer' },
         { role: 'Designer' },
         { User_type: 'Designer' },
         { User_group: /designer/i },
       ],
-    }).sort({ createdAt: 1 }).lean();
+    });
 
-    if (!designers.length) return null;
+    if (!owner) return null;
 
-    const designer = designers[0];
     const nextNumber = await nextUsertaskNumber();
     const deadline = order.dueDate || order.Delivery_Date || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     const now = new Date();
@@ -58,13 +90,14 @@ const autoCreateDesignerTask = async (order) => {
     return await Usertasks.create({
       Usertask_uuid: uuid(),
       Usertask_Number: nextNumber,
-      User: designer.User_name,
+      User: owner.ownerName,
       Usertask_name: taskName,
       Date: now,
       Time: now.toLocaleTimeString('en-US', { hour12: false }),
       Deadline: deadline,
       Remark: `Auto-assigned from order lifecycle. Order UUID: ${orderUuid}`,
       Status: 'Pending',
+      ...(owner.chain || {}),
     });
   } catch (err) {
     logger.error('Failed to auto-create designer task:', err.message);
@@ -86,18 +119,17 @@ const autoCreatePostDesignTask = async (order) => {
     }).lean();
     if (duplicate) return duplicate;
 
-    const coordinators = await Users.find({
+    const owner = await resolveLifecycleOwner('post_design_task', {
       $or: [
         { User_group: /post.?design/i },
         { User_group: /post.?print/i },
         { Role: /post.?design/i },
         { User_type: /post.?design/i },
       ],
-    }).sort({ createdAt: 1 }).lean();
+    });
 
-    if (!coordinators.length) return null;
+    if (!owner) return null;
 
-    const coordinator = coordinators[0];
     const nextNumber = await nextUsertaskNumber();
     const deadline = order.dueDate || order.Delivery_Date || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     const now = new Date();
@@ -105,13 +137,14 @@ const autoCreatePostDesignTask = async (order) => {
     return await Usertasks.create({
       Usertask_uuid: uuid(),
       Usertask_Number: nextNumber,
-      User: coordinator.User_name,
+      User: owner.ownerName,
       Usertask_name: taskName,
       Date: now,
       Time: now.toLocaleTimeString('en-US', { hour12: false }),
       Deadline: deadline,
       Remark: `Auto-assigned from order lifecycle. Order UUID: ${orderUuid}`,
       Status: 'Pending',
+      ...(owner.chain || {}),
     });
   } catch (err) {
     logger.error('Failed to auto-create post-design task:', err.message);

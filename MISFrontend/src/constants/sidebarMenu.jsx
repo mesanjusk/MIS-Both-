@@ -166,6 +166,16 @@ export const SIDEBAR_GROUPS = [
     ],
   },
   {
+    label: 'Operations',
+    items: [
+      { label: 'Team Operations', path: ROUTES.OPERATIONS, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'My Operations', path: ROUTES.OPERATIONS_MY, icon: <AssignmentRoundedIcon fontSize="small" />, roles: ['all'] },
+      { label: 'Responsibilities', path: ROUTES.OPERATIONS_RESPONSIBILITIES, icon: <FactCheckRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Operations Settings', path: ROUTES.OPERATIONS_SETTINGS, icon: <TuneRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+      { label: 'Team Daily Report', path: ROUTES.OPERATIONS_DAILY_REPORT, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
+    ],
+  },
+  {
     label: 'SOP',
     items: [
       { label: 'SOP Tasks', path: ROUTES.SOP, icon: <ChecklistRoundedIcon fontSize="small" />, roles: ['all'] },

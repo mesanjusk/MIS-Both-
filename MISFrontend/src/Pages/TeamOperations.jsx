@@ -11,6 +11,7 @@ import {
   PageContainer, SectionCard, DataTableWrapper, LoadingState, EmptyState, ErrorState,
 } from '../Components/ui';
 import OfficeAiPanel from '../Components/OfficeAiPanel';
+import CustomerAiPanel from '../Components/CustomerAiPanel';
 import { ROUTES } from '../constants/routes';
 import {
   attendanceColor, stateColor, ownerRoleLabel, categoryLabel,
@@ -49,8 +50,6 @@ export default function TeamOperations() {
   const responsibilities = status?.responsibilities || [];
   const escalated = status?.escalated || [];
 
-  // The priority strip at the top of §14 — every name comes from the database,
-  // so re-assigning P3 in the user profile changes this line with no deploy.
   const priorityStrip = useMemo(
     () => rows.filter((row) => row.priority),
     [rows],
@@ -122,6 +121,7 @@ export default function TeamOperations() {
       ) : null}
 
       <OfficeAiPanel />
+      <CustomerAiPanel />
 
       {loading ? <LoadingState label="Loading team status..." /> : null}
 

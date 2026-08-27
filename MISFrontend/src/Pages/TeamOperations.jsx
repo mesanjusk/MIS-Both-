@@ -10,6 +10,7 @@ import AssignmentIndRoundedIcon from '@mui/icons-material/AssignmentIndRounded';
 import {
   PageContainer, SectionCard, DataTableWrapper, LoadingState, EmptyState, ErrorState,
 } from '../Components/ui';
+import OfficeAiPanel from '../Components/OfficeAiPanel';
 import { ROUTES } from '../constants/routes';
 import {
   attendanceColor, stateColor, ownerRoleLabel, categoryLabel,
@@ -119,6 +120,8 @@ export default function TeamOperations() {
           </Stack>
         </Alert>
       ) : null}
+
+      <OfficeAiPanel />
 
       {loading ? <LoadingState label="Loading team status..." /> : null}
 

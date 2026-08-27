@@ -258,16 +258,13 @@ function fallbackAnswer(question, snapshot) {
   const b = snapshot.business || {};
   const brief = buildRuleBasedBrief(snapshot);
 
-  if (/attention|priority|urgent|problem|pending/.test(q)) {
-    return brief.priorities.length
-      ? brief.priorities.map((item, index) => `${index + 1}. ${item.title}: ${item.detail}`).join('\n')
-      : brief.headline;
+  // Specific business domains must be checked before the generic "pending"
+  // bucket so questions such as "what payments are pending?" stay financial.
+  if (/payment|outstanding|unpaid|money|collection|receipt/.test(q)) {
+    return `${b.deliveredUnpaid || 0} delivered order(s) remain unpaid. Today's receipts are ₹${Math.round(asNumber(b.todayReceiptsAmount)).toLocaleString('en-IN')}. Vendor payable is ₹${Math.round(asNumber(b.vendorPayableAmount)).toLocaleString('en-IN')}.`;
   }
   if (/deliver/.test(q)) {
     return `${b.readyNotDelivered || 0} order(s) are ready but not delivered, and ${b.todayDeliveries || 0} delivery/deliveries are recorded today.`;
-  }
-  if (/payment|outstanding|unpaid|money|collection|receipt/.test(q)) {
-    return `${b.deliveredUnpaid || 0} delivered order(s) remain unpaid. Today's receipts are ₹${Math.round(asNumber(b.todayReceiptsAmount)).toLocaleString('en-IN')}. Vendor payable is ₹${Math.round(asNumber(b.vendorPayableAmount)).toLocaleString('en-IN')}.`;
   }
   if (/team|staff|attendance|p1|p2|p3|p4|who/.test(q)) {
     const rows = (snapshot.team || []).filter((row) => row.priority || row.pending || row.currentTask);
@@ -276,6 +273,11 @@ function fallbackAnswer(question, snapshot) {
   }
   if (/vendor/.test(q)) {
     return `${b.vendorPayableCount || 0} vendor(s) currently have payable balances totalling ₹${Math.round(asNumber(b.vendorPayableAmount)).toLocaleString('en-IN')}.`;
+  }
+  if (/attention|priority|urgent|problem|pending|blocker/.test(q)) {
+    return brief.priorities.length
+      ? brief.priorities.map((item, index) => `${index + 1}. ${item.title}: ${item.detail}`).join('\n')
+      : brief.headline;
   }
 
   return `${brief.summary}. Ask about priorities, deliveries, payments, vendors, or team coverage for a more focused answer.`;

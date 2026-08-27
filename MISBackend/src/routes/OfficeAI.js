@@ -14,12 +14,10 @@ const {
   generateOfficeBrief,
   answerOfficeQuestion,
 } = require('../services/officeAiService');
+const { parseCustomerEnquiry, prepareQuote } = require('../services/customerAiService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
-
-// Office AI v1 is intentionally management-only and read-only. The AI never
-// receives a route capable of mutating orders, payments, assignments or users.
 router.use(requireAuth, requireAdmin);
 
 async function loadSnapshot() {
@@ -29,13 +27,7 @@ async function loadSnapshot() {
     getDailyReport(),
     getEscalations(),
   ]);
-
-  return buildOfficeSnapshot({
-    businessSummary,
-    teamStatus,
-    dailyReport,
-    escalations,
-  });
+  return buildOfficeSnapshot({ businessSummary, teamStatus, dailyReport, escalations });
 }
 
 router.get('/status', (_req, res) => {
@@ -45,14 +37,7 @@ router.get('/status', (_req, res) => {
       ...providerInfo(),
       mode: OFFICE_AI_MODE,
       canWrite: false,
-      dataSources: [
-        'Business Control',
-        'Orders',
-        'Vendor Ledger',
-        'Team Operations',
-        'Attendance',
-        'User Tasks',
-      ],
+      dataSources: ['Business Control', 'Orders', 'Vendor Ledger', 'Team Operations', 'Attendance', 'User Tasks', 'Rate Cards'],
     },
   });
 });
@@ -70,13 +55,8 @@ router.get('/brief', async (_req, res) => {
 
 router.post('/ask', async (req, res) => {
   const question = String(req.body?.question || '').trim();
-  if (!question) {
-    return res.status(400).json({ success: false, message: 'Question is required' });
-  }
-  if (question.length > 1200) {
-    return res.status(400).json({ success: false, message: 'Question is too long (maximum 1200 characters)' });
-  }
-
+  if (!question) return res.status(400).json({ success: false, message: 'Question is required' });
+  if (question.length > 1200) return res.status(400).json({ success: false, message: 'Question is too long (maximum 1200 characters)' });
   try {
     const snapshot = await loadSnapshot();
     const result = await answerOfficeQuestion({ question, snapshot });
@@ -84,6 +64,34 @@ router.post('/ask', async (req, res) => {
   } catch (error) {
     logger.error({ err: error?.message }, '[office-ai] failed to answer question');
     return res.status(500).json({ success: false, message: 'Office AI could not answer this question' });
+  }
+});
+
+// Customer AI v1 is deliberately prepare-only. It does not send WhatsApp
+// messages and does not create/mutate an order. The operator reviews first.
+router.post('/customer/parse', async (req, res) => {
+  const message = String(req.body?.message || '').trim();
+  if (!message) return res.status(400).json({ success: false, message: 'Customer message is required' });
+  if (message.length > 3000) return res.status(400).json({ success: false, message: 'Customer message is too long' });
+  try {
+    const result = await parseCustomerEnquiry(message);
+    return res.json({ success: true, result });
+  } catch (error) {
+    logger.error({ err: error?.message }, '[customer-ai] parse failed');
+    return res.status(500).json({ success: false, message: 'Customer AI could not parse this enquiry' });
+  }
+});
+
+router.post('/customer/quote', async (req, res) => {
+  const requirement = req.body?.requirement || {};
+  const rateCardUuid = String(req.body?.rateCardUuid || '').trim();
+  if (!rateCardUuid) return res.status(400).json({ success: false, message: 'rateCardUuid is required' });
+  try {
+    const result = await prepareQuote(requirement, rateCardUuid);
+    return res.json({ success: true, result: { ...result, mode: 'prepare_only', canSend: false, canCreateOrder: false } });
+  } catch (error) {
+    logger.error({ err: error?.message }, '[customer-ai] quote preparation failed');
+    return res.status(500).json({ success: false, message: 'Could not prepare quote' });
   }
 });
 

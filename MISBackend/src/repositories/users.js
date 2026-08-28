@@ -39,6 +39,11 @@ const UsersSchema = new mongoose.Schema({
       roleTitle: { type: String, default: '', trim: true },
       department: { type: String, default: '', trim: true },
       backupEligible: { type: Boolean, default: true },
+      // Holds work without clocking in — the owner, or anyone whose
+      // availability is not answered by an attendance record. Skips the
+      // attendance gate only; being marked Busy or Outside still hands
+      // inside-store work to the next slot in the chain.
+      alwaysAvailable: { type: Boolean, default: false },
       active: { type: Boolean, default: true },
       // Working hours — initial values only, editable per user from the UI.
       // Empty strings mean "inherit the store-level setting".
@@ -70,6 +75,7 @@ const UsersSchema = new mongoose.Schema({
       roleTitle: '',
       department: '',
       backupEligible: true,
+      alwaysAvailable: false,
       active: true,
       startTime: '',
       endTime: '',

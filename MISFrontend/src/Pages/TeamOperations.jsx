@@ -49,6 +49,7 @@ export default function TeamOperations() {
   const rows = useMemo(() => status?.rows || [], [status]);
   const responsibilities = status?.responsibilities || [];
   const escalated = status?.escalated || [];
+  const offStaffLine = status?.handledOffStaffLine || {};
 
   const priorityStrip = useMemo(
     () => rows.filter((row) => row.priority),
@@ -126,7 +127,10 @@ export default function TeamOperations() {
       {loading ? <LoadingState label="Loading team status..." /> : null}
 
       {!loading && priorityStrip.length ? (
-        <SectionCard title="Operational Priorities" subtitle="Assigned from each user's profile — never hard-coded">
+        <SectionCard
+          title="Operational Priorities"
+          subtitle="Assigned from each operator's profile — never hard-coded. Includes the owner and the AI assistant when they hold a code."
+        >
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
             {priorityStrip.map((row) => (
               <Box
@@ -153,6 +157,14 @@ export default function TeamOperations() {
         </SectionCard>
       ) : null}
 
+      {!loading && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
+        <Alert severity="info" sx={{ borderRadius: 2 }}>
+          Handled off the staff line right now: {offStaffLine.byVirtualOperators || 0} task(s) with
+          an automated operator, {offStaffLine.byAlwaysAvailable || 0} with an always-available
+          user. Both are counted in the rows below.
+        </Alert>
+      ) : null}
+
       {!loading ? (
         <SectionCard title="Team Status">
           <DataTableWrapper>
@@ -174,7 +186,17 @@ export default function TeamOperations() {
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.User_uuid} hover>
-                    <TableCell>{row.name || row.User_name}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography variant="body2">{row.name || row.User_name}</Typography>
+                        {row.isVirtual ? (
+                          <Chip size="small" color="secondary" variant="outlined" label="Automated" />
+                        ) : null}
+                        {!row.isVirtual && row.alwaysAvailable ? (
+                          <Chip size="small" color="info" variant="outlined" label="Always on" />
+                        ) : null}
+                      </Stack>
+                    </TableCell>
                     <TableCell>{row.priority ? <Chip size="small" label={row.priority} /> : '—'}</TableCell>
                     <TableCell>{row.roleTitle || '—'}</TableCell>
                     <TableCell>
@@ -192,13 +214,21 @@ export default function TeamOperations() {
                     </TableCell>
                     <TableCell align="right">{row.transferredIn || 0}</TableCell>
                     <TableCell align="right">
-                      <Button
-                        size="small"
-                        component={RouterLink}
-                        to={`${ROUTES.OPERATIONS_USERS}/${row.User_uuid}`}
-                      >
-                        Profile
-                      </Button>
+                      {row.isVirtual ? (
+                        // A virtual operator has no user profile to open; it is
+                        // configured under Settings → Operations instead.
+                        <Button size="small" component={RouterLink} to={ROUTES.OPERATIONS_SETTINGS}>
+                          Configure
+                        </Button>
+                      ) : (
+                        <Button
+                          size="small"
+                          component={RouterLink}
+                          to={`${ROUTES.OPERATIONS_USERS}/${row.User_uuid}`}
+                        >
+                          Profile
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

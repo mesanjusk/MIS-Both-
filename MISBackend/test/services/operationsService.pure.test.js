@@ -166,6 +166,24 @@ describe('isAvailableFor', () => {
     const verdict = isAvailableFor(availability({ operationalState: 'Busy' }));
     expect(verdict).toMatchObject({ available: false, reason: 'Busy', soft: true });
   });
+
+  test('an always-available operator skips the attendance gate entirely', () => {
+    // The owner and the AI assistant hold work without clocking in.
+    for (const status of ['Absent', 'Weekly Off', 'Day Closed', 'Always On']) {
+      expect(
+        isAvailableFor(availability({ alwaysAvailable: true, attendanceStatus: status })).available
+      ).toBe(true);
+    }
+  });
+
+  test('always-available does not override the operational state or deactivation', () => {
+    const outside = availability({ alwaysAvailable: true, operationalState: 'Outside' });
+    expect(isAvailableFor(outside, 'inside_store').available).toBe(false);
+    expect(isAvailableFor(outside, 'outside_logistics').available).toBe(true);
+    expect(
+      isAvailableFor(availability({ alwaysAvailable: true, operationsActive: false })).available
+    ).toBe(false);
+  });
 });
 
 describe('resolveResponsibilityOwner', () => {

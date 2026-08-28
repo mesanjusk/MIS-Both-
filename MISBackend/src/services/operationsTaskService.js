@@ -166,7 +166,32 @@ const getOpenTasks = async (context, { date = new Date() } = {}) => {
 };
 
 /**
- * §15 — TEAM STATUS: one row per user, everything read from the database.
+ * Everyone who can hold work today: every active user, plus the virtual
+ * operators (the AI assistant, and any other standing automation) the
+ * availability map carries. Work handled by AI belongs on the same dashboard
+ * as everyone else's — a task nobody can see is a task nobody is tracking.
+ */
+const listOperators = (context) => [
+  ...context.users
+    .filter((user) => user.operations?.active !== false)
+    .map((user) => ({
+      User_uuid: user.User_uuid,
+      User_name: user.User_name,
+      name: user.name || user.User_name,
+      User_group: user.User_group,
+    })),
+  ...[...context.availabilityMap.values()]
+    .filter((entry) => entry.isVirtual && entry.operationsActive)
+    .map((entry) => ({
+      User_uuid: entry.userUuid,
+      User_name: entry.userName,
+      name: entry.name,
+      User_group: '',
+    })),
+];
+
+/**
+ * §15 — TEAM STATUS: one row per operator, everything read from the database.
  */
 const getTeamStatus = async ({ date = new Date() } = {}) => {
   const context = await loadResolutionContext({ date });
@@ -175,8 +200,7 @@ const getTeamStatus = async ({ date = new Date() } = {}) => {
     .filter((item) => item.isActive !== false)
     .map((item) => resolveResponsibilityOwner(item, context.availabilityMap));
 
-  const rows = context.users
-    .filter((user) => user.operations?.active !== false)
+  const rows = listOperators(context)
     .map((user) => {
       const availability = context.availabilityMap.get(user.User_uuid) || {};
       const mine = openTasks.filter((task) => task.currentOwner?.userUuid === user.User_uuid);
@@ -188,6 +212,9 @@ const getTeamStatus = async ({ date = new Date() } = {}) => {
         User_name: user.User_name,
         name: user.name || user.User_name,
         User_group: user.User_group,
+        isVirtual: availability.isVirtual === true,
+        operatorKind: availability.operatorKind || 'user',
+        alwaysAvailable: availability.alwaysAvailable === true,
         priority: availability.priority || '',
         roleTitle: availability.roleTitle || '',
         department: availability.department || '',
@@ -203,9 +230,11 @@ const getTeamStatus = async ({ date = new Date() } = {}) => {
         responsibilitiesNow: owned.map((view) => view.name),
       };
     })
-    // Priority order first (P1, P2, …), unprioritised users last — the sort is
-    // by the code's own ordering, not by any fixed name list.
+    // The staff line first in priority order (P1, P2, …) with unprioritised
+    // users after it, then the virtual operators — the sort is by the code's
+    // own ordering, not by any fixed name list.
     .sort((a, b) => {
+      if (a.isVirtual !== b.isVirtual) return a.isVirtual ? 1 : -1;
       if (a.priority && b.priority) return a.priority.localeCompare(b.priority, undefined, { numeric: true });
       if (a.priority) return -1;
       if (b.priority) return 1;
@@ -217,6 +246,16 @@ const getTeamStatus = async ({ date = new Date() } = {}) => {
     responsibilities: responsibilityViews,
     escalated: responsibilityViews.filter((view) => view.escalated),
     unownedTasks: openTasks.filter((task) => task.escalated),
+    // Split out so the dashboard can show what is being handled off the staff
+    // line without digging through the rows.
+    handledOffStaffLine: {
+      byVirtualOperators: rows
+        .filter((row) => row.isVirtual)
+        .reduce((total, row) => total + row.pending, 0),
+      byAlwaysAvailable: rows
+        .filter((row) => !row.isVirtual && row.alwaysAvailable)
+        .reduce((total, row) => total + row.pending, 0),
+    },
   };
 };
 
@@ -498,6 +537,13 @@ const getDailyReport = async ({ date = new Date() } = {}) => {
       ).length,
       escalated: responsibilityViews.filter((view) => view.escalated).length,
       escalatedList: responsibilityViews.filter((view) => view.escalated).map((view) => view.name),
+      // Areas standing on a virtual operator today — visible in the report
+      // rather than buried in the responsibility matrix.
+      coveredByVirtualOperator: responsibilityViews.filter(
+        (view) =>
+          view.currentOwner
+          && context.availabilityMap.get(view.currentOwner.userUuid)?.isVirtual === true
+      ).length,
     },
     checklist: {
       completed: completions.filter((row) => !row.skipped).length,

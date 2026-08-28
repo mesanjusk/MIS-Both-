@@ -23,6 +23,13 @@ import {
  * One ownership slot in the matrix. Defined at module scope so editing a row
  * does not remount the whole table (which would drop the open dropdown).
  */
+/** "Ana (P1)", or "AI Assistant (AI · automated)" for a virtual operator. */
+const operatorLabel = (user) => {
+  const name = user.name || user.User_name;
+  const bits = [user.operations?.priority, user.isVirtual ? 'automated' : ''].filter(Boolean);
+  return bits.length ? `${name} (${bits.join(' · ')})` : name;
+};
+
 function SlotSelect({ value, users, userNames, disabled, onChange }) {
   // A row can still point at a user who has since been deactivated; show the
   // stored value as blank rather than crashing MUI on an unknown option.
@@ -37,10 +44,7 @@ function SlotSelect({ value, users, userNames, disabled, onChange }) {
       >
         <MenuItem value="">— None —</MenuItem>
         {users.map((user) => (
-          <MenuItem key={user.User_uuid} value={user.User_uuid}>
-            {user.name || user.User_name}
-            {user.operations?.priority ? ` (${user.operations.priority})` : ''}
-          </MenuItem>
+          <MenuItem key={user.User_uuid} value={user.User_uuid}>{operatorLabel(user)}</MenuItem>
         ))}
       </Select>
     </FormControl>
@@ -80,6 +84,10 @@ export default function OperationsResponsibilities() {
 
   const [rows, setRows] = useState([]);
   const [users, setUsers] = useState([]);
+  // The AI assistant and any other standing automation — assignable to a slot
+  // exactly like a person, so an area handled by AI is configured here rather
+  // than living outside the chain.
+  const [virtualOperators, setVirtualOperators] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -102,6 +110,7 @@ export default function OperationsResponsibilities() {
       ]);
       setRows(respRes.data?.result || []);
       setUsers(usersRes.data?.result || []);
+      setVirtualOperators(usersRes.data?.virtualOperators || []);
       setCategories(settingsRes.data?.result?.categories || []);
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to load responsibilities');
@@ -115,12 +124,17 @@ export default function OperationsResponsibilities() {
   // Only users who are active in operations can be picked; a deactivated user
   // still shows on rows that already reference them so the gap is visible.
   const selectableUsers = useMemo(
-    () => users.filter((user) => user.operations?.active !== false),
-    [users],
+    () => [
+      ...users.filter((user) => user.operations?.active !== false),
+      ...virtualOperators.filter((operator) => operator.operations?.active !== false),
+    ],
+    [users, virtualOperators],
   );
   const userNameByUuid = useMemo(
-    () => new Map(users.map((user) => [user.User_uuid, user.name || user.User_name])),
-    [users],
+    () => new Map(
+      [...users, ...virtualOperators].map((user) => [user.User_uuid, user.name || user.User_name]),
+    ),
+    [users, virtualOperators],
   );
 
   const openCreate = () => {
@@ -214,7 +228,7 @@ export default function OperationsResponsibilities() {
   return (
     <PageContainer
       title="Responsibilities"
-      subtitle="Settings → Operations → Responsibilities. Primary and Backups 1–4 are stored as users, so re-assigning a priority never re-points a responsibility."
+      subtitle="Settings → Operations → Responsibilities. Primary and Backups 1–4 are stored as operators — staff, the owner, or the AI assistant — so re-assigning a priority never re-points a responsibility."
       actions={(
         <>
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
@@ -344,7 +358,8 @@ export default function OperationsResponsibilities() {
             </FormControl>
             <Alert severity="info" sx={{ py: 0 }}>
               Outside Logistics work stays with a user who is marked Outside; Inside Store work
-              moves to their backup so the store floor keeps running.
+              moves to their backup so the store floor keeps running. Slots can also hold the AI
+              assistant, which is always available and never steps out of the chain.
             </Alert>
             {OWNERSHIP_SLOTS.map((slot) => (
               <FormControl size="small" fullWidth key={slot.field}>
@@ -352,10 +367,7 @@ export default function OperationsResponsibilities() {
                 <Select label={slot.label} value={form[slot.field]} onChange={setField(slot.field)}>
                   <MenuItem value="">— None —</MenuItem>
                   {selectableUsers.map((user) => (
-                    <MenuItem key={user.User_uuid} value={user.User_uuid}>
-                      {user.name || user.User_name}
-                      {user.operations?.priority ? ` (${user.operations.priority})` : ''}
-                    </MenuItem>
+                    <MenuItem key={user.User_uuid} value={user.User_uuid}>{operatorLabel(user)}</MenuItem>
                   ))}
                 </Select>
               </FormControl>

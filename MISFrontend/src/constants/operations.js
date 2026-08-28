@@ -13,6 +13,9 @@ export const ATTENDANCE_COLORS = {
   'Weekly Off': 'default',
   'Day Closed': 'default',
   Absent: 'error',
+  // Operators who hold work without an attendance record — the AI assistant,
+  // and users flagged always-available.
+  'Always On': 'info',
 };
 
 export const STATE_COLORS = {

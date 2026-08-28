@@ -28,6 +28,12 @@ const DEPARTMENTS_KEY = 'operations_departments';
 // responsibility whose chain should own the task it creates. Empty by default:
 // with no mapping configured, existing automation behaves exactly as before.
 const STAGE_RESPONSIBILITIES_KEY = 'operations_stage_responsibilities';
+// Operators who hold responsibilities but have no attendance record to derive
+// availability from — the AI assistant, and any other standing automation.
+// A *person* is never configured here: a human owner is a User with the
+// `alwaysAvailable` operations flag, so their tasks, audit trail and profile
+// stay in the one place the rest of the system already reads them from.
+const VIRTUAL_OPERATORS_KEY = 'operations_virtual_operators';
 
 // Initial values only. Management edits these from Settings → Operations; the
 // seeded values exist so a fresh install is usable, not so behaviour is fixed.
@@ -40,11 +46,33 @@ const DEFAULT_STORE_SETTINGS = {
   escalationUserUuids: [], // empty = derive from role hierarchy (manager and above)
 };
 
+// Initial catalogue only — management adds, renames and removes codes from
+// Settings → Operations. OWNER and AI ship alongside P1..P4 because work is
+// held by more than the numbered staff line: the owner takes some of it
+// personally, and some is handled by the AI assistant.
 const DEFAULT_PRIORITY_LEVELS = [
   { code: 'P1', label: 'P1', description: '' },
   { code: 'P2', label: 'P2', description: '' },
   { code: 'P3', label: 'P3', description: '' },
   { code: 'P4', label: 'P4', description: '' },
+  { code: 'OWNER', label: 'Owner', description: 'Held by the owner personally' },
+  { code: 'AI', label: 'AI', description: 'Handled by the AI assistant' },
+];
+
+// The AI assistant, available out of the box so an area can be pointed at it
+// without configuration. Stored virtual operators replace this list entirely,
+// exactly like the priority catalogue above.
+const DEFAULT_VIRTUAL_OPERATORS = [
+  {
+    uuid: 'operator-ai-assistant',
+    name: 'AI Assistant',
+    kind: 'ai',
+    priority: 'AI',
+    roleTitle: 'Handled by AI',
+    department: '',
+    backupEligible: true,
+    active: true,
+  },
 ];
 
 const DEFAULT_DEPARTMENTS = ['Design', 'Operations', 'Marketing', 'Logistics', 'Accounts', 'Store'];
@@ -74,6 +102,27 @@ const getStoreSettings = async () => {
 const getPriorityLevels = async () => {
   const stored = await AppSetting.getSetting(PRIORITY_LEVELS_KEY, null);
   return Array.isArray(stored) && stored.length ? stored : DEFAULT_PRIORITY_LEVELS;
+};
+
+/**
+ * Virtual operators, normalised. Anything stored without a uuid or a name is
+ * dropped rather than silently becoming an un-addressable slot value.
+ */
+const getVirtualOperators = async () => {
+  const stored = await AppSetting.getSetting(VIRTUAL_OPERATORS_KEY, null);
+  const list = Array.isArray(stored) ? stored : DEFAULT_VIRTUAL_OPERATORS;
+  return list
+    .filter((item) => item && String(item.uuid || '').trim() && String(item.name || '').trim())
+    .map((item) => ({
+      uuid: String(item.uuid).trim(),
+      name: String(item.name).trim(),
+      kind: String(item.kind || 'ai').trim(),
+      priority: String(item.priority || '').trim(),
+      roleTitle: String(item.roleTitle || '').trim(),
+      department: String(item.department || '').trim(),
+      backupEligible: item.backupEligible !== false,
+      active: item.active !== false,
+    }));
 };
 
 const getStageResponsibilities = async () => {
@@ -164,7 +213,10 @@ const deriveAttendanceStatus = ({ attendance, absence, storeSettings, workingDay
 const isAvailableFor = (availability, category = 'general') => {
   if (!availability) return { available: false, reason: 'Unknown user' };
   if (!availability.operationsActive) return { available: false, reason: 'Not active in operations' };
-  if (!AVAILABLE_ATTENDANCE.has(availability.attendanceStatus)) {
+  // An always-available operator — the AI assistant, or an owner who holds work
+  // without clocking in — skips the attendance gate but not the operational
+  // state below: an owner who is Outside still hands inside-store work on.
+  if (!availability.alwaysAvailable && !AVAILABLE_ATTENDANCE.has(availability.attendanceStatus)) {
     return { available: false, reason: availability.attendanceStatus };
   }
   if (availability.operationalState === 'Outside') {
@@ -188,9 +240,10 @@ const buildAvailabilityMap = async (users, { date = new Date(), storeSettings } 
   const dayDate = getDateOnly(date);
   const uuids = users.map((user) => user.User_uuid).filter(Boolean);
 
-  const [attendanceRows, absenceRows] = await Promise.all([
+  const [attendanceRows, absenceRows, virtualOperators] = await Promise.all([
     Attendance.find({ Employee_uuid: { $in: uuids }, Date: dayDate }).lean(),
     AttendanceAbsence.find({ Employee_uuid: { $in: uuids }, forDate: dayDate }).lean(),
+    getVirtualOperators(),
   ]);
 
   const attendanceByUser = new Map(attendanceRows.map((row) => [row.Employee_uuid, row]));
@@ -217,6 +270,9 @@ const buildAvailabilityMap = async (users, { date = new Date(), storeSettings } 
       department: ops.department || '',
       backupEligible: ops.backupEligible !== false,
       operationsActive: ops.active !== false,
+      alwaysAvailable: ops.alwaysAvailable === true,
+      isVirtual: false,
+      operatorKind: 'user',
       attendanceStatus: derived.status,
       attendanceDetail: derived.detail,
       inTime: derived.inTime,
@@ -229,6 +285,38 @@ const buildAvailabilityMap = async (users, { date = new Date(), storeSettings } 
       endTime: ops.endTime || settings.closingTime,
     });
   }
+
+  // Virtual operators have no attendance to derive from — they are available
+  // whenever they are active, and drop out of the chain the moment an admin
+  // deactivates them. Keyed the same way as users so every resolver, task
+  // lookup and dashboard row reaches them with no special case.
+  for (const operator of virtualOperators) {
+    map.set(operator.uuid, {
+      userUuid: operator.uuid,
+      userName: operator.name,
+      name: operator.name,
+      userGroup: '',
+      priority: operator.priority,
+      roleTitle: operator.roleTitle,
+      department: operator.department,
+      backupEligible: operator.backupEligible,
+      operationsActive: operator.active,
+      alwaysAvailable: true,
+      isVirtual: true,
+      operatorKind: operator.kind,
+      attendanceStatus: 'Always On',
+      attendanceDetail: '',
+      inTime: '',
+      outTime: '',
+      operationalState: 'Available',
+      currentTask: '',
+      stateSince: null,
+      workingDays: settings.workingDays,
+      startTime: settings.reportingTime,
+      endTime: settings.closingTime,
+    });
+  }
+
   return map;
 };
 
@@ -379,7 +467,9 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
       const slotLabel = slot.label;
       const uuid = responsibility[slot.field];
       if (!uuid) continue;
-      if (!byUuid.has(uuid)) {
+      // A virtual operator is not a User row, so existence is checked against
+      // the availability map, which carries both.
+      if (!byUuid.has(uuid) && !availabilityMap.has(uuid)) {
         warnings.push({
           level: 'error',
           responsibility: label,
@@ -466,6 +556,9 @@ const auditFieldChanges = async ({ before = {}, after = {}, fields, base }) => {
 module.exports = {
   OWNERSHIP_SLOTS,
   STORE_SETTINGS_KEY,
+  VIRTUAL_OPERATORS_KEY,
+  DEFAULT_VIRTUAL_OPERATORS,
+  getVirtualOperators,
   PRIORITY_LEVELS_KEY,
   DEPARTMENTS_KEY,
   STAGE_RESPONSIBILITIES_KEY,

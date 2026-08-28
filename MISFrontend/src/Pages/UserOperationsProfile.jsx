@@ -54,6 +54,7 @@ export default function UserOperationsProfile() {
         roleTitle: operations.roleTitle || '',
         department: operations.department || '',
         backupEligible: operations.backupEligible !== false,
+        alwaysAvailable: operations.alwaysAvailable === true,
         active: operations.active !== false,
         workingDays: Array.isArray(operations.workingDays) ? operations.workingDays : [],
         startTime: operations.startTime || '',
@@ -243,6 +244,22 @@ export default function UserOperationsProfile() {
               control={<Switch checked={form.active} onChange={setField('active')} disabled={!canEdit} />}
               label="Active"
             />
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <FormControlLabel
+              control={(
+                <Switch
+                  checked={form.alwaysAvailable}
+                  onChange={setField('alwaysAvailable')}
+                  disabled={!canEdit}
+                />
+              )}
+              label="Always available (holds work without marking attendance)"
+            />
+            <Typography variant="caption" color="text.secondary" display="block">
+              For an owner or manager who takes tasks without clocking in. Being marked Busy or
+              Outside still passes inside-store work to the next backup.
+            </Typography>
           </Grid>
           <Grid item xs={12} md={6}>
             <FormControlLabel

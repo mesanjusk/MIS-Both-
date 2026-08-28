@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, Divider, FormControl, Grid, IconButton, InputLabel,
-  MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, Typography,
+  Alert, Box, Button, Chip, Divider, FormControl, FormControlLabel, Grid, IconButton,
+  InputLabel, MenuItem, Select, Stack, Switch, Table, TableBody, TableCell, TableHead,
+  TableRow, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -17,7 +17,7 @@ import {
   fetchOperationsSettings, saveStoreSettings, savePriorityLevels, saveDepartments,
   fetchOperationsUsers, fetchConfigurationWarnings, fetchOperationsAudit,
   seedOperationsDefaults, generateDailyOperationsTasks, saveStageResponsibilities,
-  fetchResponsibilities,
+  fetchResponsibilities, saveVirtualOperators,
 } from '../services/operationsService';
 
 const formatAuditValue = (value) => {
@@ -39,6 +39,7 @@ export default function OperationsSettings() {
 
   const [store, setStore] = useState(null);
   const [levels, setLevels] = useState([]);
+  const [operators, setOperators] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [hooks, setHooks] = useState([]);
   const [stageMap, setStageMap] = useState({});
@@ -65,6 +66,7 @@ export default function OperationsSettings() {
       const result = settingsRes.data?.result || {};
       setStore(result.store || {});
       setLevels(result.priorityLevels || []);
+      setOperators(result.virtualOperators || []);
       setDepartments(result.departments || []);
       setHooks(result.automationHooks || []);
       setStageMap(result.stageResponsibilities || {});
@@ -132,6 +134,12 @@ export default function OperationsSettings() {
       position === index ? { ...level, [field]: value } : level));
   };
 
+  const setOperatorField = (index, field) => (event) => {
+    const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    setOperators((prev) => prev.map((operator, position) =>
+      position === index ? { ...operator, [field]: value } : operator));
+  };
+
   if (loading || !store) {
     return (
       <PageContainer title="Operations Settings">
@@ -143,7 +151,7 @@ export default function OperationsSettings() {
   return (
     <PageContainer
       title="Operations Settings"
-      subtitle="Store hours, priority levels, departments and configuration health"
+      subtitle="Store hours, assignment codes, operators, departments and configuration health"
       actions={(
         <>
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
@@ -274,7 +282,7 @@ export default function OperationsSettings() {
 
       <SectionCard
         title="Operational Priority Levels"
-        subtitle="The codes available for assignment. Add or rename them freely — user assignments are stored separately."
+        subtitle="The codes available for assignment — P1..P4 for the staff line, plus Owner and AI. Add or rename them freely; user assignments are stored separately."
       >
         <Stack spacing={1}>
           {levels.map((level, index) => (
@@ -329,6 +337,93 @@ export default function OperationsSettings() {
                 onClick={() => run('levels', () => savePriorityLevels(levels), 'Priority levels saved.')}
               >
                 Save levels
+              </Button>
+            </Stack>
+          ) : null}
+        </Stack>
+      </SectionCard>
+
+      <SectionCard
+        title="Non-Staff Operators"
+        subtitle="The AI assistant and any other automation that holds work. They appear in every responsibility slot picker and on the team dashboard, and are available whenever they are active. A human owner is not configured here — give them “Always available” on their own operations profile instead."
+      >
+        <Stack spacing={1}>
+          {operators.map((operator, index) => (
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1}
+              alignItems={{ md: 'center' }}
+              key={operator.uuid || `new-${index}`}
+            >
+              <TextField
+                label="Name"
+                size="small"
+                disabled={!canEdit}
+                value={operator.name || ''}
+                onChange={setOperatorField(index, 'name')}
+                sx={{ maxWidth: 220 }}
+              />
+              <TextField
+                label="Priority code"
+                size="small"
+                disabled={!canEdit}
+                value={operator.priority || ''}
+                onChange={setOperatorField(index, 'priority')}
+                sx={{ maxWidth: 140 }}
+              />
+              <TextField
+                label="Role title"
+                size="small"
+                fullWidth
+                disabled={!canEdit}
+                value={operator.roleTitle || ''}
+                onChange={setOperatorField(index, 'roleTitle')}
+              />
+              <FormControlLabel
+                control={(
+                  <Switch
+                    checked={operator.active !== false}
+                    onChange={setOperatorField(index, 'active')}
+                    disabled={!canEdit}
+                  />
+                )}
+                label="Active"
+              />
+              {canEdit ? (
+                <IconButton
+                  size="small"
+                  onClick={() => setOperators((prev) => prev.filter((_, position) => position !== index))}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+            </Stack>
+          ))}
+          {!operators.length ? (
+            <EmptyState
+              title="No non-staff operators"
+              description="Add one to assign a responsibility to the AI assistant."
+            />
+          ) : null}
+          {canEdit ? (
+            <Stack direction="row" spacing={1}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setOperators((prev) => [
+                  ...prev,
+                  { uuid: '', name: '', kind: 'ai', priority: 'AI', roleTitle: '', active: true },
+                ])}
+              >
+                Add operator
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={busy === 'operators'}
+                onClick={() => run('operators', () => saveVirtualOperators(operators), 'Operators saved.')}
+              >
+                Save operators
               </Button>
             </Stack>
           ) : null}

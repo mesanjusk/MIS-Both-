@@ -16,12 +16,14 @@ const {
   PRIORITY_LEVELS_KEY,
   DEPARTMENTS_KEY,
   STAGE_RESPONSIBILITIES_KEY,
+  VIRTUAL_OPERATORS_KEY,
   RESPONSIBILITY_CATEGORIES,
   OPERATIONAL_STATES,
   getStoreSettings,
   getPriorityLevels,
   getDepartments,
   getStageResponsibilities,
+  getVirtualOperators,
   buildAvailabilityMap,
   resolveResponsibilityOwner,
   resolveAllResponsibilities,
@@ -53,6 +55,7 @@ const USER_OPS_FIELDS = [
   'roleTitle',
   'department',
   'backupEligible',
+  'alwaysAvailable',
   'active',
   'workingDays',
   'startTime',
@@ -82,12 +85,14 @@ const fail = (res, status, message) => res.status(status).json({ success: false,
 // GET /api/operations/settings — everything the config screens need to render.
 router.get('/settings', async (req, res, next) => {
   try {
-    const [store, priorityLevels, departments, stageResponsibilities] = await Promise.all([
-      getStoreSettings(),
-      getPriorityLevels(),
-      getDepartments(),
-      getStageResponsibilities(),
-    ]);
+    const [store, priorityLevels, departments, stageResponsibilities, virtualOperators] =
+      await Promise.all([
+        getStoreSettings(),
+        getPriorityLevels(),
+        getDepartments(),
+        getStageResponsibilities(),
+        getVirtualOperators(),
+      ]);
     res.json({
       success: true,
       result: {
@@ -95,6 +100,7 @@ router.get('/settings', async (req, res, next) => {
         priorityLevels,
         departments,
         stageResponsibilities,
+        virtualOperators,
         // Automation points that can be pointed at a responsibility. Order
         // stages come from the shared stage list so this never drifts from it.
         automationHooks: [
@@ -171,6 +177,48 @@ router.put(
   })
 );
 
+/**
+ * The non-staff operators — the AI assistant and any other standing
+ * automation — that can hold a responsibility slot. A human owner is *not*
+ * configured here: give the user the `alwaysAvailable` operations flag
+ * instead, so their tasks and audit trail stay on their own user record.
+ */
+router.put(
+  '/settings/virtual-operators',
+  requireAdmin,
+  putSetting(
+    VIRTUAL_OPERATORS_KEY,
+    'Non-staff operators (AI assistant and other automation) assignable to responsibilities',
+    (body) => {
+      const operators = body?.operators;
+      if (!Array.isArray(operators)) return null;
+      const seen = new Set();
+      const slug = (value) =>
+        String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      return operators
+        .filter((operator) => operator && String(operator.name || '').trim())
+        .map((operator) => {
+          // A missing uuid is derived from the name, but an existing one is
+          // never rewritten: it is the value stored in every responsibility
+          // slot that points at this operator.
+          let uuid = String(operator.uuid || '').trim() || `operator-${slug(operator.name)}`;
+          while (seen.has(uuid)) uuid = `${uuid}-2`;
+          seen.add(uuid);
+          return {
+            uuid,
+            name: String(operator.name).trim(),
+            kind: String(operator.kind || 'ai').trim() || 'ai',
+            priority: String(operator.priority || '').trim(),
+            roleTitle: String(operator.roleTitle || '').trim(),
+            department: String(operator.department || '').trim(),
+            backupEligible: operator.backupEligible !== false,
+            active: operator.active !== false,
+          };
+        });
+    }
+  )
+);
+
 router.put(
   '/settings/stage-responsibilities',
   requireAdmin,
@@ -218,6 +266,25 @@ router.get('/users', async (req, res, next) => {
         User_group: user.User_group,
         operations: user.operations || {},
         availability: availabilityMap.get(user.User_uuid) || null,
+      })),
+      // Assignable alongside the users above — the Responsibilities screen
+      // merges the two lists into one slot picker.
+      virtualOperators: (await getVirtualOperators()).map((operator) => ({
+        User_uuid: operator.uuid,
+        User_name: operator.name,
+        name: operator.name,
+        User_group: '',
+        isVirtual: true,
+        operatorKind: operator.kind,
+        operations: {
+          priority: operator.priority,
+          roleTitle: operator.roleTitle,
+          department: operator.department,
+          backupEligible: operator.backupEligible,
+          alwaysAvailable: true,
+          active: operator.active,
+        },
+        availability: availabilityMap.get(operator.uuid) || null,
       })),
       priorityConflicts: findPriorityConflicts(users),
     });
@@ -293,6 +360,7 @@ router.put('/users/:userUuid/operations', requireAdmin, async (req, res, next) =
     if (payload.roleTitle !== undefined) next$.roleTitle = String(payload.roleTitle || '').trim();
     if (payload.department !== undefined) next$.department = String(payload.department || '').trim();
     if (payload.backupEligible !== undefined) next$.backupEligible = !!payload.backupEligible;
+    if (payload.alwaysAvailable !== undefined) next$.alwaysAvailable = !!payload.alwaysAvailable;
     if (payload.active !== undefined) next$.active = !!payload.active;
     if (payload.workingDays !== undefined) {
       next$.workingDays = Array.isArray(payload.workingDays)

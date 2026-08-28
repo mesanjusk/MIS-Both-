@@ -125,7 +125,9 @@ describe('getTeamStatus', () => {
     state.attendance = state.users.map((entry) => presentFor(entry.User_uuid));
 
     const { rows } = await getTeamStatus({ date: MONDAY });
-    expect(rows.map((row) => row.User_name)).toEqual(['Ana', 'Bea', 'Cara', 'Zed']);
+    // The AI assistant ships as a default virtual operator and sorts after the
+    // staff line, so work handed to it is visible on the same dashboard.
+    expect(rows.map((row) => row.User_name)).toEqual(['Ana', 'Bea', 'Cara', 'Zed', 'AI Assistant']);
     expect(rows[0]).toMatchObject({ priority: 'P1', roleTitle: 'Design Head', attendanceStatus: 'Present' });
   });
 
@@ -134,7 +136,7 @@ describe('getTeamStatus', () => {
     state.attendance = [presentFor('u-1'), presentFor('u-2')];
 
     const { rows } = await getTeamStatus({ date: MONDAY });
-    expect(rows.map((row) => row.User_name)).toEqual(['Ana']);
+    expect(rows.map((row) => row.User_name)).toEqual(['Ana', 'AI Assistant']);
   });
 
   test('counts pending, overdue and covered-for-others tasks per user', async () => {
@@ -184,6 +186,109 @@ describe('getTeamStatus', () => {
     expect(escalated[0].name).toBe('Vendor Pickup');
     // The available P1 user was not quietly handed the work.
     expect(responsibilities[0].currentOwner).toBeNull();
+  });
+
+  test('a responsibility backed by the AI operator is covered when the whole team is out', async () => {
+    state.users = [user('u-1', 'Ana'), user('u-2', 'Bea')];
+    state.attendance = []; // nobody clocked in
+    state.responsibilities = [
+      {
+        responsibility_uuid: 'r-1',
+        name: 'Customer Enquiry',
+        category: 'customer',
+        isActive: true,
+        primaryUserUuid: 'u-1',
+        backup1UserUuid: 'u-2',
+        backup2UserUuid: 'operator-ai-assistant',
+      },
+    ];
+
+    const { escalated, responsibilities, rows } = await getTeamStatus({ date: MONDAY });
+    expect(escalated).toHaveLength(0);
+    expect(responsibilities[0].currentOwner).toMatchObject({
+      userUuid: 'operator-ai-assistant',
+      role: 'backup2',
+    });
+    // And the AI shows on the dashboard holding it, not silently in the data.
+    const ai = rows.find((row) => row.User_uuid === 'operator-ai-assistant');
+    expect(ai).toMatchObject({ isVirtual: true, operatorKind: 'ai', attendanceStatus: 'Always On' });
+    expect(ai.responsibilitiesNow).toEqual(['Customer Enquiry']);
+  });
+
+  test('an owner marked always-available holds work without clocking in', async () => {
+    state.users = [
+      user('u-1', 'Ana'),
+      { ...user('u-own', 'Owner', { priority: 'OWNER' }), operations: {
+        ...user('u-own', 'Owner', { priority: 'OWNER' }).operations,
+        alwaysAvailable: true,
+      } },
+    ];
+    state.attendance = []; // neither of them marked attendance
+    state.responsibilities = [
+      {
+        responsibility_uuid: 'r-1',
+        name: 'Vendor Payment',
+        category: 'accounts',
+        isActive: true,
+        primaryUserUuid: 'u-1',
+        backup1UserUuid: 'u-own',
+      },
+    ];
+
+    const { responsibilities, rows } = await getTeamStatus({ date: MONDAY });
+    expect(responsibilities[0].currentOwner).toMatchObject({ userUuid: 'u-own', role: 'backup1' });
+    expect(rows.find((row) => row.User_uuid === 'u-own')).toMatchObject({
+      alwaysAvailable: true,
+      isVirtual: false,
+    });
+  });
+
+  test('an always-available owner who is Outside still hands inside-store work on', async () => {
+    state.users = [
+      { ...user('u-own', 'Owner', { state: 'Outside' }), operations: {
+        ...user('u-own', 'Owner', { state: 'Outside' }).operations,
+        alwaysAvailable: true,
+      } },
+      user('u-2', 'Bea'),
+    ];
+    state.attendance = [presentFor('u-2')];
+    state.responsibilities = [
+      {
+        responsibility_uuid: 'r-1',
+        name: 'Store Floor',
+        category: 'inside_store',
+        isActive: true,
+        primaryUserUuid: 'u-own',
+        backup1UserUuid: 'u-2',
+      },
+    ];
+
+    const { responsibilities } = await getTeamStatus({ date: MONDAY });
+    expect(responsibilities[0].currentOwner).toMatchObject({ userUuid: 'u-2', role: 'backup1' });
+  });
+
+  test('a deactivated virtual operator drops out of the chain and the dashboard', async () => {
+    state.settings = {
+      operations_virtual_operators: [
+        { uuid: 'operator-ai-assistant', name: 'AI Assistant', kind: 'ai', active: false },
+      ],
+    };
+    state.users = [user('u-1', 'Ana')];
+    state.attendance = [];
+    state.responsibilities = [
+      {
+        responsibility_uuid: 'r-1',
+        name: 'Customer Enquiry',
+        category: 'customer',
+        isActive: true,
+        primaryUserUuid: 'u-1',
+        backup1UserUuid: 'operator-ai-assistant',
+      },
+    ];
+
+    const { escalated, rows } = await getTeamStatus({ date: MONDAY });
+    expect(escalated).toHaveLength(1);
+    expect(rows.some((row) => row.User_uuid === 'operator-ai-assistant')).toBe(false);
   });
 });
 

@@ -110,6 +110,11 @@ export default function OperationsDailyReport() {
               <Stat label="Total" value={report.responsibilities.total} />
               <Stat label="By primary" value={report.responsibilities.coveredByPrimary} color="success.main" />
               <Stat label="By backup" value={report.responsibilities.coveredByBackup} color="warning.main" />
+              <Stat
+                label="By automation"
+                value={report.responsibilities.coveredByVirtualOperator || 0}
+                color="info.main"
+              />
               <Stat label="Escalated" value={report.responsibilities.escalated} color="error.main" />
               <Stat label="Checklist done" value={report.checklist.completed} />
               <Stat label="Checklist skipped" value={report.checklist.skipped} />

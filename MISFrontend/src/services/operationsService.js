@@ -11,6 +11,8 @@ export const saveDepartments = (departments, reason = '') =>
   axios.put(`${BASE}/settings/departments`, { departments, reason });
 export const saveStageResponsibilities = (mapping, reason = '') =>
   axios.put(`${BASE}/settings/stage-responsibilities`, { mapping, reason });
+export const saveVirtualOperators = (operators, reason = '') =>
+  axios.put(`${BASE}/settings/virtual-operators`, { operators, reason });
 
 // ── Users ───────────────────────────────────────────────────────────────────
 export const fetchOperationsUsers = () => axios.get(`${BASE}/users`);

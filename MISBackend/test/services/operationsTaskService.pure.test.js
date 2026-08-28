@@ -99,6 +99,55 @@ describe('resolveTaskOwnership', () => {
     expect(result.escalated).toBe(false);
   });
 
+  test('a task falls through to backup 4 before it escalates', () => {
+    const chain = {
+      primaryUserUuid: 'u-a',
+      backup1UserUuid: 'u-b',
+      backup2UserUuid: 'u-c',
+      backup3UserUuid: 'u-d',
+      backup4UserUuid: 'u-e',
+    };
+    const absent = (userUuid) => availability({ userUuid, attendanceStatus: 'Absent' });
+
+    const result = resolveTaskOwnership(
+      chain,
+      mapOf({
+        'u-a': absent('u-a'),
+        'u-b': absent('u-b'),
+        'u-c': absent('u-c'),
+        'u-d': absent('u-d'),
+        'u-e': availability({ userUuid: 'u-e', userName: 'E' }),
+      }),
+      new Map()
+    );
+    expect(result.currentOwner).toMatchObject({ userUuid: 'u-e', role: 'backup4' });
+    expect(result.ownerRole).toBe('backup4');
+    expect(result.transferred).toBe(true);
+    expect(result.escalated).toBe(false);
+  });
+
+  test('a task with no chain of its own inherits the deep responsibility backups', () => {
+    const responsibilities = mapOf({
+      'r-1': {
+        responsibility_uuid: 'r-1',
+        category: 'general',
+        primaryUserUuid: 'u-a',
+        backup1UserUuid: 'u-b',
+        backup3UserUuid: 'u-d',
+      },
+    });
+    const result = resolveTaskOwnership(
+      { responsibility_uuid: 'r-1' },
+      mapOf({
+        'u-a': availability({ userUuid: 'u-a', attendanceStatus: 'Absent' }),
+        'u-b': availability({ userUuid: 'u-b', attendanceStatus: 'On Leave' }),
+        'u-d': availability({ userUuid: 'u-d', userName: 'D' }),
+      }),
+      responsibilities
+    );
+    expect(result.currentOwner).toMatchObject({ userUuid: 'u-d', role: 'backup3' });
+  });
+
   test('no available owner anywhere in the chain escalates', () => {
     const result = resolveTaskOwnership(
       { primaryUserUuid: 'u-a', backup1UserUuid: 'u-b' },

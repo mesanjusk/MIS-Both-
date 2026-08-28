@@ -16,6 +16,9 @@ const OperationsAuditLog = require('../repositories/operationsAuditLog');
 const { AppSetting } = require('../repositories/appSetting');
 const { getDateOnly } = require('./attendanceService');
 const { tierFor } = require('../utils/roleHierarchy');
+const {
+  OWNERSHIP_SLOTS, BACKUP_FIELDS, readChain, chainFields,
+} = require('../constants/ownership');
 
 // ── Settings keys (all editable from the frontend, none compiled in) ────────
 const STORE_SETTINGS_KEY = 'operations_store_settings';
@@ -245,17 +248,14 @@ const resolveEscalationTargets = async (storeSettings) => {
 
 /**
  * Walk one responsibility's configured chain and report who actually owns it
- * right now. Strictly primary → backup 1 → backup 2 → escalation: there is no
- * implicit "give it to P1" step, so the senior designer never becomes the
- * default owner of every unattended task.
+ * right now. Strictly primary → backup 1 → backup 2 → backup 3 → backup 4 →
+ * escalation (see OWNERSHIP_SLOTS): there is no implicit "give it to P1" step,
+ * so the senior designer never becomes the default owner of every unattended
+ * task.
  */
 const resolveResponsibilityOwner = (responsibility, availabilityMap) => {
   const category = responsibility.category || 'general';
-  const slots = [
-    { role: 'primary', userUuid: responsibility.primaryUserUuid },
-    { role: 'backup1', userUuid: responsibility.backup1UserUuid },
-    { role: 'backup2', userUuid: responsibility.backup2UserUuid },
-  ];
+  const slots = readChain(responsibility);
 
   const chain = [];
   let owner = null;
@@ -314,11 +314,7 @@ const resolveResponsibilityOwner = (responsibility, availabilityMap) => {
     name: responsibility.name,
     category,
     isCritical: !!responsibility.isCritical,
-    configured: {
-      primaryUserUuid: responsibility.primaryUserUuid || '',
-      backup1UserUuid: responsibility.backup1UserUuid || '',
-      backup2UserUuid: responsibility.backup2UserUuid || '',
-    },
+    configured: chainFields(responsibility),
     chain,
     currentOwner: owner,
     escalated: !owner,
@@ -359,7 +355,8 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
 
   for (const responsibility of responsibilities) {
     const label = responsibility.name;
-    const { primaryUserUuid, backup1UserUuid, backup2UserUuid } = responsibility;
+    const { primaryUserUuid } = responsibility;
+    const backupUuids = BACKUP_FIELDS.map((field) => responsibility[field]).filter(Boolean);
 
     if (!primaryUserUuid) {
       warnings.push({
@@ -369,7 +366,7 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
         message: 'No primary user assigned',
       });
     }
-    if (responsibility.isCritical && !backup1UserUuid && !backup2UserUuid) {
+    if (responsibility.isCritical && !backupUuids.length) {
       warnings.push({
         level: 'error',
         responsibility: label,
@@ -378,12 +375,9 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
       });
     }
 
-    const slots = [
-      ['Primary', primaryUserUuid],
-      ['Backup 1', backup1UserUuid],
-      ['Backup 2', backup2UserUuid],
-    ];
-    for (const [slotLabel, uuid] of slots) {
+    for (const slot of OWNERSHIP_SLOTS) {
+      const slotLabel = slot.label;
+      const uuid = responsibility[slot.field];
       if (!uuid) continue;
       if (!byUuid.has(uuid)) {
         warnings.push({
@@ -403,7 +397,7 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
           message: `${slotLabel} (${availability.userName}) is inactive in operations`,
         });
       }
-      if (slotLabel !== 'Primary' && availability && !availability.backupEligible) {
+      if (slot.role !== 'primary' && availability && !availability.backupEligible) {
         warnings.push({
           level: 'warning',
           responsibility: label,
@@ -413,7 +407,7 @@ const validateConfiguration = ({ responsibilities, availabilityMap, users }) => 
       }
     }
 
-    const assigned = [primaryUserUuid, backup1UserUuid, backup2UserUuid].filter(Boolean);
+    const assigned = [primaryUserUuid, ...backupUuids].filter(Boolean);
     if (new Set(assigned).size !== assigned.length) {
       warnings.push({
         level: 'warning',
@@ -470,6 +464,7 @@ const auditFieldChanges = async ({ before = {}, after = {}, fields, base }) => {
 };
 
 module.exports = {
+  OWNERSHIP_SLOTS,
   STORE_SETTINGS_KEY,
   PRIORITY_LEVELS_KEY,
   DEPARTMENTS_KEY,

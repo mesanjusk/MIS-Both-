@@ -9,6 +9,7 @@ const { randomUUID } = require('crypto');
 const Responsibility = require('../repositories/responsibility');
 const SOPTask = require('../repositories/sopTask');
 const { AppSetting } = require('../repositories/appSetting');
+const { chainFields } = require('../constants/ownership');
 const {
   STORE_SETTINGS_KEY,
   PRIORITY_LEVELS_KEY,
@@ -147,9 +148,7 @@ const seedResponsibilities = async () => {
     responsibility_uuid: randomUUID(),
     // Left unassigned on purpose — management assigns users from
     // Settings → Operations → Responsibilities.
-    primaryUserUuid: '',
-    backup1UserUuid: '',
-    backup2UserUuid: '',
+    ...chainFields({}),
     isActive: true,
   }));
 

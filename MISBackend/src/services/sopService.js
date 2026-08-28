@@ -3,6 +3,7 @@ const SOPTask = require('../repositories/sopTask');
 const SOPCompletion = require('../repositories/sopCompletion');
 const Attendance = require('../repositories/attendance');
 const User = require('../repositories/users');
+const { OWNERSHIP_FIELDS, readChain } = require('../constants/ownership');
 
 function getIstDate(d = new Date()) {
   return new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
@@ -42,7 +43,7 @@ async function getEffectiveGroup(task, date) {
 // Tasks with no user-level chain keep the original group-fallback behaviour
 // untouched, so everything seeded before this module still works as before.
 const hasUserChain = (task) =>
-  Boolean(task.responsibility_uuid || task.primaryUserUuid || task.backup1UserUuid || task.backup2UserUuid);
+  Boolean(task.responsibility_uuid) || OWNERSHIP_FIELDS.some((field) => task[field]);
 
 async function getTasksForGroup(userGroup, date) {
   const tasks = await SOPTask.find({ isActive: true, frequency: 'daily' })
@@ -60,7 +61,7 @@ async function getTasksForGroup(userGroup, date) {
 
 /**
  * Today's checklist for one *user*, resolved through the responsibility chain
- * (primary -> backup 1 -> backup 2 -> escalation) instead of the group
+ * (primary -> backup 1..4 -> escalation) instead of the group
  * fallback. Items the user only holds because someone above them is
  * unavailable are flagged `transferred` so the covering user can see what they
  * inherited rather than being handed unexplained work.
@@ -88,14 +89,10 @@ async function getDailyStatusForUser(userUuid) {
       ? responsibilityByUuid.get(task.responsibility_uuid)
       : null;
     const category = task.category || responsibility?.category || 'general';
-    const slots = [
-      ['primary', task.primaryUserUuid || responsibility?.primaryUserUuid || ''],
-      ['backup1', task.backup1UserUuid || responsibility?.backup1UserUuid || ''],
-      ['backup2', task.backup2UserUuid || responsibility?.backup2UserUuid || ''],
-    ];
+    const slots = readChain(task, responsibility);
 
     let owner = null;
-    for (const [role, uuid] of slots) {
+    for (const { role, userUuid: uuid } of slots) {
       if (!uuid || owner) continue;
       const availability = availabilityMap.get(uuid);
       if (!availability) continue;

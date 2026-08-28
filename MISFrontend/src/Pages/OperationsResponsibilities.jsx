@@ -12,7 +12,7 @@ import DownloadingIcon from '@mui/icons-material/Downloading';
 import {
   PageContainer, SectionCard, DataTableWrapper, LoadingState, EmptyState, ErrorState,
 } from '../Components/ui';
-import { categoryLabel, ownerRoleLabel } from '../constants/operations';
+import { categoryLabel, ownerRoleLabel, OWNERSHIP_SLOTS } from '../constants/operations';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchResponsibilities, createResponsibility, updateResponsibility, deleteResponsibility,
@@ -55,13 +55,13 @@ SlotSelect.propTypes = {
   onChange: PropTypes.func.isRequired,
 };
 
+const EMPTY_CHAIN = Object.fromEntries(OWNERSHIP_SLOTS.map((slot) => [slot.field, '']));
+
 const EMPTY_FORM = {
   name: '',
   description: '',
   category: 'general',
-  primaryUserUuid: '',
-  backup1UserUuid: '',
-  backup2UserUuid: '',
+  ...EMPTY_CHAIN,
   isCritical: false,
   isActive: true,
   sortOrder: 0,
@@ -135,9 +135,7 @@ export default function OperationsResponsibilities() {
       name: row.name || '',
       description: row.description || '',
       category: row.category || 'general',
-      primaryUserUuid: row.primaryUserUuid || '',
-      backup1UserUuid: row.backup1UserUuid || '',
-      backup2UserUuid: row.backup2UserUuid || '',
+      ...Object.fromEntries(OWNERSHIP_SLOTS.map((slot) => [slot.field, row[slot.field] || ''])),
       isCritical: !!row.isCritical,
       isActive: row.isActive !== false,
       sortOrder: row.sortOrder || 0,
@@ -216,7 +214,7 @@ export default function OperationsResponsibilities() {
   return (
     <PageContainer
       title="Responsibilities"
-      subtitle="Settings → Operations → Responsibilities. Primary, Backup 1 and Backup 2 are stored as users, so re-assigning a priority never re-points a responsibility."
+      subtitle="Settings → Operations → Responsibilities. Primary and Backups 1–4 are stored as users, so re-assigning a priority never re-points a responsibility."
       actions={(
         <>
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
@@ -249,9 +247,9 @@ export default function OperationsResponsibilities() {
                 <TableRow>
                   <TableCell sx={{ minWidth: 180 }}>Responsibility</TableCell>
                   <TableCell sx={{ minWidth: 130 }}>Category</TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>Primary</TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>Backup 1</TableCell>
-                  <TableCell sx={{ minWidth: 180 }}>Backup 2</TableCell>
+                  {OWNERSHIP_SLOTS.map((slot) => (
+                    <TableCell key={slot.field} sx={{ minWidth: 180 }}>{slot.label}</TableCell>
+                  ))}
                   <TableCell sx={{ minWidth: 160 }}>Owner Now</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
@@ -267,33 +265,17 @@ export default function OperationsResponsibilities() {
                       </Stack>
                     </TableCell>
                     <TableCell>{categoryLabel(row.category)}</TableCell>
-                    <TableCell>
-                      <SlotSelect
-                        value={row.primaryUserUuid || ''}
-                        users={selectableUsers}
-                        userNames={userNameByUuid}
-                        disabled={!canEdit}
-                        onChange={(value) => changeSlot(row, 'primaryUserUuid', value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <SlotSelect
-                        value={row.backup1UserUuid || ''}
-                        users={selectableUsers}
-                        userNames={userNameByUuid}
-                        disabled={!canEdit}
-                        onChange={(value) => changeSlot(row, 'backup1UserUuid', value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <SlotSelect
-                        value={row.backup2UserUuid || ''}
-                        users={selectableUsers}
-                        userNames={userNameByUuid}
-                        disabled={!canEdit}
-                        onChange={(value) => changeSlot(row, 'backup2UserUuid', value)}
-                      />
-                    </TableCell>
+                    {OWNERSHIP_SLOTS.map((slot) => (
+                      <TableCell key={slot.field}>
+                        <SlotSelect
+                          value={row[slot.field] || ''}
+                          users={selectableUsers}
+                          userNames={userNameByUuid}
+                          disabled={!canEdit}
+                          onChange={(value) => changeSlot(row, slot.field, value)}
+                        />
+                      </TableCell>
+                    ))}
                     <TableCell>
                       {row.resolution?.currentOwner ? (
                         <Tooltip title={row.resolution.currentOwner.reason || ''}>
@@ -324,7 +306,7 @@ export default function OperationsResponsibilities() {
                 ))}
                 {!rows.length ? (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={OWNERSHIP_SLOTS.length + 4}>
                       <EmptyState
                         title="No responsibilities yet"
                         description="Use “Seed defaults” to create the standard list with every slot left unassigned."
@@ -364,10 +346,10 @@ export default function OperationsResponsibilities() {
               Outside Logistics work stays with a user who is marked Outside; Inside Store work
               moves to their backup so the store floor keeps running.
             </Alert>
-            {['primaryUserUuid', 'backup1UserUuid', 'backup2UserUuid'].map((slot, index) => (
-              <FormControl size="small" fullWidth key={slot}>
-                <InputLabel>{['Primary', 'Backup 1', 'Backup 2'][index]}</InputLabel>
-                <Select label={['Primary', 'Backup 1', 'Backup 2'][index]} value={form[slot]} onChange={setField(slot)}>
+            {OWNERSHIP_SLOTS.map((slot) => (
+              <FormControl size="small" fullWidth key={slot.field}>
+                <InputLabel>{slot.label}</InputLabel>
+                <Select label={slot.label} value={form[slot.field]} onChange={setField(slot.field)}>
                   <MenuItem value="">— None —</MenuItem>
                   {selectableUsers.map((user) => (
                     <MenuItem key={user.User_uuid} value={user.User_uuid}>

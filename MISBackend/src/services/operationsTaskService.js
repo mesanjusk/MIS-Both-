@@ -11,6 +11,7 @@ const SOPTask = require('../repositories/sopTask');
 const SOPCompletion = require('../repositories/sopCompletion');
 const User = require('../repositories/users');
 const { getDateOnly } = require('./attendanceService');
+const { readChain, chainFields, isBackupUser } = require('../constants/ownership');
 const {
   getStoreSettings,
   buildAvailabilityMap,
@@ -29,7 +30,7 @@ const isDone = (status) => DONE_STATUSES.has(String(status || '').trim().toLower
  *
  * Prefers the task's own chain; falls back to the linked responsibility's
  * chain when the task doesn't carry one. Same strict order everywhere:
- * primary → backup 1 → backup 2 → escalated.
+ * primary → backup 1 → backup 2 → backup 3 → backup 4 → escalated.
  */
 const resolveTaskOwnership = (task, availabilityMap, responsibilityByUuid) => {
   const responsibility = task.responsibility_uuid
@@ -37,20 +38,7 @@ const resolveTaskOwnership = (task, availabilityMap, responsibilityByUuid) => {
     : null;
 
   const category = task.category || responsibility?.category || 'general';
-  const slots = [
-    {
-      role: 'primary',
-      userUuid: task.primaryUserUuid || responsibility?.primaryUserUuid || '',
-    },
-    {
-      role: 'backup1',
-      userUuid: task.backup1UserUuid || responsibility?.backup1UserUuid || '',
-    },
-    {
-      role: 'backup2',
-      userUuid: task.backup2UserUuid || responsibility?.backup2UserUuid || '',
-    },
-  ];
+  const slots = readChain(task, responsibility);
 
   const chain = [];
   let owner = null;
@@ -250,9 +238,7 @@ const getMyTasks = async ({ userUuid, date = new Date() } = {}) => {
     const responsibility = task.responsibility_uuid
       ? context.responsibilityByUuid.get(task.responsibility_uuid)
       : null;
-    const b1 = task.backup1UserUuid || responsibility?.backup1UserUuid || '';
-    const b2 = task.backup2UserUuid || responsibility?.backup2UserUuid || '';
-    return b1 === userUuid || b2 === userUuid;
+    return isBackupUser(chainFields(task, responsibility), userUuid);
   };
 
   const ownedNow = openTasks.filter((task) => task.currentOwner?.userUuid === userUuid);
@@ -293,9 +279,7 @@ const getMyTasks = async ({ userUuid, date = new Date() } = {}) => {
     coveredForMe: coveredByOthers,
     myResponsibilities: {
       configuredPrimary: context.responsibilities.filter((item) => item.primaryUserUuid === userUuid),
-      configuredBackup: context.responsibilities.filter(
-        (item) => item.backup1UserUuid === userUuid || item.backup2UserUuid === userUuid
-      ),
+      configuredBackup: context.responsibilities.filter((item) => isBackupUser(item, userUuid)),
       activeNow: responsibilityViews.filter((view) => view.currentOwner?.userUuid === userUuid),
     },
   };
@@ -350,9 +334,7 @@ const resolveOwnerForHook = async (hookKey) => {
   return {
     responsibility_uuid: responsibility.responsibility_uuid,
     category: responsibility.category || 'general',
-    primaryUserUuid: responsibility.primaryUserUuid || '',
-    backup1UserUuid: responsibility.backup1UserUuid || '',
-    backup2UserUuid: responsibility.backup2UserUuid || '',
+    ...chainFields(responsibility),
     currentOwnerUuid: view.currentOwner?.userUuid || '',
     currentOwnerName: view.currentOwner?.userName || '',
     ownerRole: view.currentOwner ? view.currentOwner.role : 'escalated',
@@ -399,16 +381,15 @@ const generateDailyTasks = async ({ date = new Date(), actorName = 'system' } = 
       ? context.responsibilityByUuid.get(sop.responsibility_uuid)
       : null;
 
-    const primaryUserUuid = sop.primaryUserUuid || responsibility?.primaryUserUuid || '';
-    const backup1UserUuid = sop.backup1UserUuid || responsibility?.backup1UserUuid || '';
-    const backup2UserUuid = sop.backup2UserUuid || responsibility?.backup2UserUuid || '';
+    const chain = chainFields(sop, responsibility);
+    const primaryUserUuid = chain.primaryUserUuid;
 
     // Group-owned SOP items with no user-level chain stay in the existing SOP
     // screen; they are not turned into user tasks with nobody to own them.
-    if (!primaryUserUuid && !backup1UserUuid && !backup2UserUuid) continue;
+    if (!Object.values(chain).some(Boolean)) continue;
 
     const ownership = resolveTaskOwnership(
-      { primaryUserUuid, backup1UserUuid, backup2UserUuid, category: sop.category || responsibility?.category },
+      { ...chain, category: sop.category || responsibility?.category },
       context.availabilityMap,
       context.responsibilityByUuid
     );
@@ -432,9 +413,7 @@ const generateDailyTasks = async ({ date = new Date(), actorName = 'system' } = 
       Remark: sop.description || sop.section || sop.title,
       responsibility_uuid: sop.responsibility_uuid || '',
       category: sop.category || responsibility?.category || 'general',
-      primaryUserUuid,
-      backup1UserUuid,
-      backup2UserUuid,
+      ...chain,
       currentOwnerUuid: ownership.currentOwner?.userUuid || '',
       ownerRole: ownership.currentOwner ? ownership.ownerRole : 'escalated',
       escalated: ownership.escalated,

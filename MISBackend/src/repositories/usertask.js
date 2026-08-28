@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { OWNER_ROLES } = require('../constants/ownership');
 
 const UsertasksSchema=new mongoose.Schema({
     Usertask_uuid: { type: String },
@@ -22,11 +23,13 @@ const UsertasksSchema=new mongoose.Schema({
     primaryUserUuid: { type: String, default: '' },
     backup1UserUuid: { type: String, default: '' },
     backup2UserUuid: { type: String, default: '' },
+    backup3UserUuid: { type: String, default: '' },
+    backup4UserUuid: { type: String, default: '' },
     // Runtime owner — recomputed from attendance on every read, so the
     // configured chain above is never overwritten when someone is absent and
     // the primary silently gets their work back on return.
     currentOwnerUuid: { type: String, default: '' },
-    ownerRole: { type: String, enum: ['primary', 'backup1', 'backup2', 'escalated', ''], default: '' },
+    ownerRole: { type: String, enum: [...OWNER_ROLES, ''], default: '' },
     escalated: { type: Boolean, default: false },
 
     // Schedule metadata for the configurable daily plan (§22).

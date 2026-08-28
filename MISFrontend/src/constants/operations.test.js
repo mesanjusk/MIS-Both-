@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   attendanceColor, stateColor, categoryLabel, ownerRoleLabel,
-  describeUserRole, formatWeekDays, BUCKET_META,
+  describeUserRole, formatWeekDays, BUCKET_META, OWNERSHIP_SLOTS,
 } from './operations';
 import { SIDEBAR_GROUPS } from './sidebarMenu';
 import { ROUTES } from './routes';
@@ -30,7 +30,21 @@ describe('operations display helpers', () => {
     expect(ownerRoleLabel('primary')).toBe('Primary');
     expect(ownerRoleLabel('backup1')).toBe('Backup 1');
     expect(ownerRoleLabel('backup2')).toBe('Backup 2');
+    expect(ownerRoleLabel('backup3')).toBe('Backup 3');
+    expect(ownerRoleLabel('backup4')).toBe('Backup 4');
     expect(ownerRoleLabel('escalated')).toBe('Escalated');
+  });
+
+  it('lists the ownership slots in the order the backend falls through them', () => {
+    expect(OWNERSHIP_SLOTS.map((slot) => slot.role)).toEqual([
+      'primary', 'backup1', 'backup2', 'backup3', 'backup4',
+    ]);
+    // The field names must match the API payload exactly — the Responsibilities
+    // screen sends them straight back as the update body.
+    expect(OWNERSHIP_SLOTS.map((slot) => slot.field)).toEqual([
+      'primaryUserUuid', 'backup1UserUuid', 'backup2UserUuid',
+      'backup3UserUuid', 'backup4UserUuid',
+    ]);
   });
 
   it('describes a role from whichever halves are configured', () => {

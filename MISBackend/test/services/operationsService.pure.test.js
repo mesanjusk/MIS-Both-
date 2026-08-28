@@ -208,6 +208,8 @@ describe('resolveResponsibilityOwner', () => {
       primaryUserUuid: 'u-primary',
       backup1UserUuid: 'u-backup1',
       backup2UserUuid: 'u-backup2',
+      backup3UserUuid: '',
+      backup4UserUuid: '',
     });
   });
 
@@ -221,6 +223,59 @@ describe('resolveResponsibilityOwner', () => {
       })
     );
     expect(result.currentOwner).toMatchObject({ userUuid: 'u-backup2', role: 'backup2' });
+  });
+
+  test('the chain keeps falling through to backup 3 and then backup 4', () => {
+    const deepChain = {
+      ...responsibility,
+      backup3UserUuid: 'u-backup3',
+      backup4UserUuid: 'u-backup4',
+    };
+    const out = (userUuid) => availability({ userUuid, attendanceStatus: 'Absent' });
+
+    const toBackup3 = resolveResponsibilityOwner(
+      deepChain,
+      mapOf({
+        'u-primary': out('u-primary'),
+        'u-backup1': out('u-backup1'),
+        'u-backup2': out('u-backup2'),
+        'u-backup3': availability({ userUuid: 'u-backup3', userName: 'Backup3' }),
+        'u-backup4': availability({ userUuid: 'u-backup4', userName: 'Backup4' }),
+      })
+    );
+    expect(toBackup3.currentOwner).toMatchObject({ userUuid: 'u-backup3', role: 'backup3' });
+
+    const toBackup4 = resolveResponsibilityOwner(
+      deepChain,
+      mapOf({
+        'u-primary': out('u-primary'),
+        'u-backup1': out('u-backup1'),
+        'u-backup2': out('u-backup2'),
+        'u-backup3': out('u-backup3'),
+        'u-backup4': availability({ userUuid: 'u-backup4', userName: 'Backup4' }),
+      })
+    );
+    expect(toBackup4.currentOwner).toMatchObject({ userUuid: 'u-backup4', role: 'backup4' });
+    expect(toBackup4.escalated).toBe(false);
+    // The whole five-slot chain is reported, not just the slots that answered.
+    expect(toBackup4.chain).toHaveLength(5);
+  });
+
+  test('a chain that is deep but entirely unavailable still escalates', () => {
+    const result = resolveResponsibilityOwner(
+      { ...responsibility, backup3UserUuid: 'u-backup3', backup4UserUuid: 'u-backup4' },
+      mapOf(
+        Object.fromEntries(
+          ['u-primary', 'u-backup1', 'u-backup2', 'u-backup3', 'u-backup4'].map((uuid) => [
+            uuid,
+            availability({ userUuid: uuid, attendanceStatus: 'Absent' }),
+          ])
+        )
+      )
+    );
+    expect(result.currentOwner).toBeNull();
+    expect(result.escalated).toBe(true);
+    expect(result.warning).toBe('NO AVAILABLE OWNER');
   });
 
   test('everyone unavailable escalates loudly rather than dropping the work', () => {
@@ -342,6 +397,54 @@ describe('validateConfiguration', () => {
     });
     expect(warnings).toEqual(
       expect.arrayContaining([expect.objectContaining({ level: 'error', message: 'No primary user assigned' })])
+    );
+  });
+
+  test('a critical responsibility covered only by backup 4 is not flagged as uncovered', () => {
+    const warnings = validateConfiguration({
+      responsibilities: [
+        {
+          responsibility_uuid: 'r',
+          name: 'QC',
+          isCritical: true,
+          primaryUserUuid: 'u-1',
+          backup4UserUuid: 'u-2',
+        },
+      ],
+      availabilityMap,
+      users,
+    });
+    expect(warnings.map((warning) => warning.message)).not.toContain(
+      'Critical responsibility has no backup cover'
+    );
+  });
+
+  test('a deep backup slot is validated with its own label', () => {
+    const warnings = validateConfiguration({
+      responsibilities: [
+        { responsibility_uuid: 'r', name: 'QC', primaryUserUuid: 'u-1', backup3UserUuid: 'u-2' },
+      ],
+      availabilityMap,
+      users,
+    });
+    expect(warnings.map((warning) => warning.message)).toEqual(
+      expect.arrayContaining([
+        'Backup 3 (Two) is inactive in operations',
+        'Backup 3 (Two) is not marked backup eligible',
+      ])
+    );
+  });
+
+  test('the duplicate-slot check reaches the deep backups too', () => {
+    const warnings = validateConfiguration({
+      responsibilities: [
+        { responsibility_uuid: 'r', name: 'QC', primaryUserUuid: 'u-1', backup4UserUuid: 'u-1' },
+      ],
+      availabilityMap,
+      users,
+    });
+    expect(warnings.map((warning) => warning.message)).toEqual(
+      expect.arrayContaining(['The same user is assigned to more than one slot'])
     );
   });
 

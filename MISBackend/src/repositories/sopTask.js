@@ -11,7 +11,7 @@ const SOPTaskSchema = new mongoose.Schema(
     primaryGroup: { type: String, required: true, trim: true },
     fallbackGroups: [{ type: String, trim: true }],
     // When set, ownership resolves through the user-level responsibility chain
-    // (Responsibility → primary → backup 1 → backup 2 → escalation) instead of
+    // (Responsibility → primary → backup 1..4 → escalation) instead of
     // the group fallback above. Left empty, the original group behaviour is
     // untouched, so existing seeded SOP tasks keep working exactly as before.
     responsibility_uuid: { type: String, default: '' },
@@ -20,6 +20,8 @@ const SOPTaskSchema = new mongoose.Schema(
     primaryUserUuid: { type: String, default: '' },
     backup1UserUuid: { type: String, default: '' },
     backup2UserUuid: { type: String, default: '' },
+    backup3UserUuid: { type: String, default: '' },
+    backup4UserUuid: { type: String, default: '' },
     // Configurable daily schedule (§22): when it runs, how long, which days.
     scheduledTime: { type: String, default: '' },   // 'HH:MM'
     durationMinutes: { type: Number, default: 0 },

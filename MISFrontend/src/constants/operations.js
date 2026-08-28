@@ -32,10 +32,21 @@ export const CATEGORY_LABELS = {
   general: 'General',
 };
 
+/**
+ * The ownership chain, in strict fallback order — the same slots the API
+ * stores on a responsibility. Adding a slot here is all the Responsibilities
+ * screen needs to show and edit a deeper chain.
+ */
+export const OWNERSHIP_SLOTS = [
+  { role: 'primary', field: 'primaryUserUuid', label: 'Primary' },
+  { role: 'backup1', field: 'backup1UserUuid', label: 'Backup 1' },
+  { role: 'backup2', field: 'backup2UserUuid', label: 'Backup 2' },
+  { role: 'backup3', field: 'backup3UserUuid', label: 'Backup 3' },
+  { role: 'backup4', field: 'backup4UserUuid', label: 'Backup 4' },
+];
+
 export const OWNER_ROLE_LABELS = {
-  primary: 'Primary',
-  backup1: 'Backup 1',
-  backup2: 'Backup 2',
+  ...Object.fromEntries(OWNERSHIP_SLOTS.map((slot) => [slot.role, slot.label])),
   escalated: 'Escalated',
 };
 

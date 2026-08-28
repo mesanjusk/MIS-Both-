@@ -42,6 +42,7 @@ const {
 } = require('../services/operationsTaskService');
 const { seedAll } = require('../services/operationsSeedService');
 const { ORDER_STAGES } = require('../constants/orderStages');
+const { OWNERSHIP_FIELDS, chainFields, isBackupUser } = require('../constants/ownership');
 
 // Every route needs a logged-in user; writes additionally need requireAdmin,
 // which resolves through the existing role hierarchy (admin/owner/manager).
@@ -251,9 +252,7 @@ router.get('/users/:userUuid', async (req, res, next) => {
         operations: user.operations || {},
         availability: availabilityMap.get(user.User_uuid) || null,
         primaryResponsibilities: responsibilities.filter((item) => item.primaryUserUuid === userUuid),
-        backupResponsibilities: responsibilities.filter(
-          (item) => item.backup1UserUuid === userUuid || item.backup2UserUuid === userUuid
-        ),
+        backupResponsibilities: responsibilities.filter((item) => isBackupUser(item, userUuid)),
         activeNow: views.filter((view) => view.currentOwner?.userUuid === userUuid),
         effectiveWorkingDays: user.operations?.workingDays?.length
           ? user.operations.workingDays
@@ -444,10 +443,7 @@ router.get('/me', async (req, res, next) => {
           .filter((item) => item.primaryUserUuid === actor.User_uuid)
           .map((item) => item.name),
         backupResponsibilities: responsibilities
-          .filter(
-            (item) =>
-              item.backup1UserUuid === actor.User_uuid || item.backup2UserUuid === actor.User_uuid
-          )
+          .filter((item) => isBackupUser(item, actor.User_uuid))
           .map((item) => item.name),
         activeNow: views
           .filter((view) => view.currentOwner?.userUuid === actor.User_uuid)
@@ -496,9 +492,9 @@ router.post('/responsibilities', requireAdmin, async (req, res, next) => {
       name,
       description: String(req.body?.description || '').trim(),
       category,
-      primaryUserUuid: String(req.body?.primaryUserUuid || '').trim(),
-      backup1UserUuid: String(req.body?.backup1UserUuid || '').trim(),
-      backup2UserUuid: String(req.body?.backup2UserUuid || '').trim(),
+      ...Object.fromEntries(
+        OWNERSHIP_FIELDS.map((field) => [field, String(req.body?.[field] || '').trim()])
+      ),
       isCritical: !!req.body?.isCritical,
       isActive: req.body?.isActive !== false,
       sortOrder: Number(req.body?.sortOrder) || 0,
@@ -510,7 +506,7 @@ router.post('/responsibilities', requireAdmin, async (req, res, next) => {
         entityType: 'responsibility',
         entityId: created.responsibility_uuid,
         entityName: created.name,
-        newValue: { primaryUserUuid: created.primaryUserUuid, backup1UserUuid: created.backup1UserUuid, backup2UserUuid: created.backup2UserUuid },
+        newValue: chainFields(created),
         reason: req.body?.reason || '',
       })
     );
@@ -534,9 +530,7 @@ router.put('/responsibilities/:responsibilityUuid', requireAdmin, async (req, re
       'name',
       'description',
       'category',
-      'primaryUserUuid',
-      'backup1UserUuid',
-      'backup2UserUuid',
+      ...OWNERSHIP_FIELDS,
       'isCritical',
       'isActive',
       'sortOrder',
@@ -680,9 +674,7 @@ router.post('/tasks', requireAdmin, async (req, res, next) => {
     const chainSource = {
       responsibility_uuid: req.body?.responsibility_uuid || '',
       category: req.body?.category || responsibility?.category || 'general',
-      primaryUserUuid: String(req.body?.primaryUserUuid || responsibility?.primaryUserUuid || ''),
-      backup1UserUuid: String(req.body?.backup1UserUuid || responsibility?.backup1UserUuid || ''),
-      backup2UserUuid: String(req.body?.backup2UserUuid || responsibility?.backup2UserUuid || ''),
+      ...chainFields(req.body || {}, responsibility),
     };
     if (!chainSource.primaryUserUuid) {
       return fail(res, 400, 'A primary user (or a responsibility that has one) is required');

@@ -11,6 +11,7 @@ const {
   SOPTask,
   SOPCompletion,
 } = require('../services/sopService');
+const { OWNERSHIP_FIELDS } = require('../constants/ownership');
 
 // GET /api/sop/tasks — admin: list all tasks
 router.get('/tasks', requireAuth, async (req, res, next) => {
@@ -33,7 +34,7 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
     const {
       title, description, section, frequency, timeOfDay,
       primaryGroup, fallbackGroups, isSkippable, isActive, sortOrder, kpi,
-      responsibility_uuid, primaryUserUuid, backup1UserUuid, backup2UserUuid,
+      responsibility_uuid,
       scheduledTime, durationMinutes, weekDays, category,
     } = req.body;
     if (!title || !primaryGroup) {
@@ -53,9 +54,9 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       sortOrder: Number(sortOrder) || 0,
       kpi: kpi?.trim() || '',
       responsibility_uuid: responsibility_uuid?.trim() || '',
-      primaryUserUuid: primaryUserUuid?.trim() || '',
-      backup1UserUuid: backup1UserUuid?.trim() || '',
-      backup2UserUuid: backup2UserUuid?.trim() || '',
+      ...Object.fromEntries(
+        OWNERSHIP_FIELDS.map((field) => [field, req.body[field]?.trim() || ''])
+      ),
       scheduledTime: scheduledTime?.trim() || '',
       durationMinutes: Number(durationMinutes) || 0,
       weekDays: Array.isArray(weekDays) ? weekDays.map(Number).filter((d) => d >= 0 && d <= 6) : [],
@@ -73,7 +74,7 @@ router.put('/tasks/:id', requireAuth, async (req, res, next) => {
     const { id } = req.params;
     const allowed = ['title', 'description', 'section', 'frequency', 'timeOfDay',
       'primaryGroup', 'fallbackGroups', 'isSkippable', 'isActive', 'sortOrder', 'kpi',
-      'responsibility_uuid', 'primaryUserUuid', 'backup1UserUuid', 'backup2UserUuid',
+      'responsibility_uuid', ...OWNERSHIP_FIELDS,
       'scheduledTime', 'durationMinutes', 'weekDays', 'category'];
     const update = {};
     for (const key of allowed) {

@@ -9,8 +9,9 @@ const mongoose = require('mongoose');
 //     responsibility area. It links here via `responsibility_uuid` instead.
 //   - Usertasks is a task *instance* (one row per piece of work), not standing
 //     configuration; instances point here so the chain survives task churn.
-//   - Users can't hold it either: a responsibility is owned by three different
-//     users at once, so storing it on any one of them loses the relationship.
+//   - Users can't hold it either: a responsibility is owned by several
+//     different users at once, so storing it on any one of them loses the
+//     relationship.
 //
 // Ownership is stored as User_uuid values, never as a priority code: P2 is
 // metadata on a user and can move to a different person tomorrow, so
@@ -34,6 +35,9 @@ const ResponsibilitySchema = new mongoose.Schema(
     primaryUserUuid: { type: String, default: '' },
     backup1UserUuid: { type: String, default: '' },
     backup2UserUuid: { type: String, default: '' },
+    // Deeper cover: an area can name up to four backups, walked in order.
+    backup3UserUuid: { type: String, default: '' },
+    backup4UserUuid: { type: String, default: '' },
 
     // Critical responsibilities must have a primary and at least one backup —
     // enforced as a warning by the validation endpoint, not a hard save block,
@@ -48,6 +52,8 @@ const ResponsibilitySchema = new mongoose.Schema(
 ResponsibilitySchema.index({ primaryUserUuid: 1 });
 ResponsibilitySchema.index({ backup1UserUuid: 1 });
 ResponsibilitySchema.index({ backup2UserUuid: 1 });
+ResponsibilitySchema.index({ backup3UserUuid: 1 });
+ResponsibilitySchema.index({ backup4UserUuid: 1 });
 ResponsibilitySchema.index({ isActive: 1, sortOrder: 1 });
 
 module.exports = mongoose.model('Responsibility', ResponsibilitySchema);

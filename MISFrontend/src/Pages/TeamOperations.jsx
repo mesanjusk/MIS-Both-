@@ -99,7 +99,7 @@ export default function TeamOperations() {
             ⚠️ NO AVAILABLE OWNER — {escalated.length} responsibilit{escalated.length === 1 ? 'y' : 'ies'}
           </Typography>
           <Typography variant="body2">
-            {escalated.map((item) => item.name).join(', ')} — primary and both backups are unavailable.
+            {escalated.map((item) => item.name).join(', ')} — the primary and every configured backup are unavailable.
             Escalated to management; nothing has been auto-assigned.
           </Typography>
         </Alert>

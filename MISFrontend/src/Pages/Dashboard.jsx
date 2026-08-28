@@ -26,6 +26,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -687,6 +688,14 @@ export default function Dashboard() {
                             <Stack direction="row" alignItems="center" spacing={0.75}>
                               <Avatar sx={(t) => ({ width: 22, height: 22, bgcolor: alpha(t.palette.success.main, 0.12), color: 'success.main', fontSize: '0.6rem', fontWeight: 800 })}>{(row.user || '?')[0].toUpperCase()}</Avatar>
                               <Typography variant="body2" fontWeight={700} noWrap sx={{ fontSize: '0.76rem' }}>{row.user}</Typography>
+                              {row.automated ? (
+                                <Chip size="small" color="secondary" variant="outlined" label="AI" sx={{ height: 16, fontSize: '0.6rem', fontWeight: 800 }} />
+                              ) : null}
+                              {row.covering ? (
+                                <Tooltip title={`${row.covering} task(s) covered for someone else`}>
+                                  <Chip size="small" color="warning" variant="outlined" label={`+${row.covering}`} sx={{ height: 16, fontSize: '0.6rem', fontWeight: 800 }} />
+                                </Tooltip>
+                              ) : null}
                             </Stack>
                           </TableCell>
                           <TableCell><Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.76rem' }}>{row.group || '—'}</Typography></TableCell>

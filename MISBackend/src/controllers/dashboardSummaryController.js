@@ -5,6 +5,8 @@ const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
 const Customers = require('../repositories/customer');
 const { getPendingOrdersForUser } = require('../services/orderTaskService');
+const { loadResolutionContext, resolveTaskOwnership } = require('../services/operationsTaskService');
+const { OWNERSHIP_FIELDS } = require('../constants/ownership');
 const logger = require('../utils/logger');
 
 const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
@@ -83,6 +85,37 @@ const buildUsertaskRow = (task, resolvedUserName = '') => ({
   raw: task,
 });
 
+/**
+ * A Usertask created against a responsibility carries the chain, and who owns
+ * it *today* is recomputed from attendance rather than stored — the `User`
+ * name on the row is only whoever it was created for. Resolve the live owner
+ * so the dashboard shows the person, the owner, or the AI assistant actually
+ * holding the work now, instead of someone who is on leave.
+ *
+ * Returns null when the task has no chain (an ordinary task, untouched) or
+ * when the chain has no available owner, in which case the caller keeps the
+ * existing stored-name behaviour rather than blanking the row.
+ */
+const resolveOperationsOwner = (task, context) => {
+  if (!context) return null;
+  const hasChain = Boolean(task?.currentOwnerUuid || task?.responsibility_uuid)
+    || OWNERSHIP_FIELDS.some((field) => task?.[field]);
+  if (!hasChain) return null;
+
+  const ownership = resolveTaskOwnership(task, context.availabilityMap, context.responsibilityByUuid);
+  if (!ownership.currentOwner) return null;
+
+  const availability = context.availabilityMap.get(ownership.currentOwner.userUuid);
+  return {
+    userUuid: ownership.currentOwner.userUuid,
+    userName: ownership.currentOwner.userName,
+    ownerRole: ownership.ownerRole,
+    transferred: ownership.transferred,
+    isVirtual: availability?.isVirtual === true,
+    operatorKind: availability?.operatorKind || 'user',
+  };
+};
+
 const buildUserWiseAssignedTasks = ({ users = [], orderRowsByUser = new Map(), usertaskRows = [] }) => {
   const bucket = new Map();
 
@@ -123,7 +156,9 @@ const buildUserWiseAssignedTasks = ({ users = [], orderRowsByUser = new Map(), u
     if (!bucket.has(assigned)) {
       bucket.set(assigned, {
         user: assigned,
-        group: '',
+        // The AI assistant is not a User row, so it has no group to show —
+        // label it for what it is rather than leaving the column blank.
+        group: task?.operationsOwner?.isVirtual ? 'Automated' : '',
         orderTasks: 0,
         userTasks: 0,
         total: 0,
@@ -132,6 +167,8 @@ const buildUserWiseAssignedTasks = ({ users = [], orderRowsByUser = new Map(), u
       });
     }
     const row = bucket.get(assigned);
+    if (task?.operationsOwner?.isVirtual) row.automated = true;
+    if (task?.operationsOwner?.transferred) row.covering = (row.covering || 0) + 1;
     row.userTasks += 1;
     row.total += 1;
 
@@ -220,12 +257,27 @@ const getDashboardSummary = async (req, res) => {
       }
     }
 
+    // Operations ownership is additive here: if it cannot be resolved the
+    // dashboard falls back to the stored name exactly as before, so a problem
+    // in the operations module never takes the home screen down with it.
+    let operationsContext = null;
+    try {
+      operationsContext = await loadResolutionContext({ date: now });
+    } catch (err) {
+      logger.warn?.('dashboardSummary: operations ownership unavailable', err?.message || err);
+    }
+
     const pendingUsertasks = (allUsertasks || []).filter(isPendingUsertask);
     const usertaskRows = pendingUsertasks.map((task) => {
+      const operationsOwner = resolveOperationsOwner(task, operationsContext);
       const matchedUser = users.find((user) => matchUsertaskToUser(task, user));
       return {
         ...task,
-        resolvedUserName: matchedUser?.User_name || String(task?.User || task?.AssignedTo || task?.Assigned || '').trim(),
+        operationsOwner,
+        resolvedUserName:
+          operationsOwner?.userName
+          || matchedUser?.User_name
+          || String(task?.User || task?.AssignedTo || task?.Assigned || '').trim(),
       };
     });
 
@@ -539,6 +591,10 @@ const getCashBookSummary = async (_req, res) => {
 };
 
 module.exports = {
+  // Exported for tests: the ownership resolution and row assembly behind the
+  // User-Wise Tasks panel, which are pure given a resolution context.
+  resolveOperationsOwner,
+  buildUserWiseAssignedTasks,
   getDashboardSummary,
   getOutstandingSummary,
   getStuckOrders,

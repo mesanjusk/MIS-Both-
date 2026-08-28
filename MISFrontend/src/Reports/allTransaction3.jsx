@@ -22,6 +22,7 @@ import TransactionDocumentModal from '../Components/TransactionDocumentModal';
 import UpdateDelivery from '../Pages/updateDelivery';
 import StatementModal from '../Components/StatementModal';
 import { getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
+import { ROUTES } from '../constants/routes';
 
 const AllTransaction3 = () => {
   const [transactions, setTransactions] = useState([]);
@@ -67,7 +68,7 @@ const AllTransaction3 = () => {
   useEffect(() => {
     if (!customerUuid || !customerName) {
       toast.error("Customer not found. Redirecting...");
-      navigate("/allTransaction1");
+      navigate(ROUTES.OUTSTANDING_REPORT);
       return;
     }
 

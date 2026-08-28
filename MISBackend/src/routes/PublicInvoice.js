@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
 const PublicInvoice = require('../repositories/publicInvoice');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
@@ -53,7 +54,7 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // One-time migration: create public_invoices for all existing orders that have billable items
-router.post('/migrate', requireAuth, async (req, res) => {
+router.post('/migrate', requireAuth, requireAdmin, async (req, res) => {
   try {
     // Fetch business profile snapshot
     const { storeName, addressLines, phone, email, gst, upiId, upiName } = await loadProfileSnapshot();

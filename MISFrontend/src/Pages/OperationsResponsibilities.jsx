@@ -247,11 +247,7 @@ export default function OperationsResponsibilities() {
     >
       {error ? <ErrorState message={error} /> : null}
       {success ? <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert> : null}
-      {!canEdit ? (
-        <Alert severity="info">
-          You have read-only access here. Ask a manager or admin to change responsibility ownership.
-        </Alert>
-      ) : null}
+      {!canEdit ? <Typography variant="caption" color="text.secondary">Read-only</Typography> : null}
 
       {loading ? <LoadingState label="Loading responsibilities..." /> : (
         <SectionCard>
@@ -356,11 +352,11 @@ export default function OperationsResponsibilities() {
                 ))}
               </Select>
             </FormControl>
-            <Alert severity="info" sx={{ py: 0 }}>
+            <Typography variant="caption" color="text.secondary">
               Outside Logistics work stays with a user who is marked Outside; Inside Store work
               moves to their backup so the store floor keeps running. Slots can also hold the AI
               assistant, which is always available and never steps out of the chain.
-            </Alert>
+            </Typography>
             {OWNERSHIP_SLOTS.map((slot) => (
               <FormControl size="small" fullWidth key={slot.field}>
                 <InputLabel>{slot.label}</InputLabel>

@@ -63,9 +63,9 @@ export default function UpiCollectPublic() {
                   Pay Now
                 </Button>
               ) : null}
-              <Alert severity="info" sx={{ width: '100%' }}>
-                After payment, you do not need to send a screenshot if the business has already shared this link. Their accounts team can confirm the payment from the bank statement using this request reference.
-              </Alert>
+              <Typography variant="body2" color="text.secondary" textAlign="center">
+                After payment, the accounts team will verify this reference. No screenshot is required.
+              </Typography>
             </>
           ) : null}
         </Stack>

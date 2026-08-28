@@ -149,7 +149,7 @@ export default function UserOperationsProfile() {
     >
       {error ? <ErrorState message={error} /> : null}
       {success ? <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert> : null}
-      {!canEdit ? <Alert severity="info">Read-only — only a manager or admin can change this.</Alert> : null}
+      {!canEdit ? <Typography variant="caption" color="text.secondary">Read-only</Typography> : null}
 
       <SectionCard title="Account">
         <Grid container spacing={1}>

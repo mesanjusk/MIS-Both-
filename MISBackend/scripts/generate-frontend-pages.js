@@ -4,10 +4,9 @@
  * table, so the backend's page list cannot drift from the pages that exist.
  *
  * The backend cannot import the frontend's ES modules, and hand-copying 130
- * route constants would be wrong within a week. This reads the two files that
- * already hold the truth — `constants/routes.js` for the paths and
- * `constants/sidebarMenu.jsx` for the labels and which ones are actually
- * linked from a menu — and writes a plain CommonJS module.
+ * route constants would be wrong within a week. This reads App.jsx for the
+ * routes that are actually mounted, resolves constants/routes.js references,
+ * then uses sidebarMenu.jsx for labels and menu-link status.
  *
  * Run it after adding a route:  node scripts/generate-frontend-pages.js
  */
@@ -18,17 +17,59 @@ const path = require('path');
 const FRONTEND = path.join(__dirname, '../../MISFrontend/src');
 const OUT = path.join(__dirname, '../src/constants/frontendPages.js');
 
-/** Paths a user must be able to reach even with everything else switched off. */
-const LOCKED = new Set(['/', '/login', '/register']);
+/** Paths that cannot be safely governed by the authenticated page guard. */
+const LOCKED = new Set([
+  '/',
+  '/login',
+  '/register',
+  '/home',
+  '/reports/api-performance',
+  '/upi/collect/:transactionRef',
+  '/invoice/:shareToken',
+]);
 
-function readRoutes() {
+function readRouteConstants() {
   const source = fs.readFileSync(path.join(FRONTEND, 'constants/routes.js'), 'utf8');
-  const routes = new Map();
-  // Matches:  REPORTS_TEAM: '/reports/team',
-  for (const [, name, value] of source.matchAll(/^\s*([A-Z0-9_]+)\s*:\s*'([^']+)'/gm)) {
-    routes.set(name, value);
+  const routeBlock = source.match(/export const ROUTES\s*=\s*\{([\s\S]*?)\n\};/)?.[1] || '';
+  const aliasBlock = source.match(/export const ROUTE_ALIASES\s*=\s*\{([\s\S]*?)\n\};/)?.[1] || '';
+
+  const readBlock = (block) => {
+    const values = new Map();
+    for (const [, name, value] of block.matchAll(/^\s*([A-Z0-9_]+)\s*:\s*'([^']+)'/gm)) {
+      values.set(name, value);
+    }
+    return values;
+  };
+
+  return { routes: readBlock(routeBlock), aliases: readBlock(aliasBlock) };
+}
+
+/** Resolve the route path forms used by App.jsx. */
+function readMountedRoutes(routes, aliases) {
+  const source = fs.readFileSync(path.join(FRONTEND, 'App.jsx'), 'utf8');
+  const mounted = [];
+
+  for (const line of source.split(/\r?\n/)) {
+    if (!line.includes('<Route') || !line.includes('path=')) continue;
+
+    let value = line.match(/\bpath=["']([^"']+)["']/)?.[1];
+    if (!value) {
+      const routeName = line.match(/\bpath=\{ROUTES\.([A-Z0-9_]+)\}/)?.[1];
+      if (routeName) value = routes.get(routeName);
+    }
+    if (!value) {
+      const aliasName = line.match(/\bpath=\{ROUTE_ALIASES\.([A-Z0-9_]+)\}/)?.[1];
+      if (aliasName) value = aliases.get(aliasName);
+    }
+    if (!value) {
+      const template = line.match(/\bpath=\{`\$\{ROUTES\.([A-Z0-9_]+)\}([^`]*)`\}/);
+      if (template) value = `${routes.get(template[1]) || ''}${template[2]}`;
+    }
+
+    if (value?.startsWith('/') && value !== '*') mounted.push(value);
   }
-  return routes;
+
+  return [...new Set(mounted)];
 }
 
 function readMenuLabels(routes) {
@@ -46,7 +87,8 @@ function readMenuLabels(routes) {
 
 /** A readable name for a path nothing in the menu names. */
 function fallbackLabel(routePath) {
-  const tail = routePath.split('/').filter(Boolean).pop() || 'Home';
+  const segments = routePath.split('/').filter(Boolean);
+  const tail = [...segments].reverse().find((segment) => !segment.startsWith(':')) || 'Home';
   return tail
     .replace(/[-_]/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -54,31 +96,34 @@ function fallbackLabel(routePath) {
 }
 
 function main() {
-  const routes = readRoutes();
+  const { routes, aliases } = readRouteConstants();
+  const mountedRoutes = readMountedRoutes(routes, aliases);
   const labels = readMenuLabels(routes);
 
-  const pages = [...new Set(routes.values())]
-    // Parameterised routes are one screen, not many; the path is the switch.
-    .filter((routePath) => routePath.startsWith('/'))
+  const pages = mountedRoutes
     .sort()
-    .map((routePath) => ({
-      path: routePath,
-      label: labels.get(routePath) || fallbackLabel(routePath),
-      // Whether any menu links to it. An unlinked page is reachable only by
-      // typing the URL, which is the strongest static hint that it is unused.
-      linked: labels.has(routePath),
-      locked: LOCKED.has(routePath),
-    }));
+    .map((routePath) => {
+      const menuPath = [...labels.keys()].find(
+        (candidate) => routePath === candidate || routePath.startsWith(`${candidate}/:`)
+      );
+      return {
+        path: routePath,
+        label: labels.get(menuPath) || fallbackLabel(routePath),
+        // Detail, edit and redirect routes may be intentionally unlinked, so
+        // this is navigation metadata rather than evidence that a page is dead.
+        linked: Boolean(menuPath),
+        locked: LOCKED.has(routePath),
+      };
+    });
 
   const body = `// GENERATED by scripts/generate-frontend-pages.js — do not edit by hand.
 //
-// The frontend's routes, mirrored so the API Performance report can list and
+// The frontend's mounted App.jsx routes, mirrored so API Performance can list and
 // switch pages. Regenerate after adding a route:
 //   node scripts/generate-frontend-pages.js
 //
-// \`linked\` means some menu points at it. An unlinked page is reachable only
-// by typing its URL, which is the strongest hint available — short of real
-// traffic — that nobody uses it.
+// \`linked\` means a persistent menu points at it. Detail, edit and redirect
+// routes may intentionally be unlinked and still be part of a live workflow.
 
 const PAGES = ${JSON.stringify(pages, null, 2)};
 

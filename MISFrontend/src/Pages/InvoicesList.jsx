@@ -12,6 +12,8 @@ import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import axios from '../apiClient.js';
 import { toast } from '../Components/Toast';
+import { FEATURE_TOGGLE_KEYS } from '../constants/featureToggles';
+import { usePageToggles } from '../hooks/usePageToggles';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
@@ -40,6 +42,8 @@ function buildWhatsAppText(inv) {
 }
 
 export default function InvoicesList() {
+  const { isApiDisabled, togglesLoaded } = usePageToggles();
+  const migrationEnabled = togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.PUBLIC_INVOICE_MIGRATION);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [backendDown, setBackendDown] = useState(false);
@@ -127,17 +131,19 @@ export default function InvoicesList() {
           <Typography variant="body2" color="text.secondary">{total} total — click any row to preview</Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <Button
-            size="small"
-            variant="outlined"
-            color="warning"
-            startIcon={migrating ? <CircularProgress size={14} /> : <SyncRoundedIcon fontSize="small" />}
-            onClick={handleMigrate}
-            disabled={migrating}
-            sx={{ borderRadius: 2, textTransform: 'none' }}
-          >
-            {migrating ? 'Migrating…' : 'Sync Existing Orders'}
-          </Button>
+          {migrationEnabled ? (
+            <Button
+              size="small"
+              variant="outlined"
+              color="warning"
+              startIcon={migrating ? <CircularProgress size={14} /> : <SyncRoundedIcon fontSize="small" />}
+              onClick={handleMigrate}
+              disabled={migrating}
+              sx={{ borderRadius: 2, textTransform: 'none' }}
+            >
+              {migrating ? 'Migrating…' : 'Sync Existing Orders'}
+            </Button>
+          ) : null}
           <TextField
             size="small"
             placeholder="Search order # or customer…"
@@ -161,14 +167,14 @@ export default function InvoicesList() {
       )}
 
       {/* Migration result */}
-      {migrateResult && (
+      {migrationEnabled && migrateResult && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} onClose={() => setMigrateResult(null)}>
           Migration complete — <strong>{migrateResult.migrated}</strong> invoices created,{' '}
           <strong>{migrateResult.skipped}</strong> already existed (out of {migrateResult.total} invoiced orders).
         </Alert>
       )}
 
-      {migrating && <LinearProgress color="warning" sx={{ mb: 1, borderRadius: 1 }} />}
+      {migrationEnabled && migrating && <LinearProgress color="warning" sx={{ mb: 1, borderRadius: 1 }} />}
 
       <Paper variant="outlined" sx={{ borderRadius: 3 }}>
         <TableContainer>

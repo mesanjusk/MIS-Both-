@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -84,11 +84,6 @@ export default function AddItem() {
     load();
   }, []);
 
-  const selectedGroup = useMemo(
-    () => groupOptions.find((group) => group.Item_group === form.Item_group) || null,
-    [groupOptions, form.Item_group]
-  );
-
   const showBom = form.itemType === 'finished_item';
 
   const setField = (field, value) => {
@@ -154,12 +149,6 @@ export default function AddItem() {
       isSubmitting={submitting}
     >
       <Stack spacing={1.5}>
-        {selectedGroup && (
-          <Alert severity="info" sx={{ borderRadius: 2 }}>
-            Group type: <strong>{selectedGroup.groupType || 'general'}</strong>
-          </Alert>
-        )}
-
         <Paper variant="outlined" sx={{ ...compactCardSx, p: 1.5 }}>
           <Stack spacing={1.25}>
             <Typography variant="subtitle2">Item Master</Typography>

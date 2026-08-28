@@ -161,9 +161,9 @@ export default function RateCalculator() {
         {loading ? (
           <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>
         ) : rateCards.length === 0 ? (
-          <Alert severity="info" sx={{ borderRadius: 2 }}>
-            No rate cards found. Ask an admin to set up items and rates in Rate Card Master first.
-          </Alert>
+          <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+            No rate cards found.
+          </Typography>
         ) : (
           <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} flexWrap="wrap" alignItems="flex-start">

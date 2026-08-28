@@ -239,10 +239,7 @@ export default function VendorPage() {
     <Stack spacing={2.5}>
       <Box>
         <Typography variant="h4" fontWeight={800}>
-          Vendor accounting & production control
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Manage vendor masters, advances, job work, raw material issue, finished goods receipt, and WhatsApp attendance settings from frontend only.
+          Vendors &amp; Production
         </Typography>
       </Box>
 
@@ -269,7 +266,7 @@ export default function VendorPage() {
         <Box sx={{ p: 2.5 }}>
           {tab === 'overview' ? (
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12}>
                 <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: '100%' }}>
                   <Typography variant="subtitle1" fontWeight={700}>Top vendor balances</Typography>
                   <Stack spacing={1.25} sx={{ mt: 2 }}>
@@ -280,17 +277,6 @@ export default function VendorPage() {
                       </Stack>
                     ))}
                   </Stack>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, height: '100%' }}>
-                  <Typography variant="subtitle1" fontWeight={700}>Live implementation notes</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    New jobs automatically create vendor ledger and stock movement records. Orders stay untouched, so your existing live workflow remains safe.
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    Use one production job for each real-world process like printing, lamination, cutting, or packing. Link multiple orders when one batch serves multiple parties.
-                  </Typography>
                 </Paper>
               </Grid>
             </Grid>

@@ -91,11 +91,18 @@ describe('the lockout guard', () => {
     expect(_rules()).toHaveLength(0);
   });
 
-  it('protects signing in and the WhatsApp webhook', () => {
-    _setDisabledKeys(['POST /api/users/login', 'POST /webhook']);
+  it('protects signing in, public links, OAuth and the WhatsApp webhook', () => {
+    _setDisabledKeys([
+      'POST /api/users/login',
+      'POST /webhook',
+      'GET /api/public-invoices/p/:shareToken',
+      'GET /api/google-drive/callback',
+    ]);
     expect(run('POST', '/api/users/login').passed).toBe(true);
     // Meta calls /webhook directly; a 410 would break WhatsApp silently.
     expect(run('POST', '/webhook').passed).toBe(true);
+    expect(run('GET', '/api/public-invoices/p/token-123').passed).toBe(true);
+    expect(run('GET', '/api/google-drive/callback').passed).toBe(true);
   });
 
   it('names every protected prefix', () => {

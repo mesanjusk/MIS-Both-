@@ -1,4 +1,5 @@
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
 const express = require('express');
 const router  = express.Router();
 const { v4: uuidv4 } = require('uuid');
@@ -288,7 +289,7 @@ router.get('/list', async (req, res) => {
 });
 
 // POST /api/purchaseorder/backfill-dates — one-time migration to set poDate from notes
-router.post('/backfill-dates', async (req, res) => {
+router.post('/backfill-dates', requireAdmin, async (req, res) => {
   try {
     const pos = await PurchaseOrder.find({ poDate: null }).lean();
     let updated = 0;
@@ -321,7 +322,7 @@ const buildPoLookup = (id) => {
 // older purchase orders can be sitting on an order with no cost posted against
 // the vendor at all. This re-runs the posting for every PO that is missing one
 // (and refreshes its vendor ledger row), skipping the ones already posted.
-router.post('/backfill-postings', async (req, res) => {
+router.post('/backfill-postings', requireAdmin, async (req, res) => {
   try {
     const dryRun = String(req.query.dryRun || req.body?.dryRun || '').toLowerCase() === 'true';
     const pos = await PurchaseOrder.find({ status: { $ne: 'cancelled' } }).lean();

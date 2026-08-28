@@ -35,6 +35,12 @@ const PROTECTED_PREFIXES = [
   '/api/users/login',
   '/api/users/register',
   '/api/usergroup',
+  '/api/google-drive',
+  '/api/gmail/callback',
+  '/api/gmail/auth-url',
+  '/api/social/providers',
+  '/api/public-invoices/p',
+  '/api/upi/public',
   '/webhook',
 ];
 

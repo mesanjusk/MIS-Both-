@@ -6,6 +6,7 @@ import { addNote } from '../services/noteService.js';
 import { fetchCustomers } from '../services/customerService.js';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
+import { ROUTES } from '../constants/routes';
 
 export default function AddNote({ onClose, order }) {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ export default function AddNote({ onClose, order }) {
 
       if (response.data.success) {
         toast.success('Note added successfully!');
-        navigate('/allOrder');
+        navigate(ROUTES.REPORTS_ORDERS);
       }
     } catch (e) {
       console.error('Error updating transaction:', e);
@@ -71,8 +72,8 @@ export default function AddNote({ onClose, order }) {
 
   const handleClose = () => {
     if (onClose) onClose();
-    else if (loggedInUser) navigate('/allOrder');
-    else navigate('/home');
+    else if (loggedInUser) navigate(ROUTES.REPORTS_ORDERS);
+    else navigate(ROUTES.HOME);
   };
 
   return (

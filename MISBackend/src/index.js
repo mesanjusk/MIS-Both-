@@ -18,7 +18,10 @@ const compression = require("compression");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 const { requireAuth } = require("./middleware/auth");
 const { apiUsageMiddleware } = require("./middleware/apiUsage");
-const { featureToggleMiddleware } = require("./middleware/featureToggle");
+const {
+  featureToggleMiddleware,
+  invalidate: invalidateFeatureToggles,
+} = require("./middleware/featureToggle");
 const corsOptions = require("./config/corsOptions");
 const { generalLimiter } = require("./middleware/rateLimit");
 const logger = require("./utils/logger");
@@ -88,6 +91,7 @@ const SopRouter = require("./routes/sop");
 const OperationsRouter = require("./routes/Operations");
 const OfficeAiRouter = require("./routes/OfficeAI");
 const { seedUserGroups } = require("./services/sopService");
+const { ensureDefaultFeatureToggles } = require("./services/defaultFeatureToggleService");
 const BusinessProfile = require("./routes/BusinessProfile");
 const PublicInvoiceRouter = require("./routes/PublicInvoice");
 const SocialAccountsRouter = require("./routes/SocialAccounts");
@@ -216,6 +220,16 @@ app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowu
 // ---------- Init DB + schedulers ----------
 (async () => {
   await connectDB();
+  try {
+    const result = await ensureDefaultFeatureToggles();
+    await invalidateFeatureToggles();
+    if (result?.upsertedCount) {
+      logger.info({ count: result.upsertedCount }, 'Default-off feature toggles created');
+    }
+  } catch (toggleError) {
+    // Toggle seeding must never prevent the MIS from starting.
+    logger.error({ err: toggleError }, 'Default-off feature toggle setup failed');
+  }
   initScheduler();
   initTaskDigestScheduler();
   initProofFollowupScheduler();

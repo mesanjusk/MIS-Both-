@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
+import { ROUTES } from '../constants/routes';
 
 export default function VendorDetails({ onClose, order }) {
   const [vendorOptions, setVendorOptions] = useState([]);
@@ -55,7 +56,7 @@ export default function VendorDetails({ onClose, order }) {
     setSelectedTaskGroup((prev) => (prev === taskGroup ? null : taskGroup));
   };
 
-  const closeModal = () => (onClose ? onClose() : navigate('/allOrder'));
+  const closeModal = () => (onClose ? onClose() : navigate(ROUTES.REPORTS_ORDERS));
 
   async function submit(e) {
     e.preventDefault();

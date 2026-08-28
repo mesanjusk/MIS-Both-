@@ -357,9 +357,9 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 
   return (
     <>
-      <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
-        Historical record from the ledger — read-only. To edit, use Receipt / Payment entry pages.
-      </Alert>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+        Ledger history is read-only. Use Receipt or Payment to make changes.
+      </Typography>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
         {[
@@ -1262,9 +1262,9 @@ export default function DayBook() {
               fullWidth
             />
             {diary?.status === 'confirmed' && (
-              <Alert severity="info">
-                This diary is confirmed. You can edit metadata here. To add/edit entries, reopen it below.
-              </Alert>
+              <Typography variant="caption" color="text.secondary">
+                Confirmed diary: reopen it to change entries.
+              </Typography>
             )}
           </Stack>
         </DialogContent>

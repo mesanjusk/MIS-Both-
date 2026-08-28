@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
 import {
-  Alert, Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
+  Avatar, Box, Button, Card, CardContent, Chip, CircularProgress,
   Divider, FormControlLabel, Paper, Stack, Switch, Tab, Tabs, Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -16,10 +17,11 @@ import toast from 'react-hot-toast';
 import axios from '../apiClient';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { FOOTER_LINKS } from '../Components/Footer';
+import { usePageToggles } from '../hooks/usePageToggles';
 
-const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'SOP', 'Admin'];
+const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'Operations', 'SOP', 'Admin'];
 const FOOTER_LABELS = FOOTER_LINKS.map((l) => l.label);
-const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Transaction 4D', 'Attendance'];
+const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Cash & Bank', 'Attendance'];
 const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];
 
 const DEFAULT_PERMISSIONS = {
@@ -43,11 +45,15 @@ const DEFAULT_PERMISSIONS = {
 };
 
 const HOME_WIDGETS = [
-  { id: 'quickLinks',       label: 'Quick Links',          desc: 'Navigate to all tools & pages',       color: '#16a34a', bg: '#dcfce7' },
-  { id: 'attendance',       label: 'Attendance Snapshot',  desc: 'Live team attendance (admin only)',    color: '#2563eb', bg: '#dbeafe', adminOnly: true },
-  { id: 'workflow',         label: 'Workflow',             desc: 'SOPs, pending tasks by stage, and design files', color: '#d97706', bg: '#fef3c7' },
-  { id: 'recentAttendance', label: 'My Attendance',        desc: 'Recent personal check-in/out logs',   color: '#7c3aed', bg: '#ede9fe' },
-  { id: 'ordersBoard',      label: 'Orders Pipeline',      desc: 'Full order board & activity stream',  color: '#0891b2', bg: '#cffafe' },
+  { id: 'workflow',       label: 'Workflow',        color: '#d97706', bg: '#fef3c7' },
+  { id: 'orders',         label: 'Orders',          color: '#0891b2', bg: '#cffafe' },
+  { id: 'outstanding',    label: 'Outstanding',     color: '#2563eb', bg: '#dbeafe' },
+  { id: 'transaction4D', label: 'Cash & Bank',     color: '#16a34a', bg: '#dcfce7' },
+  { id: 'delivery',       label: 'Delivery',        color: '#7c3aed', bg: '#ede9fe' },
+  { id: 'bills',          label: 'Bills',           color: '#dc2626', bg: '#fee2e2' },
+  { id: 'attendance',     label: 'Attendance',      color: '#2563eb', bg: '#dbeafe' },
+  { id: 'rateCalculator', label: 'Rate Calculator', color: '#d97706', bg: '#fef3c7' },
+  { id: 'dayBook',        label: 'Day Book',        color: '#475569', bg: '#f1f5f9' },
 ];
 
 const PERMISSION_LABELS = [
@@ -74,6 +80,7 @@ function getRoleColor(group = '') {
 }
 
 function UserPermissionPanel({ user, onSaved }) {
+  const { isPageDisabled } = usePageToggles();
   const [perms, setPerms] = useState(() => ({
     ...DEFAULT_PERMISSIONS,
     ...(user.permissions || {}),
@@ -173,6 +180,10 @@ function UserPermissionPanel({ user, onSaved }) {
   const allGroupsChecked = perms.sidebarGroups.length === 0;
   const groupsRestricted = !allGroupsChecked;
   const allWidgetsAllowed = !perms.allowedWidgets?.length;
+  const visibleSidebarGroups = SIDEBAR_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !isPageDisabled(item.path)),
+  })).filter((group) => group.items.length);
 
   return (
     <Box>
@@ -188,11 +199,6 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 0 && (
         <Box>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            {allGroupsChecked
-              ? 'Showing ALL sidebar groups (role-based defaults apply). Restrict below to limit access.'
-              : `Showing ${perms.sidebarGroups.length} of ${ALL_SIDEBAR_GROUPS.length} sidebar groups.`}
-          </Alert>
           <Stack spacing={1}>
             {ALL_SIDEBAR_GROUPS.map((group) => {
               const isAllowed = allGroupsChecked || perms.sidebarGroups.includes(group);
@@ -220,9 +226,6 @@ function UserPermissionPanel({ user, onSaved }) {
               );
             })}
           </Stack>
-          <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
-            Sidebar group visibility also depends on the user&apos;s role. Showing a group here does not override role restrictions.
-          </Alert>
           {groupsRestricted && (
             <Button
               variant="outlined"
@@ -266,11 +269,6 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 2 && (
         <Box>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            {allWidgetsAllowed
-              ? 'User can see ALL home screen tabs. Restrict below to limit which tabs are available.'
-              : `User is restricted to ${perms.allowedWidgets.length} of ${HOME_WIDGETS.length} tabs.`}
-          </Alert>
           <Stack spacing={1}>
             {HOME_WIDGETS.map((w) => {
               const isAllowed = allWidgetsAllowed || perms.allowedWidgets.includes(w.id);
@@ -306,7 +304,6 @@ function UserPermissionPanel({ user, onSaved }) {
                           <Chip size="small" label="Admin only" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
                         )}
                       </Stack>
-                      <Typography variant="caption" color="text.secondary">{w.desc}</Typography>
                     </Box>
                     {isAllowed
                       ? <CheckCircleRoundedIcon sx={{ color: w.color, flexShrink: 0 }} fontSize="small" />
@@ -316,9 +313,6 @@ function UserPermissionPanel({ user, onSaved }) {
               );
             })}
           </Stack>
-          <Alert severity="warning" sx={{ mt: 2, borderRadius: 2 }}>
-            These settings control which tabs appear on the user's Home screen.
-          </Alert>
           {!allWidgetsAllowed && (
             <Button
               variant="outlined"
@@ -334,11 +328,6 @@ function UserPermissionPanel({ user, onSaved }) {
 
       {tab === 3 && (
         <Box>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            {!(perms.topNavHidden || []).length
-              ? 'User can see ALL top navbar dropdowns.'
-              : `${(perms.topNavHidden || []).length} dropdown(s) are hidden for this user.`}
-          </Alert>
           <Stack spacing={1}>
             {TOP_NAV_ITEMS.map((label) => {
               const isHidden = (perms.topNavHidden || []).includes(label);
@@ -393,11 +382,6 @@ function UserPermissionPanel({ user, onSaved }) {
               sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
             />
           </Paper>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            {!(perms.footerHidden || []).length
-              ? 'User can see ALL footer links.'
-              : `${(perms.footerHidden || []).length} footer link(s) are hidden for this user.`}
-          </Alert>
           <Stack spacing={0.75}>
             {FOOTER_LABELS.map((label) => {
               const isHidden = (perms.footerHidden || []).includes(label);
@@ -452,13 +436,8 @@ function UserPermissionPanel({ user, onSaved }) {
               sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
             />
           </Paper>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            {!(perms.leftHidden || []).length
-              ? 'User can see ALL left sidebar items allowed by their role & group access above.'
-              : `${(perms.leftHidden || []).length} left sidebar item(s) are hidden for this user.`}
-          </Alert>
           <Stack spacing={2}>
-            {SIDEBAR_GROUPS.map((group) => (
+            {visibleSidebarGroups.map((group) => (
               <Box key={group.label}>
                 <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
                   {group.label}
@@ -517,9 +496,6 @@ function UserPermissionPanel({ user, onSaved }) {
               sx={{ width: '100%', m: 0, justifyContent: 'space-between' }}
             />
           </Paper>
-          <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
-            Controls the quick action & quick link rail on the right edge of the screen.
-          </Alert>
           <Typography variant="caption" fontWeight={800} color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Quick Actions
           </Typography>
@@ -603,6 +579,15 @@ function UserPermissionPanel({ user, onSaved }) {
     </Box>
   );
 }
+
+UserPermissionPanel.propTypes = {
+  user: PropTypes.shape({
+    _id: PropTypes.string.isRequired,
+    User_name: PropTypes.string.isRequired,
+    permissions: PropTypes.object,
+  }).isRequired,
+  onSaved: PropTypes.func,
+};
 
 export default function AdminUserPermissions() {
   const [users, setUsers]       = useState([]);

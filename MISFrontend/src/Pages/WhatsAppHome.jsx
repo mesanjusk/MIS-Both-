@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Grid,
   Stack,
   Typography,
@@ -86,13 +85,11 @@ export default function WhatsAppHome() {
               spacing={2}
             >
               <Stack spacing={1}>
-                <Chip size="small" color="success" label="WhatsApp only workspace" sx={{ width: 'fit-content' }} />
                 <Typography variant="h5" fontWeight={800}>
-                  Clean WhatsApp dashboard package
+                  WhatsApp
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 780 }}>
-                  This build keeps login, logout, home, WhatsApp inbox, send message, bulk broadcast, and flow builder access.
-                  Other business modules have been removed from navigation and routing so the app opens like a focused WhatsApp CRM.
+                  Chats, templates, broadcasts and automation in one workspace.
                 </Typography>
               </Stack>
 

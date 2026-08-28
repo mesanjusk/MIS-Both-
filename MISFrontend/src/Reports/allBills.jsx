@@ -28,7 +28,6 @@ import {
   Button,
   Chip,
   Divider,
-  Alert,
   LinearProgress,
   Dialog,
   DialogTitle,
@@ -776,9 +775,9 @@ export default function AllBills() {
                 </Box>
               </Grid>
             ) : filteredOrders.length === 0 ? (
-              <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+              <Typography color="text.secondary" sx={{ py: 4, textAlign: "center", width: "100%" }}>
                 No billed orders found.
-              </Alert>
+              </Typography>
             ) : (
               <>
                 <Grid container spacing={1.5}>

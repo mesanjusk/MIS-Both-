@@ -263,11 +263,6 @@ export default function UpiCollectionSection() {
 
   return (
     <Stack spacing={1.2}>
-      <Alert severity="info" sx={{ borderRadius: 2 }}>
-        Create a payment request once, then share the link or QR. Even if the customer does not send a receipt,
-        this entry stays in pending until your accounts team confirms it from the bank and marks it paid.
-      </Alert>
-
       <Grid container spacing={1}>
         <Grid item xs={12} md={6}>
           <Autocomplete

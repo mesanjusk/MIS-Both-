@@ -1,5 +1,4 @@
 import {
-  Alert,
   Autocomplete,
   Button,
   IconButton,
@@ -104,10 +103,10 @@ export default function ItemsTable({
 
               {selectedItemCatalogMap.get(item.Item)?.itemType === 'finished_item' &&
               (selectedItemCatalogMap.get(item.Item)?.bomCount || 0) > 0 ? (
-                <Alert severity="info" sx={{ borderRadius: 2 }}>
+                <Typography variant="caption" color="text.secondary">
                   This item has {selectedItemCatalogMap.get(item.Item)?.bomCount} BOM rows.
                   Raw material/service work will be created automatically after saving.
-                </Alert>
+                </Typography>
               ) : null}
 
               {selectedItemCatalogMap.get(item.Item)?.itemType ? (

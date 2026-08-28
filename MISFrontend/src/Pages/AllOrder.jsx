@@ -547,7 +547,7 @@ export default function AllOrder() {
           >
             {viewTab === "delivered" ? (
               filteredDeliveredOrders.length === 0 ? (
-                <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>No delivered orders found.</Alert>
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>No delivered orders found.</Typography>
               ) : (
                 <Box sx={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -632,9 +632,9 @@ export default function AllOrder() {
                 </Stack>
               </Box>
             ) : columnOrder.length === 0 ? (
-              <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+              <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
                 {viewTab === "enquiries" ? "No enquiries found." : "No tasks found."}
-              </Alert>
+              </Typography>
             ) : (
               <OrderBoard
                 columnOrder={columnOrder}

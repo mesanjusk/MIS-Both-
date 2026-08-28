@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Button,
   Checkbox,
   FormControlLabel,
@@ -12,7 +11,6 @@ import {
   Typography,
 } from '@mui/material';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
-import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
 import axios from '../apiClient.js';
 import toast, { Toaster } from 'react-hot-toast';
 import { extractPhoneNumber, normalizeWhatsAppPhone } from '../utils/whatsapp.js';
@@ -28,6 +26,7 @@ import {
   WHATSAPP_TEMPLATES,
   buildOpeningBalancePayableParameters,
 } from '../constants/whatsappTemplates';
+import { ROUTES } from '../constants/routes';
 
 export default function AddTransaction() {
   const navigate = useNavigate();
@@ -184,7 +183,7 @@ export default function AddTransaction() {
           await sendWhatsApp(phoneNumber, customer);
         }
 
-        navigate('/allOrder');
+        navigate(ROUTES.REPORTS_ORDERS);
       } else {
         toast.error('Failed to add Transaction');
       }
@@ -285,13 +284,9 @@ export default function AddTransaction() {
               <TextField label="Total Credit" value={Total_Credit} InputProps={{ readOnly: true }} size="small" sx={compactFieldSx} />
             </Stack>
 
-            <Alert severity="info" icon={<PaymentsRoundedIcon fontSize="inherit" />}>
-              <Typography variant="caption">
-                Account: {selectedCustomer?.Customer_name || 'Not selected'}
-                <br />
-                As on: 01-04-2025
-              </Typography>
-            </Alert>
+            <Typography variant="caption" color="text.secondary">
+              Account: {selectedCustomer?.Customer_name || 'Not selected'} · As on 01-04-2025
+            </Typography>
 
             <FormControlLabel
               control={<Checkbox checked={sendWhatsAppAfterSave} onChange={(e) => setSendWhatsAppAfterSave(e.target.checked)} />}

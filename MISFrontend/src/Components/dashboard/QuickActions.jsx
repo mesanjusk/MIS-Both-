@@ -7,12 +7,13 @@ import {
   Typography,
 } from '@mui/material';
 import NorthEastRoundedIcon from '@mui/icons-material/NorthEastRounded';
+import { ROUTES } from '../../constants/routes';
 
 const actions = [
-  { title: 'Add Order', path: '/addOrder', description: 'Capture a new customer order.' },
-  { title: 'Order Board', path: '/allOrder', description: 'Open the full workflow board.' },
-  { title: 'Customers', path: '/addCustomer', description: 'Create or update customer records.' },
-  { title: 'Team Tasks', path: '/PendingTasks', description: 'Review pending team tasks.' },
+  { title: 'Add Order', path: ROUTES.ORDERS_NEW, description: 'Capture a new customer order.' },
+  { title: 'Order Board', path: ROUTES.REPORTS_ORDERS, description: 'Open the full workflow board.' },
+  { title: 'Customers', path: ROUTES.ADD_CUSTOMER, description: 'Create or update customer records.' },
+  { title: 'Team Tasks', path: ROUTES.PENDING_TASKS, description: 'Review pending team tasks.' },
 ];
 
 export default function QuickActions() {

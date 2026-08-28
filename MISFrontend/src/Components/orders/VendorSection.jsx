@@ -1,5 +1,4 @@
 import {
-  Alert,
   Autocomplete,
   Button,
   IconButton,
@@ -25,10 +24,6 @@ export default function VendorSection({
 }) {
   return (
     <Stack spacing={1}>
-      <Alert severity="info" sx={{ py: 0, borderRadius: 2, '& .MuiAlert-message': { py: 0.75 } }}>
-        Pick any existing customer / party as vendor.
-      </Alert>
-
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Typography variant="body2" fontWeight={700}>
           Vendor Details

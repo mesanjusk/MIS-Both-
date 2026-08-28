@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Paper, LinearProgress, Tabs, Tab } from '@mui/material';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
@@ -27,7 +27,7 @@ const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: OrderLedger },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
-  { id: 'transaction4D', label: 'Transaction 4D', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
+  { id: 'transaction4D', label: 'Cash & Bank', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
   { id: 'delivery', label: 'Delivery', icon: LocalShippingRoundedIcon, Component: AllDelivery },
   { id: 'bills', label: 'Bills', icon: ReceiptLongRoundedIcon, Component: AllBills },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AllAttandance },
@@ -35,15 +35,28 @@ const HOME_TABS = [
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
 
+const LEGACY_HOME_TAB_IDS = {
+  quickLinks: 'workflow',
+  recentAttendance: 'attendance',
+  ordersBoard: 'orders',
+};
+
 /* ─── Main Home Component ───────────────────────────────────────── */
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userName } = useAuth();
+  const { userName, permissions } = useAuth();
 
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('workflow');
+  const visibleTabs = useMemo(() => {
+    const configured = permissions?.allowedWidgets || [];
+    if (!configured.length) return HOME_TABS;
+    const allowed = new Set(configured.map((id) => LEGACY_HOME_TAB_IDS[id] || id));
+    const filtered = HOME_TABS.filter((tab) => allowed.has(tab.id));
+    return filtered.length ? filtered : HOME_TABS;
+  }, [permissions?.allowedWidgets]);
 
   /* Init user */
   useEffect(() => {
@@ -54,15 +67,21 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  if (!loggedInUser) return <LinearProgress sx={{ borderRadius: 1, mt: 2, bgcolor: '#dcfce7' }} />;
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id || 'workflow');
+    }
+  }, [activeTab, visibleTabs]);
 
-  const ActiveComponent = HOME_TABS.find((tab) => tab.id === activeTab)?.Component || WorkflowWidget;
+  if (!loggedInUser) return <LinearProgress sx={{ borderRadius: 1, mt: 2 }} />;
+
+  const ActiveComponent = visibleTabs.find((tab) => tab.id === activeTab)?.Component || WorkflowWidget;
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: '#f0fdf4' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default' }}>
 
       {isLoading && (
-        <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mt: 1.5, mb: 1, borderRadius: 1, bgcolor: '#dcfce7', '& .MuiLinearProgress-bar': { bgcolor: '#16a34a' } }} />
+        <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mt: 1.5, mb: 1, borderRadius: 1 }} />
       )}
 
       {/* ── Tab bar ── */}
@@ -73,7 +92,7 @@ export default function Home() {
             borderRadius: 2.5,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: 'white',
+            bgcolor: 'background.paper',
             overflow: 'hidden',
           }}
         >
@@ -83,7 +102,7 @@ export default function Home() {
             variant="scrollable"
             scrollButtons="auto"
             allowScrollButtonsMobile
-            sx={{
+            sx={(theme) => ({
               minHeight: 44,
               px: 0.5,
               '& .MuiTab-root': {
@@ -94,11 +113,11 @@ export default function Home() {
                 gap: 0.5,
                 color: 'text.secondary',
               },
-              '& .Mui-selected': { color: '#16a34a !important' },
-              '& .MuiTabs-indicator': { bgcolor: '#16a34a', height: 2.5, borderRadius: 1.5 },
-            }}
+              '& .Mui-selected': { color: `${theme.palette.primary.main} !important` },
+              '& .MuiTabs-indicator': { bgcolor: 'primary.main', height: 2.5, borderRadius: 1.5 },
+            })}
           >
-            {HOME_TABS.map((tab) => {
+            {visibleTabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <Tab
@@ -122,13 +141,13 @@ export default function Home() {
             borderRadius: 2.5,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: 'white',
+            bgcolor: 'background.paper',
             p: 1.5,
             minHeight: '100%',
             boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
           }}
         >
-          <Suspense fallback={<LinearProgress sx={{ borderRadius: 1, bgcolor: '#dcfce7' }} />}>
+          <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
             <ActiveComponent />
           </Suspense>
         </Paper>

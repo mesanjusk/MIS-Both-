@@ -4,28 +4,20 @@ import { useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
-  Badge,
   Box,
   Button,
   Divider,
-  IconButton,
-  InputAdornment,
   Menu,
   MenuItem,
   Stack,
-  TextField,
   Toolbar,
-  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
-import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
 import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomizeRounded';
 
 import { useAuth } from '../context/AuthContext';
@@ -35,22 +27,6 @@ import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
 import { usePageToggles } from '../hooks/usePageToggles';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
-
-/* ─── Google-colored name ────────────────────────────────────────── */
-const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
-
-function ColoredName({ name }) {
-  let ci = 0;
-  return (
-    <Box component="span">
-      {(name || '').split('').map((ch, i) => {
-        if (ch === ' ') return <Box key={i} component="span" sx={{ display: 'inline-block', width: '0.25em' }} />;
-        const col = GOOGLE_COLORS[ci++ % GOOGLE_COLORS.length];
-        return <Box key={i} component="span" sx={{ color: col }}>{ch}</Box>;
-      })}
-    </Box>
-  );
-}
 
 const normalizeRoleKey = (value = '') => {
   const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -78,7 +54,7 @@ const NAV_DROPDOWN_DEFS = [
   { label: 'Admin',      groups: ['Admin'] },
 ];
 
-function NavDropdown({ label, groups, roleKey, onNavigate }) {
+function NavDropdown({ label, groups, roleKey, allowedGroups, onNavigate }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
 
@@ -92,7 +68,9 @@ function NavDropdown({ label, groups, roleKey, onNavigate }) {
   // reachable after being switched off.
   const { isPageDisabled } = usePageToggles();
 
-  const matchedGroups = SIDEBAR_GROUPS.filter((g) => groups.includes(g.label)).map((g) => ({
+  const matchedGroups = SIDEBAR_GROUPS.filter(
+    (g) => groups.includes(g.label) && (allowedGroups.length === 0 || allowedGroups.includes(g.label))
+  ).map((g) => ({
     ...g,
     items: g.items.filter((item) => {
       if (isPageDisabled(item.path)) return false;
@@ -166,6 +144,7 @@ NavDropdown.propTypes = {
   label: PropTypes.string.isRequired,
   groups: PropTypes.arrayOf(PropTypes.string).isRequired,
   roleKey: PropTypes.string.isRequired,
+  allowedGroups: PropTypes.arrayOf(PropTypes.string).isRequired,
   onNavigate: PropTypes.func.isRequired,
 };
 
@@ -176,6 +155,7 @@ export default function TopNavbar() {
   const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
   const { prefs } = useNavCustomize();
   const { permissions } = useAuth();
+  const allowedGroups = permissions?.sidebarGroups || [];
   const dashCtx = useDashboardCustomize();
   const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => {
     if ((permissions?.topNavHidden || []).includes(d.label)) return false;
@@ -237,6 +217,7 @@ export default function TopNavbar() {
               label={def.label}
               groups={def.groups}
               roleKey={roleKey}
+              allowedGroups={allowedGroups}
               onNavigate={navigate}
             />
           ))}
@@ -244,80 +225,10 @@ export default function TopNavbar() {
 
         <Box sx={{ flex: 1 }} />
 
-        {/* Search */}
-        <TextField
-          size="small"
-          placeholder="Search order #, customer, item, vendor, amount…"
-          sx={{
-            display: { xs: 'none', lg: 'flex' },
-            width: { lg: 170, xl: 220 },
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchRoundedIcon fontSize="small" color="action" />
-              </InputAdornment>
-            ),
-            sx: {
-              borderRadius: 2.5,
-              fontSize: '0.82rem',
-              bgcolor: (t) => t.palette.background.default,
-            },
-          }}
-        />
-
-        <Box sx={{ flex: 1 }} />
-
-        {/* Right quick links — desktop only */}
-        <Stack
-          direction="row"
-          spacing={0}
-          sx={{ display: { xs: 'none', xl: 'flex' }, alignItems: 'center', flexShrink: 0, mr: 0.5 }}
-        >
-          {[
-            { label: 'Day Book', path: ROUTES.DAY_BOOK },
-            { label: 'SOP', path: ROUTES.SOP },
-            { label: 'Email', path: ROUTES.EMAIL_COMPOSE },
-          ].map((link) => (
-            <Button
-              key={link.label}
-              size="small"
-              onClick={() => navigate(link.path)}
-              sx={(t) => ({
-                fontSize: '0.76rem',
-                fontWeight: 600,
-                color: 'text.secondary',
-                borderRadius: 1.5,
-                px: 1,
-                py: 0.5,
-                minWidth: 0,
-                textTransform: 'none',
-                '&:hover': { bgcolor: alpha(t.palette.primary.main, 0.06), color: 'text.primary' },
-              })}
-            >
-              {link.label}
-            </Button>
-          ))}
-        </Stack>
-
         {/* Attendance — start/end day, next to the user's name */}
         <Box sx={{ display: { xs: 'none', sm: 'flex' }, mr: 0.5 }}>
           <AttendanceStatus />
         </Box>
-
-        {/* Notification bell */}
-        <IconButton
-          size="small"
-          aria-label="notifications"
-          sx={(t) => ({
-            borderRadius: 2,
-            '&:hover': { bgcolor: t.palette.action.hover },
-          })}
-        >
-          <Badge color="primary" variant="dot">
-            <NotificationsNoneRoundedIcon fontSize="small" />
-          </Badge>
-        </IconButton>
 
         {/* User zone: avatar + name + role + dropdown */}
         <Stack
@@ -349,7 +260,7 @@ export default function TopNavbar() {
           </Avatar>
           <Box sx={{ display: { xs: 'none', sm: 'block' }, minWidth: 0 }}>
             <Typography noWrap sx={{ fontSize: '0.76rem', fontWeight: 800, lineHeight: 1.2 }}>
-              <ColoredName name={userName || 'Guest'} />
+              {userName || 'Guest'}
             </Typography>
             <Typography noWrap sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>
               {userGroup || 'User'}
@@ -379,20 +290,6 @@ export default function TopNavbar() {
           <MenuItem dense onClick={() => { setMenuAnchor(null); navigate(ROUTES.HOME); }}>
             <HomeRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Home
           </MenuItem>
-
-          <MenuItem dense onClick={() => { setMenuAnchor(null); navigate(ROUTES.BUSINESS_CONTROL); }}>
-            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Business Control
-          </MenuItem>
-
-          <MenuItem dense onClick={() => { setMenuAnchor(null); navigate(ROUTES.POST_PRINTING_CONTROL); }}>
-            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Post Printing
-          </MenuItem>
-
-          <MenuItem dense onClick={() => { setMenuAnchor(null); navigate(ROUTES.WORKFLOW_TEMPLATES); }}>
-            <StoreRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Workflow Templates
-          </MenuItem>
-
-          <Divider />
 
           <MenuItem dense onClick={() => { setMenuAnchor(null); handleCustomize(); }}>
             <DashboardCustomizeRoundedIcon fontSize="small" sx={{ mr: 1 }} /> Customize

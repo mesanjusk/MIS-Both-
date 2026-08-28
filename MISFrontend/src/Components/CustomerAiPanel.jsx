@@ -125,11 +125,11 @@ export default function CustomerAiPanel() {
           </Stack>
 
           {questions.length ? (
-            <Alert severity="info" sx={{ mt: 1 }}>
+            <Box sx={{ mt: 1, p: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
               <Typography variant="subtitle2">Ask customer only these missing questions:</Typography>
               <Typography component="pre" variant="body2" sx={{ whiteSpace: 'pre-wrap', m: 0.5 }}>{followupText}</Typography>
               <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => copy(followupText)}>Copy questions</Button>
-            </Alert>
+            </Box>
           ) : null}
 
           <Divider sx={{ my: 1.5 }} />

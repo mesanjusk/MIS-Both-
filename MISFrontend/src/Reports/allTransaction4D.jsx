@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert,
   Box,
   Card,
   CardContent,
@@ -264,7 +263,7 @@ export default function AllTransaction() {
                 prefix="Cash"
               />
               {cashRows.length === 0 ? (
-                <Alert severity="info" sx={{ borderRadius: 2 }}>No cash transactions for this date.</Alert>
+                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No cash transactions for this date.</Typography>
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>
@@ -290,7 +289,7 @@ export default function AllTransaction() {
                 prefix="Bank"
               />
               {bankRows.length === 0 ? (
-                <Alert severity="info" sx={{ borderRadius: 2 }}>No bank transactions for this date.</Alert>
+                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No bank transactions for this date.</Typography>
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                   <Box sx={{ flex: 1 }}>

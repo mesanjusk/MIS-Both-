@@ -10,6 +10,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadingIcon from '@mui/icons-material/Downloading';
 import { PageContainer, SectionCard } from '../Components/ui';
 import axios from '../apiClient';
+import { FEATURE_TOGGLE_KEYS } from '../constants/featureToggles';
+import { usePageToggles } from '../hooks/usePageToggles';
 
 const FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const TIMES = ['morning', 'during_day', 'evening', 'any'];
@@ -62,6 +64,8 @@ const EMPTY_FORM = {
 };
 
 export default function SopPage() {
+  const { isApiDisabled, togglesLoaded } = usePageToggles();
+  const seedEnabled = togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.SOP_SEED);
   const [tasks, setTasks] = useState([]);
   const [userGroups, setUserGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -246,15 +250,17 @@ export default function SopPage() {
           label={<Typography variant="body2">Show inactive</Typography>}
         />
         <Box sx={{ flex: 1 }} />
-        <Button
-          startIcon={<DownloadingIcon />}
-          variant="outlined"
-          size="small"
-          onClick={handleSeed}
-          disabled={seeding}
-        >
-          Load Default SOP Tasks
-        </Button>
+        {seedEnabled ? (
+          <Button
+            startIcon={<DownloadingIcon />}
+            variant="outlined"
+            size="small"
+            onClick={handleSeed}
+            disabled={seeding}
+          >
+            Load Default SOP Tasks
+          </Button>
+        ) : null}
         <Button startIcon={<AddIcon />} variant="contained" size="small" onClick={openAdd}>
           Add Task
         </Button>
@@ -263,7 +269,7 @@ export default function SopPage() {
       {loading ? (
         <Typography color="text.secondary">Loading...</Typography>
       ) : filtered.length === 0 ? (
-        <Alert severity="info">No SOP tasks found. Use "Load Default SOP Tasks" to get started.</Alert>
+        <Typography color="text.secondary">No SOP tasks found.</Typography>
       ) : (
         timeOrder.map((timeLabel) => {
           const group = grouped[timeLabel];

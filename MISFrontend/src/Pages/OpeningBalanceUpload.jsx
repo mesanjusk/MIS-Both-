@@ -240,12 +240,9 @@ export default function OpeningBalanceUpload() {
                 size="small"
                 inputProps={{ style: { fontFamily: 'monospace', fontSize: 12 } }}
               />
-              <Alert severity="info" sx={{ borderRadius: 2, py: 0.5 }}>
-                <Typography variant="caption">
-                  <strong>Format:</strong> account_name, amount, side (Dr/Cr), date (optional)<br />
-                  <strong>Tip:</strong> Account names must match your chart of accounts exactly (case-insensitive).
-                </Typography>
-              </Alert>
+              <Typography variant="caption" color="text.secondary">
+                Format: account_name, amount, side (Dr/Cr), date (optional). Account names must match the chart of accounts.
+              </Typography>
             </Stack>
           )}
 

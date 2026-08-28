@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { Alert, Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Checkbox, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import axios from '../apiClient.js';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
@@ -61,9 +61,6 @@ export default function AddItemGroup() {
     >
       <Paper variant="outlined" sx={{ ...compactCardSx, p: 1.5 }}>
         <Stack spacing={1.25}>
-          <Alert severity="info" sx={{ borderRadius: 2 }}>
-            Recommended: Finished Goods, Raw Materials, Services, Consumables, Outsourced Work.
-          </Alert>
           <Typography variant="subtitle2">Group Setup</Typography>
           <TextField
             select

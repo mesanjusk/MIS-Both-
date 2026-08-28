@@ -26,9 +26,9 @@ import { fetchMobileVisibilitySettings, saveMobileVisibilitySettings } from '../
 import { fetchCustomerGroups, fetchCustomers } from '../services/customerService';
 import axios from '../apiClient.js';
 
-const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Transaction 4D', 'Attendance'];
+const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Cash & Bank', 'Attendance'];
 const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];
-const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'SOP', 'Admin'];
+const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'Operations', 'SOP', 'Admin'];
 
 const DEFAULT_MOBILE_SETTINGS = {
   defaultHidden: true,

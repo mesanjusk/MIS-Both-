@@ -5,6 +5,7 @@ import { fetchCustomers } from '../services/customerService.js';
 import { fetchPayments } from '../services/paymentService.js';
 import { updateOrder } from '../services/orderService.js';
 import AddCustomer from '../Pages/addCustomer';
+import { ROUTES } from '../constants/routes';
 
 export default function UpdateCustomer({order, onClose}) {
     const navigate = useNavigate();
@@ -81,7 +82,7 @@ export default function UpdateCustomer({order, onClose}) {
               if (res.data.success) {
                 toast.success('Order updated successfully!');
                 onClose(); 
-                navigate("/allOrder");  
+                navigate(ROUTES.REPORTS_ORDERS);
               }
             })
 

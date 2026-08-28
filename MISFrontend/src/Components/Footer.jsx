@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ROUTES } from '../constants/routes';
 import { useAuth } from '../context/AuthContext';
 import { useNavCustomize, isFooterLinkVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
+import { usePageToggles } from '../hooks/usePageToggles';
 
 const FOOTER_LINKS = [
   { label: 'Home',         path: ROUTES.HOME },
@@ -13,7 +14,7 @@ const FOOTER_LINKS = [
   { label: 'Day Book',     path: ROUTES.DAY_BOOK },
   { label: 'Call Logs',    path: ROUTES.CALL_LOGS },
   { label: 'SOP Tasks',    path: ROUTES.SOP },
-  { label: 'Account Book', path: ROUTES.ALL_TRANSACTION },
+  { label: 'Account Book', path: ROUTES.REPORTS_TRANSACTIONS },
   { label: 'Business',     path: ROUTES.BUSINESS_CONTROL },
   { label: 'Post Print',   path: ROUTES.POST_PRINTING_CONTROL },
   { label: 'Invoices',     path: ROUTES.INVOICES_LIST },
@@ -29,10 +30,11 @@ export default function Footer() {
   const { permissions } = useAuth();
   const { prefs } = useNavCustomize();
   const { footerEnabled } = useSidebarVisibility();
+  const { isPageDisabled } = usePageToggles();
 
   const visibleLinks = FOOTER_LINKS.filter((link) => {
     if ((permissions?.footerHidden || []).includes(link.label)) return false;
-    return isFooterLinkVisible(prefs, link.label);
+    return !isPageDisabled(link.path) && isFooterLinkVisible(prefs, link.label);
   });
 
   // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.

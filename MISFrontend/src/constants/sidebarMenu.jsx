@@ -88,13 +88,12 @@ export const SIDEBAR_GROUPS = [
       { label: 'Record Income', path: ROUTES.ADD_RECEIVABLE, icon: <PaymentsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Payment Reminders', path: ROUTES.FOLLOWUPS, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Trial Balance', path: ROUTES.TRIAL_BALANCE, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Account Book', path: ROUTES.ALL_TRANSACTION, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Account Book', path: ROUTES.REPORTS_TRANSACTIONS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Transactions 1', path: ROUTES.REPORTS_TRANSACTION_1, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Transactions 2', path: ROUTES.REPORTS_TRANSACTION_2, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 3', path: ROUTES.REPORTS_TRANSACTION_3, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Transactions 4D', path: ROUTES.REPORTS_TRANSACTION_4D, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'All Transactions', path: ROUTES.REPORTS_TRANSACTION_5, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
-      { label: 'Account Transaction', path: ROUTES.REPORTS_TRANSACTIONS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Customer Ledger', path: ROUTES.REPORTS_TRANSACTION_3, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Daily Cash & Bank', path: ROUTES.REPORTS_TRANSACTION_4D, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
+      { label: 'Transaction Register', path: ROUTES.REPORTS_TRANSACTION_5, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
       { label: 'Payments Report', path: ROUTES.PAYMENT_REPORT, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES },
     ],
   },
@@ -114,7 +113,6 @@ export const SIDEBAR_GROUPS = [
       // and per-person figures, so Admin and Owner only; the page checks again
       // for itself and the API enforces it regardless.
       { label: 'Business Reports', path: ROUTES.REPORTS_BUSINESS, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
-      { label: 'API Performance', path: ROUTES.REPORTS_API_PERFORMANCE, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Customers Report', path: ROUTES.REPORTS_CUSTOMERS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer', path: ROUTES.ADD_CUSTOMER, icon: <PersonAddRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Add Customer Group', path: ROUTES.ADD_CUSTOMER_GROUP, icon: <GroupRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
@@ -184,6 +182,7 @@ export const SIDEBAR_GROUPS = [
   {
     label: 'Admin',
     items: [
+      { label: 'API Performance', path: ROUTES.REPORTS_API_PERFORMANCE, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'Group Permissions', path: ROUTES.ADMIN_GROUP_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },
       { label: 'WhatsApp Action Log', path: ROUTES.WHATSAPP_ACTION_LOG, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES },

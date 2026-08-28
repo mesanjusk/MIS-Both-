@@ -12,7 +12,9 @@ import {
   PageContainer, SectionCard, DataTableWrapper, LoadingState, EmptyState, ErrorState,
 } from '../Components/ui';
 import { WEEK_DAYS } from '../constants/operations';
+import { FEATURE_TOGGLE_KEYS } from '../constants/featureToggles';
 import { useAuth } from '../context/AuthContext';
+import { usePageToggles } from '../hooks/usePageToggles';
 import {
   fetchOperationsSettings, saveStoreSettings, savePriorityLevels, saveDepartments,
   fetchOperationsUsers, fetchConfigurationWarnings, fetchOperationsAudit,
@@ -35,7 +37,9 @@ const formatAuditValue = (value) => {
  */
 export default function OperationsSettings() {
   const { isAdmin, isSuperAdmin } = useAuth();
+  const { isApiDisabled, togglesLoaded } = usePageToggles();
   const canEdit = isAdmin || isSuperAdmin;
+  const seedEnabled = togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.OPERATIONS_SEED);
 
   const [store, setStore] = useState(null);
   const [levels, setLevels] = useState([]);
@@ -157,14 +161,16 @@ export default function OperationsSettings() {
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
           {canEdit ? (
             <>
-              <Button
-                size="small"
-                startIcon={<DownloadingIcon />}
-                disabled={busy === 'seed'}
-                onClick={() => run('seed', seedOperationsDefaults, 'Defaults seeded (existing rows untouched).')}
-              >
-                Seed defaults
-              </Button>
+              {seedEnabled ? (
+                <Button
+                  size="small"
+                  startIcon={<DownloadingIcon />}
+                  disabled={busy === 'seed'}
+                  onClick={() => run('seed', seedOperationsDefaults, 'Defaults seeded (existing rows untouched).')}
+                >
+                  Seed defaults
+                </Button>
+              ) : null}
               <Button
                 size="small"
                 disabled={busy === 'generate'}
@@ -179,7 +185,7 @@ export default function OperationsSettings() {
     >
       {error ? <ErrorState message={error} /> : null}
       {success ? <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert> : null}
-      {!canEdit ? <Alert severity="info">Read-only — only a manager or admin can change these.</Alert> : null}
+      {!canEdit ? <Typography variant="caption" color="text.secondary">Read-only</Typography> : null}
 
       {warnings.length ? (
         <SectionCard title={`Configuration Warnings (${warnings.length})`}>

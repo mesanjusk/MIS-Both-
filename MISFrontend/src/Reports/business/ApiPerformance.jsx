@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Lock, RefreshCw } from 'lucide-react';
+import PropTypes from 'prop-types';
 import toast from 'react-hot-toast';
 
 import client from '../../apiClient';
 import { isSuperAdminRole } from '../../constants/roles';
 import { useAuth } from '../../context/AuthContext';
+import { invalidatePageToggles } from '../../hooks/usePageToggles';
 import { count, percent } from './reportFormat';
 
 /**
@@ -16,7 +18,8 @@ import { count, percent } from './reportFormat';
  * switching it on again from here — and a mistake stays broken until someone
  * is free to fix it. Unticking a box takes effect within thirty seconds.
  *
- * Nothing is switched off by shipping this. Every box starts ticked.
+ * A reviewed set of duplicate pages and one-time maintenance endpoints starts
+ * off. An administrator can switch any unlocked row back on here.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -31,11 +34,17 @@ function ago(value) {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-const FILTERS = [
+const API_FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'idle', label: 'Unused' },
   { value: 'used', label: 'Used' },
   { value: 'errors', label: 'Failing' },
+  { value: 'disabled', label: 'Switched off' },
+];
+
+const PAGE_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'unlinked', label: 'Not in menu' },
   { value: 'disabled', label: 'Switched off' },
 ];
 
@@ -81,6 +90,13 @@ export default function ApiPerformance() {
       toast.error('This one keeps the app reachable and cannot be switched off.');
       return;
     }
+    if (!enabled) {
+      const target = row.label || row.key;
+      const warning = kind === 'api'
+        ? `Switch off ${target}? Any workflow that still calls it will stop until it is switched on again.`
+        : `Switch off ${target}? It will disappear from navigation and direct links until it is switched on again.`;
+      if (!window.confirm(warning)) return;
+    }
     setSaving(row.key);
     const collection = kind === 'api' ? 'apis' : 'pages';
     const previous = data;
@@ -94,6 +110,7 @@ export default function ApiPerformance() {
 
     try {
       await client.post('/api/api-usage/toggle', { key: row.key, kind, disabled: !enabled });
+      invalidatePageToggles();
       toast.success(`${row.label || row.key} ${enabled ? 'switched on' : 'switched off'}.`);
     } catch (err) {
       setData(previous);
@@ -121,6 +138,7 @@ export default function ApiPerformance() {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (term && !`${row.path} ${row.label}`.toLowerCase().includes(term)) return false;
+      if (filter === 'unlinked') return row.linked === false;
       if (filter === 'disabled') return row.disabled;
       return true;
     });
@@ -194,7 +212,7 @@ export default function ApiPerformance() {
           <button
             key={value}
             type="button"
-            onClick={() => setTab(value)}
+            onClick={() => { setTab(value); setFilter('all'); }}
             aria-pressed={tab === value}
             className={`rounded-md border px-3 py-1 text-xs ${
               tab === value ? 'border-blue-600 bg-blue-600 text-white' : 'text-gray-500'
@@ -204,7 +222,7 @@ export default function ApiPerformance() {
           </button>
         ))}
         <span className="mx-1 h-4 w-px bg-gray-300" />
-        {FILTERS.map((entry) => (
+        {(tab === 'apis' ? API_FILTERS : PAGE_FILTERS).map((entry) => (
           <button
             key={entry.value}
             type="button"
@@ -249,10 +267,7 @@ export default function ApiPerformance() {
       )}
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Unticking a box does not delete anything. The endpoint answers{' '}
-        <code className="text-[11px]">410 Gone</code> and the page stops being reachable, until
-        the box is ticked again — no deploy either way. A few endpoints are locked because
-        switching them off would lock everyone out of this screen.
+        Off is reversible and does not delete data. Locked rows keep login and this control page reachable.
       </p>
     </div>
   );
@@ -326,6 +341,7 @@ function ApiTable({ rows, loading, saving, onToggle }) {
                   <div className="font-mono text-xs">
                     <span className="text-gray-500">{row.method}</span> {row.path}
                   </div>
+                  {row.defaultOff && <span className="text-[11px] text-gray-400">maintenance default</span>}
                   {row.neverCalled && (
                     <span className="text-[11px] text-amber-600">not called since recording began</span>
                   )}
@@ -371,7 +387,10 @@ function PageTable({ rows, loading, saving, onToggle }) {
           {!loading &&
             rows.map((row) => (
               <tr key={row.key} className={`border-b last:border-0 ${row.disabled ? 'opacity-50' : ''}`}>
-                <td className="px-3 py-2 font-medium">{row.label}</td>
+                <td className="px-3 py-2 font-medium">
+                  {row.label}
+                  {row.defaultOff && <span className="ml-2 text-[11px] font-normal text-gray-400">default off</span>}
+                </td>
                 <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.path}</td>
                 <td className="px-3 py-2 text-xs">
                   {row.linked === false ? (
@@ -390,3 +409,37 @@ function PageTable({ rows, loading, saving, onToggle }) {
     </div>
   );
 }
+
+const toggleRowPropType = PropTypes.shape({
+  key: PropTypes.string.isRequired,
+  label: PropTypes.string,
+  disabled: PropTypes.bool,
+  locked: PropTypes.bool,
+});
+
+Tile.propTypes = {
+  label: PropTypes.string.isRequired,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+  tone: PropTypes.string,
+};
+
+EnabledBox.propTypes = {
+  row: toggleRowPropType.isRequired,
+  kind: PropTypes.oneOf(['api', 'page']).isRequired,
+  saving: PropTypes.string,
+  onToggle: PropTypes.func.isRequired,
+};
+
+Empty.propTypes = {
+  colSpan: PropTypes.number.isRequired,
+  loading: PropTypes.bool.isRequired,
+};
+
+ApiTable.propTypes = {
+  rows: PropTypes.arrayOf(toggleRowPropType).isRequired,
+  loading: PropTypes.bool.isRequired,
+  saving: PropTypes.string,
+  onToggle: PropTypes.func.isRequired,
+};
+
+PageTable.propTypes = ApiTable.propTypes;

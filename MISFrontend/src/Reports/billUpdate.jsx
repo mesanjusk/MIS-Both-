@@ -6,6 +6,7 @@ import UpdateDelivery from '../Pages/updateDelivery';
 import EditOrder from '../Components/editOrder';
 import Print from '../Components/print';
 import EditCustomer from '../Components/editCustomer';
+import { ROUTES } from '../constants/routes';
 
 export default function BillUpdate({ order, onClose }) {
   const navigate = useNavigate();
@@ -107,7 +108,7 @@ export default function BillUpdate({ order, onClose }) {
         if (res.data.success) {
           toast.success('Order updated successfully!');
           onClose();
-          navigate("/allOrder");
+          navigate(ROUTES.REPORTS_ORDERS);
         } else {
           toast.error('Update failed.');
         }

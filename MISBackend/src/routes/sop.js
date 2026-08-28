@@ -2,6 +2,7 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
 const {
   getDailyStatus,
   getDailyStatusForUser,
@@ -158,7 +159,7 @@ router.post('/skip', requireAuth, async (req, res, next) => {
 });
 
 // POST /api/sop/seed — seed default tasks (admin, only when collection is empty)
-router.post('/seed', requireAuth, async (req, res, next) => {
+router.post('/seed', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const result = await seedDefaultTasks();
     res.json({ success: true, ...result });

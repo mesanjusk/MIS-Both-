@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
 const { v4: uuidv4 } = require('uuid');
 const Accounts = require('../repositories/accounts');
 const Transaction = require('../repositories/transaction');
@@ -13,8 +14,8 @@ const {
 const OPENING_BALANCE_SOURCE = 'opening:balance';
 
 // GET /api/accounts/fix-opening-balance-uuid
-// One-time cleanup — placed BEFORE requireAuth so it can be run from the browser.
-router.get('/fix-opening-balance-uuid', async (_req, res) => {
+// One-time cleanup — reversible through API Performance and admin-only.
+router.get('/fix-opening-balance-uuid', requireAuth, requireAdmin, async (_req, res) => {
   const OLD_UUID = '45d3945d-949b-436d-b7f9-e11dac1a8eb7';
   const NEW_UUID = '4cbfbba5-a50e-46fe-bd90-5877ea73e665';
   try {

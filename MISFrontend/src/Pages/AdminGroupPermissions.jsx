@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Card, CardContent, Chip, CircularProgress,
+  Box, Card, CardContent, Chip, CircularProgress,
   FormControlLabel, Paper, Stack, Switch, Typography,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
-import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
 
@@ -147,13 +145,6 @@ export default function AdminGroupPermissions() {
         </Box>
       </Stack>
 
-      <Alert icon={<WhatsAppIcon fontSize="small" />} severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
-        These rights govern the "MIS orders" / "MIS new order" WhatsApp commands only (view / advance stage /
-        self-assign / create / record payment). A group left as "Using role default" follows the built-in tier:
-        Admin/Owner get full control including payments, Office/Manager get view + advance + create, everyone
-        else gets view of their own assigned orders only.
-      </Alert>
-
       <Stack spacing={2}>
         {groups.map((group) => (
           <GroupPermissionCard
@@ -164,11 +155,7 @@ export default function AdminGroupPermissions() {
         ))}
       </Stack>
 
-      {!groups.length && (
-        <Alert severity="warning" sx={{ borderRadius: 2, bgcolor: (t) => alpha(t.palette.warning.main, 0.08) }}>
-          No user groups found. Add one from "Add User Group" first.
-        </Alert>
-      )}
+      {!groups.length && <Typography color="text.secondary">No user groups found.</Typography>}
     </Box>
   );
 }

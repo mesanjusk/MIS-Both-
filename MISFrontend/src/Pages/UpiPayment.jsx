@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Alert,
   Autocomplete,
   Box,
   Button,
@@ -360,9 +359,9 @@ export default function UpiPayment({ onClose }) {
         <DialogTitle>Did the UPI payment complete?</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-            <Alert severity="info">
-              After returning from the UPI app, confirm payment here to save it in the dashboard.
-            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              Confirm the result after returning from the UPI app.
+            </Typography>
 
             {pendingPayment ? (
               <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>

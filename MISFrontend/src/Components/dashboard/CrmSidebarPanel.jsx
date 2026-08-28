@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Card,
   Chip,
   CircularProgress,
   Divider,
-  IconButton,
   InputAdornment,
   List,
   ListItemButton,
@@ -256,7 +254,9 @@ export default function CrmSidebarPanel() {
             <Typography variant="caption" color="text.secondary">Chat History</Typography>
             <Stack spacing={1} sx={{ maxHeight: 180, overflowY: 'auto', mt: 1 }}>
               {isChatLoading && <CircularProgress size={18} />}
-              {!isChatLoading && chatHistory.length === 0 && <Alert severity="info">No chat history found.</Alert>}
+              {!isChatLoading && chatHistory.length === 0 && (
+                <Typography variant="body2" color="text.secondary">No chat history found.</Typography>
+              )}
               {chatHistory.map((item) => (
                 <Box
                   key={item.id}

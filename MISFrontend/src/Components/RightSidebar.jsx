@@ -26,6 +26,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import { ROUTES } from '../constants/routes';
 import { useAuth } from '../context/AuthContext';
 import { useNavCustomize, isRightActionVisible, isRightLinkVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
+import { usePageToggles } from '../hooks/usePageToggles';
 
 const NAVBAR_HEIGHT = 64;
 const RIGHT_SIDEBAR_WIDTH = 66;
@@ -106,6 +107,7 @@ export default function RightSidebar({ openUpi }) {
   const { prefs } = useNavCustomize();
   const { permissions } = useAuth();
   const { rightSidebarEnabled } = useSidebarVisibility();
+  const { isPageDisabled } = usePageToggles();
 
   const isSelected = (path) =>
     Boolean(path) && (pathname === path || pathname.startsWith(`${path}/`));
@@ -113,12 +115,14 @@ export default function RightSidebar({ openUpi }) {
   const quickActions = [
     {
       label: 'Day Book',
+      path: ROUTES.DAY_BOOK,
       icon: <MenuBookRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.DAY_BOOK),
       accent: theme.palette.primary.main,
     },
     {
       label: 'Send Email',
+      path: ROUTES.EMAIL_COMPOSE,
       icon: <EmailRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.EMAIL_COMPOSE),
       accent: theme.palette.success.main,
@@ -130,13 +134,15 @@ export default function RightSidebar({ openUpi }) {
       accent: theme.palette.warning.main,
     },
     {
-      label: 'Transaction 4D',
+      label: 'Cash & Bank',
+      path: ROUTES.REPORTS_TRANSACTION_4D,
       icon: <ReceiptLongRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.REPORTS_TRANSACTION_4D),
       accent: theme.palette.error.main,
     },
     {
       label: 'Attendance',
+      path: ROUTES.ATTENDANCE_REPORT,
       icon: <PeopleRoundedIcon fontSize="small" />,
       onClick: () => navigate(ROUTES.ATTENDANCE_REPORT),
       accent: theme.palette.secondary.main,
@@ -149,16 +155,22 @@ export default function RightSidebar({ openUpi }) {
     { label: 'Post Print', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.POST_PRINTING_CONTROL },
     { label: 'Workflows', icon: <PrintRoundedIcon fontSize="small" />, path: ROUTES.WORKFLOW_TEMPLATES },
     { label: 'WhatsApp', icon: <ChatRoundedIcon fontSize="small" />, path: ROUTES.WHATSAPP },
-    { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: ROUTES.ALL_TRANSACTION },
+    { label: 'Reports', icon: <AssessmentRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_TRANSACTIONS },
     { label: 'Attendance', icon: <PeopleRoundedIcon fontSize="small" />, path: ROUTES.ATTENDANCE },
     { label: 'Dispatch', icon: <LocalShippingRoundedIcon fontSize="small" />, path: ROUTES.REPORTS_DELIVERY },
   ];
 
   const visibleActions = quickActions.filter(
-    (a) => !(permissions?.rightActionsHidden || []).includes(a.label) && isRightActionVisible(prefs, a.label),
+    (a) =>
+      !(permissions?.rightActionsHidden || []).includes(a.label) &&
+      (!a.path || !isPageDisabled(a.path)) &&
+      isRightActionVisible(prefs, a.label),
   );
   const visibleLinks = quickLinks.filter(
-    (l) => !(permissions?.rightLinksHidden || []).includes(l.label) && isRightLinkVisible(prefs, l.label),
+    (l) =>
+      !(permissions?.rightLinksHidden || []).includes(l.label) &&
+      !isPageDisabled(l.path) &&
+      isRightLinkVisible(prefs, l.label),
   );
 
   // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.

@@ -200,10 +200,6 @@ export default function MyOperations() {
 
       {tasks?.transferredToMe?.length ? (
         <SectionCard title="Tasks Transferred To Me" subtitle="You are covering these because the configured owner is unavailable">
-          <Alert severity="info" sx={{ mb: 1 }}>
-            {tasks.transferredToMe.length} task(s) inherited today. The original assignment is unchanged
-            and returns automatically when they are back.
-          </Alert>
           {renderTaskTable(tasks.transferredToMe, { showOwnerRole: true })}
         </SectionCard>
       ) : null}

@@ -158,11 +158,11 @@ export default function TeamOperations() {
       ) : null}
 
       {!loading && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
-        <Alert severity="info" sx={{ borderRadius: 2 }}>
-          Handled off the staff line right now: {offStaffLine.byVirtualOperators || 0} task(s) with
-          an automated operator, {offStaffLine.byAlwaysAvailable || 0} with an always-available
-          user. Both are counted in the rows below.
-        </Alert>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+          <Typography variant="body2" color="text.secondary">Handled off the staff line:</Typography>
+          <Chip size="small" label={`${offStaffLine.byVirtualOperators || 0} automated`} />
+          <Chip size="small" label={`${offStaffLine.byAlwaysAvailable || 0} always available`} />
+        </Stack>
       ) : null}
 
       {!loading ? (

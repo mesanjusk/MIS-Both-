@@ -11,6 +11,8 @@ import UpdateDelivery from "../Pages/updateDelivery";
 import OrderUpdate from "../Pages/OrderUpdate";
 import AssignVendorDialog from "../Components/AssignVendorDialog";
 import { buildPoIndex, collectVendorLinks, poTotal, summarizeMapping } from "../utils/vendorMapping";
+import { FEATURE_TOGGLE_KEYS } from "../constants/featureToggles";
+import { usePageToggles } from "../hooks/usePageToggles";
 
 import {
   Alert,
@@ -81,6 +83,8 @@ const money = (v) => `₹${Number(v || 0).toLocaleString("en-IN")}`;
 const todayISO = new Date().toISOString().slice(0, 10);
 
 export default function AllDelivery() {
+  const { isApiDisabled, togglesLoaded } = usePageToggles();
+  const ledgerBackfillEnabled = togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.PURCHASE_ORDER_POSTING_BACKFILL);
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -972,9 +976,9 @@ export default function AllDelivery() {
               <CircularProgress />
             </Box>
           ) : dateOrders.length === 0 ? (
-            <Alert severity="info" variant="outlined" sx={{ borderRadius: 3 }}>
+            <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
               No delivered orders found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.
-            </Alert>
+            </Typography>
           ) : (
             <Stack direction={{ xs: "column", lg: "row" }} spacing={2} alignItems="flex-start">
               {/* ── Section 1: Deliveries (IN) ── */}
@@ -1296,20 +1300,22 @@ export default function AllDelivery() {
                       }
                       sx={{ m: 0 }}
                     />
-                    <Tooltip title="Post vendor bills for purchase orders that never reached the ledger">
-                      <span>
-                        <Button
-                          size="small"
-                          variant="text"
-                          color="error"
-                          disabled={syncingLedger}
-                          onClick={handleSyncVendorLedger}
-                          sx={{ textTransform: "none", fontSize: "0.68rem", minWidth: 0, px: 0.75 }}
-                        >
-                          {syncingLedger ? "Syncing…" : "Sync ledger"}
-                        </Button>
-                      </span>
-                    </Tooltip>
+                    {ledgerBackfillEnabled ? (
+                      <Tooltip title="Post vendor bills for purchase orders that never reached the ledger">
+                        <span>
+                          <Button
+                            size="small"
+                            variant="text"
+                            color="error"
+                            disabled={syncingLedger}
+                            onClick={handleSyncVendorLedger}
+                            sx={{ textTransform: "none", fontSize: "0.68rem", minWidth: 0, px: 0.75 }}
+                          >
+                            {syncingLedger ? "Syncing…" : "Sync ledger"}
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    ) : null}
                     <Typography variant="subtitle2" fontWeight={700} color="error.dark">
                       {money(filteredPOs.reduce((s, po) => s + poTotal(po), 0))}
                     </Typography>
@@ -1356,12 +1362,12 @@ export default function AllDelivery() {
                     <CircularProgress size={22} />
                   </Box>
                 ) : filteredPOs.length === 0 ? (
-                  <Box sx={{ p: 2 }}>
-                    <Alert severity="info" sx={{ borderRadius: 2 }}>
+                  <Box sx={{ p: 3, textAlign: "center" }}>
+                    <Typography color="text.secondary">
                       {showAutoOnly
                         ? `No auto-created POs found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`
                         : `No purchase orders found${selectedDate ? ` for ${fmtDate(selectedDate)}` : ""}.`}
-                    </Alert>
+                    </Typography>
                   </Box>
                 ) : (
                   <TableContainer>

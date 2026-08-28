@@ -104,7 +104,7 @@ export default function WhatsAppMessageTemplates() {
 
         {message ? <Alert severity="success">{message}</Alert> : null}
         {error ? <Alert severity="error">{error}</Alert> : null}
-        {isLoading ? <Alert severity="info">Loading message text…</Alert> : null}
+        {isLoading ? <Typography color="text.secondary">Loading message text…</Typography> : null}
 
         {grouped.map(([category, items]) => (
           <Accordion

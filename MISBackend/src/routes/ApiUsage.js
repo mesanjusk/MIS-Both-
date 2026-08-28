@@ -19,6 +19,7 @@ const { collectRoutes, groupOf } = require('../utils/routeInventory');
 const { flush } = require('../middleware/apiUsage');
 const { invalidate, isProtected } = require('../middleware/featureToggle');
 const { PAGES } = require('../constants/frontendPages');
+const { DEFAULT_DISABLED_KEYS } = require('../constants/defaultFeatureToggles');
 
 // Everything here needs a login. The report and the switches additionally
 // need admin — they expose the whole route table and can take endpoints
@@ -89,6 +90,8 @@ router.get('/report', requireRole('admin'), async (req, res) => {
         neverCalled: !stat?.lastUsedAt,
         disabled: Boolean(toggle?.disabled),
         disabledBy: toggle?.disabledBy || '',
+        note: toggle?.note || '',
+        defaultOff: DEFAULT_DISABLED_KEYS.has(route.key),
         // A protected endpoint shows in the list but cannot be switched off,
         // so the UI can grey the box rather than fail the click.
         locked: isProtected(route.path),
@@ -109,6 +112,8 @@ router.get('/report', requireRole('admin'), async (req, res) => {
         // hit count to report. Their switch still works.
         disabled: Boolean(toggle?.disabled),
         disabledBy: toggle?.disabledBy || '',
+        note: toggle?.note || '',
+        defaultOff: DEFAULT_DISABLED_KEYS.has(page.path),
         locked: Boolean(page.locked),
       };
     });

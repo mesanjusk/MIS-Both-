@@ -11,7 +11,6 @@ import {
   buildOrderConfirmationParameters,
 } from '../constants/whatsappTemplates';
 import {
-  Alert,
   Autocomplete,
   Box,
   Button,
@@ -1192,9 +1191,9 @@ export default function AddOrder1({ closeModal }) {
 
                       {selectedItemCatalogMap.get(item.Item)?.itemType === 'finished_item' &&
                       (selectedItemCatalogMap.get(item.Item)?.bomCount || 0) > 0 ? (
-                        <Alert severity="info" sx={{ borderRadius: 2 }}>
+                        <Typography variant="caption" color="text.secondary">
                           This finished item has {(selectedItemCatalogMap.get(item.Item)?.bomCount || 0)} BOM rows. Raw material and service work will be created automatically after saving the order. Vendor or user can be decided later.
-                        </Alert>
+                        </Typography>
                       ) : null}
 
                       {selectedItemCatalogMap.get(item.Item)?.itemType ? (
@@ -1447,9 +1446,9 @@ export default function AddOrder1({ closeModal }) {
                           <MenuItem value="high"><Chip size="small" color="error" label="High" /></MenuItem>
                         </TextField>
                       </Stack>
-                      <Alert severity="info" sx={{ py: 0, borderRadius: 2, '& .MuiAlert-message': { py: 0.75 } }}>
-                        This order will be assigned to {selectedAssigneeName || '—'} | Due: {orderDueDate || '—'} | Priority: {orderPriority}
-                      </Alert>
+                      <Typography variant="caption" color="text.secondary">
+                        Assigned to {selectedAssigneeName || '—'} · Due {orderDueDate || '—'} · {orderPriority} priority
+                      </Typography>
                     </Stack>
                   </Paper>
                 ) : null}
@@ -1521,17 +1520,6 @@ export default function AddOrder1({ closeModal }) {
 
                 {isVendorChecked ? (
                   <Stack spacing={1}>
-                    <Alert
-                      severity="info"
-                      sx={{
-                        py: 0,
-                        borderRadius: 2,
-                        '& .MuiAlert-message': { py: 0.75 },
-                      }}
-                    >
-                      Pick any existing customer / party as vendor.
-                    </Alert>
-
                     <Stack direction="row" alignItems="center" justifyContent="space-between">
                       <Typography variant="body2" fontWeight={700}>
                         Vendor Details

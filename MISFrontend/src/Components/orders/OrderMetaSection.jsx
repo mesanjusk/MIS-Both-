@@ -1,4 +1,4 @@
-import { Alert, Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 
 const inputLabelProps = { shrink: true };
 
@@ -86,12 +86,9 @@ export default function OrderMetaSection({
           </TextField>
         </Stack>
 
-        <Alert
-          severity="info"
-          sx={{ py: 0, borderRadius: 2, '& .MuiAlert-message': { py: 0.75 } }}
-        >
+        <Typography variant="caption" color="text.secondary">
           Assigned to {selectedAssigneeName || '—'} | Due: {orderDueDate || '—'} | Priority: {orderPriority}
-        </Alert>
+        </Typography>
       </Stack>
     </Paper>
   );

@@ -9,9 +9,9 @@ const mongoose = require('mongoose');
  * server the moment it ships, so a mistake is an outage until someone is free
  * to fix it. A row here is reversible by unticking a box.
  *
- * A row exists only for something that has been *touched*. Absence means
- * enabled, so the default for all 310 endpoints and 79 pages is "on" and no
- * migration is needed to keep the app working exactly as it does today.
+ * Absence means enabled. A small reviewed set of duplicate pages and one-time
+ * maintenance endpoints is inserted on first deploy; after that, the stored
+ * administrator choice always wins.
  */
 const FeatureToggleSchema = new mongoose.Schema(
   {

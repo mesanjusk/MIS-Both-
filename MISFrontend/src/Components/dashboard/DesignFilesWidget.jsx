@@ -73,7 +73,9 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
+import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
+import { usePageToggles } from '../../hooks/usePageToggles';
 import { fetchAssignees } from '../../services/assigneeService';
 import {
   STAGE_TO_CAPABILITY,
@@ -2701,6 +2703,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
 // ─── Main widget ──────────────────────────────────────────────────────────────
 export default function DesignFilesWidget() {
   const { userName, isAdmin } = useAuth();
+  const { isApiDisabled, togglesLoaded } = usePageToggles();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -2726,6 +2729,12 @@ export default function DesignFilesWidget() {
   const [maintenanceTools, setMaintenanceTools] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [toast, setToast] = useState(null);
+  const maintenanceAvailable = {
+    renumber: togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.DESIGN_RENUMBER),
+    folderCleanup: togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.DESIGN_FOLDER_CLEANUP),
+    tempOrderCleanup: togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.DESIGN_TEMP_ORDER_CLEANUP),
+  };
+  const showMaintenance = maintenanceTools && Object.values(maintenanceAvailable).some(Boolean);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -2948,7 +2957,7 @@ export default function DesignFilesWidget() {
         {/* One-time maintenance tools (admin). Hidden for good by setting
             DESIGN_MAINTENANCE_TOOLS=false on the server once the cleanup
             has been run. */}
-        {isAdmin && maintenanceTools && (
+        {isAdmin && showMaintenance && (
           <>
             <Tooltip title="One-time maintenance">
               <IconButton size="small" onClick={(e) => setMaintenanceAnchor(e.currentTarget)} sx={{ p: 0.4 }}>
@@ -2960,27 +2969,33 @@ export default function DesignFilesWidget() {
               open={!!maintenanceAnchor}
               onClose={() => setMaintenanceAnchor(null)}
             >
-              <MenuItem
-                onClick={() => { setMaintenanceAnchor(null); setRenumberOpen(true); }}
-                sx={{ fontSize: 13 }}
-              >
-                <ListItemIcon><TagRoundedIcon fontSize="small" /></ListItemIcon>
-                Renumber Final files
-              </MenuItem>
-              <MenuItem
-                onClick={() => { setMaintenanceAnchor(null); setCleanupOpen(true); }}
-                sx={{ fontSize: 13 }}
-              >
-                <ListItemIcon><CleaningServicesRoundedIcon fontSize="small" /></ListItemIcon>
-                Duplicate Printing folders
-              </MenuItem>
-              <MenuItem
-                onClick={() => { setMaintenanceAnchor(null); setTempOrdersOpen(true); }}
-                sx={{ fontSize: 13 }}
-              >
-                <ListItemIcon><DeleteRoundedIcon fontSize="small" /></ListItemIcon>
-                Temp orders
-              </MenuItem>
+              {maintenanceAvailable.renumber ? (
+                <MenuItem
+                  onClick={() => { setMaintenanceAnchor(null); setRenumberOpen(true); }}
+                  sx={{ fontSize: 13 }}
+                >
+                  <ListItemIcon><TagRoundedIcon fontSize="small" /></ListItemIcon>
+                  Renumber Final files
+                </MenuItem>
+              ) : null}
+              {maintenanceAvailable.folderCleanup ? (
+                <MenuItem
+                  onClick={() => { setMaintenanceAnchor(null); setCleanupOpen(true); }}
+                  sx={{ fontSize: 13 }}
+                >
+                  <ListItemIcon><CleaningServicesRoundedIcon fontSize="small" /></ListItemIcon>
+                  Duplicate Printing folders
+                </MenuItem>
+              ) : null}
+              {maintenanceAvailable.tempOrderCleanup ? (
+                <MenuItem
+                  onClick={() => { setMaintenanceAnchor(null); setTempOrdersOpen(true); }}
+                  sx={{ fontSize: 13 }}
+                >
+                  <ListItemIcon><DeleteRoundedIcon fontSize="small" /></ListItemIcon>
+                  Temp orders
+                </MenuItem>
+              ) : null}
             </Menu>
           </>
         )}

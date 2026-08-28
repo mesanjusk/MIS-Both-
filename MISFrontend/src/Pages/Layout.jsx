@@ -110,7 +110,7 @@ export default function Layout() {
 
   const bottomNavValue = useMemo(() => {
     const { pathname } = location;
-    if (pathname.startsWith('/allOrder') || pathname.startsWith('/reports/orders')) return '/allOrder';
+    if (pathname.startsWith('/allOrder') || pathname.startsWith('/reports/orders')) return ROUTES.REPORTS_ORDERS;
     if (pathname.startsWith('/business-control')) return ROUTES.BUSINESS_CONTROL;
     if (pathname.startsWith('/whatsapp')) return ROUTES.WHATSAPP;
     if (
@@ -290,7 +290,7 @@ export default function Layout() {
             value={bottomNavValue}
             onChange={(_, next) => {
               if (next === '/reports') {
-                navigate('/allTransaction');
+                navigate(ROUTES.REPORTS_TRANSACTIONS);
               } else {
                 navigate(next);
               }
@@ -321,7 +321,7 @@ export default function Layout() {
             })}
           >
             <BottomNavigationAction label="Home" value={ROUTES.HOME} icon={<HomeRoundedIcon />} />
-            <BottomNavigationAction label="Orders" value="/allOrder" icon={<AssignmentRoundedIcon />} />
+            <BottomNavigationAction label="Orders" value={ROUTES.REPORTS_ORDERS} icon={<AssignmentRoundedIcon />} />
             <BottomNavigationAction label="Business" value={ROUTES.BUSINESS_CONTROL} icon={<StoreRoundedIcon />} />
             <BottomNavigationAction label="WhatsApp" value={ROUTES.WHATSAPP} icon={<ChatRoundedIcon />} />
             <BottomNavigationAction label="Reports" value="/reports" icon={<AssessmentRoundedIcon />} />

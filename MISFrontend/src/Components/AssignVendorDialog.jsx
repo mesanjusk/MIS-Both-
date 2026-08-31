@@ -117,7 +117,6 @@ export default function AssignVendorDialog({
       const created = [];
       for (const row of filled) {
         const amount = Number(row.cost);
-        // eslint-disable-next-line no-await-in-loop
         const res = await axios.post("/api/purchaseorder/create", {
           Vendor_uuid: row.vendor.Vendor_uuid,
           Order_uuid: order.Order_uuid || "",

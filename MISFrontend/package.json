@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview",
-    "vercel-build": "vite build"
+    "vercel-build": "vite build",
+    "lint:critical": "eslint . --config eslint.critical.config.js --max-warnings 0"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

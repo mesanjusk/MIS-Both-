@@ -9,8 +9,10 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  FormControlLabel,
   IconButton,
   Stack,
+  Switch,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
@@ -24,7 +26,7 @@ import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRou
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
-import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
+import { fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
 import { fetchAssignees } from '../../services/assigneeService';
 import { useAuth } from '../../context/AuthContext';
 import { useRoleKey } from '../../hooks/useRouteAccess';
@@ -39,32 +41,6 @@ import { ORDER_SECTIONS } from '../orders/orderControlSections';
 const OrderControlPanel = lazy(() => import('../orders/OrderControlPanel'));
 
 const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
-
-// "DragDrop"/"None" are placeholder Assigned values written by the legacy
-// kanban drag-drop endpoint when it had no real assignee to carry forward —
-// treated as unassigned so they never render as if a person owns the task.
-const UNASSIGNED_ASSIGNED_VALUES = new Set(['none', 'dragdrop', '']);
-
-function normalizeMyOrder(order) {
-  const latest = Array.isArray(order?.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
-  const assigned = String(latest?.Assigned || '').trim();
-  return {
-    orderId: String(order?._id || order?.Order_uuid || ''),
-    orderNumber: order?.Order_Number,
-    customerName: order?.customerName || '',
-    description: order?.orderNote || '',
-    stage: order?.stage,
-    task: latest?.Task || order?.stage || 'Task',
-    assignedTo: UNASSIGNED_ASSIGNED_VALUES.has(assigned.toLowerCase()) ? 'Unassigned' : assigned,
-    assignedBy: latest?.AssignedBy || '',
-    dueDate: order?.dueDate,
-    overdue: Boolean(order?.overdue),
-    stageUpdatedAt: latest?.CreatedAt || order?.updatedAt || null,
-    isTemporary: Boolean(order?.isTemporary),
-    sourceFile: order?.driveFile?.name || null,
-    sourceFileLink: order?.driveFile?.webViewLink || null,
-  };
-}
 
 const STAGE_TO_SECTION = new Map(
   WORKFLOW_SECTIONS.flatMap((section) => section.stages.map((stage) => [stage, section.key]))
@@ -160,44 +136,40 @@ function groupByStageLabel(tasks) {
 // widgets that didn't reference each other. Attendance (start/end day) has
 // moved out of here entirely, next to the user's name in the top nav.
 export default function WorkflowWidget() {
-  const { userName, isAdmin } = useAuth();
-  // `isAdmin` from AuthContext is a loose substring test: it is true for
-  // "Office Admin" and false for "Owner". Fine for deciding whose tasks the
-  // board shows — which is all it has ever gated — but not for the action
-  // queues, where the buttons receive customer payments and pay vendors. That
-  // gate uses the same strict decision as the route guards, so an Office Admin
-  // is excluded and an Owner is not.
+  const { userName } = useAuth();
+  // The action queues receive customer payments and pay vendors, so they use
+  // the same strict Admin/Owner decision as the route guards — not
+  // AuthContext's `isAdmin`, which is a substring test that admits
+  // "Office Admin" and excludes "Owner".
   const roleKey = useRoleKey();
   const canSeeActionQueues = isRoleAllowed(ADMIN_ROLES, roleKey);
   const [tab, setTab] = useState('board');
   const [overview, setOverview] = useState(null);
-  const [myOrders, setMyOrders] = useState([]);
+  // Off by default: the board is the shop floor, not a personal list.
+  const [onlyMine, setOnlyMine] = useState(false);
   const [assignees, setAssignees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState('');
   const [movingId, setMovingId] = useState('');
 
-  // `overview` (and its `byUser` breakdown) is now fetched for every signed-
-  // in user, not just admins — it powers the "By User" tab so the whole team
-  // can see stage-wise/user-wise pending work, while the admin-only "Board"
-  // behavior (overview.tasks vs. myOrders) is unchanged.
+  // One source for the whole widget. `/tasks/overview` is open to every
+  // authenticated user by design (see Order/statusRouter.js), and the By User
+  // tab has always shown every person's pending work to everyone — so the
+  // board showing the same orders is not new exposure, it is the same data
+  // the tab beside it already displays.
   const load = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const [overviewRes, mineRes] = await Promise.all([
-        fetchPendingTasksOverview(),
-        isAdmin ? null : fetchMyOrderTasks(userName),
-      ]);
+      const overviewRes = await fetchPendingTasksOverview();
       setOverview(overviewRes?.data || null);
-      if (mineRes) setMyOrders(mineRes?.data?.orders || []);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load pending tasks.');
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, userName]);
+  }, []);
 
   useEffect(() => {
     if (!canSeeActionQueues && tab === 'needsAction') setTab('board');
@@ -238,10 +210,23 @@ export default function WorkflowWidget() {
     }
   };
 
+  // The board shows the whole pipeline to everyone.
+  //
+  // It used to show `overview.tasks` to admins and only the signed-in user's
+  // own orders to everyone else, which meant a print operator saw the Print,
+  // Bind-Pack and Ready columns empty unless work happened to be assigned to
+  // them by name — the shop floor was invisible to the people working it.
+  // Worse, `isAdmin` is a substring test that is false for "Owner", so the
+  // owner got the personal view too.
+  //
+  // Anyone who wants the old personal list can switch "Only mine" on; it
+  // filters the same rows rather than issuing a different query, so the two
+  // views can never disagree about who holds an order.
   const allTasks = useMemo(() => {
-    if (isAdmin) return overview?.tasks || [];
-    return myOrders.map(normalizeMyOrder);
-  }, [isAdmin, overview, myOrders]);
+    const tasks = overview?.tasks || [];
+    if (!onlyMine || !userName) return tasks;
+    return tasks.filter((task) => task.assignedTo === userName);
+  }, [overview, onlyMine, userName]);
 
   const sections = useMemo(() => groupBySection(allTasks), [allTasks]);
   const stageBreakdown = useMemo(() => groupByStageLabel(allTasks), [allTasks]);
@@ -319,6 +304,24 @@ export default function WorkflowWidget() {
               </ToggleButton>
             )}
           </ToggleButtonGroup>
+          {/* The board defaults to the whole pipeline. This narrows it to the
+              orders assigned to you — the view non-admins used to be given
+              with no way back out to the shop floor. */}
+          {tab === 'board' && (
+            <Tooltip title={onlyMine ? 'Showing only orders assigned to you' : 'Showing the whole pipeline'}>
+              <FormControlLabel
+                sx={{ ml: 0.5, mr: 0, '& .MuiFormControlLabel-label': { fontSize: '0.78rem', fontWeight: 600 } }}
+                control={(
+                  <Switch
+                    size="small"
+                    checked={onlyMine}
+                    onChange={(event) => setOnlyMine(event.target.checked)}
+                  />
+                )}
+                label="Only mine"
+              />
+            </Tooltip>
+          )}
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={load} disabled={isLoading}>
               <RefreshRoundedIcon fontSize="small" />
@@ -333,7 +336,7 @@ export default function WorkflowWidget() {
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
           <OrderControlPanel sections={ORDER_SECTIONS} embedded />
         </Suspense>
-      ) : isLoading && !overview && !myOrders.length ? (
+      ) : isLoading && !overview ? (
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
       ) : tab === 'byUser' ? (
         byUserGroups.length === 0 ? (

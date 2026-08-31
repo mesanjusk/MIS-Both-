@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
-  Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl,
-  FormControlLabel, InputLabel, MenuItem, Select, Stack, Switch, Table, TableBody,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl,
+  FormControlLabel, IconButton, InputLabel, MenuItem, Select, Stack, Switch, Table, TableBody,
   TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import DownloadingIcon from '@mui/icons-material/Downloading';
 import {
@@ -35,13 +36,36 @@ function SlotSelect({ value, users, userNames, disabled, onChange }) {
   // A row can still point at a user who has since been deactivated; show the
   // stored value as blank rather than crashing MUI on an unknown option.
   const known = !value || users.some((user) => user.User_uuid === value);
+  const label = value ? userNames.get(value) || 'Unknown user' : '';
   return (
     <FormControl size="small" fullWidth disabled={disabled}>
       <Select
         value={known ? value : ''}
         displayEmpty
         onChange={(event) => onChange(event.target.value)}
-        renderValue={(selected) => (selected ? userNames.get(selected) || 'Unknown user' : 'Select user')}
+        // Five of these sit side by side, so the control is trimmed to what a
+        // name needs: smaller type, tighter padding, and the name truncated
+        // rather than allowed to widen the column. The dropdown list itself is
+        // unconstrained, so picking a person is unaffected.
+        title={label}
+        sx={{
+          fontSize: '0.78rem',
+          '& .MuiSelect-select': {
+            py: 0.6,
+            pl: 1,
+            pr: '24px !important',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          },
+          '& .MuiSelect-icon': { right: 2 },
+        }}
+        MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
+        renderValue={(selected) => (
+          selected
+            ? (userNames.get(selected) || 'Unknown user')
+            : <Box component="span" sx={{ color: 'text.disabled' }}>Select</Box>
+        )}
       >
         <MenuItem value="">— None —</MenuItem>
         {users.map((user) => (
@@ -59,6 +83,19 @@ SlotSelect.propTypes = {
   disabled: PropTypes.bool,
   onChange: PropTypes.func.isRequired,
 };
+
+// Each chain column holds one name in a dropdown. 118px fits the names this
+// business actually uses and keeps all five slots on screen; anything longer
+// ellipsizes rather than stretching the table.
+const SLOT_COL_WIDTH = 118;
+
+// 150 + 96 + (5 x 118) + 132 + 76. Below this the table scrolls inside its own
+// wrapper rather than squashing the dropdowns into unusability.
+const COMPACT_TABLE_MIN_WIDTH = 1044;
+
+// Chips at their default size cost more vertical and horizontal room than the
+// one word they carry.
+const COMPACT_CHIP = { height: 18, '& .MuiChip-label': { px: 0.75, fontSize: '0.65rem' } };
 
 const EMPTY_CHAIN = Object.fromEntries(OWNERSHIP_SLOTS.map((slot) => [slot.field, '']));
 
@@ -267,31 +304,47 @@ export default function OperationsResponsibilities() {
       {loading ? <LoadingState label="Loading responsibilities..." /> : (
         <SectionCard>
           <DataTableWrapper>
-            <Table size="small">
+            {/* Fixed layout with explicit widths: the chain is five columns
+                wide, so letting content size them pushed the table past
+                1400px and off the side of the screen. Names now ellipsize
+                inside their column instead of widening it, and the full text
+                stays available on hover. */}
+            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: COMPACT_TABLE_MIN_WIDTH }}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ minWidth: 180 }}>Responsibility</TableCell>
-                  <TableCell sx={{ minWidth: 130 }}>Category</TableCell>
+                  <TableCell sx={{ width: 150 }}>Responsibility</TableCell>
+                  <TableCell sx={{ width: 96 }}>Category</TableCell>
                   {OWNERSHIP_SLOTS.map((slot) => (
-                    <TableCell key={slot.field} sx={{ minWidth: 180 }}>{slot.label}</TableCell>
+                    <TableCell key={slot.field} sx={{ width: SLOT_COL_WIDTH, px: 0.75 }}>
+                      {slot.label}
+                    </TableCell>
                   ))}
-                  <TableCell sx={{ minWidth: 160 }}>Owner Now</TableCell>
-                  <TableCell align="right">Actions</TableCell>
+                  <TableCell sx={{ width: 132 }}>Owner Now</TableCell>
+                  <TableCell align="right" sx={{ width: 76, px: 0.5 }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.responsibility_uuid} hover>
-                    <TableCell>
-                      <Stack direction="row" spacing={0.5} alignItems="center">
-                        <Typography variant="body2">{row.name}</Typography>
-                        {row.isCritical ? <Chip size="small" color="warning" label="Critical" /> : null}
-                        {row.isActive === false ? <Chip size="small" label="Inactive" /> : null}
-                      </Stack>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Tooltip title={row.name}>
+                        <Typography variant="body2" noWrap>{row.name}</Typography>
+                      </Tooltip>
+                      {/* The flags sit under the name rather than beside it —
+                          side by side they were the reason this column needed
+                          180px for a name that fits in 150. */}
+                      {(row.isCritical || row.isActive === false) ? (
+                        <Stack direction="row" spacing={0.5} sx={{ mt: 0.25 }}>
+                          {row.isCritical ? <Chip size="small" color="warning" label="Critical" sx={COMPACT_CHIP} /> : null}
+                          {row.isActive === false ? <Chip size="small" label="Inactive" sx={COMPACT_CHIP} /> : null}
+                        </Stack>
+                      ) : null}
                     </TableCell>
-                    <TableCell>{categoryLabel(row.category)}</TableCell>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Typography variant="body2" noWrap>{categoryLabel(row.category)}</Typography>
+                    </TableCell>
                     {OWNERSHIP_SLOTS.map((slot) => (
-                      <TableCell key={slot.field}>
+                      <TableCell key={slot.field} sx={{ px: 0.75 }}>
                         <SlotSelect
                           value={row[slot.field] || ''}
                           users={selectableUsers}
@@ -303,28 +356,49 @@ export default function OperationsResponsibilities() {
                     ))}
                     <TableCell>
                       {row.resolution?.currentOwner ? (
-                        <Tooltip title={row.resolution.currentOwner.reason || ''}>
+                        <Tooltip
+                          title={[
+                            `${row.resolution.currentOwner.userName} — ${ownerRoleLabel(row.resolution.currentOwner.role)}`,
+                            row.resolution.currentOwner.reason,
+                          ].filter(Boolean).join(' · ')}
+                        >
                           <Chip
                             size="small"
                             color="success"
-                            label={`${row.resolution.currentOwner.userName} · ${ownerRoleLabel(row.resolution.currentOwner.role)}`}
+                            sx={{ maxWidth: '100%' }}
+                            label={row.resolution.currentOwner.userName}
                           />
                         </Tooltip>
                       ) : (
-                        <Chip size="small" color="error" label="⚠️ NO AVAILABLE OWNER" />
+                        // Still the loudest thing in the row — an uncovered
+                        // responsibility must not be quiet just because the
+                        // column got narrower.
+                        <Tooltip title="No available owner — nobody in this chain can take it right now">
+                          <Chip size="small" color="error" label="⚠️ No owner" sx={{ maxWidth: '100%' }} />
+                        </Tooltip>
                       )}
                     </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        <Button size="small" onClick={() => openEdit(row)} disabled={!canEdit}>Edit</Button>
-                        <Button
-                          size="small"
-                          color="error"
-                          onClick={() => setDeleteTarget(row)}
-                          disabled={!canEdit}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </Button>
+                    <TableCell align="right" sx={{ px: 0.5 }}>
+                      <Stack direction="row" spacing={0} justifyContent="flex-end">
+                        <Tooltip title="Edit">
+                          <span>
+                            <IconButton size="small" onClick={() => openEdit(row)} disabled={!canEdit}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteTarget(row)}
+                              disabled={!canEdit}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </Stack>
                     </TableCell>
                   </TableRow>

@@ -64,7 +64,6 @@ export const SIDEBAR_GROUPS = [
       { label: 'Purchase Orders', path: ROUTES.PURCHASE_ORDERS, icon: <RequestQuoteRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
       { label: 'Post-Print Jobs', path: ROUTES.POST_PRINTING_JOBS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
       { label: 'Vendors / Freelancers', path: ROUTES.VENDORS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
-      { label: 'Operations Center', path: ROUTES.BUSINESS_CONTROL, icon: <HubRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
       { label: 'Deliveries', path: ROUTES.REPORTS_DELIVERY, icon: <LocalShippingRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff'], section: 'orders' },
       { label: 'Invoices', path: ROUTES.INVOICES_LIST, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ['Admin', 'Owner', 'OfficeStaff', 'Accounts'], section: 'orders' },
       { label: 'Bills Report', path: ROUTES.REPORTS_BILLS, icon: <AnalyticsRoundedIcon fontSize="small" />, roles: ACCOUNT_ROLES, section: 'money' },
@@ -182,6 +181,7 @@ export const SIDEBAR_GROUPS = [
   {
     label: 'Admin',
     items: [
+      { label: 'Business Profile', path: ROUTES.ADMIN_BUSINESS_PROFILE, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'API Performance', path: ROUTES.REPORTS_API_PERFORMANCE, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'Group Permissions', path: ROUTES.ADMIN_GROUP_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },

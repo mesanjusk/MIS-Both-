@@ -8,7 +8,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { isNavItemVisible, visibleSectionItems } from './navVisibility';
-import { ACCOUNT_ROLES, ADMIN_ROLES, OFFICE_ROLES } from './roles';
+import { ACCOUNT_ROLES, ADMIN_ROLES, OFFICE_ROLES, isRoleAllowed, normalizeRoleKey } from './roles';
 import { PRIMARY_NAV, SIDEBAR_GROUPS, itemsForSection } from './sidebarMenu';
 
 const allConfigured = { socialAny: true, gmail: true, flowBuilder: true };
@@ -167,5 +167,85 @@ describe('detail and edit routes stay out of the menus', () => {
       .filter((i) => typeof i.path === 'string' && i.path.includes(':'))
       .map((i) => i.label);
     expect(withParams).toEqual([]);
+  });
+});
+
+describe('the order surfaces were consolidated, not duplicated', () => {
+  test('no menu entry still points at the retired Business Control page', () => {
+    // Its queues live on the dashboard now and /business-control only
+    // redirects. A menu entry pointing at a redirect is a dead link that looks
+    // alive.
+    const paths = SIDEBAR_GROUPS.flatMap((g) => g.items).map((i) => i.path);
+    expect(paths).not.toContain('/business-control');
+  });
+
+  test('the Operations Center / Team Operations name collision is gone', () => {
+    const labels = SIDEBAR_GROUPS.flatMap((g) => g.items).map((i) => i.label);
+    expect(labels).not.toContain('Operations Center');
+    // Team Operations — the unrelated P1-P4 module — keeps its name.
+    expect(labels).toContain('Team Operations');
+  });
+
+  test('Business Profile sits under Admin, not among the order queues', () => {
+    const entry = SIDEBAR_GROUPS.flatMap((g) => g.items)
+      .find((i) => i.label === 'Business Profile');
+    expect(entry).toBeDefined();
+    expect(entry.section).toBe('admin');
+    expect(entry.path).toBe('/admin/business-profile');
+  });
+
+  test('Business Profile is Admin-only', () => {
+    const entry = SIDEBAR_GROUPS.flatMap((g) => g.items)
+      .find((i) => i.label === 'Business Profile');
+    expect(isNavItemVisible({ ...entry, groupLabel: 'Admin' }, ctx({ roleKey: 'OfficeStaff' }))).toBe(false);
+    expect(isNavItemVisible({ ...entry, groupLabel: 'Admin' }, ctx({ roleKey: 'Accounts' }))).toBe(false);
+    expect(isNavItemVisible({ ...entry, groupLabel: 'Admin' }, ctx({ roleKey: 'Admin' }))).toBe(true);
+  });
+
+  test('every menu path is still a real mounted route shape', () => {
+    // Guards against a consolidation leaving a menu entry pointing nowhere.
+    const paths = SIDEBAR_GROUPS.flatMap((g) => g.items).map((i) => i.path);
+    for (const path of paths) {
+      expect(typeof path).toBe('string');
+      expect(path.startsWith('/')).toBe(true);
+    }
+  });
+});
+
+describe('the money surfaces use the strict admin decision', () => {
+  // AuthContext exposes `isAdmin` as a substring test — normalizeRole(v).includes('admin').
+  // That is true for "Office Admin" and FALSE for "Owner". Gating the action
+  // queues or vendor payables on it would hand payment and vendor-payout
+  // buttons to office staff while hiding them from the owner. Both surfaces
+  // use isRoleAllowed(ADMIN_ROLES, normalizeRoleKey(group)) instead; these
+  // pin the difference so nobody "simplifies" it back to isAdmin.
+  const gate = (group) => isRoleAllowed(ADMIN_ROLES, normalizeRoleKey(group));
+
+  test.each([
+    ['Admin User', true],
+    ['admin', true],
+    ['Owner', true],
+    ['owner', true],
+    ['superadmin', true],
+  ])('%s may reach the action queues', (group, expected) => {
+    expect(gate(group)).toBe(expected);
+  });
+
+  test.each(['Office Admin', 'Office User', 'OfficeStaff', 'Accounts', 'Designer', 'DataEntry'])(
+    '%s may not',
+    (group) => {
+      expect(gate(group)).toBe(false);
+    }
+  );
+
+  test('Office Admin is admitted by the loose check but refused by this one', () => {
+    // The exact trap this guards against.
+    expect(String('Office Admin').toLowerCase().includes('admin')).toBe(true);
+    expect(gate('Office Admin')).toBe(false);
+  });
+
+  test('Owner is refused by the loose check but admitted by this one', () => {
+    expect(String('Owner').toLowerCase().includes('admin')).toBe(false);
+    expect(gate('Owner')).toBe(true);
   });
 });

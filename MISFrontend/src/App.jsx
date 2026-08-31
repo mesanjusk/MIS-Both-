@@ -38,7 +38,6 @@ const AddTask = lazy(() => import('./Pages/addTask'));
 const AddTaskgroup = lazy(() => import('./Pages/addTaskgroup'));
 const AddOrder1 = lazy(() => import('./Pages/addOrder1'));
 const OrderKanban = lazy(() => import('./Pages/OrderKanban'));
-const BusinessControl = lazy(() => import('./Pages/BusinessControl'));
 const PostPrintingControl = lazy(() => import('./Pages/PostPrintingControl'));
 const WorkflowTemplates = lazy(() => import('./Pages/WorkflowTemplates'));
 const OrderUpdate = lazy(() => import('./Pages/OrderUpdate'));
@@ -97,6 +96,7 @@ const EmailCompose  = lazy(() => import('./Pages/EmailCompose'));
 const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
 const OpeningBalance = lazy(() => import('./Pages/OpeningBalance'));
 const OpeningBalanceUpload = lazy(() => import('./Pages/OpeningBalanceUpload'));
+const BusinessProfileSettings = lazy(() => import('./Pages/BusinessProfileSettings'));
 const AdminUserPermissions = lazy(() => import('./Pages/AdminUserPermissions'));
 const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions'));
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
@@ -203,7 +203,12 @@ export default function App() {
             <Route path={ROUTES.ADD_ORDER} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ADD_ORDER_V2} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ORDERS_BOARD} element={withSuspense(<OrderKanban />)} />
-            <Route path={ROUTES.BUSINESS_CONTROL} element={adminOnly(<BusinessControl />)} />
+            {/* The Business Control Center's queues now live on the Workflow
+                tab of the dashboard, and its vendor payables on the order
+                ledger; its Business Profile form moved to Admin. The path
+                stays mounted so existing bookmarks land on the queues rather
+                than a dead route. */}
+            <Route path={ROUTES.BUSINESS_CONTROL} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={rolesOnly(OFFICE_ROLES, <PostPrintingControl />)} />
             <Route path={ROUTES.WORKFLOW_TEMPLATES} element={adminOnly(<WorkflowTemplates />)} />
             <Route path={ROUTES.PURCHASE_ORDERS} element={adminOnly(<PurchaseOrder />)} />
@@ -284,6 +289,7 @@ export default function App() {
 
             <Route path={ROUTES.CALL_LOGS} element={rolesOnly(OFFICE_ROLES, <CallLogs />)} />
             <Route path={ROUTES.FLOW_BUILDER} element={adminOnly(<FlowBuilderPage />)} />
+            <Route path={ROUTES.ADMIN_BUSINESS_PROFILE} element={adminOnly(<BusinessProfileSettings />)} />
             <Route path={ROUTES.ADMIN_USER_PERMISSIONS} element={adminOnly(<AdminUserPermissions />)} />
             <Route path={ROUTES.ADMIN_GROUP_PERMISSIONS} element={adminOnly(<AdminGroupPermissions />)} />
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={adminOnly(<WhatsAppActionLogPage />)} />

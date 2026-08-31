@@ -82,3 +82,43 @@ describe('an unauthenticated visitor', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/login'));
   });
 });
+
+describe('the consolidated order surfaces', () => {
+  const signIn = (userGroup) => {
+    localStorage.setItem('mis_userName', 'tester');
+    localStorage.setItem('User_name', 'tester');
+    localStorage.setItem('mis_userGroup', userGroup);
+    localStorage.setItem('User_group', userGroup);
+    localStorage.setItem('mis_token', 'a-token');
+  };
+
+  test('/business-control redirects to the dashboard, where its queues now live', async () => {
+    signIn('Admin User');
+    renderAt('/business-control');
+    await waitFor(() => expect(window.location.pathname).toBe('/home'));
+  });
+
+  test('the redirect works for a signed-out visitor too, via login', async () => {
+    renderAt('/business-control');
+    // Not signed in: the redirect lands on /home, whose guard sends to /login.
+    await waitFor(() => expect(window.location.pathname).toBe('/login'));
+  });
+
+  test('Business Profile has its own Admin route', async () => {
+    signIn('Admin User');
+    renderAt('/admin/business-profile');
+    await waitFor(() => expect(window.location.pathname).toBe('/admin/business-profile'));
+  });
+
+  test('ordinary staff cannot open Business Profile', async () => {
+    signIn('Office User');
+    renderAt('/admin/business-profile');
+    await waitFor(() => expect(screen.getByText(/do not have access/i)).toBeInTheDocument());
+  });
+
+  test('an Accounts user cannot open Business Profile either', async () => {
+    signIn('Accounts');
+    renderAt('/admin/business-profile');
+    await waitFor(() => expect(screen.getByText(/do not have access/i)).toBeInTheDocument());
+  });
+});

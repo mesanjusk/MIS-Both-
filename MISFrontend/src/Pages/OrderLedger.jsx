@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import PropTypes from 'prop-types';
 import {
   Alert,
   Box,
@@ -20,6 +21,8 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -29,6 +32,14 @@ import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import axios from '../apiClient';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../constants/orderStages';
+import { VENDOR_SECTIONS } from '../Components/orders/orderControlSections';
+import { useRoleKey } from '../hooks/useRouteAccess';
+import { ADMIN_ROLES, isRoleAllowed } from '../constants/roles';
+
+// Money owed to vendors is a ledger, not a pipeline, so it belongs beside the
+// order ledger rather than on the work board. Lazy so its heavier query only
+// runs when the tab is actually opened.
+const OrderControlPanel = lazy(() => import('../Components/orders/OrderControlPanel'));
 
 const money = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
@@ -48,7 +59,35 @@ function defaultRange() {
   return { from: iso(first), to: iso(now) };
 }
 
+function LedgerTabs({ value, onChange, showVendor }) {
+  // One tab is not a choice — hide the strip entirely for non-admins so the
+  // ledger looks exactly as it did before.
+  if (!showVendor) return null;
+  return (
+    <Tabs
+      value={value}
+      onChange={(_event, next) => onChange(next)}
+      sx={{ minHeight: 36, mb: 1, '& .MuiTab-root': { minHeight: 36, textTransform: 'none', fontWeight: 800 } }}
+    >
+      <Tab value="orders" label="Orders" />
+      <Tab value="vendorPayable" label="Vendor Payable" />
+    </Tabs>
+  );
+}
+
+LedgerTabs.propTypes = {
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  showVendor: PropTypes.bool,
+};
+
 export default function OrderLedger() {
+  // Vendor payables are money leaving the business. Gated on the same strict
+  // Admin/Owner decision the route guards use — not AuthContext's loose
+  // `isAdmin`, which admits "Office Admin" and excludes "Owner".
+  const canSeeVendorPayable = isRoleAllowed(ADMIN_ROLES, useRoleKey());
+  // 'orders' = the per-order ledger; 'vendorPayable' = what we owe out.
+  const [ledgerTab, setLedgerTab] = useState('orders');
   const initial = useMemo(defaultRange, []);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -139,8 +178,23 @@ export default function OrderLedger() {
     setShowPaid(true); setShowBalance(true);
   };
 
+  // Vendor payables are money leaving the business, so they follow the same
+  // Admin/Owner rule as the rest of the payment actions.
+  if (canSeeVendorPayable && ledgerTab === 'vendorPayable') {
+    return (
+      <Box>
+        <LedgerTabs value={ledgerTab} onChange={setLedgerTab} showVendor={canSeeVendorPayable} />
+        <Suspense fallback={<LinearProgress />}>
+          <OrderControlPanel sections={VENDOR_SECTIONS} embedded />
+        </Suspense>
+      </Box>
+    );
+  }
+
   return (
     <Box>
+      <LedgerTabs value={ledgerTab} onChange={setLedgerTab} showVendor={canSeeVendorPayable} />
+
       {/* Filters */}
       <Paper variant="outlined" sx={{ borderRadius: 2, p: 1.25, mb: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>

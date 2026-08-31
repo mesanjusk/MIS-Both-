@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import PropTypes from 'prop-types';
+
+import { ORDER_SECTIONS } from './orderControlSections';
 import { useNavigate } from 'react-router-dom';
-import ReactQRCode from 'react-qr-code';
-import axios from '../apiClient.js';
 import {
   Alert,
   Box,
@@ -50,11 +51,11 @@ import {
   moveOrderStage,
   payVendor,
   receiveOrderPayment,
-} from '../services/businessOpsService';
-import { fetchPayments } from '../services/paymentService';
-import { fetchUsers } from '../services/userService';
-import { fetchVendorMasters } from '../services/vendorService';
-import { ORDER_STAGES } from '../constants/orderStages';
+} from '../../services/businessOpsService';
+import { fetchPayments } from '../../services/paymentService';
+import { fetchUsers } from '../../services/userService';
+import { fetchVendorMasters } from '../../services/vendorService';
+import { ORDER_STAGES } from '../../constants/orderStages';
 
 // 'paid' is excluded: it's set automatically on full payment, not a manual move.
 const STAGES = ORDER_STAGES.filter((stage) => stage !== 'paid');
@@ -69,17 +70,21 @@ const DEFAULT_SUMMARY = {
   overdueTasks: { count: 0, rows: [] },
 };
 
-const tabItems = [
+// Every queue this panel knows how to render. Which of them actually appear
+// is decided by the `sections` prop, so the same component serves the
+// order-side queues on the Workflow tab and the vendor queue on the ledger.
+const ALL_TAB_ITEMS = [
   { key: 'openOrders', label: 'Open Orders' },
+  { key: 'unassignedOrders', label: 'Unassigned' },
   { key: 'readyNotDelivered', label: 'Ready Not Delivered' },
   { key: 'deliveredUnpaid', label: 'Delivered Unpaid' },
-  { key: 'vendorPayable', label: 'Vendor Payable' },
   { key: 'overdueTasks', label: 'Overdue Tasks' },
-  { key: 'businessProfile', label: '⚙ Business Profile' },
+  { key: 'vendorPayable', label: 'Vendor Payable' },
 ];
 
+
 // Tabs where row checkboxes make sense
-const SELECTABLE_TABS = new Set(['openOrders', 'readyNotDelivered', 'deliveredUnpaid']);
+const SELECTABLE_TABS = new Set(['openOrders', 'unassignedOrders', 'readyNotDelivered', 'deliveredUnpaid']);
 
 function unwrapRows(bucket) {
   if (Array.isArray(bucket)) return bucket;
@@ -149,6 +154,14 @@ function KpiCard({ title, value, amount, icon, tone = '#16a34a' }) {
   );
 }
 
+KpiCard.propTypes = {
+  title: PropTypes.string,
+  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  amount: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  icon: PropTypes.node,
+  tone: PropTypes.string,
+};
+
 function ActionButton({ title, icon, onClick, disabled }) {
   return (
     <Tooltip title={title}>
@@ -161,12 +174,39 @@ function ActionButton({ title, icon, onClick, disabled }) {
   );
 }
 
-export default function BusinessControl() {
+/**
+ * The queues of orders (or vendors) that need somebody to act, with the
+ * actions attached to the rows.
+ *
+ * This was the Business Control Center page. It is a component now because
+ * three screens were showing the same orders in three different ways: this
+ * console, the Workflow board, and the order ledger. The queues live where
+ * the work already happens — `sections` picks which ones a host renders.
+ *
+ * The queries, the action handlers and the dialogs are unchanged.
+ */
+ActionButton.propTypes = {
+  title: PropTypes.string,
+  icon: PropTypes.node,
+  onClick: PropTypes.func,
+  disabled: PropTypes.bool,
+};
+
+export default function OrderControlPanel({
+  sections = ORDER_SECTIONS,
+  embedded = false,
+  title = 'Business Control Center',
+  subtitle = 'Order → Task → Vendor/Purchase → Ready → Delivery → Payment → Accounting',
+}) {
   const navigate = useNavigate();
+  const tabItems = useMemo(
+    () => ALL_TAB_ITEMS.filter((tab) => sections.includes(tab.key)),
+    [sections],
+  );
   const [summary, setSummary] = useState(DEFAULT_SUMMARY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('openOrders');
+  const [activeTab, setActiveTab] = useState(() => tabItems[0]?.key || 'openOrders');
   const [message, setMessage] = useState(null);
   const [selected, setSelected] = useState(null);
   const [dialog, setDialog] = useState(null);
@@ -177,13 +217,6 @@ export default function BusinessControl() {
   const [vendorForm, setVendorForm] = useState({ vendorId: '', vendorName: '', amount: '', dueDate: '', workType: 'Job Work', jobMode: 'jobwork_only', note: '' });
   const [stageForm, setStageForm] = useState({ nextStage: 'print', assignedTo: '', note: '' });
   const [vendorPayForm, setVendorPayForm] = useState({ amount: '', paymentMode: 'UPI', reference: '', narration: '' });
-
-  // Business Profile
-  const EMPTY_PROFILE = { name: '', addressLine1: '', addressLine2: '', city: '', phone: '', email: '', gst: '', upiId: '', upiName: '' };
-  const [profileForm, setProfileForm] = useState(EMPTY_PROFILE);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileMsg, setProfileMsg] = useState(null);
 
   // Bulk selection
   const [checkedIds, setCheckedIds] = useState(new Set());
@@ -248,41 +281,18 @@ export default function BusinessControl() {
     load();
   }, []);
 
-  // Load business profile when that tab is active
-  useEffect(() => {
-    if (activeTab !== 'businessProfile') return;
-    setProfileLoading(true);
-    axios.get('/api/business-profile')
-      .then((res) => {
-        if (res.data?.success && res.data.result && Object.keys(res.data.result).length) {
-          setProfileForm({ ...EMPTY_PROFILE, ...res.data.result });
-        }
-      })
-      .catch(() => {})
-      .finally(() => setProfileLoading(false));
-  }, [activeTab]);
-
-  const saveProfile = async () => {
-    setProfileSaving(true);
-    setProfileMsg(null);
-    try {
-      const res = await axios.put('/api/business-profile', profileForm);
-      if (res.data?.success) {
-        setProfileMsg({ severity: 'success', text: 'Business profile saved successfully.' });
-      } else {
-        setProfileMsg({ severity: 'error', text: res.data?.message || 'Save failed.' });
-      }
-    } catch (err) {
-      setProfileMsg({ severity: 'error', text: err?.response?.data?.message || 'Save failed.' });
-    } finally {
-      setProfileSaving(false);
-    }
-  };
-
   // Clear selection whenever tab changes
   useEffect(() => {
     setCheckedIds(new Set());
   }, [activeTab]);
+
+  // A host can change `sections`; never leave the panel pointing at a queue it
+  // is no longer rendering, which would show an empty table with no tab lit.
+  useEffect(() => {
+    if (tabItems.length && !tabItems.some((tab) => tab.key === activeTab)) {
+      setActiveTab(tabItems[0].key);
+    }
+  }, [tabItems, activeTab]);
 
   const runAction = async (fn, successText) => {
     setSaving(true);
@@ -354,27 +364,43 @@ export default function BusinessControl() {
     setDialog('vendorPayment');
   };
 
-  const kpis = [
-    { title: 'Open Orders', value: bucketCount(summary.openOrders), icon: <TimelineRoundedIcon fontSize="small" /> },
-    { title: 'Unassigned Orders', value: bucketCount(summary.unassignedOrders), icon: <TimelineRoundedIcon fontSize="small" />, tone: '#64748b' },
-    { title: 'Ready Not Delivered', value: bucketCount(summary.readyNotDelivered), icon: <LocalShippingRoundedIcon fontSize="small" />, tone: '#16a34a' },
-    { title: 'Delivered Unpaid', value: bucketCount(summary.deliveredUnpaid), icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#b45309' },
-    { title: 'Vendor Payable', value: bucketCount(summary.vendorPayable), amount: summary.vendorPayable?.amount, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#16a34a' },
-    { title: 'Today Receipts', value: bucketCount(summary.todayReceipts), amount: summary.todayReceipts?.amount, icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#16a34a' },
+  const allKpis = [
+    { section: 'openOrders', title: 'Open Orders', value: bucketCount(summary.openOrders), icon: <TimelineRoundedIcon fontSize="small" /> },
+    { section: 'unassignedOrders', title: 'Unassigned Orders', value: bucketCount(summary.unassignedOrders), icon: <TimelineRoundedIcon fontSize="small" />, tone: '#64748b' },
+    { section: 'readyNotDelivered', title: 'Ready Not Delivered', value: bucketCount(summary.readyNotDelivered), icon: <LocalShippingRoundedIcon fontSize="small" />, tone: '#16a34a' },
+    { section: 'deliveredUnpaid', title: 'Delivered Unpaid', value: bucketCount(summary.deliveredUnpaid), icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#b45309' },
+    { section: 'vendorPayable', title: 'Vendor Payable', value: bucketCount(summary.vendorPayable), amount: summary.vendorPayable?.amount, icon: <StorefrontRoundedIcon fontSize="small" />, tone: '#16a34a' },
+    { section: 'todayReceipts', title: 'Today Receipts', value: bucketCount(summary.todayReceipts), amount: summary.todayReceipts?.amount, icon: <PaymentsRoundedIcon fontSize="small" />, tone: '#16a34a' },
   ];
+
+  // Only the counters for queues this panel is actually showing.
+  const kpis = allKpis.filter((card) => sections.includes(card.section));
 
   const bulkCount = checkedIds.size;
   const showBulkBar = bulkCount > 0 && SELECTABLE_TABS.has(activeTab);
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
-      <Paper elevation={0} sx={{ p: { xs: 1.25, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
+    <Box sx={embedded ? { p: 0 } : { p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
+      <Paper
+        elevation={0}
+        sx={embedded
+          ? { p: 0, borderRadius: 0, border: 'none', bgcolor: 'transparent' }
+          : { p: { xs: 1.25, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}
+      >
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" gap={1.5}>
-          <Box>
-            <Typography variant="h5" fontWeight={900} color="primary.main">Business Control Center</Typography>
-            <Typography variant="body2" color="text.secondary">Order → Task → Vendor/Purchase → Ready → Delivery → Payment → Accounting</Typography>
-          </Box>
-          <Button startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />} onClick={load} variant="contained" sx={{ borderRadius: 2.5 }}>
+          {embedded ? <Box /> : (
+            <Box>
+              <Typography variant="h5" fontWeight={900} color="primary.main">{title}</Typography>
+              <Typography variant="body2" color="text.secondary">{subtitle}</Typography>
+            </Box>
+          )}
+          <Button
+            size={embedded ? 'small' : 'medium'}
+            startIcon={loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
+            onClick={load}
+            variant={embedded ? 'outlined' : 'contained'}
+            sx={{ borderRadius: 2.5 }}
+          >
             Refresh
           </Button>
         </Stack>
@@ -452,88 +478,6 @@ export default function BusinessControl() {
               </Box>
             </Stack>
           </Paper>
-        )}
-
-        {/* ── Business Profile Tab ── */}
-        {activeTab === 'businessProfile' && (
-          <Box sx={{ mt: 2 }}>
-            {profileLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
-            ) : (
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={7}>
-                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
-                    <Typography variant="subtitle1" fontWeight={800} gutterBottom>Business Details</Typography>
-                    {profileMsg && <Alert severity={profileMsg.severity} sx={{ mb: 2, borderRadius: 2 }}>{profileMsg.text}</Alert>}
-                    <Stack spacing={2}>
-                      <TextField label="Business Name" value={profileForm.name} onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))} fullWidth size="small" />
-                      <TextField label="Address Line 1" value={profileForm.addressLine1} onChange={(e) => setProfileForm((p) => ({ ...p, addressLine1: e.target.value }))} fullWidth size="small" />
-                      <TextField label="Address Line 2" value={profileForm.addressLine2} onChange={(e) => setProfileForm((p) => ({ ...p, addressLine2: e.target.value }))} fullWidth size="small" />
-                      <TextField label="City" value={profileForm.city} onChange={(e) => setProfileForm((p) => ({ ...p, city: e.target.value }))} fullWidth size="small" />
-                      <Grid container spacing={1.5}>
-                        <Grid item xs={12} sm={6}>
-                          <TextField label="Phone" value={profileForm.phone} onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))} fullWidth size="small" />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <TextField label="Email" value={profileForm.email} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} fullWidth size="small" />
-                        </Grid>
-                      </Grid>
-                      <TextField label="GST Number" value={profileForm.gst} onChange={(e) => setProfileForm((p) => ({ ...p, gst: e.target.value }))} fullWidth size="small" placeholder="e.g. 27AABCU9603R1ZX" />
-                      <Grid container spacing={1.5}>
-                        <Grid item xs={12} sm={6}>
-                          <TextField label="UPI ID" value={profileForm.upiId} onChange={(e) => setProfileForm((p) => ({ ...p, upiId: e.target.value }))} fullWidth size="small" placeholder="e.g. business@upi" />
-                        </Grid>
-                        <Grid item xs={12} sm={6}>
-                          <TextField label="UPI Name (display)" value={profileForm.upiName} onChange={(e) => setProfileForm((p) => ({ ...p, upiName: e.target.value }))} fullWidth size="small" />
-                        </Grid>
-                      </Grid>
-                      <Button
-                        variant="contained"
-                        disabled={profileSaving}
-                        onClick={saveProfile}
-                        sx={{ alignSelf: 'flex-start', borderRadius: 2, bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.dark' } }}
-                      >
-                        {profileSaving ? 'Saving…' : 'Save Business Profile'}
-                      </Button>
-                    </Stack>
-                  </Paper>
-                </Grid>
-
-                <Grid item xs={12} md={5}>
-                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, textAlign: 'center' }}>
-                    <Typography variant="subtitle1" fontWeight={800} gutterBottom>Invoice QR Preview</Typography>
-                    {profileForm.upiId ? (
-                      <>
-                        <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-                          <ReactQRCode
-                            value={`upi://pay?pa=${encodeURIComponent(profileForm.upiId)}&pn=${encodeURIComponent(profileForm.upiName || profileForm.name || '')}&cu=INR`}
-                            size={160}
-                          />
-                        </Box>
-                        <Typography variant="body2" color="text.secondary">{profileForm.upiId}</Typography>
-                        <Typography variant="caption" color="text.secondary">This QR will appear on all invoices</Typography>
-                      </>
-                    ) : (
-                      <Box sx={{ py: 4, color: 'text.disabled' }}>
-                        <Typography variant="body2">Enter a UPI ID to see the QR preview</Typography>
-                      </Box>
-                    )}
-                  </Paper>
-
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mt: 2 }}>
-                    <Typography variant="subtitle2" fontWeight={700} gutterBottom color="text.secondary">Invoice Header Preview</Typography>
-                    <Typography variant="body1" fontWeight={800}>{profileForm.name || '—'}</Typography>
-                    {profileForm.addressLine1 && <Typography variant="caption" display="block">{profileForm.addressLine1}</Typography>}
-                    {profileForm.addressLine2 && <Typography variant="caption" display="block">{profileForm.addressLine2}</Typography>}
-                    {profileForm.city && <Typography variant="caption" display="block">{profileForm.city}</Typography>}
-                    {profileForm.phone && <Typography variant="caption" display="block">📞 {profileForm.phone}</Typography>}
-                    {profileForm.email && <Typography variant="caption" display="block">✉ {profileForm.email}</Typography>}
-                    {profileForm.gst && <Typography variant="caption" display="block">GST: {profileForm.gst}</Typography>}
-                  </Paper>
-                </Grid>
-              </Grid>
-            )}
-          </Box>
         )}
 
         {activeTab !== 'businessProfile' && (
@@ -751,3 +695,10 @@ export default function BusinessControl() {
     </Box>
   );
 }
+
+OrderControlPanel.propTypes = {
+  sections: PropTypes.arrayOf(PropTypes.string),
+  embedded: PropTypes.bool,
+  title: PropTypes.string,
+  subtitle: PropTypes.string,
+};

@@ -213,6 +213,12 @@ const PAGES = [
     "locked": false
   },
   {
+    "path": "/admin/business-profile",
+    "label": "Business Profile",
+    "linked": true,
+    "locked": false
+  },
+  {
     "path": "/admin/drive-folder-report",
     "label": "Drive Folder Report",
     "linked": true,
@@ -328,8 +334,8 @@ const PAGES = [
   },
   {
     "path": "/business-control",
-    "label": "Operations Center",
-    "linked": true,
+    "label": "Business control",
+    "linked": false,
     "locked": false
   },
   {

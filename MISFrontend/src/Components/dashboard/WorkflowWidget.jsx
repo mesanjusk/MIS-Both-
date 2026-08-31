@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -20,14 +20,23 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
+import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
 import { fetchMyOrderTasks, fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
 import { fetchAssignees } from '../../services/assigneeService';
 import { useAuth } from '../../context/AuthContext';
+import { useRoleKey } from '../../hooks/useRouteAccess';
+import { ADMIN_ROLES, isRoleAllowed } from '../../constants/roles';
 import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
+import { ORDER_SECTIONS } from '../orders/orderControlSections';
+
+// The action queues carry a much heavier query than the board (the whole
+// business summary: orders, vendor ledger, transactions and tasks), so the
+// chunk is only fetched when an admin actually opens that view.
+const OrderControlPanel = lazy(() => import('../orders/OrderControlPanel'));
 
 const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
 
@@ -152,6 +161,14 @@ function groupByStageLabel(tasks) {
 // moved out of here entirely, next to the user's name in the top nav.
 export default function WorkflowWidget() {
   const { userName, isAdmin } = useAuth();
+  // `isAdmin` from AuthContext is a loose substring test: it is true for
+  // "Office Admin" and false for "Owner". Fine for deciding whose tasks the
+  // board shows — which is all it has ever gated — but not for the action
+  // queues, where the buttons receive customer payments and pay vendors. That
+  // gate uses the same strict decision as the route guards, so an Office Admin
+  // is excluded and an Owner is not.
+  const roleKey = useRoleKey();
+  const canSeeActionQueues = isRoleAllowed(ADMIN_ROLES, roleKey);
   const [tab, setTab] = useState('board');
   const [overview, setOverview] = useState(null);
   const [myOrders, setMyOrders] = useState([]);
@@ -181,6 +198,10 @@ export default function WorkflowWidget() {
       setIsLoading(false);
     }
   }, [isAdmin, userName]);
+
+  useEffect(() => {
+    if (!canSeeActionQueues && tab === 'needsAction') setTab('board');
+  }, [canSeeActionQueues, tab]);
 
   useEffect(() => {
     if (!userName) return;
@@ -287,6 +308,16 @@ export default function WorkflowWidget() {
               <PeopleAltRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
               By User
             </ToggleButton>
+            {/* The action queues that used to live on their own page. Admin
+                only: these buttons receive customer payments and move money,
+                which is not work an ordinary staff account may do — the API
+                enforces that too. */}
+            {canSeeActionQueues && (
+              <ToggleButton value="needsAction">
+                <PlaylistAddCheckRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
+                Needs Action
+              </ToggleButton>
+            )}
           </ToggleButtonGroup>
           <Tooltip title="Refresh">
             <IconButton size="small" onClick={load} disabled={isLoading}>
@@ -298,7 +329,11 @@ export default function WorkflowWidget() {
 
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
-      {isLoading && !overview && !myOrders.length ? (
+      {tab === 'needsAction' ? (
+        <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
+          <OrderControlPanel sections={ORDER_SECTIONS} embedded />
+        </Suspense>
+      ) : isLoading && !overview && !myOrders.length ? (
         <Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>
       ) : tab === 'byUser' ? (
         byUserGroups.length === 0 ? (

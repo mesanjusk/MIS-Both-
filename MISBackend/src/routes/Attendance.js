@@ -87,17 +87,24 @@ const buildPendingTaskMessage = ({ user, assignments }) => {
   return `Hello ${user?.User_name || "Team"}, here are your pending assigned tasks:\n${allLines.join("\n")}`;
 };
 
-// Add attendance — accepts both JWT (dashboard) and internal key (device/kiosk)
-router.post('/addAttendance', async (req, res, next) => {
-  // Allow either a valid JWT or an internal API key (for hardware clock-in devices)
-  const hasAuth = req.headers.authorization?.startsWith('Bearer ');
-  const hasInternalKey = !!req.headers['x-internal-key'];
-
-  if (!hasAuth && !hasInternalKey) {
-    const { requireAuth } = require('../middleware/auth');
-    return requireAuth(req, res, next);
+// Add attendance — accepts both a JWT (dashboard) and an internal key
+// (hardware clock-in device / kiosk).
+//
+// Both credentials are *verified*. The previous version checked only that an
+// `Authorization: Bearer` header was present and then called next(), so any
+// request carrying the literal header `Bearer x` was let through unverified —
+// which meant anyone able to reach the API could mark attendance for any
+// employee. Attendance is what the Operations fallback reads to decide whether
+// a primary is available, so a forged mark does not stop at a wrong timesheet:
+// it silently changes who owns work for the rest of the day.
+router.post('/addAttendance', (req, res, next) => {
+  // The device key is checked first and validated against INTERNAL_API_KEY;
+  // requireInternalKey refuses when the variable is unset rather than opening
+  // the endpoint up.
+  if (req.headers['x-internal-key']) {
+    return requireInternalKey(req, res, next);
   }
-  next();
+  return requireAuth(req, res, next);
 }, async (req, res) => {
   const { User_name, Type, Status, Time } = req.body;
 

@@ -21,6 +21,10 @@ const OUT = path.join(__dirname, '../src/constants/frontendPages.js');
 const LOCKED = new Set([
   '/',
   '/login',
+  // `/register` is no longer a page — public registration was removed and the
+  // path now only redirects to /login so old bookmarks still land somewhere.
+  // It stays locked because there is nothing to switch off: an admin ticking it
+  // would break the redirect, not retire a screen.
   '/register',
   '/home',
   '/reports/api-performance',

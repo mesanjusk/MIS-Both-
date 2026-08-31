@@ -55,4 +55,16 @@ const requireAdmin = requireRole(['admin', 'owner', 'manager']);
  */
 const requireOfficeOrAbove = requireRole(['admin', 'owner', 'manager', 'office user']);
 
-module.exports = { requireRole, requireAdmin, requireOfficeOrAbove };
+/**
+ * requireAdminOrOwner — strictly tier 4. Unlike requireAdmin above, this
+ * excludes 'manager' (tier 3).
+ *
+ * For the operations that hand out access rather than merely use it: creating
+ * a user, changing a user's User_group, setting someone's password, granting
+ * permissions, deleting an account. Whoever can do those can grant themselves
+ * anything else, so the bar is the top of the hierarchy and not one step below
+ * it.
+ */
+const requireAdminOrOwner = requireRole(['admin', 'owner']);
+
+module.exports = { requireRole, requireAdmin, requireOfficeOrAbove, requireAdminOrOwner };

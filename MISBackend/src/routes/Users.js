@@ -12,6 +12,7 @@ const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
+const { requireAdminOrOwner } = require('../middleware/authorize');
 const { maskMobileNumbers } = require('../utils/mobileVisibility');
 
 // LOGIN
@@ -71,8 +72,13 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
 });
 
 
-// ADD USER — protected: only authenticated users (admins) can create users
-router.post("/addUser", requireAuth, authLimiter, validate({ body: z.object({
+// ADD USER — Admin/Owner only.
+// User creation is account creation: the User_group in the payload is
+// unrestricted, so anyone who reaches this endpoint can mint an Admin. It
+// previously required only a valid token, which meant any logged-in staff
+// member could do exactly that. Public registration never existed on this
+// API and is not being added — staff accounts are created from Admin → Add User.
+router.post("/addUser", requireAuth, requireAdminOrOwner, authLimiter, validate({ body: z.object({
   User_name:  z.string().min(1, 'User_name is required'),
   Password:   z.string().min(8, 'Password must be at least 8 characters'),
   Mobile_number: z.string().min(1, 'Mobile_number is required'),
@@ -142,7 +148,9 @@ router.get("/GetUserList", requireAuth, async (req, res) => {
 });
 
 // UPDATE USER BY ID (Method 1) — protected
-router.put("/updateUser/:id", requireAuth, async (req, res) => {
+// UPDATE USER — Admin/Owner only: this can change User_group and set a
+// password, so it is a privilege-escalation path, not a profile edit.
+router.put("/updateUser/:id", requireAuth, requireAdminOrOwner, async (req, res) => {
   const { id } = req.params;
   const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
 
@@ -185,7 +193,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 // UPDATE USER PERMISSIONS — admin only
-router.put('/updateUserPermissions/:id', requireAuth, async (req, res) => {
+router.put('/updateUserPermissions/:id', requireAuth, requireAdminOrOwner, async (req, res) => {
   const { id } = req.params;
   const { permissions } = req.body;
   if (!permissions || typeof permissions !== 'object') {
@@ -257,7 +265,9 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // UPDATE USER BY ID (Method 2) — protected
-router.put('/update/:id', requireAuth, async (req, res) => {
+// Same privilege surface as /updateUser/:id above (it writes User_group), so
+// it carries the same guard.
+router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => {
   const { id } = req.params;
   const { User_name, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
 
@@ -321,7 +331,7 @@ router.get('/getUserByName/:username', requireAuth, async (req, res) => {
 });
 
 // DELETE USER — protected
-router.delete('/DeleteUser/:userUuid', requireAuth, async (req, res) => {
+router.delete('/DeleteUser/:userUuid', requireAuth, requireAdminOrOwner, async (req, res) => {
   const { userUuid } = req.params;
   try {
     const filters = [{ User_uuid: userUuid }];

@@ -33,7 +33,6 @@ const REFRESH_MS = Number(process.env.FEATURE_TOGGLE_REFRESH_MS || 30_000);
 const PROTECTED_PREFIXES = [
   '/api/api-usage',
   '/api/users/login',
-  '/api/users/register',
   '/api/usergroup',
   '/api/google-drive',
   '/api/gmail/callback',

@@ -25,6 +25,7 @@ const {
 const corsOptions = require("./config/corsOptions");
 const { generalLimiter } = require("./middleware/rateLimit");
 const logger = require("./utils/logger");
+const { getHealthPayload } = require("./utils/releaseInfo");
 
 // Handle unhandled promise rejections — log and exit gracefully
 process.on("unhandledRejection", (reason) => {
@@ -141,7 +142,10 @@ app.use(apiUsageMiddleware);
 app.use(featureToggleMiddleware);
 
 // ---------- Health check ----------
-app.get("/", (_req, res) => res.json({ ok: true, service: "MIS Backend" }));
+// Adds `release` (the short deployed commit SHA) when the host provides one,
+// so a deploy can be confirmed from outside. Nothing else about the
+// environment is exposed here — see utils/releaseInfo.js.
+app.get("/", (_req, res) => res.json(getHealthPayload()));
 
 // ---------- API routes ----------
 app.use("/api/users", Users);

@@ -87,7 +87,6 @@ export default function StatementModal({ open, onClose, statement, partyMobile =
 
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     for (let i = 0; i < pageNodes.length; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
       const canvas = await html2canvas(pageNodes[i], { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
       const imgData = canvas.toDataURL("image/jpeg", 0.92);
       const ratio = canvas.height / canvas.width;

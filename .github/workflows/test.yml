@@ -19,7 +19,15 @@ jobs:
           cache: npm
           cache-dependency-path: MISBackend/package-lock.json
       - run: npm ci
-      - run: npm test
+
+      # A file that does not parse takes the service down on boot, so this runs
+      # before the tests: it fails in a second and names the file, where a test
+      # run would fail slowly and less clearly.
+      - name: Syntax check
+        run: npm run lint:syntax
+
+      - name: Backend tests
+        run: npm test
 
   frontend:
     runs-on: ubuntu-latest
@@ -34,4 +42,20 @@ jobs:
           cache: npm
           cache-dependency-path: MISFrontend/package-lock.json
       - run: npm ci
-      - run: npm test
+
+      # Blocking. Only the rules that catch code which cannot work — undefined
+      # references, conditional hooks, redeclarations, unsafe finally. The
+      # project's remaining ~1400 legacy findings (mostly react/prop-types) are
+      # inventoried in docs/LINT_TECHNICAL_DEBT.md and are NOT gated here: a
+      # permanently red build is one nobody reads.
+      - name: Critical lint
+        run: npm run lint:critical
+
+      - name: Frontend tests
+        run: npm test
+
+      # The production build was previously not run in CI at all, so a change
+      # that broke the build merged green and only failed on Vercel — after
+      # merge, in front of users. This is the job that closes that gap.
+      - name: Production build
+        run: npm run build

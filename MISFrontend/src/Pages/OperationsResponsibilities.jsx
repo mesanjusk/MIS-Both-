@@ -13,6 +13,7 @@ import {
   PageContainer, SectionCard, DataTableWrapper, LoadingState, EmptyState, ErrorState,
 } from '../Components/ui';
 import { categoryLabel, ownerRoleLabel, OWNERSHIP_SLOTS } from '../constants/operations';
+import { validateChainSelection } from '../utils/responsibilityChain';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchResponsibilities, createResponsibility, updateResponsibility, deleteResponsibility,
@@ -166,6 +167,13 @@ export default function OperationsResponsibilities() {
   const changeSlot = async (row, slot, value) => {
     setError('');
     setSuccess('');
+    // The inline matrix edit bypasses the dialog, so it needs the same check —
+    // this is the edit people actually make day to day.
+    const chainErrors = validateChainSelection({ ...row, [slot]: value }, userNameByUuid);
+    if (chainErrors.length) {
+      setError(chainErrors[0]);
+      return;
+    }
     try {
       await updateResponsibility(row.responsibility_uuid, { [slot]: value });
       setSuccess(`${row.name} updated`);
@@ -178,6 +186,13 @@ export default function OperationsResponsibilities() {
   const save = async () => {
     if (!form.name.trim()) {
       setError('Name is required');
+      return;
+    }
+    // Caught here so the dialog stays open with the offending selections still
+    // visible. The API re-checks and remains the authority.
+    const chainErrors = validateChainSelection(form, userNameByUuid);
+    if (chainErrors.length) {
+      setError(chainErrors[0]);
       return;
     }
     setSaving(true);

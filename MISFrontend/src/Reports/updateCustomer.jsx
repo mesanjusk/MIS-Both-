@@ -139,12 +139,13 @@ export default function UpdateCustomer({order, onClose}) {
           </div>
           <div>
             <div className="p-2 row-start-2 row-end-4">
-              <button onClick={() => handleEditClick(order)} className="btn">
-                <svg className="h-6 w-6 text-blue-500" width="12" height="12" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                  <path stroke="none" d="M0 0h24v24H0z"/>
-                  <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3l-11 11l-4 1l1 -4z"/>
-                </svg>
-              </button>
+              {/* Decorative only. This was a button calling an undefined
+                  handleEditClick, which threw on click — and this component is
+                  itself the edit form, so there was nothing for it to open. */}
+              <svg className="h-6 w-6 text-blue-500" width="12" height="12" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path stroke="none" d="M0 0h24v24H0z"/>
+                <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3l-11 11l-4 1l1 -4z"/>
+              </svg>
               <br />
             </div>       
           </div>

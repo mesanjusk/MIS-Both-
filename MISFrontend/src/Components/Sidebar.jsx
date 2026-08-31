@@ -5,28 +5,16 @@ import { Box, ButtonBase, Divider, Drawer, Stack, Tooltip, Typography } from '@m
 import { alpha, useTheme } from '@mui/material/styles';
 import { useAuth } from '../context/AuthContext';
 import { SIDEBAR_GROUPS } from '../constants/sidebarMenu.jsx';
+// Shared with the top navigation and the route guards, so this rail cannot
+// show a link to a page the guard behind it will refuse.
+import { normalizeRoleKey } from '../constants/roles';
+import { isNavItemVisible } from '../constants/navVisibility';
 import { useNavCustomize, isLeftItemVisible, useSidebarVisibility } from '../hooks/useNavCustomize';
 import { usePageToggles } from '../hooks/usePageToggles';
+import { useModuleConfig } from '../hooks/useModuleConfig';
 
 const DRAWER_WIDTH = 66;
 
-const normalizeRoleKey = (value = '') => {
-  const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (['admin', 'adminuser', 'superadmin', 'owner'].includes(text)) return 'Admin';
-  if (['designer'].includes(text)) return 'Designer';
-  if (['dataentry', 'dataentryuser'].includes(text)) return 'DataEntry';
-  if (['officestaff', 'officeuser', 'otheroffice'].includes(text)) return 'OfficeStaff';
-  if (['officeadmin'].includes(text)) return 'OfficeAdmin';
-  if (['officedesign'].includes(text)) return 'OfficeDesign';
-  if (['officemarketing'].includes(text)) return 'OfficeMarketing';
-  if (['accounts', 'accountant', 'accountsuser'].includes(text)) return 'Accounts';
-  return value || 'User';
-};
-
-const canShowItem = (item, roleKey) => {
-  const roles = item.roles || ['Admin'];
-  return roles.includes('all') || roles.includes(roleKey) || (roleKey === 'Admin' && !item.hideForAdmin);
-};
 
 function RailIcon({ icon, label, onClick, selected = false, accent, tooltipPlacement = 'right' }) {
   const theme = useTheme();
@@ -85,35 +73,48 @@ function RailIcon({ icon, label, onClick, selected = false, accent, tooltipPlace
   );
 }
 
+RailIcon.propTypes = {
+  icon: PropTypes.node,
+  label: PropTypes.string,
+  onClick: PropTypes.func,
+  selected: PropTypes.bool,
+  accent: PropTypes.string,
+  tooltipPlacement: PropTypes.string,
+};
+
 export default function Sidebar({ mobileOpen, onCloseMobile }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const theme = useTheme();
-  const { permissions } = useAuth();
-  const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || '');
+  const { permissions, userGroup } = useAuth();
+  const roleKey = normalizeRoleKey(userGroup || localStorage.getItem('User_group') || '');
   const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
   const adminHiddenItems = useMemo(() => permissions?.leftHidden || [], [permissions]);
   const { prefs } = useNavCustomize();
   const { leftSidebarEnabled } = useSidebarVisibility();
   // Pages an admin has switched off from Admin → API Performance.
   const { isPageDisabled } = usePageToggles();
+  const moduleConfig = useModuleConfig();
 
   const groups = useMemo(
     () =>
       SIDEBAR_GROUPS
-        .filter((group) => allowedGroups.length === 0 || allowedGroups.includes(group.label))
         .map((group) => ({
           ...group,
           items: group.items.filter(
             (item) =>
-              canShowItem(item, roleKey) &&
+              // The shared decision — the same one the dropdowns and the route
+              // guards use, so this rail cannot disagree with either.
+              isNavItemVisible(
+                { ...item, groupLabel: group.label },
+                { roleKey, allowedGroups, isPageDisabled, moduleConfig },
+              ) &&
               !adminHiddenItems.includes(item.path) &&
-              !isPageDisabled(item.path) &&
               isLeftItemVisible(prefs, item.path),
           ),
         }))
         .filter((group) => group.items.length),
-    [roleKey, allowedGroups, adminHiddenItems, prefs, isPageDisabled],
+    [roleKey, allowedGroups, adminHiddenItems, prefs, isPageDisabled, moduleConfig],
   );
 
   // Opt-in: nothing to show until enabled, or nothing left after filtering — hide entirely.

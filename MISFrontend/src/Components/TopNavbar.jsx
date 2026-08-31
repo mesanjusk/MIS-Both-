@@ -22,39 +22,45 @@ import DashboardCustomizeRoundedIcon from '@mui/icons-material/DashboardCustomiz
 
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../constants/routes';
-import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
+import { PRIMARY_NAV, itemsForSection } from '../constants/sidebarMenu';
+import { normalizeRoleKey } from '../constants/roles';
 import { useNavCustomize, isTopNavItemVisible } from '../hooks/useNavCustomize';
 import { usePageToggles } from '../hooks/usePageToggles';
+import { useModuleConfig } from '../hooks/useModuleConfig';
+import { visibleSectionItems } from '../constants/navVisibility';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
 
-const normalizeRoleKey = (value = '') => {
-  const text = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (['admin', 'adminuser', 'superadmin', 'owner'].includes(text)) return 'Admin';
-  if (['designer'].includes(text)) return 'Designer';
-  if (['dataentry', 'dataentryuser'].includes(text)) return 'DataEntry';
-  if (['officestaff', 'officeuser', 'otheroffice'].includes(text)) return 'OfficeStaff';
-  if (['officeadmin'].includes(text)) return 'OfficeAdmin';
-  if (['officedesign'].includes(text)) return 'OfficeDesign';
-  if (['officemarketing'].includes(text)) return 'OfficeMarketing';
-  if (['accounts', 'accountant', 'accountsuser'].includes(text)) return 'Accounts';
-  return value || 'User';
+/** A heading with one destination — no menu to open. */
+function NavLink({ label, onClick }) {
+  return (
+    <Button
+      size="small"
+      onClick={onClick}
+      sx={(t) => ({
+        fontSize: '0.78rem',
+        fontWeight: 600,
+        color: 'text.secondary',
+        borderRadius: 1.5,
+        px: 1,
+        py: 0.5,
+        minWidth: 0,
+        textTransform: 'none',
+        whiteSpace: 'nowrap',
+        '&:hover': { bgcolor: alpha(t.palette.primary.main, 0.06), color: 'text.primary' },
+      })}
+    >
+      {label}
+    </Button>
+  );
+}
+
+NavLink.propTypes = {
+  label: PropTypes.string.isRequired,
+  onClick: PropTypes.func.isRequired,
 };
 
-const NAV_DROPDOWN_DEFS = [
-  { label: 'Attendance', groups: ['Attendance Report'] },
-  { label: 'Orders',     groups: ['Orders Reports'] },
-  { label: 'Accounts',   groups: ['Accounts & UPI', 'Account Reports', 'Collection Reports'] },
-  { label: 'Reports',    groups: ['Dashboard Reports'] },
-  { label: 'WhatsApp',   groups: ['WhatsApp', 'Email'] },
-  { label: 'Social',     groups: ['Social Media'] },
-  { label: 'Call Logs',  groups: ['Call Logs'] },
-  { label: 'Operations', groups: ['Operations'] },
-  { label: 'SOP',        groups: ['SOP'] },
-  { label: 'Admin',      groups: ['Admin'] },
-];
-
-function NavDropdown({ label, groups, roleKey, allowedGroups, onNavigate }) {
+function NavDropdown({ label, section, roleKey, allowedGroups, onNavigate }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
 
@@ -67,17 +73,24 @@ function NavDropdown({ label, groups, roleKey, allowedGroups, onNavigate }) {
   // navigation most users actually see, so a page left here would still be
   // reachable after being switched off.
   const { isPageDisabled } = usePageToggles();
+  const moduleConfig = useModuleConfig();
 
-  const matchedGroups = SIDEBAR_GROUPS.filter(
-    (g) => groups.includes(g.label) && (allowedGroups.length === 0 || allowedGroups.includes(g.label))
-  ).map((g) => ({
-    ...g,
-    items: g.items.filter((item) => {
-      if (isPageDisabled(item.path)) return false;
-      const roles = item.roles || ['Admin'];
-      return roles.includes('all') || roles.includes(roleKey) || (roleKey === 'Admin' && !item.hideForAdmin);
-    }),
-  })).filter((g) => g.items.length > 0);
+  // One decision, shared with the left rail and the route guards.
+  const items = visibleSectionItems(itemsForSection(section), {
+    roleKey,
+    allowedGroups,
+    isPageDisabled,
+    moduleConfig,
+  });
+
+  // The original group labels survive as sub-headings inside the dropdown, so
+  // a heading with twenty entries still reads as sections rather than a list.
+  const matchedGroups = [];
+  for (const item of items) {
+    const last = matchedGroups[matchedGroups.length - 1];
+    if (last && last.label === item.groupLabel) last.items.push(item);
+    else matchedGroups.push({ label: item.groupLabel, items: [item] });
+  }
 
   if (matchedGroups.length === 0) return null;
 
@@ -142,7 +155,7 @@ function NavDropdown({ label, groups, roleKey, allowedGroups, onNavigate }) {
 
 NavDropdown.propTypes = {
   label: PropTypes.string.isRequired,
-  groups: PropTypes.arrayOf(PropTypes.string).isRequired,
+  section: PropTypes.string.isRequired,
   roleKey: PropTypes.string.isRequired,
   allowedGroups: PropTypes.arrayOf(PropTypes.string).isRequired,
   onNavigate: PropTypes.func.isRequired,
@@ -152,14 +165,19 @@ export default function TopNavbar() {
   const navigate = useNavigate();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
-  const roleKey = normalizeRoleKey(localStorage.getItem('User_group') || userGroup || '');
+  const roleKey = normalizeRoleKey(userGroup || localStorage.getItem('User_group') || '');
   const { prefs } = useNavCustomize();
   const { permissions } = useAuth();
   const allowedGroups = permissions?.sidebarGroups || [];
   const dashCtx = useDashboardCustomize();
-  const visibleNavDefs = NAV_DROPDOWN_DEFS.filter((d) => {
-    if ((permissions?.topNavHidden || []).includes(d.label)) return false;
-    return isTopNavItemVisible(prefs, d.label);
+  // A heading is hidden if it, or any of the older dropdown names it replaced,
+  // was hidden. Without the legacy check, consolidating the menu would silently
+  // un-hide entries that an admin or the user had deliberately turned off.
+  const adminHidden = permissions?.topNavHidden || [];
+  const visibleNavDefs = PRIMARY_NAV.filter((def) => {
+    const names = [def.label, ...(def.legacy || [])];
+    if (names.some((name) => adminHidden.includes(name))) return false;
+    return names.every((name) => isTopNavItemVisible(prefs, name));
   });
 
   useEffect(() => {
@@ -211,16 +229,22 @@ export default function TopNavbar() {
           spacing={0}
           sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'center', flexShrink: 0 }}
         >
-          {visibleNavDefs.map((def) => (
+          {visibleNavDefs.map((def) => (def.directPath ? (
+            <NavLink
+              key={def.label}
+              label={def.label}
+              onClick={() => navigate(def.directPath)}
+            />
+          ) : (
             <NavDropdown
               key={def.label}
               label={def.label}
-              groups={def.groups}
+              section={def.section}
               roleKey={roleKey}
               allowedGroups={allowedGroups}
               onNavigate={navigate}
             />
-          ))}
+          )))}
         </Stack>
 
         <Box sx={{ flex: 1 }} />

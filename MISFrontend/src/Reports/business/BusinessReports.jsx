@@ -105,6 +105,11 @@ export default function BusinessReports() {
       data.rows.map((row) => table.columns.map((c) => c.csv(row)))
     );
     const filter = data.filter || {};
+    // The leading U+FEFF byte-order mark is deliberate: without it Excel
+    // opens a UTF-8 CSV as the local codepage and mangles every non-ASCII
+    // name in the export. It is flagged as irregular whitespace, which is
+    // exactly what it is — and exactly what is needed here.
+    // eslint-disable-next-line no-irregular-whitespace
     const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

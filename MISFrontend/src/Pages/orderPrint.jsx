@@ -35,17 +35,10 @@ const OrderPrint = ({ order, onClose }) => {
 
   const handlePrint = useReactToPrint({ contentRef: componentRef });
 
-  const handleDownloadPDF = () => {
-    const element = componentRef.current;
-    const opt = {
-      margin: 0.3,
-      filename: `invoice-${order.Order_Number}.pdf`,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2 },
-      jsPDF: { unit: "in", format: "a4", orientation: "portrait" },
-    };
-    html2pdf().set(opt).from(element).save();
-  };
+  // Previously called html2pdf(), which was never imported and is not a
+  // dependency — the button threw a ReferenceError on every click. The print
+  // dialog already offers "Save as PDF", so it goes through the same path.
+  const handleDownloadPDF = handlePrint;
 
   const customerDetails = customers[order?.Customer_uuid] || {};
 

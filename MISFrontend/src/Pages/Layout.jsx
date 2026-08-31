@@ -22,8 +22,8 @@ import AddIcon from '@mui/icons-material/Add';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
-import StoreRoundedIcon from '@mui/icons-material/StoreRounded';
-import AssessmentRoundedIcon from '@mui/icons-material/AssessmentRounded';
+import PaymentsRoundedIcon from '@mui/icons-material/PaymentsRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import Sidebar from '../Components/Sidebar';
 import TopNavbar from '../Components/TopNavbar';
 import Footer from '../Components/Footer';
@@ -33,6 +33,12 @@ import CustomizeDialog from '../Components/CustomizeDialog';
 import axios, { getApiBase } from '../apiClient';
 import { ROUTES } from '../constants/routes';
 import { useSidebarVisibility } from '../hooks/useNavCustomize';
+import { itemsForSection } from '../constants/sidebarMenu';
+import { visibleSectionItems } from '../constants/navVisibility';
+import { normalizeRoleKey } from '../constants/roles';
+import { useAuth } from '../context/AuthContext';
+import { usePageToggles } from '../hooks/usePageToggles';
+import { useModuleConfig } from '../hooks/useModuleConfig';
 
 const LEFT_SIDEBAR_WIDTH = 66;
 const RIGHT_SIDEBAR_WIDTH = 66;
@@ -108,20 +114,64 @@ export default function Layout() {
     [navigate, driveChecking, handleNewOrderClick, openUpi],
   );
 
+  // ── Mobile bottom navigation ────────────────────────────────────────────
+  //
+  // Built from the same PRIMARY_NAV sections as the desktop headings, and
+  // filtered through the same visibility rule. It previously hard-coded five
+  // destinations with no role check at all, so a member of staff saw a
+  // "Business" tab leading to a screen they were not allowed to open.
+  //
+  // Five slots is the practical maximum for a bottom bar, so it carries the
+  // five sections a phone user actually works in; the rest stay one tap away
+  // in the menu.
+  const MOBILE_SECTIONS = [
+    { section: 'home', label: 'Home', icon: <HomeRoundedIcon />, path: ROUTES.HOME },
+    { section: 'my-work', label: 'My Work', icon: <AssignmentRoundedIcon />, path: ROUTES.MY_TASKS },
+    { section: 'orders', label: 'Orders', icon: <ReceiptLongRoundedIcon />, path: ROUTES.REPORTS_ORDERS_LIST },
+    { section: 'money', label: 'Money', icon: <PaymentsRoundedIcon />, path: ROUTES.REPORTS_TRANSACTIONS },
+    { section: 'communicate', label: 'Chat', icon: <ChatRoundedIcon />, path: ROUTES.WHATSAPP },
+  ];
+
+  const { permissions, userGroup } = useAuth();
+  const { isPageDisabled } = usePageToggles();
+  const moduleConfig = useModuleConfig();
+  const roleKey = normalizeRoleKey(userGroup || localStorage.getItem('User_group') || '');
+  const allowedGroups = useMemo(() => permissions?.sidebarGroups || [], [permissions]);
+
+  const mobileTabs = useMemo(() => {
+    const context = { roleKey, allowedGroups, isPageDisabled, moduleConfig };
+    return MOBILE_SECTIONS.map((tab) => {
+      const items = visibleSectionItems(itemsForSection(tab.section), context);
+      if (!items.length) return null;
+      // Land on the section's own default when the user may open it, otherwise
+      // on the first entry they can actually reach.
+      const target = items.some((item) => item.path === tab.path) ? tab.path : items[0].path;
+      return { ...tab, path: target };
+    }).filter(Boolean);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleKey, allowedGroups, isPageDisabled, moduleConfig]);
+
   const bottomNavValue = useMemo(() => {
     const { pathname } = location;
-    if (pathname.startsWith('/allOrder') || pathname.startsWith('/reports/orders')) return ROUTES.REPORTS_ORDERS;
-    if (pathname.startsWith('/business-control')) return ROUTES.BUSINESS_CONTROL;
-    if (pathname.startsWith('/whatsapp')) return ROUTES.WHATSAPP;
-    if (
-      pathname.startsWith('/reports') ||
-      pathname.startsWith('/allTransaction') ||
-      pathname.startsWith('/customerReport') ||
-      pathname.startsWith('/paymentReport')
-    )
-      return '/reports';
-    return ROUTES.HOME;
-  }, [location]);
+    // Longest path first, so /operations/me does not match a shorter sibling.
+    const match = [...mobileTabs]
+      .sort((a, b) => b.path.length - a.path.length)
+      .find((tab) => pathname === tab.path || pathname.startsWith(`${tab.path}/`));
+    if (match) return match.path;
+
+    // Familiar aliases that do not share a prefix with their section's default.
+    if (pathname.startsWith('/allOrder') || pathname.startsWith('/reports/orders')) {
+      return mobileTabs.find((tab) => tab.section === 'orders')?.path ?? false;
+    }
+    if (pathname.startsWith('/whatsapp') || pathname.startsWith('/social')) {
+      return mobileTabs.find((tab) => tab.section === 'communicate')?.path ?? false;
+    }
+    if (pathname.startsWith('/accounts') || pathname.startsWith('/allTransaction')) {
+      return mobileTabs.find((tab) => tab.section === 'money')?.path ?? false;
+    }
+    // `false` leaves every tab unselected rather than lighting up the wrong one.
+    return mobileTabs.find((tab) => tab.section === 'home')?.path ?? false;
+  }, [location, mobileTabs]);
 
   return (
     <DashboardCustomizeCtx.Provider
@@ -288,13 +338,7 @@ export default function Layout() {
           <BottomNavigation
             showLabels
             value={bottomNavValue}
-            onChange={(_, next) => {
-              if (next === '/reports') {
-                navigate(ROUTES.REPORTS_TRANSACTIONS);
-              } else {
-                navigate(next);
-              }
-            }}
+            onChange={(_, next) => navigate(next)}
             sx={(t) => ({
               height: 64,
               bgcolor: 'transparent',
@@ -320,11 +364,14 @@ export default function Layout() {
               },
             })}
           >
-            <BottomNavigationAction label="Home" value={ROUTES.HOME} icon={<HomeRoundedIcon />} />
-            <BottomNavigationAction label="Orders" value={ROUTES.REPORTS_ORDERS} icon={<AssignmentRoundedIcon />} />
-            <BottomNavigationAction label="Business" value={ROUTES.BUSINESS_CONTROL} icon={<StoreRoundedIcon />} />
-            <BottomNavigationAction label="WhatsApp" value={ROUTES.WHATSAPP} icon={<ChatRoundedIcon />} />
-            <BottomNavigationAction label="Reports" value="/reports" icon={<AssessmentRoundedIcon />} />
+            {mobileTabs.map((tab) => (
+              <BottomNavigationAction
+                key={tab.section}
+                label={tab.label}
+                value={tab.path}
+                icon={tab.icon}
+              />
+            ))}
           </BottomNavigation>
         </Paper>
       </Box>

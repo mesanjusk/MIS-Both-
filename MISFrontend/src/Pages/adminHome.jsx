@@ -265,7 +265,7 @@ const calculateWorkingHours = (inTime, outTime, breakTime, startTime) => {
                      <div className="p-2 col-start-2 col-end-8">
                            <strong className="text-l text-gray-900">{order.Customer_name}</strong><br />
                             <label className="text-xs">
-                            {new Date(order.highestStatusTask.Delivery_Date).toLocaleDateString()}{" "}  - {order.Items[i].Remark}
+                            {new Date(order.highestStatusTask.Delivery_Date).toLocaleDateString()}{" "}  - {order.Items?.[0]?.Remark}
                            </label>
                        </div>
                        <div className="items-center justify-center text-right col-end-9 col-span-1">

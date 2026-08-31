@@ -15,11 +15,15 @@ import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import ViewSidebarRoundedIcon from '@mui/icons-material/ViewSidebarRounded';
 import toast from 'react-hot-toast';
 import axios from '../apiClient';
-import { SIDEBAR_GROUPS } from '../constants/sidebarMenu';
+import { PRIMARY_NAV, SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { FOOTER_LINKS } from '../Components/Footer';
 import { usePageToggles } from '../hooks/usePageToggles';
 
-const TOP_NAV_ITEMS = ['Attendance', 'Orders', 'Accounts', 'Reports', 'WhatsApp', 'Social', 'Call Logs', 'Operations', 'SOP', 'Admin'];
+// The primary navigation headings, read from the same definition the navbar
+// renders, so this screen cannot list a heading that no longer exists.
+// Previously hidden headings keep working: each PRIMARY_NAV entry carries the
+// older dropdown names it replaced, and the navbar honours those too.
+const TOP_NAV_ITEMS = PRIMARY_NAV.map((entry) => entry.label);
 const FOOTER_LABELS = FOOTER_LINKS.map((l) => l.label);
 const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Cash & Bank', 'Attendance'];
 const RIGHT_LINKS = ['Orders', 'Business', 'Post Print', 'Workflows', 'WhatsApp', 'Reports', 'Attendance', 'Dispatch'];

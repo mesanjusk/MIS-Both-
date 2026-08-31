@@ -5,9 +5,15 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
+  // A flat-config object with `files` applies its `ignores` only within that
+  // object. A global ignore has to be its own entry, with no `files` key —
+  // without this, `eslint .` lints the production bundles in dist/ and reports
+  // roughly 1300 problems in minified vendor code that nobody can act on.
+  {
+    ignores: ['dist/**', 'build/**', 'coverage/**', 'public/sw.js'],
+  },
   {
     files: ['**/*.{js,jsx}'],
-    ignores: ['dist'],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,

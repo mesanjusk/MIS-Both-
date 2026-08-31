@@ -1,1 +1,31 @@
 .claude/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment files — never commit real credentials.
+# `.env.production` is tracked on purpose: it holds only public client IDs and
+# the production API URL, and the Vercel build reads it. Secrets never go there.
+.env
+.env.*
+!.env.example
+!MISFrontend/.env.production
+
+# Database backups and dumps — never commit production data.
+# The backup tooling (MISBackend/scripts/backup-mongo.sh) writes here.
+backups/
+dump/
+*.archive
+*.archive.gz
+*.bson
+*.gz.archive
+mongodump-*/
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+.DS_Store

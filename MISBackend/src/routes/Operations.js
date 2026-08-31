@@ -45,6 +45,48 @@ const {
 const { seedAll } = require('../services/operationsSeedService');
 const { ORDER_STAGES } = require('../constants/orderStages');
 const { OWNERSHIP_FIELDS, chainFields, isBackupUser } = require('../constants/ownership');
+const {
+  validateResponsibilityChain,
+  validateWorkingHours,
+  validatePriorityLevels,
+  parseClock,
+} = require('../services/responsibilityValidation');
+
+/**
+ * uuid -> { name, active, backupEligible, isVirtual } for everyone who can
+ * hold a responsibility slot: real users and virtual operators alike.
+ *
+ * Chain validation needs to tell "no such user" from "deactivated user", which
+ * means reading the User rows directly rather than the availability map (that
+ * map is keyed on a date and mixes in attendance, which has no bearing on
+ * whether an assignment is *configurable*).
+ */
+const buildOperatorIndex = async () => {
+  const [users, virtualOperators] = await Promise.all([
+    User.find({}).select('User_uuid User_name operations').lean(),
+    getVirtualOperators(),
+  ]);
+
+  const index = new Map();
+  for (const user of users) {
+    if (!user.User_uuid) continue;
+    index.set(user.User_uuid, {
+      name: user.User_name,
+      active: user.operations?.active !== false,
+      backupEligible: user.operations?.backupEligible !== false,
+      isVirtual: false,
+    });
+  }
+  for (const operator of virtualOperators) {
+    index.set(operator.uuid, {
+      name: operator.name,
+      active: operator.active !== false,
+      backupEligible: operator.backupEligible !== false,
+      isVirtual: true,
+    });
+  }
+  return index;
+};
 
 // Every route needs a logged-in user; writes additionally need requireAdmin,
 // which resolves through the existing role hierarchy (admin/owner/manager).
@@ -117,13 +159,22 @@ router.get('/settings', async (req, res, next) => {
   }
 });
 
-const putSetting = (key, description, normalise) =>
+// `validate` (optional) receives the *normalised* value and returns a list of
+// human-readable problems. A non-empty list refuses the save with the first
+// message, so a malformed setting cannot be stored and then break the
+// resolver at 9am when nobody knows what changed.
+const putSetting = (key, description, normalise, validate = null) =>
   async (req, res, next) => {
     try {
       const actor = await resolveActor(req);
       const before = await AppSetting.getSetting(key, null);
       const value = normalise(req.body);
       if (value === null) return fail(res, 400, 'Invalid payload');
+
+      const problems = validate ? validate(value) : [];
+      if (problems.length) {
+        return res.status(400).json({ success: false, message: problems[0], errors: problems });
+      }
 
       await AppSetting.upsertSetting({ key, value, description });
       await recordAudit(
@@ -157,7 +208,18 @@ router.put(
       lateGraceMinutes: Number(lateGraceMinutes) || 0,
       escalationUserUuids: Array.isArray(escalationUserUuids) ? escalationUserUuids.filter(Boolean) : [],
     };
-  })
+  }, (value) =>
+    // The store clock times feed the same parser as a user's working hours —
+    // an unparseable reporting time silently stops anyone being marked late.
+    validateWorkingHours({
+      startTime: value.openingTime,
+      endTime: value.closingTime,
+      workingDays: value.workingDays,
+    }).concat(
+      value.reportingTime && parseClock(value.reportingTime) === null
+        ? [`reportingTime must be a time such as 09:30 (got "${value.reportingTime}").`]
+        : []
+    ))
 );
 
 router.put(
@@ -174,7 +236,7 @@ router.put(
         description: String(level.description || '').trim(),
         defaultRoleTitle: String(level.defaultRoleTitle || '').trim(),
       }));
-  })
+  }, validatePriorityLevels)
 );
 
 /**
@@ -348,6 +410,11 @@ router.put('/users/:userUuid/operations', requireAdmin, async (req, res, next) =
     const before = { ...(user.operations ? JSON.parse(JSON.stringify(user.operations)) : {}) };
     const payload = req.body?.operations || req.body || {};
     const next$ = { ...before };
+
+    const hourErrors = validateWorkingHours(payload);
+    if (hourErrors.length) {
+      return res.status(400).json({ success: false, message: hourErrors[0], errors: hourErrors });
+    }
 
     if (payload.priority !== undefined) {
       const levels = await getPriorityLevels();
@@ -555,6 +622,15 @@ router.post('/responsibilities', requireAdmin, async (req, res, next) => {
       ? req.body.category
       : 'general';
 
+    const chainErrors = validateResponsibilityChain({
+      submitted: req.body || {},
+      existing: null,
+      operators: await buildOperatorIndex(),
+    });
+    if (chainErrors.length) {
+      return res.status(400).json({ success: false, message: chainErrors[0], errors: chainErrors });
+    }
+
     const created = await Responsibility.create({
       responsibility_uuid: randomUUID(),
       name,
@@ -594,6 +670,20 @@ router.put('/responsibilities/:responsibilityUuid', requireAdmin, async (req, re
     if (!existing) return fail(res, 404, 'Responsibility not found');
 
     const before = existing.toObject();
+
+    // Validated against the stored record, so only slots this request actually
+    // changes are held to the rules. A responsibility configured before these
+    // checks existed stays editable — otherwise a chain naming someone who has
+    // since left could never be corrected through the UI.
+    const chainErrors = validateResponsibilityChain({
+      submitted: req.body || {},
+      existing: before,
+      operators: await buildOperatorIndex(),
+    });
+    if (chainErrors.length) {
+      return res.status(400).json({ success: false, message: chainErrors[0], errors: chainErrors });
+    }
+
     const editable = [
       'name',
       'description',

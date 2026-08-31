@@ -57,6 +57,48 @@ function resultPage({ ok, title, message, returnTo }) {
   `;
 }
 
+/**
+ * GET /api/social/providers/status — which optional modules are configured.
+ *
+ * Booleans only. Each provider already knows whether its own credentials are
+ * present (`isConfigured()`); this surfaces that so the navigation can hide a
+ * module the deployment has never set up, rather than offering a menu whose
+ * every link ends at a 503.
+ *
+ * Nothing here reveals a credential — only whether one exists. It is behind
+ * requireAuth regardless: the shape of a deployment is not public.
+ */
+router.get('/status', requireAuth, (_req, res) => {
+  const social = Object.fromEntries(
+    Object.entries(PROVIDERS).map(([name, service]) => [
+      name,
+      typeof service.isConfigured === 'function' ? Boolean(service.isConfigured()) : false,
+    ])
+  );
+
+  // Gmail shares the Google OAuth client with Drive but needs its own redirect
+  // URI, so all three have to be present for the Email screens to work.
+  const gmail = Boolean(
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GMAIL_REDIRECT_URI
+  );
+
+  // The flow builder drives WhatsApp Cloud conversations; without the Cloud
+  // API credentials a flow has nothing to run on.
+  const flowBuilder = Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET);
+
+  res.json({
+    success: true,
+    result: {
+      social,
+      socialAny: Object.values(social).some(Boolean),
+      gmail,
+      flowBuilder,
+    },
+  });
+});
+
 // GET /api/social/providers/:provider/connect — returns the OAuth URL (requires auth so we can attribute connectedBy)
 router.get('/:provider/connect', requireAuth, requireSocialPermission('socialAccountsManage'), (req, res) => {
   const service = PROVIDERS[req.params.provider];

@@ -182,6 +182,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Admin',
     items: [
       { label: 'Business Profile', path: ROUTES.ADMIN_BUSINESS_PROFILE, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
+      { label: 'WhatsApp API', path: ROUTES.ADMIN_API, icon: <LinkRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'API Performance', path: ROUTES.REPORTS_API_PERFORMANCE, icon: <InsightsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'User Permissions', path: ROUTES.ADMIN_USER_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },
       { label: 'Group Permissions', path: ROUTES.ADMIN_GROUP_PERMISSIONS, icon: <AdminPanelSettingsRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'admin' },

@@ -132,6 +132,7 @@ export const ROUTES = {
 
   // Admin
   ADMIN_BUSINESS_PROFILE: '/admin/business-profile',
+  ADMIN_API: '/admin/api',
   ADMIN_USER_PERMISSIONS: '/admin/user-permissions',
   ADMIN_GROUP_PERMISSIONS: '/admin/group-permissions',
   WHATSAPP_ACTION_LOG: '/admin/whatsapp-action-log',

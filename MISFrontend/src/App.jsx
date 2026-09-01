@@ -76,6 +76,7 @@ const PublicInvoice = lazy(() => import('./Pages/PublicInvoice'));
 const InvoicesList = lazy(() => import('./Pages/InvoicesList'));
 const SendMessage = lazy(() => import('./Pages/SendMessage'));
 const UpiPayment = lazy(() => import('./Pages/UpiPayment'));
+const ApiIntegration = lazy(() => import('./Pages/ApiIntegration'));
 const WhatsAppBroadcastPage = lazy(() => import('./Pages/WhatsAppBroadcastPage'));
 const WhatsAppHome = lazy(() => import('./Pages/WhatsAppHome'));
 const WhatsAppSendPage = lazy(() => import('./Pages/WhatsAppSendPage'));
@@ -242,6 +243,7 @@ export default function App() {
 
             <Route path={ROUTES.WHATSAPP} element={withSuspense(<WhatsAppCloudDashboard />)} />
             <Route path={ROUTES.WHATSAPP_CLOUD} element={withSuspense(<WhatsAppCloudDashboard />)} />
+            <Route path={ROUTES.ADMIN_API} element={adminOnly(<ApiIntegration />)} />
             <Route path={ROUTES.WHATSAPP_SEND} element={adminOnly(<WhatsAppSendPage />)} />
             <Route path={ROUTES.WHATSAPP_BROADCAST} element={adminOnly(<WhatsAppBroadcastPage />)} />
             <Route path={ROUTES.WHATSAPP_LEGACY_HOME} element={adminOnly(<WhatsAppHome />)} />

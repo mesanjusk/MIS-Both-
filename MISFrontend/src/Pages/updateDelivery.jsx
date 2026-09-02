@@ -4,7 +4,7 @@
 // ✅ react-hot-toast
 // ✅ keeps your caching + invoice flow
 
-import { useEffect, useState, useCallback, lazy, Suspense, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, lazy, Suspense, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "../apiClient.js";
 import Select from "react-select";
@@ -103,6 +103,22 @@ export default function UpdateDelivery({
   const [customerMobile, setCustomerMobile] = useState("");
   const [loadingLists, setLoadingLists] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+
+  // Lists that show this editor (Deliveries, Bills) drop the order — and close
+  // the editor with it — the moment it becomes billable. Doing that while the
+  // invoice is on screen would take the download / share buttons away before
+  // anyone could use them, so the parent is told only once the invoice modal
+  // has been closed.
+  const pendingNotifyRef = useRef(null);
+
+  const flushPendingNotify = useCallback(() => {
+    const notify = pendingNotifyRef.current;
+    pendingNotifyRef.current = null;
+    notify?.();
+  }, []);
+
+  // Never swallow the update if this editor goes away some other way.
+  useEffect(() => () => { pendingNotifyRef.current?.(); }, []);
 
   /* ---------------------- auth ---------------------- */
   useEffect(() => {
@@ -342,22 +358,24 @@ export default function UpdateDelivery({
         }
 
         const patchId = order.Order_uuid || order._id || orderId;
-        onOrderPatched(patchId, {
-          Items: itemLines,
-          Customer_uuid,
-          Customer_name: resolvedName,
-          ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
-        });
+        pendingNotifyRef.current = () => {
+          onOrderPatched(patchId, {
+            Items: itemLines,
+            Customer_uuid,
+            Customer_name: resolvedName,
+            ...(invoiceTxnUuid ? { invoiceTxnUuid, invoiceTxnId } : {}),
+          });
 
-        onSaved({
-          Order_uuid: order.Order_uuid || null,
-          Order_Number: order.Order_Number || null,
-          Items: itemLines,
-          extraCharges: validCharges,
-          totalAmount,
-          invoiceTxnUuid,
-          invoiceTxnId,
-        });
+          onSaved({
+            Order_uuid: order.Order_uuid || null,
+            Order_Number: order.Order_Number || null,
+            Items: itemLines,
+            extraCharges: validCharges,
+            totalAmount,
+            invoiceTxnUuid,
+            invoiceTxnId,
+          });
+        };
 
         toast.success("Order saved");
         setShowInvoiceModal(true);
@@ -426,6 +444,7 @@ export default function UpdateDelivery({
     aria-label="Close"
     onClick={() => {
       setShowInvoiceModal(false);
+      flushPendingNotify();
       onClose?.();
     }}
     className="absolute top-0 right-0 inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:text-red-600 hover:bg-red-50"
@@ -609,7 +628,10 @@ export default function UpdateDelivery({
       <Suspense fallback={null}>
         <InvoiceModal
           open={showInvoiceModal}
-          onClose={() => setShowInvoiceModal(false)}
+          onClose={() => {
+            setShowInvoiceModal(false);
+            flushPendingNotify();
+          }}
           orderNumber={order.Order_Number}
           dateStr={
             invoiceTxn?.Transaction_date

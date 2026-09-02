@@ -221,15 +221,35 @@ export default function InvoiceModal({
     });
   };
 
+  const openWhatsAppWeb = (link) => {
+    const text = buildWhatsAppText({
+      store: profile.name,
+      addressLines,
+      phone: profile.phone,
+      orderNumber,
+      dateStr,
+      partyName,
+      items: normalizedItems,
+      extraCharges,
+      grandTotal,
+      shareUrl: link,
+      upiId: profile.upiId,
+    });
+    const number = String(customerMobile || "").replace(/\D/g, "");
+    window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, "_blank");
+  };
+
   const handleWhatsAppPDF = () => {
     if (!pdfUrl) { toast.error(uploading ? "Preparing…" : "PDF not ready"); return; }
-    onWhatsApp?.(pdfUrl);
+    // Screens that can send through the WhatsApp API pass a sender in; the rest
+    // fall back to WhatsApp itself so the invoice can still go out.
+    if (onWhatsApp) { onWhatsApp(pdfUrl); return; }
+    openWhatsAppWeb(pdfUrl);
   };
 
   const handleShareLink = () => {
     if (!shareUrl) return;
-    const whatsappUrl = `https://wa.me/${customerMobile?.replace(/\D/g, "")}?text=${encodeURIComponent(`🧾 Invoice #${orderNumber} — ${partyName}\n${shareUrl}`)}`;
-    window.open(whatsappUrl, "_blank");
+    openWhatsAppWeb(shareUrl);
   };
 
   return (
@@ -274,8 +294,8 @@ export default function InvoiceModal({
           <p className="text-center text-xs text-gray-400 py-1">⏳ Preparing invoice…</p>
         )}
 
-        {/* Action buttons */}
-        <div className="px-4 pb-4 pt-2 grid grid-cols-2 gap-2">
+        {/* Action buttons — kept in view so download / share are never scrolled off */}
+        <div className="sticky bottom-0 px-4 pb-4 pt-2 grid grid-cols-2 gap-2 bg-white border-t">
           {/* Row 1 */}
           <button
             onClick={handleWhatsAppPDF}
@@ -314,7 +334,7 @@ export default function InvoiceModal({
             onClick={handleDownloadPDF}
             className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700"
           >
-            ⬇ Download
+            ⬇ Download PDF
           </button>
         </div>
       </div>

@@ -7,7 +7,6 @@ import toast from "react-hot-toast";
 import OrderHeader from "../Components/OrderHeader";
 import StatusTable from "../Components/StatusTable";
 import InvoiceModal from "../Components/InvoiceModal";
-import InvoicePreview from "../Components/InvoicePreview";
 
 // ✅ NEW: open UpdateDelivery inside modal
 import UpdateDelivery from "./updateDelivery";
@@ -813,21 +812,17 @@ export default function OrderUpdate({
           </form>
         </div>
 
-        {/* Invoice Modal */}
-        <InvoiceModal open={showInvoice} onClose={closeInvoice}>
-          <InvoicePreview
-            order={{
-              ...order,
-              Status: values.Status,
-              Items: values.Items,
-              Customer_name: values.Customer_name,
-              Order_Number: values.Order_Number,
-              Order_uuid: values.Order_uuid,
-              Customer_uuid: values.Customer_uuid,
-            }}
-            onClose={closeInvoice}
-          />
-        </InvoiceModal>
+        {/* Invoice Modal — it renders the preview itself and owns
+            download / print / WhatsApp, so it takes the invoice data as props. */}
+        <InvoiceModal
+          open={showInvoice}
+          onClose={closeInvoice}
+          orderNumber={values.Order_Number}
+          partyName={values.Customer_name}
+          items={values.Items}
+          extraCharges={Array.isArray(order?.extraCharges) ? order.extraCharges : []}
+          customerMobile={order?.Mobile_number || order?.customerMobile || ""}
+        />
 
         {/* ✅ UpdateDelivery Modal */}
         {showUpdateDelivery && (

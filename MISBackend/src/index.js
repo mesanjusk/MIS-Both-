@@ -69,6 +69,7 @@ const Chat = require("./routes/chat");
 const webhookRouter = require("./routes/webhook");
 const googleDriveOAuthRoutes = require("./routes/googleDriveOAuth");
 // Legacy googleDriveToken route removed — use /api/google-drive instead
+const googleOAuthDiagnostics = require("./routes/googleOAuthDiagnostics");
 const FlowRouter = require("./routes/Flow");
 const DesignFiles = require("./routes/DesignFiles");
 const DriveFolderReport = require("./routes/driveFolderReport");
@@ -194,6 +195,7 @@ app.use("/api/sop", SopRouter);
 app.use("/api/operations", OperationsRouter);
 app.use("/api/office-ai", OfficeAiRouter);
 app.use("/api/google-drive", googleDriveOAuthRoutes);
+app.use("/api/google-oauth", googleOAuthDiagnostics);
 app.use("/api/gmail", Gmail);
 app.use("/api", FlowRouter);
 app.use("/api/design-files", DesignFiles);

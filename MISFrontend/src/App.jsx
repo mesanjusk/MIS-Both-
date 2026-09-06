@@ -53,7 +53,6 @@ const WhatsAppCloudDashboard = lazy(() => import('./Pages/WhatsAppCloudDashboard
 const AllOrder = lazy(() => import('./Reports/allOrder'));
 const AllOrdersList = lazy(() => import('./Reports/allOrdersList'));
 const AllDelivery = lazy(() => import('./Reports/allDelivery'));
-const AllTransaction = lazy(() => import('./Reports/allTransaction'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
 const OutstandingReport = lazy(() => import('./Reports/outstandingReport'));
 const PurchaseOrder = lazy(() => import('./Pages/purchaseOrder'));
@@ -83,13 +82,9 @@ const WhatsAppSendPage = lazy(() => import('./Pages/WhatsAppSendPage'));
 const AddCustomergroup = lazy(() => import('./Pages/addCustomergroup'));
 const AddPriority = lazy(() => import('./Pages/addPriority'));
 const AllBills = lazy(() => import('./Reports/allBills'));
-const AllTransaction1 = lazy(() => import('./Reports/allTransaction1'));
-const AllTransaction2 = lazy(() => import('./Reports/allTransaction2'));
-const AllTransaction3 = lazy(() => import('./Reports/allTransaction3'));
-const AllTransaction4D = lazy(() => import('./Reports/allTransaction4D'));
-const AllTransaction5  = lazy(() => import('./Reports/allTransaction5'));
 const PriorityReport = lazy(() => import('./Reports/priorityReport'));
 const DiaryUpload = lazy(() => import('./Pages/DiaryUpload'));
+const Ledger = lazy(() => import('./Pages/Ledger'));
 const DayBook = lazy(() => import('./Pages/DayBook'));
 const BankReconciliation = lazy(() => import('./Pages/BankReconciliation'));
 const GmailAccounts = lazy(() => import('./Pages/GmailAccounts'));
@@ -257,18 +252,19 @@ export default function App() {
             <Route path={ROUTES.REPORTS_ORDERS_LIST} element={adminOnly(<AllOrdersList />)} />
             <Route path="/reports/delivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
             <Route path="/allDelivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
-            <Route path={ROUTES.ALL_TRANSACTION} element={accountsOnly(<AllTransaction />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTIONS} element={accountsOnly(<AllTransaction />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_1} element={accountsOnly(<AllTransaction1 />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_2} element={accountsOnly(<AllTransaction2 />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_3} element={accountsOnly(<AllTransaction3 />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_4D} element={accountsOnly(<AllTransaction4D />)} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_5}  element={accountsOnly(<AllTransaction5 />)} />
+            {/* The five money-report screens are now tabs on one Ledger page. */}
+            <Route path={ROUTES.LEDGER} element={accountsOnly(<Ledger />)} />
+            <Route path={ROUTES.ALL_TRANSACTION} element={<Navigate to={`${ROUTES.LEDGER}?tab=register`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTIONS} element={<Navigate to={`${ROUTES.LEDGER}?tab=register`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_1} element={<Navigate to={`${ROUTES.LEDGER}?tab=parties`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_2} element={<Navigate to={`${ROUTES.LEDGER}?tab=parties`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_3} element={<Navigate to={`${ROUTES.LEDGER}?tab=statement`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_4D} element={<Navigate to={`${ROUTES.LEDGER}?tab=cashbank`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_5}  element={<Navigate to={`${ROUTES.LEDGER}?tab=edit`} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_1_TYPO} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_1} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_2_LOWER} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_2} replace />} />
             <Route path={ROUTES.AGING_REPORT} element={accountsOnly(<AgingReport />)} />
             <Route path={ROUTES.OUTSTANDING_REPORT} element={accountsOnly(<OutstandingReport />)} />
-            <Route path="/allTransaction" element={accountsOnly(<AllTransaction />)} />
             <Route path="/reports/customers" element={adminOnly(<CustomerReport />)} />
             <Route path="/customerReport" element={adminOnly(<CustomerReport />)} />
             <Route path={ROUTES.PAYMENT_REPORT} element={accountsOnly(<PaymentReport />)} />

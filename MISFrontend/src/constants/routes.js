@@ -84,6 +84,7 @@ export const ROUTES = {
   RATE_CALCULATOR: '/rate-calculator',
   RATE_CARD_MASTER: '/rate-cards',
 
+  LEDGER:                    '/accounts/ledger',
   DIARY_UPLOAD:              '/accounts/diary-upload',
   DAY_BOOK:                  '/accounts/day-book',
   BANK_RECONCILIATION:       '/accounts/bank-reconciliation',

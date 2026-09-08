@@ -3,6 +3,8 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { createRateLimiter } = require('../middleware/rateLimit');
 const { enforceWhatsApp24hWindow } = require('../middleware/whatsapp24hGuard');
+const asyncHandler = require('../utils/asyncHandler');
+const sanjusk = require('../services/sanjuskApiService');
 
 const {
   exchangeMetaToken,
@@ -86,6 +88,97 @@ router.get('/templates', requireAuth, getTemplates);
 // ---------- Messages API ----------
 router.get('/messages', requireAuth, getMessages);
 router.get('/analytics', requireAuth, getAnalytics);
+
+// ---------- SanjuSK inbox ----------
+// The Home → Inbox tab reads its WhatsApp account, conversations and send path
+// from the SanjuSK API configured under Admin → API — never the direct-Meta
+// account. These are separate from the admin-only /api/sanjusk/* config routes:
+// they expose no credential and are usable by any authenticated staff member,
+// exactly like the existing /messages and /send-text routes.
+//
+// requireEnabled:false so the inbox works whenever a key is saved, without also
+// forcing every other outbound MIS message through SanjuSK (that remains the
+// admin's separate on/off choice on the API screen).
+
+const normalizeSanjuskMessage = (row = {}) => {
+  const direction =
+    row.direction ||
+    (row.fromMe || row.isOutbound ? 'outgoing' : row.type === 'outgoing' ? 'outgoing' : 'incoming');
+  return {
+    ...row,
+    id: row.id || row._id || row.messageId || row.wamid || undefined,
+    direction,
+    from: row.from || row.sender || row.wa_id || '',
+    to: row.to || row.recipient || '',
+    body: row.text || row.body || row.message || row.caption || '',
+    timestamp: row.timestamp || row.createdAt || row.time || null,
+    messageType: row.messageType || row.type || 'text',
+    status: row.status || '',
+  };
+};
+
+router.get(
+  '/sanjusk/status',
+  requireAuth,
+  asyncHandler(async (_req, res) => {
+    const data = await sanjusk.getStatus({ requireEnabled: false });
+    res.json({ success: true, data: data?.data || data || {} });
+  })
+);
+
+router.get(
+  '/sanjusk/messages',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const data = await sanjusk.listMessages({
+      since: req.query.since,
+      direction: req.query.direction,
+      phone: req.query.phone,
+      limit: Math.min(100, Math.max(1, Number(req.query.limit) || 100)),
+      requireEnabled: false,
+    });
+    const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    res.json({
+      success: true,
+      data: rows.map(normalizeSanjuskMessage),
+      nextSince: data?.nextSince || null,
+      hasMore: Boolean(data?.hasMore),
+    });
+  })
+);
+
+router.post(
+  '/sanjusk/send-text',
+  requireAuth,
+  messagingLimiter,
+  asyncHandler(async (req, res) => {
+    const phone = String(req.body?.to || req.body?.phone || '').replace(/\D/g, '');
+    const text = String(req.body?.text || req.body?.body || '').trim();
+    if (!phone || !text) {
+      return res.status(400).json({ success: false, message: 'to and text are required' });
+    }
+    const data = await sanjusk.sendText({ phone, text, requireEnabled: false });
+    res.json({ success: true, data });
+  })
+);
+
+router.post(
+  '/sanjusk/send-media',
+  requireAuth,
+  messagingLimiter,
+  asyncHandler(async (req, res) => {
+    const phone = String(req.body?.to || req.body?.phone || '').replace(/\D/g, '');
+    const link = String(req.body?.link || req.body?.mediaUrl || '').trim();
+    const type = String(req.body?.type || 'image').trim();
+    const caption = String(req.body?.caption || '').trim();
+    const filename = String(req.body?.filename || '').trim();
+    if (!phone || !link) {
+      return res.status(400).json({ success: false, message: 'to and a media link are required' });
+    }
+    const data = await sanjusk.sendMedia({ phone, type, link, caption, filename, requireEnabled: false });
+    res.json({ success: true, data });
+  })
+);
 
 // ---------- Webhook (no auth) ----------
 router.get('/webhook', verifyWebhook);

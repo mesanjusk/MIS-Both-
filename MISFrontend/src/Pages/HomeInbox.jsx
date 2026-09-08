@@ -107,7 +107,7 @@ export default function HomeInbox() {
         }}
       >
         <Suspense fallback={<LoadingSkeleton lines={8} />}>
-          <MessagesPanel service={sanjuskInboxService} />
+          <MessagesPanel service={sanjuskInboxService} showDetails={false} />
         </Suspense>
       </Box>
     </Box>

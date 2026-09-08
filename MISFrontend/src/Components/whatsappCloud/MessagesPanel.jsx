@@ -127,7 +127,7 @@ const toConversationFromContact = ({ contact, displayName, secondaryLabel }) => 
   customerMobile: contact,
 });
 
-export default function MessagesPanel({ search: externalSearch, service }) {
+export default function MessagesPanel({ search: externalSearch, service, showDetails }) {
   const messagingService = service || whatsappCloudService;
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -612,7 +612,7 @@ export default function MessagesPanel({ search: externalSearch, service }) {
           {chatArea}
         </Box>
       )}
-      details={detailsPanel}
+      details={showDetails ? detailsPanel : null}
     />
   );
 }
@@ -627,9 +627,13 @@ MessagesPanel.propTypes = {
     sendTextMessage: PropTypes.func.isRequired,
     sendMediaMessage: PropTypes.func.isRequired,
   }),
+  // Whether to show the right-hand contact details pane. Home → Inbox hides it
+  // for a clean two-pane WhatsApp Web layout.
+  showDetails: PropTypes.bool,
 };
 
 MessagesPanel.defaultProps = {
   search: '',
   service: null,
+  showDetails: true,
 };

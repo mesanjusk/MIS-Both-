@@ -10,6 +10,7 @@ import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
+import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import { useAuth } from '../context/AuthContext';
 
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
@@ -22,9 +23,11 @@ const AllAttandance = lazy(() => import('./AllAttandance'));
 const RateCalculator = lazy(() => import('./RateCalculator'));
 const DayBook = lazy(() => import('./DayBook'));
 const OrderLedger = lazy(() => import('./OrderLedger'));
+const HomeInbox = lazy(() => import('./HomeInbox'));
 
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
+  { id: 'inbox', label: 'Inbox', icon: ChatRoundedIcon, Component: HomeInbox },
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: OrderLedger },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
   { id: 'transaction4D', label: 'Cash & Bank', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },

@@ -127,7 +127,8 @@ const toConversationFromContact = ({ contact, displayName, secondaryLabel }) => 
   customerMobile: contact,
 });
 
-export default function MessagesPanel({ search: externalSearch }) {
+export default function MessagesPanel({ search: externalSearch, service }) {
+  const messagingService = service || whatsappCloudService;
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -181,7 +182,7 @@ export default function MessagesPanel({ search: externalSearch }) {
   const loadMessages = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await whatsappCloudService.getMessages();
+      const response = await messagingService.getMessages();
       const payload = response?.data?.data ?? response?.data ?? [];
       setMessages(normalizeMessages(payload));
     } catch (error) {
@@ -189,7 +190,7 @@ export default function MessagesPanel({ search: externalSearch }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [messagingService]);
 
   useEffect(() => {
     setSearch(externalSearch || '');
@@ -423,7 +424,7 @@ export default function MessagesPanel({ search: externalSearch }) {
 
       try {
         setIsSending(true);
-        await whatsappCloudService.sendTextMessage({
+        await messagingService.sendTextMessage({
           to: activeConversation.contact,
           body,
         });
@@ -436,7 +437,7 @@ export default function MessagesPanel({ search: externalSearch }) {
         setIsSending(false);
       }
     },
-    [activeConversation, conversationWindowOpen, loadMessages]
+    [activeConversation, conversationWindowOpen, loadMessages, messagingService]
   );
 
   const handleSendAttachment = useCallback(
@@ -471,7 +472,7 @@ export default function MessagesPanel({ search: externalSearch }) {
         formData.append('caption', caption || '');
         formData.append('file', file, file.name);
 
-        await whatsappCloudService.sendMediaMessage(formData);
+        await messagingService.sendMediaMessage(formData);
         loadMessages();
         return true;
       } catch (error) {
@@ -483,14 +484,14 @@ export default function MessagesPanel({ search: externalSearch }) {
         setIsSending(false);
       }
     },
-    [activeConversation, conversationWindowOpen, loadMessages]
+    [activeConversation, conversationWindowOpen, loadMessages, messagingService]
   );
 
   const handleRetry = useCallback(
     async (message) => {
       try {
         setIsSending(true);
-        await whatsappCloudService.sendTextMessage({
+        await messagingService.sendTextMessage({
           to: getContactForMessage(message),
           body: getMessageText(message),
         });
@@ -503,7 +504,7 @@ export default function MessagesPanel({ search: externalSearch }) {
         setIsSending(false);
       }
     },
-    [loadMessages]
+    [loadMessages, messagingService]
   );
 
   const detailsPanel = activeConversation ? (
@@ -618,8 +619,17 @@ export default function MessagesPanel({ search: externalSearch }) {
 
 MessagesPanel.propTypes = {
   search: PropTypes.string,
+  // Data source for the inbox. Defaults to the direct WhatsApp Cloud service;
+  // Home → Inbox passes the SanjuSK-backed service so it reads and sends
+  // through the account configured under Admin → API.
+  service: PropTypes.shape({
+    getMessages: PropTypes.func.isRequired,
+    sendTextMessage: PropTypes.func.isRequired,
+    sendMediaMessage: PropTypes.func.isRequired,
+  }),
 };
 
 MessagesPanel.defaultProps = {
   search: '',
+  service: null,
 };

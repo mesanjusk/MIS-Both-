@@ -24,3 +24,23 @@ export const fetchSanjuskMessages = (params = {}) =>
   apiClient.get('/api/sanjusk/messages', { params });
 
 export const sendSanjuskTestMessage = (payload) => apiClient.post('/api/sanjusk/send-test', payload);
+
+/**
+ * Home → Inbox: reads the WhatsApp account, conversations and send path from
+ * the SanjuSK API configured under Admin → API.
+ *
+ * These hit /api/whatsapp/sanjusk/* rather than the admin-only /api/sanjusk/*
+ * config routes, so any authenticated staff member with the Inbox widget can
+ * use the inbox, while the API key stays admin-only. No credential is ever
+ * returned to the browser.
+ */
+export const fetchSanjuskInboxStatus = () => apiClient.get('/api/whatsapp/sanjusk/status');
+
+export const fetchSanjuskInboxMessages = (params = {}) =>
+  apiClient.get('/api/whatsapp/sanjusk/messages', { params });
+
+export const sendSanjuskInboxText = (payload) =>
+  apiClient.post('/api/whatsapp/sanjusk/send-text', payload);
+
+export const sendSanjuskInboxMedia = (payload) =>
+  apiClient.post('/api/whatsapp/sanjusk/send-media', payload);

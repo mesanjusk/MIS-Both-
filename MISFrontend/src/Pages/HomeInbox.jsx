@@ -7,7 +7,8 @@ import {
   Typography,
 } from '@mui/material';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
-import { fetchWhatsAppStatus } from '../services/whatsappCloudService';
+import { fetchSanjuskInboxStatus } from '../services/sanjuskService';
+import { sanjuskInboxService } from '../services/sanjuskInboxService';
 import { LoadingSkeleton } from '../Components/ui';
 
 const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
@@ -28,19 +29,25 @@ export default function HomeInbox() {
 
     const refreshConnectionStatus = async () => {
       try {
-        const res = await fetchWhatsAppStatus();
-        const data = res?.data;
-        const isConnected =
-          data?.status === 'connected' ||
-          (Array.isArray(data?.data) && data.data.some((acc) => acc?.status === 'connected'));
+        // The Inbox account is the SanjuSK WhatsApp account configured under
+        // Admin → API — never the direct-Meta account. A valid status payload
+        // (a phone number id / display number) means that account is live.
+        const res = await fetchSanjuskInboxStatus();
+        const data = res?.data?.data || res?.data || {};
+        const number = data.displayPhoneNumber || data.phoneNumberId || '';
+        const isConnected = Boolean(number) || data.status === 'connected';
 
         if (!active) return;
         setConnectionState(isConnected ? 'connected' : 'disconnected');
-        setConnectionStatus(isConnected ? 'Connected' : 'Disconnected');
-      } catch {
+        setConnectionStatus(
+          isConnected ? (number ? `Connected · ${number}` : 'Connected') : 'Disconnected',
+        );
+      } catch (err) {
         if (!active) return;
-        setConnectionState('error');
-        setConnectionStatus('Unavailable');
+        // 409 = no SanjuSK key saved yet: tell the admin where to set it up.
+        const notConfigured = err?.response?.status === 409;
+        setConnectionState(notConfigured ? 'disconnected' : 'error');
+        setConnectionStatus(notConfigured ? 'Not configured (Admin → API)' : 'Unavailable');
       }
     };
 
@@ -100,7 +107,7 @@ export default function HomeInbox() {
         }}
       >
         <Suspense fallback={<LoadingSkeleton lines={8} />}>
-          <MessagesPanel />
+          <MessagesPanel service={sanjuskInboxService} />
         </Suspense>
       </Box>
     </Box>

@@ -697,11 +697,24 @@ const dispatchInteractiveButtons = async ({ to, bodyText, buttons = [] }) => {
     },
   };
 
-  const response = await callWhatsAppMessagesApi(payload, {
-    fallbackMessage: 'Failed to send WhatsApp button message',
-  });
+  const viaSanjusk = await useSanjuskRoute();
 
-  const metaMessageId = response?.messages?.[0]?.id || '';
+  const response = viaSanjusk
+    ? await sanjusk.sendInteractive({
+        phone: normalizedTo,
+        type: 'button',
+        body: String(bodyText || '').slice(0, 1024),
+        buttons: buttons.slice(0, 3).map((btn) => ({
+          id: String(btn.id).slice(0, 256),
+          title: String(btn.title).slice(0, 20),
+        })),
+        requireEnabled: false,
+      })
+    : await callWhatsAppMessagesApi(payload, {
+        fallbackMessage: 'Failed to send WhatsApp button message',
+      });
+
+  const metaMessageId = extractSanjuskMessageId(response);
   await saveAndEmitMessage({
     fromMe: true,
     from: WHATSAPP_PHONE_NUMBER_ID || '',
@@ -750,11 +763,29 @@ const dispatchInteractiveList = async ({ to, bodyText, buttonLabel = 'View', sec
     },
   };
 
-  const response = await callWhatsAppMessagesApi(payload, {
-    fallbackMessage: 'Failed to send WhatsApp list message',
-  });
+  const viaSanjusk = await useSanjuskRoute();
 
-  const metaMessageId = response?.messages?.[0]?.id || '';
+  const response = viaSanjusk
+    ? await sanjusk.sendInteractive({
+        phone: normalizedTo,
+        type: 'list',
+        body: String(bodyText || '').slice(0, 1024),
+        buttonLabel: String(buttonLabel).slice(0, 20),
+        sections: sections.map((section) => ({
+          title: String(section.title || '').slice(0, 24),
+          rows: (section.rows || []).slice(0, 10).map((row) => ({
+            id: String(row.id).slice(0, 200),
+            title: String(row.title).slice(0, 24),
+            ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
+          })),
+        })),
+        requireEnabled: false,
+      })
+    : await callWhatsAppMessagesApi(payload, {
+        fallbackMessage: 'Failed to send WhatsApp list message',
+      });
+
+  const metaMessageId = extractSanjuskMessageId(response);
   await saveAndEmitMessage({
     fromMe: true,
     from: WHATSAPP_PHONE_NUMBER_ID || '',

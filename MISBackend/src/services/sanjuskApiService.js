@@ -218,6 +218,31 @@ const sendMedia = ({ phone, type = 'image', link, caption = '', filename = '', r
   });
 
 /**
+ * Interactive message — WhatsApp reply buttons or a list/menu.
+ *
+ *   type 'button'  → buttons: [{ id, title }]           (up to 3)
+ *   type 'list'    → buttonLabel + sections: [{ title, rows: [{ id, title, description }] }]
+ *
+ * SanjuSK builds the Meta interactive payload from these fields, the same way
+ * send-text / send-media hide the Meta envelope behind flat inputs.
+ */
+const sendInteractive = ({
+  phone,
+  type = 'button',
+  body,
+  buttons = [],
+  buttonLabel = 'View',
+  sections = [],
+  requireEnabled = true,
+}) =>
+  request({
+    method: 'post',
+    path: '/send-interactive',
+    body: { phone, type, body, buttons, buttonLabel, sections },
+    requireEnabled,
+  });
+
+/**
  * Recent messages, oldest first. Used by the admin screen to show that
  * inbound is actually arriving; the live inbound path is the webhook, not
  * this.
@@ -263,6 +288,7 @@ module.exports = {
   sendText,
   sendTemplate,
   sendMedia,
+  sendInteractive,
   isEnabled,
   isConfigured,
 };

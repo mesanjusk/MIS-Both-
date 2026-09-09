@@ -43,6 +43,21 @@ const sanjusk = require('../services/sanjuskApiService');
  */
 const useSanjuskRoute = () => sanjusk.isConfigured();
 
+// Every outbound WhatsApp message goes through the SanjuSK account
+// (meta.sanjusk.in) — both incoming and outgoing traffic is handled there, and
+// direct Meta Graph sending has been retired. There is deliberately no Meta
+// fallback: a missing SanjuSK key is a hard, visible error rather than a silent
+// switch to a second provider/number. The Meta WhatsApp credentials are no
+// longer required in the environment.
+const ensureSanjuskConfigured = async () => {
+  if (!(await sanjusk.isConfigured())) {
+    throw new AppError(
+      'WhatsApp sending is not configured: save a SanjuSK API key under Admin → API.',
+      503
+    );
+  }
+};
+
 const extractSanjuskMessageId = (data) =>
   data?.messages?.[0]?.id ||
   data?.data?.messages?.[0]?.id ||
@@ -59,18 +74,11 @@ const extractSanjuskMessageId = (data) =>
  * interactive menu that fails to send dead-ends the whole flow, so keeping it
  * delivered is the safer trade. The fallback is logged, not silent.
  */
-const sendInteractiveViaSanjuskOrMeta = async ({ sanjuskArgs, metaPayload, metaFallbackMessage }) => {
-  if (await useSanjuskRoute()) {
-    try {
-      return await sanjusk.sendInteractive({ ...sanjuskArgs, requireEnabled: false });
-    } catch (err) {
-      logger.warn(
-        { err: err?.message },
-        '[whatsapp] SanjuSK interactive send failed — falling back to Meta',
-      );
-    }
-  }
-  return callWhatsAppMessagesApi(metaPayload, { fallbackMessage: metaFallbackMessage });
+const sendInteractiveViaSanjuskOrMeta = async ({ sanjuskArgs }) => {
+  // SanjuSK-only: interactive buttons/lists are sent through meta.sanjusk.in,
+  // with no Meta fallback (the metaPayload callers still build is ignored).
+  await ensureSanjuskConfigured();
+  return sanjusk.sendInteractive({ ...sanjuskArgs, requireEnabled: false });
 };
 
 const {
@@ -481,19 +489,8 @@ const dispatchTextMessage = async ({ to, body }) => {
   const normalizedTo = normalizePhone(to);
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
 
-  const viaSanjusk = await useSanjuskRoute();
-
-  const data = viaSanjusk
-    ? await sanjusk.sendText({ phone: normalizedTo, text: body, requireEnabled: false })
-    : await callWhatsAppMessagesApi(
-        {
-          messaging_product: 'whatsapp',
-          to: normalizedTo,
-          type: 'text',
-          text: { body },
-        },
-        { fallbackMessage: 'Failed to send WhatsApp text message' }
-      );
+  await ensureSanjuskConfigured();
+  const data = await sanjusk.sendText({ phone: normalizedTo, text: body, requireEnabled: false });
 
   const metaMessageId = extractSanjuskMessageId(data);
 
@@ -524,30 +521,8 @@ const dispatchMediaMessage = async ({ to, type, link, caption = '', filename = '
     throw new AppError('Unsupported media type for sending', 400);
   }
 
-  const mediaNode = { link };
-
-  if (caption && (type === 'image' || type === 'video' || type === 'document')) {
-    mediaNode.caption = caption;
-  }
-
-  if (filename && type === 'document') {
-    mediaNode.filename = filename;
-  }
-
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: normalizedTo,
-    type,
-    [type]: mediaNode,
-  };
-
-  const viaSanjusk = await useSanjuskRoute();
-
-  const data = viaSanjusk
-    ? await sanjusk.sendMedia({ phone: normalizedTo, type, link, caption, filename, requireEnabled: false })
-    : await callWhatsAppMessagesApi(payload, {
-        fallbackMessage: 'Failed to send WhatsApp media message',
-      });
+  await ensureSanjuskConfigured();
+  const data = await sanjusk.sendMedia({ phone: normalizedTo, type, link, caption, filename, requireEnabled: false });
 
   const metaMessageId = extractSanjuskMessageId(data);
 
@@ -576,29 +551,14 @@ const dispatchTemplateMessage = async ({ to, templateName, language = 'en_US', C
   const normalizedTo = normalizePhone(to);
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
 
-  const viaSanjusk = await useSanjuskRoute();
-
-  const data = viaSanjusk
-    ? await sanjusk.sendTemplate({
-        phone: normalizedTo,
-        template: templateName,
-        language,
-        components: Components,
-        requireEnabled: false,
-      })
-    : await callWhatsAppMessagesApi(
-        {
-          messaging_product: 'whatsapp',
-          to: normalizedTo,
-          type: 'template',
-          template: {
-            name: templateName,
-            language: { code: language },
-            Components,
-          },
-        },
-        { fallbackMessage: 'Failed to send WhatsApp template message' }
-      );
+  await ensureSanjuskConfigured();
+  const data = await sanjusk.sendTemplate({
+    phone: normalizedTo,
+    template: templateName,
+    language,
+    components: Components,
+    requireEnabled: false,
+  });
 
   const metaMessageId = extractSanjuskMessageId(data);
 
@@ -633,67 +593,11 @@ const dispatchFlowMessage = async ({
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
   if (!flowId) throw new AppError('flowId is required', 400);
 
-  const payload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: normalizedTo,
-    type: 'interactive',
-    interactive: {
-      type: 'flow',
-      header: {
-        type: 'text',
-        text: 'Form',
-      },
-      body: {
-        text: 'Please fill this form.',
-      },
-      action: {
-        name: 'flow',
-        parameters: {
-          mode,
-          flow_message_version: '3',
-          flow_id: String(flowId),
-          flow_cta: String(flowCta || 'Open Form').slice(0, 20),
-          ...(flowToken ? { flow_token: String(flowToken) } : {}),
-          ...(screen
-            ? {
-                flow_action: 'navigate',
-                flow_action_payload: {
-                  screen,
-                  ...(data && Object.keys(data).length ? { data } : {}),
-                },
-              }
-            : {}),
-        },
-      },
-    },
-  };
-
-  const response = await callWhatsAppMessagesApi(payload, {
-    fallbackMessage: 'Failed to send WhatsApp flow message',
-  });
-
-  const metaMessageId = response?.messages?.[0]?.id || '';
-
-  await saveAndEmitMessage({
-    fromMe: true,
-    from: WHATSAPP_PHONE_NUMBER_ID || '',
-    to: normalizedTo,
-    message: `Flow: ${flowCta}`,
-    body: `Flow: ${flowCta}`,
-    timestamp: new Date(),
-    status: 'sent',
-    direction: 'outgoing',
-    type: 'flow',
-    text: `Flow: ${flowCta}`,
-    time: new Date(),
-    messageId: metaMessageId,
-    flowId: String(flowId),
-    flowToken: flowToken || '',
-    interactiveType: 'flow',
-  });
-
-  return response;
+  // WhatsApp Flow messages were the one feature that required Meta's Graph API
+  // directly — SanjuSK (meta.sanjusk.in) exposes no Flow endpoint. Now that all
+  // traffic runs through SanjuSK and the Meta credentials are gone, Flow
+  // sending is no longer available. Fail clearly instead of reaching for Meta.
+  throw new AppError('WhatsApp Flow messages are not supported on the SanjuSK provider.', 400);
 };
 
 // Native WhatsApp reply-button message (up to 3 tappable buttons). Nothing

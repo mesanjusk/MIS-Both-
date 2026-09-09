@@ -31,6 +31,23 @@ const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
 const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
+const sanjusk = require('../services/sanjuskApiService');
+
+/**
+ * Every outbound message — automation and manual alike — is sent through the
+ * one SanjuSK account the Home → Inbox uses, as long as a key is saved under
+ * Admin → API. Only when no key is configured does sending fall back to the
+ * direct-Meta credentials in the server environment. This keeps a single
+ * sending identity across the whole product instead of two accounts.
+ */
+const useSanjuskRoute = () => sanjusk.isConfigured();
+
+const extractSanjuskMessageId = (data) =>
+  data?.messages?.[0]?.id ||
+  data?.data?.messages?.[0]?.id ||
+  data?.messageId ||
+  data?.id ||
+  '';
 
 const {
   WHATSAPP_ACCESS_TOKEN,
@@ -440,17 +457,21 @@ const dispatchTextMessage = async ({ to, body }) => {
   const normalizedTo = normalizePhone(to);
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
 
-  const data = await callWhatsAppMessagesApi(
-    {
-      messaging_product: 'whatsapp',
-      to: normalizedTo,
-      type: 'text',
-      text: { body },
-    },
-    { fallbackMessage: 'Failed to send WhatsApp text message' }
-  );
+  const viaSanjusk = await useSanjuskRoute();
 
-  const metaMessageId = data?.messages?.[0]?.id || '';
+  const data = viaSanjusk
+    ? await sanjusk.sendText({ phone: normalizedTo, text: body, requireEnabled: false })
+    : await callWhatsAppMessagesApi(
+        {
+          messaging_product: 'whatsapp',
+          to: normalizedTo,
+          type: 'text',
+          text: { body },
+        },
+        { fallbackMessage: 'Failed to send WhatsApp text message' }
+      );
+
+  const metaMessageId = extractSanjuskMessageId(data);
 
   await saveAndEmitMessage({
     fromMe: true,
@@ -496,11 +517,15 @@ const dispatchMediaMessage = async ({ to, type, link, caption = '', filename = '
     [type]: mediaNode,
   };
 
-  const data = await callWhatsAppMessagesApi(payload, {
-    fallbackMessage: 'Failed to send WhatsApp media message',
-  });
+  const viaSanjusk = await useSanjuskRoute();
 
-  const metaMessageId = data?.messages?.[0]?.id || '';
+  const data = viaSanjusk
+    ? await sanjusk.sendMedia({ phone: normalizedTo, type, link, caption, filename, requireEnabled: false })
+    : await callWhatsAppMessagesApi(payload, {
+        fallbackMessage: 'Failed to send WhatsApp media message',
+      });
+
+  const metaMessageId = extractSanjuskMessageId(data);
 
   await saveAndEmitMessage({
     fromMe: true,
@@ -527,21 +552,31 @@ const dispatchTemplateMessage = async ({ to, templateName, language = 'en_US', C
   const normalizedTo = normalizePhone(to);
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
 
-  const data = await callWhatsAppMessagesApi(
-    {
-      messaging_product: 'whatsapp',
-      to: normalizedTo,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: language },
-        Components,
-      },
-    },
-    { fallbackMessage: 'Failed to send WhatsApp template message' }
-  );
+  const viaSanjusk = await useSanjuskRoute();
 
-  const metaMessageId = data?.messages?.[0]?.id || '';
+  const data = viaSanjusk
+    ? await sanjusk.sendTemplate({
+        phone: normalizedTo,
+        template: templateName,
+        language,
+        components: Components,
+        requireEnabled: false,
+      })
+    : await callWhatsAppMessagesApi(
+        {
+          messaging_product: 'whatsapp',
+          to: normalizedTo,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: language },
+            Components,
+          },
+        },
+        { fallbackMessage: 'Failed to send WhatsApp template message' }
+      );
+
+  const metaMessageId = extractSanjuskMessageId(data);
 
   await saveAndEmitMessage({
     fromMe: true,

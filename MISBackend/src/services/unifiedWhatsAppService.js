@@ -28,8 +28,11 @@ const norm = (v) => String(v || '').replace(/\D/g, '');
 async function sendWhatsAppText({ to, body }) {
   const toClean = norm(to);
 
-  if (await sanjusk.isEnabled()) {
-    const result = await sanjusk.sendText({ phone: toClean, text: body });
+  // All outbound — automation included — goes through the one SanjuSK account
+  // the Home → Inbox uses, as long as a key is saved. requireEnabled:false so
+  // a saved key is enough; only removing the key falls back to direct Meta.
+  if (await sanjusk.isConfigured()) {
+    const result = await sanjusk.sendText({ phone: toClean, text: body, requireEnabled: false });
     logger.info({ to: toClean, provider: 'sanjusk' }, '[whatsapp] text sent');
     return result;
   }

@@ -232,10 +232,23 @@ const listMessages = ({ since, direction, phone, limit = 25, requireEnabled = tr
   return request({ method: 'get', path: `/messages${query ? `?${query}` : ''}`, requireEnabled });
 };
 
-/** True when sending should go through SanjuSK rather than direct to Meta. */
+/** True when the "Send through SanjuSK" toggle is on AND a key is saved. */
 const isEnabled = async () => {
   const config = await loadRawConfig();
   return Boolean(config.enabled && config.apiKeyEncrypted);
+};
+
+/**
+ * True when a SanjuSK API key is saved, regardless of the enabled toggle.
+ *
+ * This is what routes ALL outbound — automation included — through the one
+ * SanjuSK account the Home → Inbox already uses, instead of the direct-Meta
+ * credentials in the server environment. Sending uses requireEnabled:false so
+ * a saved key is enough; only removing the key falls back to Meta.
+ */
+const isConfigured = async () => {
+  const config = await loadRawConfig();
+  return Boolean(config.apiKeyEncrypted);
 };
 
 module.exports = {
@@ -251,4 +264,5 @@ module.exports = {
   sendTemplate,
   sendMedia,
   isEnabled,
+  isConfigured,
 };

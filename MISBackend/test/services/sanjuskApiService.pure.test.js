@@ -100,4 +100,20 @@ describe('sanjuskApiService configuration', () => {
     await sanjusk.saveConfig({ apiKey: 'mbsp_x', enabled: false });
     expect(await sanjusk.isEnabled()).toBe(false);
   });
+
+  it('reports configured whenever a key is saved, even with the switch off', async () => {
+    // isConfigured is what routes all outbound (automation included) through
+    // SanjuSK, independent of the enable toggle — a saved key is enough.
+    await sanjusk.saveConfig({ apiKey: 'mbsp_x', enabled: false });
+    expect(await sanjusk.isConfigured()).toBe(true);
+    expect(await sanjusk.isEnabled()).toBe(false);
+  });
+
+  it('reports not configured once the key is removed', async () => {
+    await sanjusk.saveConfig({ apiKey: 'mbsp_x', enabled: true });
+    expect(await sanjusk.isConfigured()).toBe(true);
+
+    await sanjusk.clearApiKey({});
+    expect(await sanjusk.isConfigured()).toBe(false);
+  });
 });

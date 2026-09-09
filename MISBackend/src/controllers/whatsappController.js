@@ -1908,22 +1908,52 @@ const metabspWebhookReceive = async (req, res) => {
 
   setImmediate(async () => {
     try {
-      if (body.direction !== 'incoming' || body.fromMe === true) {
+      // SanjuSK does not send a `direction` field — its inbound webhook carries
+      // `event`/`source` instead. So treat a delivery as incoming UNLESS it is
+      // explicitly an outbound echo or a status/ack event. (Meta-style payloads
+      // that do set direction:'outgoing'/fromMe still get skipped here.)
+      const eventName = String(body.event || '').toLowerCase();
+      const isOutbound =
+        body.fromMe === true ||
+        body.direction === 'outgoing' ||
+        /sent|deliver|read|status|ack|receipt/.test(eventName);
+      if (isOutbound) {
         return;
       }
 
       const from = String(body.from || '').replace(/\D/g, '');
-      const text = String(body.message || body.text || body.caption || '');
+      // For media messages some providers (SanjuSK) put the hosted media URL in
+      // `message` rather than a dedicated media field, so keep the raw value to
+      // reuse as the media URL below.
+      const rawMessage = String(body.message || body.text || body.caption || '');
+      const messageIsUrl = /^https?:\/\/\S+$/i.test(rawMessage.trim());
+      const text = rawMessage;
+
+      logger.info(
+        {
+          event: body.event || '',
+          source: body.source || '',
+          type: body.type || '',
+          messageIsUrl,
+          messageSample: messageIsUrl ? rawMessage.trim().slice(0, 120) : '[non-url text]',
+        },
+        '[whatsapp] metabsp inbound accepted'
+      );
 
       // SanjuSK hosts media itself and delivers a URL; Meta-style deliveries
       // carry a mediaId instead. Accept whichever shape arrives, checking the
       // field names providers commonly use.
+      const isMediaType = ['image', 'video', 'audio', 'document', 'sticker'].includes(
+        String(body.type || '').toLowerCase()
+      );
       const mediaUrl = String(
         body.mediaUrl || body.media_url || body.url || body.link ||
         body.media?.url || body.media?.link ||
         body.image?.url || body.image?.link ||
         body.document?.url || body.document?.link ||
-        body.file?.url || body.file?.link || ''
+        body.file?.url || body.file?.link ||
+        // SanjuSK: the hosted media URL arrives as the `message` value itself.
+        ((isMediaType && messageIsUrl) ? rawMessage.trim() : '') || ''
       );
       const mediaId = String(body.mediaId || body.media_id || body.media?.id || '');
       const mimeType = String(

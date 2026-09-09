@@ -1,4 +1,3 @@
-const { sendMessage } = require('./metaApiService');
 const sanjusk = require('./sanjuskApiService');
 const logger = require('../utils/logger');
 
@@ -29,30 +28,19 @@ async function sendWhatsAppText({ to, body }) {
   const toClean = norm(to);
 
   // All outbound — automation included — goes through the one SanjuSK account
-  // the Home → Inbox uses, as long as a key is saved. requireEnabled:false so
-  // a saved key is enough; only removing the key falls back to direct Meta.
-  if (await sanjusk.isConfigured()) {
-    const result = await sanjusk.sendText({ phone: toClean, text: body, requireEnabled: false });
-    logger.info({ to: toClean, provider: 'sanjusk' }, '[whatsapp] text sent');
-    return result;
+  // (meta.sanjusk.in) the Home → Inbox uses. Direct Meta sending has been
+  // retired: there is no fallback, so a missing SanjuSK key is a hard error
+  // rather than a silent switch to a second provider. The Meta WhatsApp
+  // credentials are no longer used.
+  if (!(await sanjusk.isConfigured())) {
+    throw new Error(
+      'WhatsApp sending is not configured: save a SanjuSK API key under Admin → API.'
+    );
   }
 
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
-  const accessToken   = process.env.WHATSAPP_ACCESS_TOKEN   || process.env.META_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
-    throw new Error('WhatsApp env credentials missing (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN)');
-  }
-  return sendMessage({
-    phoneNumberId,
-    accessToken,
-    payload: {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: toClean,
-      type: 'text',
-      text: { preview_url: false, body },
-    },
-  });
+  const result = await sanjusk.sendText({ phone: toClean, text: body, requireEnabled: false });
+  logger.info({ to: toClean, provider: 'sanjusk' }, '[whatsapp] text sent');
+  return result;
 }
 
 module.exports = { sendWhatsAppText };

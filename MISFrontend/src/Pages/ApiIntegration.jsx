@@ -184,6 +184,27 @@ export default function ApiIntegration() {
     }
   };
 
+  // Dedicated save for the inbound webhook secret so it does not depend on the
+  // Sending-panel Save button (which confused the two panels).
+  const handleSaveWebhookSecret = async () => {
+    if (!webhookSecret.trim()) {
+      setMessage({ severity: 'warning', text: 'Enter the webhook signing secret first.' });
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await saveSanjuskConfig({ webhookSecret: webhookSecret.trim() });
+      setConfig((prev) => ({ ...(prev || {}), ...(res.data?.result || {}) }));
+      setWebhookSecret('');
+      setMessage({ severity: 'success', text: 'Webhook secret saved.' });
+    } catch (err) {
+      setMessage({ severity: 'error', text: err?.response?.data?.message || 'Could not save the webhook secret.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleTest = async () => {
     setTesting(true);
     setConnection(null);
@@ -420,8 +441,17 @@ export default function ApiIntegration() {
                     ? 'A secret is saved — leave blank to keep it'
                     : 'Paste the secret shown for this destination in SanjuSK'
                 }
-                helperText="Copy the signing secret SanjuSK shows for this webhook destination. Saved here (encrypted) — no server env var or restart needed. Click Save above to apply."
+                helperText="Copy the signing secret SanjuSK shows for this webhook destination. Saved here (encrypted) — no server env var or restart needed."
               />
+
+              <Button
+                variant="contained"
+                onClick={handleSaveWebhookSecret}
+                disabled={saving || !webhookSecret.trim()}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                Save webhook secret
+              </Button>
 
               {config?.inboundSecretConfigured ? (
                 <Alert severity="success">

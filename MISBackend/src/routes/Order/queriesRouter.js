@@ -194,7 +194,13 @@ router.get("/GetDeliveredList", async (_req, res) => {
 
 router.get("/GetBillList", async (_req, res) => {
   try {
-    const rows = await Orders.aggregate([...latestStatusProjectionStages, { $match: { latestTaskLower: "delivered", hasBillable: true } }]);
+    const rows = await Orders.aggregate([
+      ...latestStatusProjectionStages,
+      // Count any order that was ever delivered (not only those whose latest
+      // status is still "delivered"), matching the Bills tab paged endpoint.
+      { $addFields: { wasDelivered: { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $eq: [{ $toLower: { $trim: { input: { $ifNull: ["$$s.Task", ""] } } } }, "delivered"] } } } } } },
+      { $match: { wasDelivered: true, hasBillable: true } },
+    ]);
     res.json({ success: true, result: rows });
   } catch (err) {
     logger.error("GetBillList error:", err);
@@ -213,8 +219,13 @@ router.get("/GetBillListPaged", async (req, res) => {
     const amountToDouble = (path) => ({ $convert: { input: { $replaceAll: { input: { $replaceAll: { input: { $replaceAll: { input: { $toString: { $ifNull: [path, "0"] } }, find: "₹", replacement: "" } }, find: ",", replacement: "" } }, find: " ", replacement: "" } }, to: "double", onError: 0, onNull: 0 } });
     const pipeline = [
       { $addFields: { latestStatus: { $cond: [{ $gt: [{ $size: { $ifNull: ["$Status", []] } }, 0] }, { $arrayElemAt: ["$Status", { $subtract: [{ $size: "$Status" }, 1] }] }, null] } } },
-      { $addFields: { latestTaskLower: { $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } } }, billStatusLower: { $toLower: { $trim: { input: { $ifNull: ["$billStatus", ""] } } } }, hasBillable: { $anyElementTrue: { $map: { input: { $ifNull: ["$Items", []] }, as: "it", in: { $gt: [amountToDouble("$$it.Amount"), 0] } } } } } },
-      { $match: { latestTaskLower: "delivered", hasBillable: true } },
+      // A bill exists for any order that was EVER delivered (a "Delivered" entry
+      // anywhere in its Status history), not only orders whose *latest* status is
+      // still "delivered". Orders that got another status pushed after delivery
+      // are still delivered/billed and must stay on the Bills tab — matching the
+      // "ever delivered" definition used by /all-data and GetDeliveredList.
+      { $addFields: { latestTaskLower: { $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } } }, billStatusLower: { $toLower: { $trim: { input: { $ifNull: ["$billStatus", ""] } } } }, wasDelivered: { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $eq: [{ $toLower: { $trim: { input: { $ifNull: ["$$s.Task", ""] } } } }, "delivered"] } } } }, hasBillable: { $anyElementTrue: { $map: { input: { $ifNull: ["$Items", []] }, as: "it", in: { $gt: [amountToDouble("$$it.Amount"), 0] } } } } } },
+      { $match: { wasDelivered: true, hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: [{ Customer_uuid: rx }, { "Items.Remark": rx }, ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : [])] } }] : []),
       { $sort: { Order_Number: -1 } },

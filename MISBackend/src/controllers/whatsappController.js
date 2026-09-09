@@ -1912,12 +1912,16 @@ const metabspWebhookReceive = async (req, res) => {
       // `event`/`source` instead. So treat a delivery as incoming UNLESS it is
       // explicitly an outbound echo or a status/ack event. (Meta-style payloads
       // that do set direction:'outgoing'/fromMe still get skipped here.)
+      // "message.echo" events (WhatsApp Coexistence) are copies of messages the
+      // business itself sent from the WhatsApp app on the phone — not customer
+      // inbounds — so they must never be saved as incoming or trigger a receipt.
       const eventName = String(body.event || '').toLowerCase();
       const isOutbound =
         body.fromMe === true ||
         body.direction === 'outgoing' ||
-        /sent|deliver|read|status|ack|receipt/.test(eventName);
+        /sent|deliver|read|status|ack|receipt|echo/.test(eventName);
       if (isOutbound) {
+        logger.info({ event: body.event || '', source: body.source || '' }, '[whatsapp] metabsp skipped non-inbound event');
         return;
       }
 

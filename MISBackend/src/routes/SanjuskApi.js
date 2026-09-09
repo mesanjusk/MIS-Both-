@@ -32,9 +32,14 @@ router.get(
         // instance. Derived rather than typed, so it cannot drift from the
         // route that actually serves it.
         inboundWebhookPath: '/webhook/metabsp',
-        // The secret is an env var on this server, not stored config — the
-        // screen can say whether it is set without ever revealing it.
-        inboundSecretConfigured: Boolean(process.env.METABSP_WEBHOOK_SECRET),
+        // The inbound signing secret can now be saved from this screen (stored
+        // encrypted in the DB); it still falls back to the METABSP_WEBHOOK_SECRET
+        // env var. Report configured if either source has it, without ever
+        // revealing the value.
+        inboundSecretConfigured: Boolean(config.hasWebhookSecret) || Boolean(process.env.METABSP_WEBHOOK_SECRET),
+        inboundSecretSource: config.hasWebhookSecret
+          ? 'dashboard'
+          : (process.env.METABSP_WEBHOOK_SECRET ? 'env' : 'none'),
       },
     });
   })
@@ -43,10 +48,11 @@ router.get(
 router.put(
   '/config',
   asyncHandler(async (req, res) => {
-    const { baseUrl, apiKey, enabled } = req.body || {};
+    const { baseUrl, apiKey, webhookSecret, enabled } = req.body || {};
     const result = await sanjusk.saveConfig({
       baseUrl,
       apiKey,
+      webhookSecret,
       enabled,
       updatedBy: req.user?.userName || req.user?.id || '',
     });
@@ -58,6 +64,14 @@ router.delete(
   '/config/key',
   asyncHandler(async (req, res) => {
     const result = await sanjusk.clearApiKey({ updatedBy: req.user?.userName || req.user?.id || '' });
+    res.json({ success: true, result });
+  })
+);
+
+router.delete(
+  '/config/webhook-secret',
+  asyncHandler(async (req, res) => {
+    const result = await sanjusk.clearWebhookSecret({ updatedBy: req.user?.userName || req.user?.id || '' });
     res.json({ success: true, result });
   })
 );

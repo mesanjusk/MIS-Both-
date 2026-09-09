@@ -116,6 +116,7 @@ export default function ApiIntegration() {
   const [loading, setLoading] = useState(true);
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
@@ -165,13 +166,16 @@ export default function ApiIntegration() {
     try {
       const res = await saveSanjuskConfig({
         baseUrl,
-        // Blank means "leave the stored key alone" — the server treats it the
-        // same way, so editing the URL never wipes the credential.
+        // Blank means "leave the stored value alone" — the server treats both
+        // the API key and the webhook secret that way, so editing one field
+        // never wipes the others.
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
         enabled,
       });
       setConfig((prev) => ({ ...(prev || {}), ...(res.data?.result || {}) }));
       setApiKey('');
+      setWebhookSecret('');
       setMessage({ severity: 'success', text: 'Saved.' });
     } catch (err) {
       setMessage({ severity: 'error', text: err?.response?.data?.message || 'Could not save.' });
@@ -405,18 +409,33 @@ export default function ApiIntegration() {
                 helper="Replace the host with this MIS backend's public address, then add it in SanjuSK under Developers → Webhook destinations."
               />
 
+              <TextField
+                fullWidth
+                type="password"
+                label={config?.hasWebhookSecret ? 'Replace webhook signing secret' : 'Webhook signing secret'}
+                value={webhookSecret}
+                onChange={(e) => setWebhookSecret(e.target.value)}
+                placeholder={
+                  config?.hasWebhookSecret
+                    ? 'A secret is saved — leave blank to keep it'
+                    : 'Paste the secret shown for this destination in SanjuSK'
+                }
+                helperText="Copy the signing secret SanjuSK shows for this webhook destination. Saved here (encrypted) — no server env var or restart needed. Click Save above to apply."
+              />
+
               {config?.inboundSecretConfigured ? (
                 <Alert severity="success">
-                  <code>METABSP_WEBHOOK_SECRET</code> is set on this server. MIS verifies the{' '}
-                  <code>X-Metabsp-Signature-256</code> header on every delivery and rejects anything
-                  that does not match.
+                  A webhook signing secret is configured
+                  {config?.inboundSecretSource === 'env' ? ' (from the server env var)' : ' (saved from this screen)'}.
+                  MIS verifies the <code>X-Metabsp-Signature-256</code> header on every delivery and
+                  rejects anything that does not match.
                 </Alert>
               ) : (
                 <Alert severity="warning">
                   <AlertTitle>Inbound is not active</AlertTitle>
-                  <code>METABSP_WEBHOOK_SECRET</code> is not set on this server, so every delivery is
-                  rejected with 403. Copy the signing secret shown against the destination in
-                  SanjuSK into that environment variable and restart.
+                  No webhook signing secret is set, so every delivery is rejected with 403. Paste the
+                  signing secret shown against the destination in SanjuSK into the field above and
+                  click Save.
                 </Alert>
               )}
 

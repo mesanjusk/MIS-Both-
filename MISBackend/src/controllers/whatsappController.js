@@ -49,6 +49,29 @@ const extractSanjuskMessageId = (data) =>
   data?.id ||
   '';
 
+/**
+ * Send an interactive message (buttons or list) through SanjuSK when a key is
+ * configured, but never let the attendance bot go dark: if the SanjuSK
+ * interactive call fails (e.g. the endpoint is not available), fall back to
+ * sending it via Meta so the menu still reaches the employee. Unlike plain
+ * text — where a silent provider switch would hide delivery problems — an
+ * interactive menu that fails to send dead-ends the whole flow, so keeping it
+ * delivered is the safer trade. The fallback is logged, not silent.
+ */
+const sendInteractiveViaSanjuskOrMeta = async ({ sanjuskArgs, metaPayload, metaFallbackMessage }) => {
+  if (await useSanjuskRoute()) {
+    try {
+      return await sanjusk.sendInteractive({ ...sanjuskArgs, requireEnabled: false });
+    } catch (err) {
+      logger.warn(
+        { err: err?.message },
+        '[whatsapp] SanjuSK interactive send failed — falling back to Meta',
+      );
+    }
+  }
+  return callWhatsAppMessagesApi(metaPayload, { fallbackMessage: metaFallbackMessage });
+};
+
 const {
   WHATSAPP_ACCESS_TOKEN,
   WHATSAPP_PHONE_NUMBER_ID,
@@ -697,22 +720,19 @@ const dispatchInteractiveButtons = async ({ to, bodyText, buttons = [] }) => {
     },
   };
 
-  const viaSanjusk = await useSanjuskRoute();
-
-  const response = viaSanjusk
-    ? await sanjusk.sendInteractive({
-        phone: normalizedTo,
-        type: 'button',
-        body: String(bodyText || '').slice(0, 1024),
-        buttons: buttons.slice(0, 3).map((btn) => ({
-          id: String(btn.id).slice(0, 256),
-          title: String(btn.title).slice(0, 20),
-        })),
-        requireEnabled: false,
-      })
-    : await callWhatsAppMessagesApi(payload, {
-        fallbackMessage: 'Failed to send WhatsApp button message',
-      });
+  const response = await sendInteractiveViaSanjuskOrMeta({
+    sanjuskArgs: {
+      phone: normalizedTo,
+      type: 'button',
+      body: String(bodyText || '').slice(0, 1024),
+      buttons: buttons.slice(0, 3).map((btn) => ({
+        id: String(btn.id).slice(0, 256),
+        title: String(btn.title).slice(0, 20),
+      })),
+    },
+    metaPayload: payload,
+    metaFallbackMessage: 'Failed to send WhatsApp button message',
+  });
 
   const metaMessageId = extractSanjuskMessageId(response);
   await saveAndEmitMessage({
@@ -763,27 +783,24 @@ const dispatchInteractiveList = async ({ to, bodyText, buttonLabel = 'View', sec
     },
   };
 
-  const viaSanjusk = await useSanjuskRoute();
-
-  const response = viaSanjusk
-    ? await sanjusk.sendInteractive({
-        phone: normalizedTo,
-        type: 'list',
-        body: String(bodyText || '').slice(0, 1024),
-        buttonLabel: String(buttonLabel).slice(0, 20),
-        sections: sections.map((section) => ({
-          title: String(section.title || '').slice(0, 24),
-          rows: (section.rows || []).slice(0, 10).map((row) => ({
-            id: String(row.id).slice(0, 200),
-            title: String(row.title).slice(0, 24),
-            ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
-          })),
+  const response = await sendInteractiveViaSanjuskOrMeta({
+    sanjuskArgs: {
+      phone: normalizedTo,
+      type: 'list',
+      body: String(bodyText || '').slice(0, 1024),
+      buttonLabel: String(buttonLabel).slice(0, 20),
+      sections: sections.map((section) => ({
+        title: String(section.title || '').slice(0, 24),
+        rows: (section.rows || []).slice(0, 10).map((row) => ({
+          id: String(row.id).slice(0, 200),
+          title: String(row.title).slice(0, 24),
+          ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
         })),
-        requireEnabled: false,
-      })
-    : await callWhatsAppMessagesApi(payload, {
-        fallbackMessage: 'Failed to send WhatsApp list message',
-      });
+      })),
+    },
+    metaPayload: payload,
+    metaFallbackMessage: 'Failed to send WhatsApp list message',
+  });
 
   const metaMessageId = extractSanjuskMessageId(response);
   await saveAndEmitMessage({

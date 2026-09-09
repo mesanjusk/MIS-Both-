@@ -1818,28 +1818,57 @@ const processIncomingWhatsAppPayload = async (payload) => {
 
     const { message: savedMessage, isDuplicate } = await saveAndEmitMessage(payload);
 
-    if (!isDuplicate && payload.mediaId) {
+    if (!isDuplicate && (payload.mediaId || payload.mediaUrl)) {
       setImmediate(() => {
-        processIncomingMediaMessage({
-          messageRecordId: savedMessage._id,
-          mediaId: payload.mediaId,
-        })
-          .then((uploaded) => {
-            // A payment screenshot (an image) earns the customer an automatic
-            // provisional receipt. The receipt service re-checks that it is a
-            // real payment screenshot and that the sender matches a customer,
-            // so non-payment images and unknown numbers fall through silently.
-            if (!uploaded?.mediaUrl) return undefined;
-            return handleIncomingScreenshotReceipt({
+        (async () => {
+          // Resolve a usable image URL from either delivery shape:
+          //   - Meta (mediaId): download via the Graph API and mirror to Cloudinary.
+          //   - SanjuSK (mediaUrl): the provider already hosts the file, so the
+          //     URL is usable as-is; just persist it on the saved message so the
+          //     inbox renders it — no re-upload.
+          let mediaUrl = payload.mediaUrl || '';
+          let mimeType = payload.mimeType || '';
+
+          if (payload.mediaId) {
+            const uploaded = await processIncomingMediaMessage({
+              messageRecordId: savedMessage._id,
+              mediaId: payload.mediaId,
+            });
+            if (uploaded?.mediaUrl) {
+              mediaUrl = uploaded.mediaUrl;
+              mimeType = uploaded.mimeType || mimeType;
+            }
+          } else if (payload.mediaUrl) {
+            const updated = await Message.findByIdAndUpdate(
+              savedMessage._id,
+              {
+                $set: {
+                  mediaUrl: payload.mediaUrl,
+                  mimeType: payload.mimeType || '',
+                  message: payload.mediaUrl,
+                  body: payload.mediaUrl,
+                },
+              },
+              { new: true }
+            ).lean();
+            if (updated) emitNewMessage(updated);
+          }
+
+          // A payment screenshot (an image) earns the customer an automatic
+          // provisional receipt. The receipt service re-checks that it is a
+          // real payment screenshot and that the sender matches a customer,
+          // so non-payment images and unknown numbers fall through silently.
+          if (mediaUrl) {
+            await handleIncomingScreenshotReceipt({
               payload,
-              mediaUrl: uploaded.mediaUrl,
-              mimeType: uploaded.mimeType || payload.mimeType || '',
+              mediaUrl,
+              mimeType: mimeType || payload.mimeType || '',
               sendText: dispatchTextMessage,
             });
-          })
-          .catch((receiptError) => {
-            logger.error('[whatsapp] Screenshot receipt generation failed:', receiptError?.message || receiptError);
-          });
+          }
+        })().catch((receiptError) => {
+          logger.error('[whatsapp] Screenshot receipt generation failed:', receiptError?.message || receiptError);
+        });
       });
     }
 
@@ -1927,7 +1956,36 @@ const processIncomingWhatsAppPayload = async (payload) => {
 };
 
 const metabspWebhookReceive = (req, res) => {
+  const body = req.body || {};
+
+  // Observe every inbound hit *before* the signature gate, so a delivery that
+  // is rejected or shaped unexpectedly is still diagnosable from the logs.
+  // Only key *names* and non-sensitive scalars are logged here — never message
+  // contents, phone numbers, or the signing secret.
+  logger.info(
+    {
+      secretConfigured: Boolean(process.env.METABSP_WEBHOOK_SECRET),
+      hasSignatureHeader: Boolean(req.headers['x-metabsp-signature-256']),
+      direction: body.direction || '',
+      type: body.type || '',
+      bodyKeys: Object.keys(body).slice(0, 40),
+      mediaLikeKeys: Object.keys(body).filter((key) =>
+        /media|image|file|url|link|attach|document|photo/i.test(key)
+      ),
+    },
+    '[whatsapp] metabsp webhook received'
+  );
+
   if (!verifyMetabspSignature(req)) {
+    // The 403 path used to be silent, which made "inbound never arrives" and
+    // "inbound arrives but is rejected" impossible to tell apart. Say which.
+    logger.warn(
+      {
+        reason: process.env.METABSP_WEBHOOK_SECRET ? 'signature_mismatch' : 'secret_not_configured',
+        hasSignatureHeader: Boolean(req.headers['x-metabsp-signature-256']),
+      },
+      '[whatsapp] metabsp webhook rejected (signature)'
+    );
     return res.status(403).json({ message: 'Invalid signature' });
   }
 
@@ -1935,14 +1993,37 @@ const metabspWebhookReceive = (req, res) => {
 
   setImmediate(async () => {
     try {
-      const body = req.body || {};
-
       if (body.direction !== 'incoming' || body.fromMe === true) {
         return;
       }
 
       const from = String(body.from || '').replace(/\D/g, '');
-      const text = String(body.message || body.text || '');
+      const text = String(body.message || body.text || body.caption || '');
+
+      // SanjuSK hosts media itself and delivers a URL; Meta-style deliveries
+      // carry a mediaId instead. Accept whichever shape arrives, checking the
+      // field names providers commonly use.
+      const mediaUrl = String(
+        body.mediaUrl || body.media_url || body.url || body.link ||
+        body.media?.url || body.media?.link ||
+        body.image?.url || body.image?.link ||
+        body.document?.url || body.document?.link ||
+        body.file?.url || body.file?.link || ''
+      );
+      const mediaId = String(body.mediaId || body.media_id || body.media?.id || '');
+      const mimeType = String(
+        body.mimeType || body.mime_type || body.media?.mime_type ||
+        body.image?.mime_type || body.document?.mime_type || ''
+      );
+      const caption = String(body.caption || body.media?.caption || body.image?.caption || '');
+      const filename = String(body.filename || body.document?.filename || body.file?.filename || '');
+
+      // If the provider sent media but didn't label the message type, infer it
+      // so the receipt path still recognises an image.
+      const looksLikeImage = /(^image\/)|\.(jpe?g|png|webp|gif|heic)(\?|$)/i.test(mimeType || mediaUrl);
+      const inferredType =
+        body.type || ((mediaUrl || mediaId) ? (looksLikeImage ? 'image' : 'document') : 'text');
+
       const payload = {
         fromMe: false,
         from,
@@ -1955,12 +2036,12 @@ const metabspWebhookReceive = (req, res) => {
         status: 'received',
         direction: 'incoming',
         messageId: body.messageId || '',
-        type: body.type || 'text',
-        mediaId: body.mediaId || '',
-        caption: '',
-        filename: '',
-        mimeType: '',
-        mediaUrl: '',
+        type: inferredType,
+        mediaId,
+        caption,
+        filename,
+        mimeType,
+        mediaUrl,
         interactiveType: body.type === 'interactive' ? 'button_reply' : '',
         replyId: body.interactiveId || '',
         replyTitle: '',

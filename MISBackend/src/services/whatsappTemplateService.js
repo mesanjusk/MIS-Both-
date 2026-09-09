@@ -134,6 +134,14 @@ const DEFAULT_TEMPLATES = [
 
   // ── Payment follow-up ────────────────────────────────────────────────────
   tpl('followup.overdue_reminder', 'Payment Follow-up', 'Overdue payment reminder', 'Dear {{customerName}},\n\nThis is a payment reminder for {{amount}} pending against your order/account.\n\nKindly arrange payment at the earliest.\n\nThank you.'),
+
+  // ── Receipts ─────────────────────────────────────────────────────────────
+  // Auto-sent when a customer shares a payment screenshot on WhatsApp. It is a
+  // PROVISIONAL receipt: it acknowledges the amount read from the screenshot
+  // and becomes final only once the money is credited to the business bank
+  // account. {{upiId}} / {{payeeName}} identify the account the money was sent
+  // to (the business UPI handle).
+  tpl('receipt.provisional', 'Receipts', 'Provisional receipt (from screenshot)', '🧾 *Provisional Receipt* {{receiptNumber}}\n\nDear {{customerName}},\n\nWe have received your payment screenshot. Thank you!\n\n• Amount: ₹{{amount}}\n• Paid to (UPI): {{payeeName}} ({{upiId}})\n• Reference: {{reference}}\n• Date: {{paidAt}}\n\n⚠️ This is a *provisional* receipt. The amount will be confirmed and credited to your account once it is received in our bank account.\n\n- {{businessName}}'),
 ];
 
 const DEFAULT_TEMPLATE_MAP = new Map(DEFAULT_TEMPLATES.map((t) => [t.key, t]));

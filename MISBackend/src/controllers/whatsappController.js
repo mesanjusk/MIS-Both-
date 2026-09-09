@@ -26,6 +26,7 @@ const Flow = require('../repositories/Flow');
 const { processWhatsAppAttendanceCommand, processWhatsAppAttendanceButtonTap } = require('../services/whatsappAttendanceService');
 const { handleWhatsAppOrderCommand } = require('../services/whatsappOrderCommandService');
 const { handleWhatsAppCustomerOrderCommand } = require('../services/whatsappCustomerCommandService');
+const { handleIncomingScreenshotReceipt } = require('../services/whatsappReceiptService');
 const AutoReply = require('../repositories/AutoReply');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
@@ -908,8 +909,11 @@ const processIncomingMediaMessage = async ({ messageRecordId, mediaId }) => {
       emitNewMessage(updated);
       logger.info(`[whatsapp] Media processed for message=${messageRecordId} mediaId=${mediaId}`);
     }
+
+    return uploaded;
   } catch (error) {
     logger.error(`[whatsapp] Media processing failed for mediaId=${mediaId}:`, error.message);
+    return null;
   }
 };
 
@@ -1819,7 +1823,23 @@ const processIncomingWhatsAppPayload = async (payload) => {
         processIncomingMediaMessage({
           messageRecordId: savedMessage._id,
           mediaId: payload.mediaId,
-        });
+        })
+          .then((uploaded) => {
+            // A payment screenshot (an image) earns the customer an automatic
+            // provisional receipt. The receipt service re-checks that it is a
+            // real payment screenshot and that the sender matches a customer,
+            // so non-payment images and unknown numbers fall through silently.
+            if (!uploaded?.mediaUrl) return undefined;
+            return handleIncomingScreenshotReceipt({
+              payload,
+              mediaUrl: uploaded.mediaUrl,
+              mimeType: uploaded.mimeType || payload.mimeType || '',
+              sendText: dispatchTextMessage,
+            });
+          })
+          .catch((receiptError) => {
+            logger.error('[whatsapp] Screenshot receipt generation failed:', receiptError?.message || receiptError);
+          });
       });
     }
 

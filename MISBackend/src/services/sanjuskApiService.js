@@ -36,6 +36,12 @@ const emptyConfig = () => ({
   baseUrl: DEFAULT_BASE_URL,
   apiKeyEncrypted: '',
   keyPrefix: '',
+  // The inbound webhook signing secret (matches SanjuSK's "Webhook
+  // destinations" secret). Stored encrypted here so it can be managed from the
+  // Admin → API screen instead of a server env var. The webhook verifier falls
+  // back to process.env.METABSP_WEBHOOK_SECRET when this is empty, so existing
+  // env-based deployments keep working unchanged.
+  webhookSecretEncrypted: '',
   enabled: false,
   updatedAt: null,
   updatedBy: '',
@@ -55,6 +61,7 @@ const toPublicConfig = (config) => ({
   enabled: Boolean(config.enabled),
   hasApiKey: Boolean(config.apiKeyEncrypted),
   keyPrefix: config.keyPrefix || '',
+  hasWebhookSecret: Boolean(config.webhookSecretEncrypted),
   updatedAt: config.updatedAt || null,
   updatedBy: config.updatedBy || '',
 });
@@ -68,7 +75,7 @@ const getPublicConfig = async () => toPublicConfig(await loadRawConfig());
  * would wipe the integration every time someone edited the base URL.
  * Clearing is explicit, via clearApiKey().
  */
-const saveConfig = async ({ baseUrl, apiKey, enabled, updatedBy }) => {
+const saveConfig = async ({ baseUrl, apiKey, webhookSecret, enabled, updatedBy }) => {
   const current = await loadRawConfig();
   const next = { ...current };
 
@@ -84,6 +91,16 @@ const saveConfig = async ({ baseUrl, apiKey, enabled, updatedBy }) => {
   if (trimmedKey) {
     next.apiKeyEncrypted = encrypt(trimmedKey);
     next.keyPrefix = trimmedKey.slice(0, 12);
+  }
+
+  // Like the API key, a blank webhook secret leaves the stored one alone (the
+  // UI never receives it, so it cannot send it back). Clearing is explicit,
+  // via clearWebhookSecret().
+  if (webhookSecret !== undefined) {
+    const trimmedSecret = String(webhookSecret || '').trim();
+    if (trimmedSecret) {
+      next.webhookSecretEncrypted = encrypt(trimmedSecret);
+    }
   }
 
   if (enabled !== undefined) next.enabled = Boolean(enabled);
@@ -276,12 +293,48 @@ const isConfigured = async () => {
   return Boolean(config.apiKeyEncrypted);
 };
 
+/**
+ * The inbound webhook signing secret saved from Admin → API, or '' if none is
+ * stored. The webhook verifier uses this first and falls back to the
+ * METABSP_WEBHOOK_SECRET env var, so moving the secret to the frontend is
+ * backward-compatible with env-based deployments. A decrypt failure (changed
+ * encryption key) is swallowed to '' so the caller can still try the env var.
+ */
+const getWebhookSecret = async () => {
+  const config = await loadRawConfig();
+  if (!config.webhookSecretEncrypted) return '';
+  try {
+    return decrypt(config.webhookSecretEncrypted);
+  } catch (error) {
+    logger.error({ err: error.message }, '[sanjusk] stored webhook secret could not be decrypted');
+    return '';
+  }
+};
+
+const clearWebhookSecret = async ({ updatedBy } = {}) => {
+  const current = await loadRawConfig();
+  const next = {
+    ...current,
+    webhookSecretEncrypted: '',
+    updatedAt: new Date().toISOString(),
+    updatedBy: String(updatedBy || ''),
+  };
+  await AppSetting.upsertSetting({
+    key: SETTING_KEY,
+    value: next,
+    description: 'SanjuSK WhatsApp API connection (key stored encrypted)',
+  });
+  return toPublicConfig(next);
+};
+
 module.exports = {
   SETTING_KEY,
   DEFAULT_BASE_URL,
   getPublicConfig,
   saveConfig,
   clearApiKey,
+  getWebhookSecret,
+  clearWebhookSecret,
   getStatus,
   listTemplates,
   listMessages,

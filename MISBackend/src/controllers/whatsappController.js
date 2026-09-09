@@ -1474,8 +1474,10 @@ const verifyWebhook = (req, res) => {
   return res.sendStatus(403);
 };
 
-const verifyMetabspSignature = (req) => {
-  const secret = process.env.METABSP_WEBHOOK_SECRET;
+// The signing secret is resolved by the caller (DB-managed value from
+// Admin → API, falling back to the METABSP_WEBHOOK_SECRET env var) and passed
+// in, so this stays a pure function of (request, secret).
+const verifyMetabspSignature = (req, secret) => {
   if (!secret) return false;
 
   const signature = String(req.headers['x-metabsp-signature-256'] || '');
@@ -1859,8 +1861,17 @@ const processIncomingWhatsAppPayload = async (payload) => {
   }
 };
 
-const metabspWebhookReceive = (req, res) => {
+const metabspWebhookReceive = async (req, res) => {
   const body = req.body || {};
+
+  // Secret is managed from Admin → API (stored encrypted in the DB); fall back
+  // to the METABSP_WEBHOOK_SECRET env var so env-based deployments still work.
+  let webhookSecret = '';
+  try {
+    webhookSecret = (await sanjusk.getWebhookSecret()) || process.env.METABSP_WEBHOOK_SECRET || '';
+  } catch (_err) {
+    webhookSecret = process.env.METABSP_WEBHOOK_SECRET || '';
+  }
 
   // Observe every inbound hit *before* the signature gate, so a delivery that
   // is rejected or shaped unexpectedly is still diagnosable from the logs.
@@ -1868,7 +1879,7 @@ const metabspWebhookReceive = (req, res) => {
   // contents, phone numbers, or the signing secret.
   logger.info(
     {
-      secretConfigured: Boolean(process.env.METABSP_WEBHOOK_SECRET),
+      secretConfigured: Boolean(webhookSecret),
       hasSignatureHeader: Boolean(req.headers['x-metabsp-signature-256']),
       direction: body.direction || '',
       type: body.type || '',
@@ -1880,12 +1891,12 @@ const metabspWebhookReceive = (req, res) => {
     '[whatsapp] metabsp webhook received'
   );
 
-  if (!verifyMetabspSignature(req)) {
+  if (!verifyMetabspSignature(req, webhookSecret)) {
     // The 403 path used to be silent, which made "inbound never arrives" and
     // "inbound arrives but is rejected" impossible to tell apart. Say which.
     logger.warn(
       {
-        reason: process.env.METABSP_WEBHOOK_SECRET ? 'signature_mismatch' : 'secret_not_configured',
+        reason: webhookSecret ? 'signature_mismatch' : 'secret_not_configured',
         hasSignatureHeader: Boolean(req.headers['x-metabsp-signature-256']),
       },
       '[whatsapp] metabsp webhook rejected (signature)'

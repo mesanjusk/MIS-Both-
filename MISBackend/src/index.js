@@ -214,16 +214,26 @@ app.use("/api", Chat);
 app.use("/webhook", webhookRouter);
 app.get("/analytics", requireAuth, getAnalytics);
 
-// ---------- Legacy path redirects (301 permanent) ----------
-// These keep old clients working while you migrate them to /api/* paths
-const legacyRedirect = (newPath) => (_req, res) => res.redirect(301, `/api${newPath || _req.path}`);
-app.use("/user", (req, res) => res.redirect(301, `/api/users${req.path}`));
-app.use("/customer", (req, res) => res.redirect(301, `/api/customers${req.path}`));
-app.use("/order", (req, res) => res.redirect(301, `/api/orders${req.path}`));
-app.use("/orders", (req, res) => res.redirect(301, `/api/orders${req.path}`));
-app.use("/items", (req, res) => res.redirect(301, `/api/items${req.path}`));
-app.use("/vendors", (req, res) => res.redirect(301, `/api/vendors${req.path}`));
-app.use("/paymentfollowup", (req, res) => res.redirect(301, `/api/paymentfollowup${req.path}`));
+// ---------- Legacy path redirects (308 permanent) ----------
+// These keep old clients working while you migrate them to /api/* paths.
+//
+// Use req.url, NOT req.path: inside app.use() req.url is the path after the
+// mount point *including the query string*, while req.path drops it. Redirecting
+// with req.path silently stripped every query parameter, so paginated calls like
+// /order/GetBillListPaged?page=4&limit=50 landed on /api/orders/GetBillListPaged
+// with no params and always returned page 1 ("Load more" kept re-fetching the
+// first page).
+//
+// 308 rather than 301 so the method and body survive the redirect: a 301 lets
+// clients rewrite POST/PUT/PATCH into GET, which would silently drop writes.
+const legacyRedirect = (prefix) => (req, res) => res.redirect(308, `${prefix}${req.url}`);
+app.use("/user", legacyRedirect("/api/users"));
+app.use("/customer", legacyRedirect("/api/customers"));
+app.use("/order", legacyRedirect("/api/orders"));
+app.use("/orders", legacyRedirect("/api/orders"));
+app.use("/items", legacyRedirect("/api/items"));
+app.use("/vendors", legacyRedirect("/api/vendors"));
+app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
 
 // ---------- Init DB + schedulers ----------
 (async () => {

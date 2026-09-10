@@ -4,30 +4,30 @@ export const fetchOrders = () => axios.get("/api/orders/GetOrderList");
 export const fetchDeliveredOrders = () => axios.get("/api/orders/GetDeliveredList");
 
 /**
- * ✅ Backend route: /order/updateOrder/:id
+ * ✅ Backend route: /api/orders/updateOrder/:id
  */
-export const updateOrder = (orderId, payload) => axios.put(`/order/updateOrder/${orderId}`, payload);
+export const updateOrder = (orderId, payload) => axios.put(`/api/orders/updateOrder/${orderId}`, payload);
 
 export const addOrder = (payload) => axios.post("/api/orders/addOrder", payload);
 
-export const fetchBillList = () => axios.get("/order/GetBillList");
+export const fetchBillList = () => axios.get("/api/orders/GetBillList");
 
-export const fetchOrderStepsById = (orderId) => axios.get(`/order/getStepsByOrderId/${orderId}`);
+export const fetchOrderStepsById = (orderId) => axios.get(`/api/orders/getStepsByOrderId/${orderId}`);
 
-export const updateOrderSteps = (payload) => axios.post("/order/updateOrderSteps", payload);
+export const updateOrderSteps = (payload) => axios.post("/api/orders/updateOrderSteps", payload);
 
-export const toggleOrderStep = (payload) => axios.post("/order/steps/toggle", payload);
+export const toggleOrderStep = (payload) => axios.post("/api/orders/steps/toggle", payload);
 
 export const addOrderStatus = (payload) => axios.post("/api/orders/addStatus", payload);
 
 export const updateOrderDelivery = (orderId, payload) =>
-  axios.put(`/order/updateDelivery/${orderId}`, payload);
+  axios.put(`/api/orders/updateDelivery/${orderId}`, payload);
 
 /* ---------------- Bills: NEW ---------------- */
 
 /**
  * ✅ Paginated bills list
- * GET /order/GetBillListPaged?page&limit&search&task&paid
+ * GET /api/orders/GetBillListPaged?page&limit&search&task&paid
  */
 export const fetchBillListPaged = ({
   page = 1,
@@ -36,18 +36,18 @@ export const fetchBillListPaged = ({
   task = "",
   paid = "", // "", "paid", "unpaid"
 } = {}) => {
-  return axios.get("/order/GetBillListPaged", {
+  return axios.get("/api/orders/GetBillListPaged", {
     params: { page, limit, search, task, paid },
   });
 };
 
 /**
  * ✅ Persist paid/unpaid
- * PATCH /order/bills/:id/status
+ * PATCH /api/orders/bills/:id/status
  * Body MUST be: { billStatus: "paid" | "unpaid", paidBy?, paidNote?, txnUuid?, txnId? }
  */
 export const updateBillStatus = (orderId, billStatus, meta = {}) => {
-  return axios.patch(`/order/bills/${orderId}/status`, {
+  return axios.patch(`/api/orders/bills/${orderId}/status`, {
     billStatus,
     ...meta,
   });
@@ -62,7 +62,7 @@ export const fetchPendingTasksOverview = () => axios.get('/api/orders/tasks/over
 // pass `userId`/`userName` keep working alongside newer `assignedTo` callers.
 export const assignOrderToUser = (orderId, payload = {}) => {
   const assignedTo = payload.assignedTo ?? payload.userId ?? payload.userName ?? '';
-  return axios.patch(`/order/${orderId}/assign`, {
+  return axios.patch(`/api/orders/${orderId}/assign`, {
     assignedTo,
     assignedToType: payload.assignedToType || 'user',
     assignedBy: payload.assignedBy,
@@ -73,4 +73,4 @@ export const assignOrderToUser = (orderId, payload = {}) => {
 // Ready & Archive column, or any specific stage within one). The backend
 // normalizes any pre-migration legacy stage value it finds on the order
 // first, so this also "fixes" an old stuck order the moment it's moved.
-export const moveOrderStage = (orderId, stage) => axios.patch(`/order/${orderId}/stage`, { stage });
+export const moveOrderStage = (orderId, stage) => axios.patch(`/api/orders/${orderId}/stage`, { stage });

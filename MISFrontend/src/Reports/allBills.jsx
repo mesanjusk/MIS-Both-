@@ -461,7 +461,6 @@ export default function AllBills() {
         setTotal(t);
         setPage(nextPage);
 
-        // ✅ compute hasMore using prev length (no stale closure)
         setOrders((prev) => {
           const merged = reset ? rows : [...prev, ...rows];
           // Dedupe by order key so an overlapping page never shows the same
@@ -474,14 +473,26 @@ export default function AllBills() {
             seen.add(key);
             next.push(o);
           }
-          setHasMore(next.length < t);
           return next;
         });
+
+        // Derive from the response, not from the deduped array length: a short
+        // page (or reaching the reported total) means the end. Deriving it from
+        // the merged length left "Load more" enabled forever whenever dedupe
+        // dropped an overlapping row, so clicking appeared to do nothing.
+        setHasMore(rows.length >= PAGE_SIZE && (t <= 0 || nextPage * PAGE_SIZE < t));
       } catch (e) {
         console.error("Error fetching bills:", e?.message || e);
-        if (reset) setOrders([]);
-        setHasMore(false);
-        setTotal(0);
+        if (reset) {
+          setOrders([]);
+          setTotal(0);
+          setHasMore(false);
+        } else {
+          // Keep total/hasMore intact so a transient failure (the free-tier
+          // backend returns 503 while waking from sleep) stays retryable
+          // instead of permanently disabling "Load more".
+          toast.error("Couldn't load more bills. Tap Load more to retry.");
+        }
       } finally {
         setLoading(false);
       }

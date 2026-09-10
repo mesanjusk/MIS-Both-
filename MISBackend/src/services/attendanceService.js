@@ -1,32 +1,19 @@
 const { v4: uuid } = require('uuid');
 const Attendance = require('../repositories/attendance');
 
-const ATTENDANCE_TIME_ZONE = process.env.ATTENDANCE_TIME_ZONE || 'Asia/Kolkata';
-
-const getDateParts = (date = new Date()) => {
+// Preserve the existing attendance date-key contract. Changing this globally
+// would alter how existing WhatsApp/dashboard records are grouped. Device
+// integration must be additive, not a date migration.
+const getTodayDateString = (date = new Date()) => new Date(date).toISOString().split('T')[0];
+const getDateOnly = (date = new Date()) => {
   const value = new Date(date);
-  if (Number.isNaN(value.getTime())) throw new Error('Invalid attendance timestamp');
-
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: ATTENDANCE_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(value);
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return { year: map.year, month: map.month, day: map.day };
+  value.setHours(0, 0, 0, 0);
+  return value;
 };
 
-const getTodayDateString = (date = new Date()) => {
-  const { year, month, day } = getDateParts(date);
-  return `${year}-${month}-${day}`;
-};
-
-// Attendance.Date is a date-only key stored at UTC midnight. The key itself is
-// calculated in the configured business timezone so a 00:30 IST punch cannot
-// be filed under the previous UTC day.
-const getDateOnly = (date = new Date()) => new Date(`${getTodayDateString(date)}T00:00:00.000Z`);
-
+// Device-generated display times can still use the business timezone without
+// changing the database's long-standing date-key semantics.
+const ATTENDANCE_TIME_ZONE = process.env.ATTENDANCE_TIME_ZONE || 'Asia/Kolkata';
 const formatAttendanceTime = (date = new Date()) => new Date(date).toLocaleTimeString('en-IN', {
   hour: '2-digit',
   minute: '2-digit',

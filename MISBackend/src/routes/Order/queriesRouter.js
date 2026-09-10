@@ -233,7 +233,12 @@ router.get("/GetBillListPaged", async (req, res) => {
       { $match: { wasDelivered: true, hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: [{ Customer_uuid: rx }, { "Items.Remark": rx }, ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : [])] } }] : []),
-      { $sort: { Order_Number: -1 } },
+      // Sort on a numeric-normalized order number with a unique _id tiebreaker.
+      // Some Order_Number values are stored as strings and others as numbers;
+      // sorting the raw field mixes BSON types, producing an unstable order so
+      // skip/limit pages overlapped and repeated rows on "Load more".
+      { $addFields: { orderNumberSort: { $convert: { input: "$Order_Number", to: "double", onError: 0, onNull: 0 } } } },
+      { $sort: { orderNumberSort: -1, _id: -1 } },
       { $facet: { data: [{ $skip: skip }, { $limit: limit }], total: [{ $count: "count" }] } },
     ];
     const result = await Orders.aggregate(pipeline);

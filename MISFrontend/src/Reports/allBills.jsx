@@ -453,7 +453,17 @@ export default function AllBills() {
 
         // ✅ compute hasMore using prev length (no stale closure)
         setOrders((prev) => {
-          const next = reset ? rows : [...prev, ...rows];
+          const merged = reset ? rows : [...prev, ...rows];
+          // Dedupe by order key so an overlapping page never shows the same
+          // bill twice on "Load more".
+          const seen = new Set();
+          const next = [];
+          for (const o of merged) {
+            const key = getOrderKey(o) || `n-${o?.Order_Number ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            next.push(o);
+          }
           setHasMore(next.length < t);
           return next;
         });
@@ -466,7 +476,7 @@ export default function AllBills() {
         setLoading(false);
       }
     },
-    [PAGE_SIZE, debouncedSearch, taskFilter, paidFilter]
+    [PAGE_SIZE, debouncedSearch, taskFilter, paidFilter, getOrderKey]
   );
 
   // initial load

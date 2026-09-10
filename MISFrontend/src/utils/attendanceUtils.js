@@ -1,6 +1,8 @@
 import { fetchAttendanceList as fetchAttendanceListApi } from "../services/attendanceService.js";
 import { fetchUsers } from "../services/userService.js";
 
+const ATTENDANCE_TIME_ZONE = "Asia/Kolkata";
+
 /* ==================================================
    API HELPERS
 ================================================== */
@@ -32,6 +34,17 @@ export const fetchAttendanceList = async () => {
 /* ==================================================
    TIME HELPERS
 ================================================== */
+
+export const getAttendanceDateISO = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ATTENDANCE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(date));
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+};
 
 const parseTime = (t) => {
   if (!t || t === "N/A") return null;

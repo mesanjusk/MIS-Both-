@@ -4,6 +4,7 @@ import { FaFingerprint, FaWhatsapp } from "react-icons/fa";
 import {
   fetchUserNames,
   fetchAttendanceList,
+  getAttendanceDateISO,
   processAttendanceDataForDate,
 } from "../utils/attendanceUtils";
 import AttendanceDevicePanel from "../Components/attendance/AttendanceDevicePanel";
@@ -48,7 +49,7 @@ export default function AllAttandance() {
         fetchUserNames(),
         fetchAttendanceList(),
       ]);
-      const todayISO = new Date().toISOString().split("T")[0];
+      const todayISO = getAttendanceDateISO();
       const formatted = processAttendanceDataForDate(records, userLookup, todayISO);
       setAttendance(formatted);
     } catch (e) {

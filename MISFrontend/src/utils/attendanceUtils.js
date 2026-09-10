@@ -1,6 +1,8 @@
 import { fetchAttendanceList as fetchAttendanceListApi } from "../services/attendanceService.js";
 import { fetchUsers } from "../services/userService.js";
 
+const ATTENDANCE_TIME_ZONE = "Asia/Kolkata";
+
 /* ==================================================
    API HELPERS
 ================================================== */
@@ -32,6 +34,17 @@ export const fetchAttendanceList = async () => {
 /* ==================================================
    TIME HELPERS
 ================================================== */
+
+export const getAttendanceDateISO = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ATTENDANCE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(date));
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+};
 
 const parseTime = (t) => {
   if (!t || t === "N/A") return null;
@@ -70,6 +83,20 @@ export const calculateWorkingHours = (inTime, outTime, breakTime, startTime) => 
   return Math.max(0, secs / 3600);
 };
 
+const normalizeSource = (value) => {
+  const sourceValue = String(value || "").toLowerCase();
+  if (sourceValue.includes("whatsapp") || sourceValue === "wa") return "WhatsApp";
+  if (
+    sourceValue.includes("device") ||
+    sourceValue.includes("biometric") ||
+    sourceValue.includes("fingerprint") ||
+    sourceValue.includes("rfid") ||
+    sourceValue.includes("face")
+  ) return "Device";
+  if (sourceValue.includes("dashboard") || sourceValue.includes("manual")) return "Dashboard";
+  return "";
+};
+
 /* ==================================================
    PROCESS DATE RANGE (MAIN)
 ================================================== */
@@ -85,7 +112,7 @@ export const processAttendanceDataRange = (
   const start = startISO ? new Date(startISO) : null;
   const end = endISO ? new Date(endISO) : null;
 
-  records.forEach(({ Date: recDate, User, Employee_uuid, Source: recordSource }) => {
+  records.forEach(({ Date: recDate, User, Employee_uuid, source: rawRecordSource, Source: legacyRecordSource }) => {
     if (!recDate) return;
 
     const d = new Date(recDate);
@@ -112,31 +139,27 @@ export const processAttendanceDataRange = (
         TotalHours: "0.00",
         Late: false,
         HalfDay: false,
-        Source: (recordSource || "").trim() || "",
+        Source: "",
       });
     }
 
     const ref = grouped.get(key);
-    const normalizeSource = (value) => {
-      const sourceValue = (value || "").toLowerCase();
-      if (sourceValue.includes("whatsapp") || sourceValue.includes("wa")) return "WhatsApp";
-      if (sourceValue.includes("dashboard")) return "Dashboard";
-      return "";
-    };
+    const entrySources = (User || [])
+      .map((entry) => normalizeSource(entry?.Source || entry?.source))
+      .filter(Boolean);
+    const recordSource = normalizeSource(rawRecordSource || legacyRecordSource);
+    if (recordSource) entrySources.push(recordSource);
 
-    const entryWithSource = (User || []).find((u) => normalizeSource(u?.Source || u?.source));
-    const resolvedSource = normalizeSource(
-      entryWithSource?.Source ||
-      entryWithSource?.source ||
-      recordSource ||
-      ref.Source
-    );
-    if (resolvedSource) ref.Source = resolvedSource;
+    const uniqueSources = Array.from(new Set(entrySources));
+    if (uniqueSources.length > 1) ref.Source = "Mixed";
+    else if (uniqueSources.length === 1) ref.Source = uniqueSources[0];
 
     (User || []).forEach((u) => {
       if (u.Type === "In") ref.In = u.Time?.trim() || "N/A";
-      if (u.Type === "Break") ref.Break = u.Time?.trim() || "N/A";
-      if (u.Type === "Start") ref.Start = u.Time?.trim() || "N/A";
+      // Backend state names are Lunch Out/Lunch In. Keep legacy Break/Start
+      // aliases readable so old attendance records continue to render.
+      if (u.Type === "Break" || u.Type === "Lunch Out") ref.Break = u.Time?.trim() || "N/A";
+      if (u.Type === "Start" || u.Type === "Lunch In") ref.Start = u.Time?.trim() || "N/A";
       if (u.Type === "Out") ref.Out = u.Time?.trim() || "N/A";
     });
   });

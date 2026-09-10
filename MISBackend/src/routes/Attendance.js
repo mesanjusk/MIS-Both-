@@ -3,7 +3,12 @@ const router = express.Router();
 const Attendance = require("../repositories/attendance");
 const User = require("../repositories/users");
 const Usertasks = require("../repositories/usertask");
-const { markAttendance, isTransitionAllowed, getCurrentAttendanceType } = require("../services/attendanceService");
+const {
+  markAttendance,
+  isTransitionAllowed,
+  getCurrentAttendanceType,
+  getDateOnly,
+} = require("../services/attendanceService");
 const { getPendingOrdersForUser } = require("../services/orderTaskService");
 const { formatIST } = require("../utils/dateTime");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
@@ -88,19 +93,9 @@ const buildPendingTaskMessage = ({ user, assignments }) => {
 };
 
 // Add attendance — accepts both a JWT (dashboard) and an internal key
-// (hardware clock-in device / kiosk).
-//
-// Both credentials are *verified*. The previous version checked only that an
-// `Authorization: Bearer` header was present and then called next(), so any
-// request carrying the literal header `Bearer x` was let through unverified —
-// which meant anyone able to reach the API could mark attendance for any
-// employee. Attendance is what the Operations fallback reads to decide whether
-// a primary is available, so a forged mark does not stop at a wrong timesheet:
-// it silently changes who owns work for the rest of the day.
+// (legacy hardware clock-in device / kiosk). New biometric terminals use the
+// per-device credentials under /api/attendance-devices.
 router.post('/addAttendance', (req, res, next) => {
-  // The device key is checked first and validated against INTERNAL_API_KEY;
-  // requireInternalKey refuses when the variable is unset rather than opening
-  // the endpoint up.
   if (req.headers['x-internal-key']) {
     return requireInternalKey(req, res, next);
   }
@@ -112,7 +107,8 @@ router.post('/addAttendance', (req, res, next) => {
     return res.status(400).json({ success: false, message: 'All fields are required' });
   }
 
-  const currentDate = new Date().toISOString().split('T')[0];
+  const currentDate = getDateOnly(new Date());
+  const attendanceSource = req.headers['x-internal-key'] ? 'device' : 'dashboard';
 
   try {
     const user = await User.findOne({ User_name });
@@ -140,7 +136,12 @@ router.post('/addAttendance', (req, res, next) => {
         return res.status(409).json({ success: false, message: 'Attendance for this action is already marked today.' });
       }
 
-      todayAttendance.User.push({ Type, Time, CreatedAt: new Date().toISOString() });
+      todayAttendance.User.push({
+        Type,
+        Time,
+        Source: attendanceSource,
+        CreatedAt: new Date(),
+      });
       todayAttendance.Status = Type === 'Out' ? 'Completed' : todayAttendance.Status;
       await todayAttendance.save();
 
@@ -173,7 +174,7 @@ router.post('/addAttendance', (req, res, next) => {
       type: Type,
       status: Status,
       time: Time,
-      source: 'dashboard',
+      source: attendanceSource,
       createdAt: new Date(),
     });
 
@@ -290,7 +291,7 @@ router.get('/getTodayAttendance/:userName', async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const currentDate = new Date().toISOString().split("T")[0];
+    const currentDate = getDateOnly(new Date());
 
     const todayAttendance = await Attendance.findOne({
       Employee_uuid: user.User_uuid,
@@ -332,7 +333,7 @@ router.post('/setAttendanceState', async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const currentDate = new Date().toISOString().split('T')[0];
+    const currentDate = getDateOnly(new Date());
     let todayAttendance = await Attendance.findOne({
       Employee_uuid: user.User_uuid,
       Date: currentDate

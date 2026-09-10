@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FaWhatsapp } from "react-icons/fa";
+import { FaFingerprint, FaWhatsapp } from "react-icons/fa";
 import {
   fetchUserNames,
   fetchAttendanceList,
+  getAttendanceDateISO,
   processAttendanceDataForDate,
 } from "../utils/attendanceUtils";
+import AttendanceDevicePanel from "../Components/attendance/AttendanceDevicePanel";
+import { useAuth } from "../context/AuthContext";
 
 export default function AllAttandance() {
   const [loggedInUser, setLoggedInUser] = useState(null);
@@ -16,6 +19,7 @@ export default function AllAttandance() {
 
   const navigate = useNavigate();
   const location = useLocation();
+  const { isSuperAdmin } = useAuth();
 
   useEffect(() => {
     const userNameFromState = location.state?.id;
@@ -45,7 +49,7 @@ export default function AllAttandance() {
         fetchUserNames(),
         fetchAttendanceList(),
       ]);
-      const todayISO = new Date().toISOString().split("T")[0];
+      const todayISO = getAttendanceDateISO();
       const formatted = processAttendanceDataForDate(records, userLookup, todayISO);
       setAttendance(formatted);
     } catch (e) {
@@ -83,19 +87,33 @@ export default function AllAttandance() {
   };
 
   const SourceBadge = ({ source }) => {
-    const isWhatsApp = source === "WhatsApp";
+    const normalized = String(source || "Dashboard");
+    const isWhatsApp = normalized === "WhatsApp";
+    const isDevice = normalized === "Device";
+    const isMixed = normalized === "Mixed";
+    const className = isWhatsApp
+      ? "bg-green-50 text-green-700 border-green-200"
+      : isDevice
+        ? "bg-blue-50 text-blue-700 border-blue-200"
+        : isMixed
+          ? "bg-violet-50 text-violet-700 border-violet-200"
+          : "bg-slate-50 text-slate-700 border-slate-200";
+    const title = isWhatsApp
+      ? "Marked via WhatsApp message"
+      : isDevice
+        ? "Marked via biometric, face or RFID attendance device"
+        : isMixed
+          ? "Attendance punches came from more than one channel"
+          : "Marked from dashboard";
+
     return (
       <span
-        className={[
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border",
-          isWhatsApp
-            ? "bg-green-50 text-green-700 border-green-200"
-            : "bg-slate-50 text-slate-700 border-slate-200",
-        ].join(" ")}
-        title={isWhatsApp ? "Marked via WhatsApp message" : "Marked from dashboard"}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border ${className}`}
+        title={title}
       >
         {isWhatsApp ? <FaWhatsapp className="h-3 w-3" /> : null}
-        {isWhatsApp ? "WhatsApp" : "Dashboard"}
+        {isDevice ? <FaFingerprint className="h-3 w-3" /> : null}
+        {normalized}
       </span>
     );
   };
@@ -107,9 +125,7 @@ export default function AllAttandance() {
         {/* Header */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-slate-100">
           <div>
-            
             <div className="mt-1 flex items-center gap-2">
-              
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 border border-slate-200">
                 {todayLabel}
               </span>
@@ -120,8 +136,6 @@ export default function AllAttandance() {
               )}
             </div>
           </div>
-
-         
         </div>
 
         {/* Content */}
@@ -206,9 +220,10 @@ export default function AllAttandance() {
               </table>
             </div>
           </div>
-
         </div>
       </div>
+
+      {isSuperAdmin ? <AttendanceDevicePanel /> : null}
     </div>
   );
 }

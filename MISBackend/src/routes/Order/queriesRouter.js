@@ -196,9 +196,12 @@ router.get("/GetBillList", async (_req, res) => {
   try {
     const rows = await Orders.aggregate([
       ...latestStatusProjectionStages,
-      // Count any order that was ever delivered (not only those whose latest
-      // status is still "delivered"), matching the Bills tab paged endpoint.
-      { $addFields: { wasDelivered: { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $eq: [{ $toLower: { $trim: { input: { $ifNull: ["$$s.Task", ""] } } } }, "delivered"] } } } } } },
+      // Count any order that was ever delivered, matching the Bills tab paged
+      // endpoint and the Delivery tab (GetDeliveredList): an order counts as
+      // delivered if its stage is "delivered"/"paid" OR any Status entry's Task
+      // contains "delivered". The stage-based workflow writes Task labels like
+      // "delivered - Delivered", so an exact "delivered" match misses them.
+      { $addFields: { wasDelivered: { $or: [{ $in: [{ $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } }, ["delivered", "paid"]] }, { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $regexMatch: { input: { $ifNull: ["$$s.Task", ""] }, regex: "delivered", options: "i" } } } } }] } } },
       { $match: { wasDelivered: true, hasBillable: true } },
     ]);
     res.json({ success: true, result: rows });
@@ -219,12 +222,14 @@ router.get("/GetBillListPaged", async (req, res) => {
     const amountToDouble = (path) => ({ $convert: { input: { $replaceAll: { input: { $replaceAll: { input: { $replaceAll: { input: { $toString: { $ifNull: [path, "0"] } }, find: "₹", replacement: "" } }, find: ",", replacement: "" } }, find: " ", replacement: "" } }, to: "double", onError: 0, onNull: 0 } });
     const pipeline = [
       { $addFields: { latestStatus: { $cond: [{ $gt: [{ $size: { $ifNull: ["$Status", []] } }, 0] }, { $arrayElemAt: ["$Status", { $subtract: [{ $size: "$Status" }, 1] }] }, null] } } },
-      // A bill exists for any order that was EVER delivered (a "Delivered" entry
-      // anywhere in its Status history), not only orders whose *latest* status is
-      // still "delivered". Orders that got another status pushed after delivery
-      // are still delivered/billed and must stay on the Bills tab — matching the
-      // "ever delivered" definition used by /all-data and GetDeliveredList.
-      { $addFields: { latestTaskLower: { $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } } }, billStatusLower: { $toLower: { $trim: { input: { $ifNull: ["$billStatus", ""] } } } }, wasDelivered: { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $eq: [{ $toLower: { $trim: { input: { $ifNull: ["$$s.Task", ""] } } } }, "delivered"] } } } }, hasBillable: { $anyElementTrue: { $map: { input: { $ifNull: ["$Items", []] }, as: "it", in: { $gt: [amountToDouble("$$it.Amount"), 0] } } } } } },
+      // A bill exists for any order that was EVER delivered, matching the
+      // Delivery tab (GetDeliveredList): stage is "delivered"/"paid" OR any
+      // Status entry's Task contains "delivered". The stage-based delivery
+      // workflow writes Task labels like "delivered - Delivered", and delivery
+      // is often tracked only via `stage`, so requiring an exact "delivered"
+      // Status Task (or that it be the *latest* status) silently dropped
+      // hundreds of genuinely delivered/billed orders from the Bills tab.
+      { $addFields: { latestTaskLower: { $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } } }, billStatusLower: { $toLower: { $trim: { input: { $ifNull: ["$billStatus", ""] } } } }, wasDelivered: { $or: [{ $in: [{ $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } }, ["delivered", "paid"]] }, { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $regexMatch: { input: { $ifNull: ["$$s.Task", ""] }, regex: "delivered", options: "i" } } } } }] }, hasBillable: { $anyElementTrue: { $map: { input: { $ifNull: ["$Items", []] }, as: "it", in: { $gt: [amountToDouble("$$it.Amount"), 0] } } } } } },
       { $match: { wasDelivered: true, hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: [{ Customer_uuid: rx }, { "Items.Remark": rx }, ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : [])] } }] : []),

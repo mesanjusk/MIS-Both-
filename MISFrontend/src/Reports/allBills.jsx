@@ -517,7 +517,9 @@ export default function AllBills() {
     return normalizedOrders.filter((o) => {
       if (!o._billable) return false;
       if (s && !o._customerLower.includes(s)) return false;
-      if (fTask && o._taskLower !== fTask) return false;
+      // Match by substring: the stage-based workflow writes task labels like
+      // "delivered - Delivered", so an exact equality check would hide them.
+      if (fTask && !o._taskLower.includes(fTask)) return false;
 
       if (fPaid === "paid" && !o._paid) return false;
       if (fPaid === "unpaid" && o._paid) return false;

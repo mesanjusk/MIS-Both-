@@ -118,7 +118,7 @@ const BillCard = React.memo(function BillCard({
               <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
                 #{order?.Order_Number || "—"}
               </Typography>
-              {statusChip(order?.highestStatusTask?.Task)}
+              {statusChip(order?._displayTask || order?.highestStatusTask?.Task)}
             </Stack>
 
             <Typography
@@ -299,6 +299,16 @@ export default function AllBills() {
   const getFirstRemark = (order) => {
     if (!Array.isArray(order?.Items) || order.Items.length === 0) return "";
     return String(order.Items[0]?.Remark || "");
+  };
+
+  // Mirrors the backend Bills definition: an order is delivered when its stage
+  // is "delivered"/"paid" OR any Status task contains "delivered" (the
+  // stage-based workflow writes labels like "delivered - Delivered").
+  const isDelivered = (order) => {
+    const stage = String(order?.stage || "").toLowerCase().trim();
+    if (stage === "delivered" || stage === "paid") return true;
+    const list = Array.isArray(order?.Status) ? order.Status : [];
+    return list.some((s) => String(s?.Task || "").toLowerCase().includes("delivered"));
   };
 
   const getOrderKey = useCallback((order) => {
@@ -500,7 +510,12 @@ export default function AllBills() {
       const billTotal = items.reduce((sum, it) => sum + resolveAmount(it), 0);
 
       const customerName = customers?.[order?.Customer_uuid] || "Unknown";
-      const taskLower = String(highestStatusTask?.Task || "").toLowerCase().trim();
+
+      // These are all billed/delivered orders, so show a "Delivered" chip even
+      // when a later status (e.g. a rework "Design") has a higher Status_number.
+      const delivered = isDelivered(order);
+      const displayTask = delivered ? "Delivered" : String(highestStatusTask?.Task || "");
+      const taskLower = displayTask.toLowerCase().trim();
 
       const billable = hasBillableAmount(items);
       const paid = isPaid(order);
@@ -512,6 +527,7 @@ export default function AllBills() {
         billTotal,
         _billable: billable,
         _customerLower: String(customerName).toLowerCase(),
+        _displayTask: displayTask,
         _taskLower: taskLower,
         _paid: paid,
       };
@@ -568,7 +584,7 @@ export default function AllBills() {
         getFirstRemark(order),
         formatDateDDMMYYYY(order.highestStatusTask?.Delivery_Date),
         order.highestStatusTask?.Assigned || "",
-        order.highestStatusTask?.Task || "",
+        order._displayTask || order.highestStatusTask?.Task || "",
         order._paid ? "Paid" : "Unpaid",
         `₹${formatINR(order.billTotal)}`,
       ]),
@@ -585,7 +601,7 @@ export default function AllBills() {
       Remark: getFirstRemark(order),
       "Delivery Date": formatDateDDMMYYYY(order.highestStatusTask?.Delivery_Date),
       Assigned: order.highestStatusTask?.Assigned || "",
-      "Highest Status Task": order.highestStatusTask?.Task || "",
+      "Highest Status Task": order._displayTask || order.highestStatusTask?.Task || "",
       Paid: order._paid ? "Paid" : "Unpaid",
       Total: Number(toNumber(order.billTotal)),
     }));

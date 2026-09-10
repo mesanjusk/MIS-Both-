@@ -216,6 +216,51 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Employee codes are stored on the existing Users collection. This endpoint is
+// only an admin UI for that field; it does not create a second employee mapping
+// table or duplicate staff identity.
+router.get('/employee-mappings', async (_req, res) => {
+  try {
+    const users = await User.find({})
+      .select('User_uuid User_name User_group employeeId operations.active')
+      .sort({ User_name: 1 })
+      .lean();
+    return res.json({ success: true, result: users });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Unable to load employee device codes.' });
+  }
+});
+
+router.put('/employee-mappings/:userUuid', async (req, res) => {
+  const employeeId = String(req.body?.employeeId || '').trim();
+
+  try {
+    if (employeeId) {
+      const duplicate = await User.findOne({
+        employeeId,
+        User_uuid: { $ne: req.params.userUuid },
+      }).select('User_name').lean();
+      if (duplicate) {
+        return res.status(409).json({
+          success: false,
+          message: `Employee code is already assigned to ${duplicate.User_name}.`,
+        });
+      }
+    }
+
+    const user = await User.findOneAndUpdate(
+      { User_uuid: req.params.userUuid },
+      { $set: { employeeId } },
+      { new: true }
+    ).select('User_uuid User_name User_group employeeId operations.active');
+
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+    return res.json({ success: true, result: user });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Unable to save employee device code.' });
+  }
+});
+
 router.put('/:deviceUuid', async (req, res) => {
   const allowed = ['Name', 'SerialNumber', 'Location', 'Provider', 'Protocol', 'Enabled', 'Settings'];
   const update = {};

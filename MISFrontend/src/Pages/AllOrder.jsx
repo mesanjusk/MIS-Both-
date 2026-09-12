@@ -13,6 +13,7 @@ import {
 } from "../hooks/useOrdersData";
 import { useOrderGrouping } from "../hooks/useOrderGrouping";
 import { useOrderDnD } from "../hooks/useOrderDnD";
+import { usePermission } from "../hooks/usePermission";
 
 /* ✅ MUI */
 import {
@@ -97,6 +98,9 @@ export default function AllOrder() {
   const [mobileMoveTarget, setMobileMoveTarget] = useState("");
 
   const [isAdmin, setIsAdmin] = useState(false);
+  // Cancelling an order is the "delete order" action gated by canDeleteOrders.
+  // Admins always pass; other users need the flag. The API enforces the same.
+  const canDeleteOrders = usePermission("canDeleteOrders");
   const [statusNotice, setStatusNotice] = useState("");
 
   const [allUsers, setAllUsers] = useState([]);
@@ -224,8 +228,8 @@ export default function AllOrder() {
       if (currentTask === lower) return;
 
       if (lower === TASK_TYPES.CANCEL.toLowerCase()) {
-        if (!isAdmin) {
-          toast.error("Cancel is Admin only");
+        if (!isAdmin && !canDeleteOrders) {
+          toast.error("You do not have permission to cancel orders");
           return;
         }
 
@@ -290,7 +294,7 @@ export default function AllOrder() {
         setStatusNotice("Failed to update status");
       }
     },
-    [orderMap, isAdmin, patchOrder, replaceOrder]
+    [orderMap, isAdmin, canDeleteOrders, patchOrder, replaceOrder]
   );
 
   const handleMove = useCallback(
@@ -710,7 +714,7 @@ export default function AllOrder() {
                 {availableTargets
                   .filter((task) => {
                     const lower = String(task || "").toLowerCase();
-                    if (lower === TASK_TYPES.CANCEL.toLowerCase() && !isAdmin) return false;
+                    if (lower === TASK_TYPES.CANCEL.toLowerCase() && !isAdmin && !canDeleteOrders) return false;
                     return task !== mobileMoveOrder?.highestStatusTask?.Task;
                   })
                   .map((task) => (

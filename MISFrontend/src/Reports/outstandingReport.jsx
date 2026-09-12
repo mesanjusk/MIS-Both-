@@ -12,6 +12,7 @@ import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import TrendingDownRoundedIcon from '@mui/icons-material/TrendingDownRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import SummaryCard from '../Components/dashboard/SummaryCard';
+import ExportGuard from '../Components/ExportGuard';
 
 const todayISO = () => new Date().toLocaleDateString('en-CA');
 
@@ -253,14 +254,16 @@ const OutstandingReport = () => {
     <div className="pt-04 pb-12 max-w-8xl mx-auto px-4">
       <div className="flex flex-col md:flex-row justify-between gap-3 mb-4 items-center">
         <h2 className="text-xl font-semibold text-blue-700">Outstanding Report</h2>
-        <div className="flex gap-2">
-          <button onClick={exportToExcel} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-            Export Excel
-          </button>
-          <button onClick={exportToPDF} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-            Export PDF
-          </button>
-        </div>
+        <ExportGuard>
+          <div className="flex gap-2">
+            <button onClick={exportToExcel} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              Export Excel
+            </button>
+            <button onClick={exportToPDF} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+              Export PDF
+            </button>
+          </div>
+        </ExportGuard>
       </div>
 
       {/* KPI summary */}

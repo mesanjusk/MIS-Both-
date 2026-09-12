@@ -26,6 +26,7 @@ import {
 } from '@mui/material';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import axios from '../apiClient';
+import ExportGuard from '../Components/ExportGuard';
 import { getVoucherInfo } from '../utils/voucher';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
@@ -139,7 +140,9 @@ export default function AllTransaction() {
         <TextField select size="small" label="Type" value={filters.transactionType} onChange={(e) => setFilters((p) => ({ ...p, transactionType: e.target.value }))} sx={{ minWidth: 130 }}>{['All', 'Receipt', 'Payment'].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}</TextField>
         <TextField size="small" label="Search" value={filters.search} onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))} />
         <Button variant="outlined" onClick={clear}>Clear</Button>
-        <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportExcel}>Excel</Button>
+        <ExportGuard>
+          <Button variant="contained" startIcon={<DownloadRoundedIcon />} onClick={exportExcel}>Excel</Button>
+        </ExportGuard>
       </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
         {[['Total Cash In', summary.cashIn], ['Total Cash Out', summary.cashOut], ['Net Cash', summary.cashIn - summary.cashOut], ['Transactions', summary.count]].map(([label, value]) => <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}><CardContent sx={{ p: 1.25 }}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="h6" fontWeight={900}>{typeof value === 'number' && label !== 'Transactions' ? money(value) : value}</Typography></CardContent></Card>)}

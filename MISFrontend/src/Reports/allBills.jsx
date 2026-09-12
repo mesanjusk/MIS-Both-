@@ -49,6 +49,7 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TodayIcon from "@mui/icons-material/Today";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import ExportGuard from "../Components/ExportGuard";
 
 /* ----------------------- small hooks ----------------------- */
 function useDebouncedValue(value, delay = 200) {
@@ -766,30 +767,32 @@ export default function AllBills() {
                 </Select>
               </FormControl>
 
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                <Tooltip title="Export as PDF (loaded rows only)">
-                  <Button
-                    variant="contained"
-                    color="error"
-                    startIcon={<PictureAsPdfIcon />}
-                    onClick={exportPDF}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                  >
-                    PDF
-                  </Button>
-                </Tooltip>
+              <ExportGuard>
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  <Tooltip title="Export as PDF (loaded rows only)">
+                    <Button
+                      variant="contained"
+                      color="error"
+                      startIcon={<PictureAsPdfIcon />}
+                      onClick={exportPDF}
+                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                    >
+                      PDF
+                    </Button>
+                  </Tooltip>
 
-                <Tooltip title="Export as Excel (loaded rows only)">
-                  <Button
-                    variant="contained"
-                    startIcon={<GridOnIcon />}
-                    onClick={exportExcel}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                  >
-                    Excel
-                  </Button>
-                </Tooltip>
-              </Stack>
+                  <Tooltip title="Export as Excel (loaded rows only)">
+                    <Button
+                      variant="contained"
+                      startIcon={<GridOnIcon />}
+                      onClick={exportExcel}
+                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                    >
+                      Excel
+                    </Button>
+                  </Tooltip>
+                </Stack>
+              </ExportGuard>
             </Stack>
           </Paper>
 

@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import axios from '../apiClient';
+import ExportGuard from '../Components/ExportGuard';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
@@ -55,7 +56,9 @@ export default function TrialBalance() {
         </Box>
         <Stack direction="row" spacing={1}>
           <Button startIcon={<RefreshRoundedIcon />} variant="outlined" onClick={load} disabled={loading}>Refresh</Button>
-          <Button variant="contained" onClick={exportToExcel} disabled={rows.length === 0}>Export</Button>
+          <ExportGuard>
+            <Button variant="contained" onClick={exportToExcel} disabled={rows.length === 0}>Export</Button>
+          </ExportGuard>
         </Stack>
       </Stack>
 

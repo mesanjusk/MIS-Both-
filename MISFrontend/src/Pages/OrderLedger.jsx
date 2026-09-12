@@ -29,6 +29,7 @@ import {
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
+import ExportGuard from '../Components/ExportGuard';
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
 import axios from '../apiClient';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../constants/orderStages';
@@ -249,18 +250,22 @@ export default function OrderLedger() {
               {loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
-          <Button
-            size="small" variant="outlined" onClick={exportExcel} disabled={!visible.length}
-            startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '16px !important' }} />}
-          >
-            Excel
-          </Button>
-          <Button
-            size="small" variant="outlined" color="error" onClick={exportPdf} disabled={!visible.length}
-            startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: '16px !important' }} />}
-          >
-            PDF
-          </Button>
+          <ExportGuard>
+            <Button
+              size="small" variant="outlined" onClick={exportExcel} disabled={!visible.length}
+              startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '16px !important' }} />}
+            >
+              Excel
+            </Button>
+          </ExportGuard>
+          <ExportGuard>
+            <Button
+              size="small" variant="outlined" color="error" onClick={exportPdf} disabled={!visible.length}
+              startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: '16px !important' }} />}
+            >
+              PDF
+            </Button>
+          </ExportGuard>
         </Stack>
       </Paper>
 

@@ -11,6 +11,7 @@ const {
   buildTaskSummaryMessage,
 } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
+const { requireCancelPermission } = require("../../middleware/requirePermission");
 const { idToFilter, parseStatusPayload } = require("../../utils/orderHelpers");
 const { pushStatusOnly } = require("./_shared");
 
@@ -89,7 +90,7 @@ router.post("/:id/lifecycle", async (req, res) => {
 
 router.get("/:id/tasks", listOrderTasks);
 
-router.post("/updateStatus", async (req, res) => {
+router.post("/updateStatus", requireCancelPermission, async (req, res) => {
   const { id, task } = parseStatusPayload(req);
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
   const filter = idToFilter(id);
@@ -103,7 +104,7 @@ router.post("/updateStatus", async (req, res) => {
   return res.json({ success: true, message: "Status updated" });
 });
 
-router.put("/updateStatus/:id", async (req, res) => {
+router.put("/updateStatus/:id", requireCancelPermission, async (req, res) => {
   const id = String(req.params.id || "").trim();
   const task = String(req.body?.Task || req.body?.task || "").trim();
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
@@ -114,7 +115,7 @@ router.put("/updateStatus/:id", async (req, res) => {
   return res.json({ success: true, message: "Status updated" });
 });
 
-router.post("/addStatus", async (req, res) => {
+router.post("/addStatus", requireCancelPermission, async (req, res) => {
   const { id, task, assigned, deliveryDate } = parseStatusPayload(req);
   if (!id || !task) return res.status(400).json({ success: false, message: "Order id and Task are required" });
   const filter = idToFilter(id);

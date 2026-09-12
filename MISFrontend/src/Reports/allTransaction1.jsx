@@ -6,6 +6,7 @@ import { FaWhatsapp, FaSortUp, FaSortDown } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
+import ExportGuard from "../Components/ExportGuard";
 
 const OFFICE_VENDOR_GROUP_NAME = 'Office & Vendor';
 
@@ -194,14 +195,16 @@ const AllTransaction1 = () => {
       {/* Header & Toolbar */}
       <div className="flex flex-col md:flex-row justify-between gap-3 mb-4 items-center">
         <h2 className="text-xl font-semibold text-blue-700">Outstanding Report</h2>
-        <div className="flex gap-2">
-          <button onClick={exportToExcel} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-            Export Excel
-          </button>
-          <button onClick={exportToPDF} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-            Export PDF
-          </button>
-        </div>
+        <ExportGuard>
+          <div className="flex gap-2">
+            <button onClick={exportToExcel} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              Export Excel
+            </button>
+            <button onClick={exportToPDF} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+              Export PDF
+            </button>
+          </div>
+        </ExportGuard>
       </div>
 
       {/* Search + Filters */}

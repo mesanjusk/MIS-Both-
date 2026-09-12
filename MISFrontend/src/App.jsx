@@ -11,7 +11,6 @@ import {
   RequireAccounts,
   RequireAdmin,
   RequireAuth,
-  RequirePermission,
   RequireRoles,
 } from './Components/routeGuards';
 import { ACCOUNT_ROLES, NAV_ROLES, OFFICE_ROLES } from './constants/roles';
@@ -152,19 +151,6 @@ function rolesOnly(roles, element) {
   return <RequireRoles roles={roles}>{withSuspense(element)}</RequireRoles>;
 }
 
-/**
- * Route element gated on a per-user permission flag (canCreateOrders, ...).
- * Only an explicit `false` denies; admins/owners always pass. Mirrors the
- * server-side enforcement in middleware/requirePermission.js.
- */
-function permissionOnly(permission, element, title) {
-  return (
-    <RequirePermission permission={permission} title={title}>
-      {withSuspense(element)}
-    </RequirePermission>
-  );
-}
-
 export default function App() {
   useEffect(() => {
     if (import.meta.env.PROD) {
@@ -209,7 +195,7 @@ export default function App() {
             <Route path={ROUTES.ADD_TASK_GROUP} element={adminOnly(<AddTaskgroup />)} />
             <Route path={ROUTES.ADD_PRIORITY} element={adminOnly(<AddPriority />)} />
 
-            <Route path={ROUTES.ORDERS_NEW} element={permissionOnly('canCreateOrders', <AddOrder1 />, 'You do not have permission to create orders')} />
+            <Route path={ROUTES.ORDERS_NEW} element={withSuspense(<AddOrder1 />)} />
             <Route path={ROUTES.ADD_ORDER} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ADD_ORDER_V2} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ORDERS_BOARD} element={withSuspense(<OrderKanban />)} />

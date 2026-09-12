@@ -37,6 +37,7 @@ import { itemsForSection } from '../constants/sidebarMenu';
 import { visibleSectionItems } from '../constants/navVisibility';
 import { normalizeRoleKey } from '../constants/roles';
 import { useAuth } from '../context/AuthContext';
+import { usePermission } from '../hooks/usePermission';
 import { usePageToggles } from '../hooks/usePageToggles';
 import { useModuleConfig } from '../hooks/useModuleConfig';
 
@@ -67,6 +68,7 @@ export default function Layout() {
   const [upiOpen, setUpiOpen] = useState(false);
   const openUpi = useCallback(() => setUpiOpen(true), []);
   const closeUpi = useCallback(() => setUpiOpen(false), []);
+  const canCreateOrders = usePermission('canCreateOrders');
 
   const openGoogleDriveReconnect = () => {
     const baseUrl = getApiBase() || window.location.origin;
@@ -104,14 +106,17 @@ export default function Layout() {
 
   const buttonsList = useMemo(
     () => [
-      { onClick: handleNewOrderClick, label: driveChecking ? 'Checking...' : 'New Order' },
+      // "New Order" only for users who may create orders (admins always pass).
+      ...(canCreateOrders
+        ? [{ onClick: handleNewOrderClick, label: driveChecking ? 'Checking...' : 'New Order' }]
+        : []),
       { onClick: () => navigate(ROUTES.RECEIPT), label: 'Receipt' },
       { onClick: () => navigate(ROUTES.PAYMENT), label: 'Payment' },
       { onClick: () => navigate(ROUTES.FOLLOWUPS), label: 'Followup' },
       { onClick: () => navigate(ROUTES.TASKS_NEW), label: 'Task' },
       { onClick: openUpi, label: 'Add UPI' },
     ],
-    [navigate, driveChecking, handleNewOrderClick, openUpi],
+    [navigate, driveChecking, handleNewOrderClick, openUpi, canCreateOrders],
   );
 
   // ── Mobile bottom navigation ────────────────────────────────────────────

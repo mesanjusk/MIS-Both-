@@ -1,8 +1,10 @@
 import React, { useState} from 'react';
 import UpdateDelivery from '../Pages/updateDelivery';
+import { usePermission } from '../hooks/usePermission';
 
 export default function EditOrder({ order }) {
-    const [showEditModal, setShowEditModal] = useState(false); 
+    const canEditOrders = usePermission('canEditOrders');
+    const [showEditModal, setShowEditModal] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
 
      const handleEditClick = (order) => {
@@ -13,10 +15,11 @@ const closeEditModal = () => {
     setShowEditModal(false); 
     setSelectedOrder(null);  
   };
+    if (!canEditOrders) return null;
     return (
         <>
         <div className="flex gap-2">
-           
+
           <button onClick={() => handleEditClick(order)} className="p-2 rounded-full bg-white shadow hover:bg-gray-100">
         <svg className="h-5 w-5 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path d="M16.5 3.5a2.1 2.1 0 013 3L8.5 17l-4 1 1-4z" />

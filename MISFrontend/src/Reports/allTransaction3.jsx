@@ -67,9 +67,9 @@ const AllTransaction3 = () => {
   }, []);
 
   useEffect(() => {
+    // No account selected (e.g. the Statement tab opened directly). Don't
+    // fetch or redirect — render the pick-an-account prompt below instead.
     if (!customerUuid || !customerName) {
-      toast.error("Customer not found. Redirecting...");
-      navigate(ROUTES.OUTSTANDING_REPORT);
       return;
     }
 
@@ -438,6 +438,26 @@ const AllTransaction3 = () => {
     }
   };
   // ---------------------------------------------
+
+  // Statement tab opened without an account: prompt the user to pick one
+  // rather than showing an empty table.
+  if (!customerUuid || !customerName) {
+    return (
+      <div className="pt-16 pb-24 px-4 text-center text-gray-600">
+        <p className="text-lg font-medium mb-2">No account selected</p>
+        <p className="mb-4">
+          Open a customer or account from the Outstanding report or the Party
+          Balances tab to see all of its transactions here.
+        </p>
+        <button
+          onClick={() => navigate(ROUTES.OUTSTANDING_REPORT)}
+          className="px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Go to Outstanding report
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

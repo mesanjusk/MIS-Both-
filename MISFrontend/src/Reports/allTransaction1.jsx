@@ -155,7 +155,9 @@ const AllTransaction1 = () => {
   };
 
   const viewTransactions = (customer) => {
-    navigate('/allTransaction3', { state: { customer } });
+    // Open the account's full statement — now the Statement tab on the Ledger
+    // page. The customer rides along as router state for the Statement screen.
+    navigate('/accounts/ledger?tab=statement', { state: { customer } });
   };
 
   const exportToExcel = () => {

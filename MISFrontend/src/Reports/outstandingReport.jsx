@@ -212,7 +212,10 @@ const OutstandingReport = () => {
   };
 
   const viewTransactions = (customer) => {
-    navigate('/allTransaction3', { state: { customer } });
+    // Open the account's full statement — now the Statement tab on the Ledger
+    // page. The customer must ride along as router state, which the Statement
+    // screen reads to load that account's transactions.
+    navigate('/accounts/ledger?tab=statement', { state: { customer } });
   };
 
   const rangeLabel = activeRange.from && activeRange.to ? `${activeRange.from} to ${activeRange.to}` : 'All time';

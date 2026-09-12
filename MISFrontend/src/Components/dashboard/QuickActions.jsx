@@ -8,15 +8,19 @@ import {
 } from '@mui/material';
 import NorthEastRoundedIcon from '@mui/icons-material/NorthEastRounded';
 import { ROUTES } from '../../constants/routes';
+import { usePermission } from '../../hooks/usePermission';
 
+const ADD_ORDER = { title: 'Add Order', path: ROUTES.ORDERS_NEW, description: 'Capture a new customer order.', requires: 'canCreateOrders' };
 const actions = [
-  { title: 'Add Order', path: ROUTES.ORDERS_NEW, description: 'Capture a new customer order.' },
+  ADD_ORDER,
   { title: 'Order Board', path: ROUTES.REPORTS_ORDERS, description: 'Open the full workflow board.' },
   { title: 'Customers', path: ROUTES.ADD_CUSTOMER, description: 'Create or update customer records.' },
   { title: 'Team Tasks', path: ROUTES.PENDING_TASKS, description: 'Review pending team tasks.' },
 ];
 
 export default function QuickActions() {
+  const canCreateOrders = usePermission('canCreateOrders');
+  const visibleActions = actions.filter((a) => a.requires !== 'canCreateOrders' || canCreateOrders);
   return (
     <Card sx={{ p: 2.25 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -28,7 +32,7 @@ export default function QuickActions() {
       </Stack>
 
       <Stack spacing={1.25} mt={2}>
-        {actions.map((action) => (
+        {visibleActions.map((action) => (
           <Button
             key={action.path}
             component={Link}

@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 import { LoadingSpinner } from '../Components';
+import AccessDenied from './AccessDenied';
+import { usePermissions } from '../hooks/usePermission';
 import { extractPhoneNumber, normalizeWhatsAppPhone, sendAdminAlertText } from '../utils/whatsapp.js';
 import {
   DEFAULT_TEMPLATE_LANGUAGE,
@@ -190,6 +192,10 @@ const buildDrivePayload = (driveMeta = {}) => {
 export default function AddOrder1({ closeModal }) {
   const navigate = useNavigate();
   const location = useLocation();
+  // This screen serves both creating and editing an order (edit mode is entered
+  // with an orderId in the route state). Gate each mode on its own permission;
+  // admins/owners always pass. The API enforces the same flags on save.
+  const can = usePermissions();
 
   const [entryType, setEntryType] = useState('Order');
   const [Customer_name, setCustomer_Name] = useState('');
@@ -902,6 +908,21 @@ export default function AddOrder1({ closeModal }) {
       toast.error(error?.response?.data?.message || 'Failed to assign design');
     }
   };
+
+  // Deny the screen when the user lacks the permission for the mode they are in
+  // (editing an existing order vs. creating a new one). Placed after all hooks
+  // so hook order stays stable.
+  if (editOrderId ? !can('canEditOrders') : !can('canCreateOrders')) {
+    return (
+      <AccessDenied
+        title={
+          editOrderId
+            ? 'You do not have permission to edit orders'
+            : 'You do not have permission to create orders'
+        }
+      />
+    );
+  }
 
   return (
     <>

@@ -19,6 +19,7 @@ import {
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import axios from '../apiClient';
+import ExportGuard from '../Components/ExportGuard';
 
 const money = (value) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -87,7 +88,9 @@ export default function AgingReport() {
           <TextField size="small" label="From" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} InputLabelProps={{ shrink: true }} />
           <TextField size="small" label="To" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} InputLabelProps={{ shrink: true }} />
           <Button variant="contained" onClick={loadRows} disabled={loading}>Apply</Button>
-          <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={exportExcel}>Excel</Button>
+          <ExportGuard>
+            <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={exportExcel}>Excel</Button>
+          </ExportGuard>
         </Stack>
       </Stack>
 

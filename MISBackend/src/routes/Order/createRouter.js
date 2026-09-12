@@ -14,6 +14,7 @@ const { autoCreateDesignerTask } = require("../../services/orderLifecycleService
 const { applyWorkflowToOrder } = require("../../services/workflowTemplateService");
 const { buildDefaultDueDate } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
+const { requirePermission } = require("../../middleware/requirePermission");
 const { norm, toDate, normalizeItems, normalizeSteps } = require("../../utils/orderHelpers");
 const {
   DEFAULT_ORDER_ASSIGNEE,
@@ -26,7 +27,7 @@ const {
 } = require("./_shared");
 
 /* ----------------------- CREATE NEW ORDER ----------------------- */
-router.post("/addOrder", async (req, res) => {
+router.post("/addOrder", requirePermission("canCreateOrders"), async (req, res) => {
   try {
     const {
       Customer_uuid,

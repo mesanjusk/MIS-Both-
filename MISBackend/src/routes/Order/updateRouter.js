@@ -7,6 +7,7 @@ const ProductionJob = require("../../repositories/productionJob");
 const VendorLedger = require("../../repositories/vendorLedger");
 const { assignOrderToUser } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
+const { requirePermission } = require("../../middleware/requirePermission");
 const { norm, toDate, idToFilter, normalizeItems, normalizeSteps } = require("../../utils/orderHelpers");
 const {
   resolveOfficeAssignee,
@@ -16,7 +17,7 @@ const {
 } = require("./_shared");
 
 /* ----------------------- UPDATE ORDER (generic) ----------------------- */
-router.put("/updateOrder/:id", async (req, res) => {
+router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, res) => {
   try {
     const {
       Delivery_Date, Items, Steps, vendorAssignments, orderMode, orderNote,

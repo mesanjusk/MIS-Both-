@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { fetchDeliveredOrders } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
 import axios from "../apiClient.js";
+import ExportGuard from "../Components/ExportGuard";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -882,28 +883,30 @@ export default function AllDelivery() {
               </Select>
             </FormControl>
 
-            <Stack direction="row" spacing={1}>
-              <Tooltip title="Export as PDF">
-                <Button
-                  variant="contained" color="error" size="small"
-                  startIcon={<PictureAsPdfIcon />}
-                  onClick={exportPDF}
-                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                >
-                  PDF
-                </Button>
-              </Tooltip>
-              <Tooltip title="Export as Excel">
-                <Button
-                  variant="contained" size="small"
-                  startIcon={<GridOnIcon />}
-                  onClick={exportExcel}
-                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                >
-                  Excel
-                </Button>
-              </Tooltip>
-            </Stack>
+            <ExportGuard>
+              <Stack direction="row" spacing={1}>
+                <Tooltip title="Export as PDF">
+                  <Button
+                    variant="contained" color="error" size="small"
+                    startIcon={<PictureAsPdfIcon />}
+                    onClick={exportPDF}
+                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                  >
+                    PDF
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Export as Excel">
+                  <Button
+                    variant="contained" size="small"
+                    startIcon={<GridOnIcon />}
+                    onClick={exportExcel}
+                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                  >
+                    Excel
+                  </Button>
+                </Tooltip>
+              </Stack>
+            </ExportGuard>
           </Stack>
 
           {/* Delivery bulk action bar */}
@@ -1078,28 +1081,30 @@ export default function AllDelivery() {
                       />
                     </Tooltip>
                     {showOnly99 && (
-                      <Stack direction="row" spacing={0.5}>
-                        <Tooltip title="Export ₹99 bills as PDF">
-                          <Button
-                            variant="outlined" color="error" size="small"
-                            startIcon={<PictureAsPdfIcon />}
-                            onClick={exportPDF99}
-                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
-                          >
-                            PDF
-                          </Button>
-                        </Tooltip>
-                        <Tooltip title="Export ₹99 bills as Excel">
-                          <Button
-                            variant="outlined" color="success" size="small"
-                            startIcon={<GridOnIcon />}
-                            onClick={exportExcel99}
-                            sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
-                          >
-                            Excel
-                          </Button>
-                        </Tooltip>
-                      </Stack>
+                      <ExportGuard>
+                        <Stack direction="row" spacing={0.5}>
+                          <Tooltip title="Export ₹99 bills as PDF">
+                            <Button
+                              variant="outlined" color="error" size="small"
+                              startIcon={<PictureAsPdfIcon />}
+                              onClick={exportPDF99}
+                              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
+                            >
+                              PDF
+                            </Button>
+                          </Tooltip>
+                          <Tooltip title="Export ₹99 bills as Excel">
+                            <Button
+                              variant="outlined" color="success" size="small"
+                              startIcon={<GridOnIcon />}
+                              onClick={exportExcel99}
+                              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700, py: 0.25, fontSize: "0.7rem" }}
+                            >
+                              Excel
+                            </Button>
+                          </Tooltip>
+                        </Stack>
+                      </ExportGuard>
                     )}
                   </Stack>
                   <Typography variant="subtitle2" fontWeight={700} color="success.dark">

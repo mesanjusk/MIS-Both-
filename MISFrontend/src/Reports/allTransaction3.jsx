@@ -23,6 +23,7 @@ import UpdateDelivery from '../Pages/updateDelivery';
 import StatementModal from '../Components/StatementModal';
 import { getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
 import { ROUTES } from '../constants/routes';
+import ExportGuard from '../Components/ExportGuard';
 
 const AllTransaction3 = () => {
   const [transactions, setTransactions] = useState([]);
@@ -457,7 +458,9 @@ const AllTransaction3 = () => {
             >
               Statement PDF
             </button>
-            <button onClick={handleExportExcel} className="px-4 py-1 bg-blue-600 text-white rounded">Excel</button>
+            <ExportGuard>
+              <button onClick={handleExportExcel} className="px-4 py-1 bg-blue-600 text-white rounded">Excel</button>
+            </ExportGuard>
           </div>
         </div>
 

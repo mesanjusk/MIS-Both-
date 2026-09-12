@@ -16,6 +16,7 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import ExportGuard from '../Components/ExportGuard';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded';
 import ComputerRoundedIcon from '@mui/icons-material/ComputerRounded';
@@ -310,14 +311,16 @@ export default function DriveFolderReport() {
               Scans every subfolder recursively and lists every file found, with full folder path split into columns.
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={scanning ? <CircularProgress size={14} color="inherit" /> : <DownloadRoundedIcon />}
-            onClick={generateReport}
-            disabled={scanning}
-          >
-            {scanning ? 'Scanning…' : 'Generate Excel Report'}
-          </Button>
+          <ExportGuard>
+            <Button
+              variant="contained"
+              startIcon={scanning ? <CircularProgress size={14} color="inherit" /> : <DownloadRoundedIcon />}
+              onClick={generateReport}
+              disabled={scanning}
+            >
+              {scanning ? 'Scanning…' : 'Generate Excel Report'}
+            </Button>
+          </ExportGuard>
         </Stack>
 
         {scanning && (
@@ -341,13 +344,15 @@ export default function DriveFolderReport() {
               Nothing is uploaded anywhere.
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            startIcon={<DownloadRoundedIcon />}
-            onClick={() => localInputRef.current?.click()}
-          >
-            Choose Local Folder
-          </Button>
+          <ExportGuard>
+            <Button
+              variant="outlined"
+              startIcon={<DownloadRoundedIcon />}
+              onClick={() => localInputRef.current?.click()}
+            >
+              Choose Local Folder
+            </Button>
+          </ExportGuard>
           <input
             type="file"
             ref={localInputRef}

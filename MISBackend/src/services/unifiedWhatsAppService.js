@@ -1,7 +1,51 @@
 const sanjusk = require('./sanjuskApiService');
+const Message = require('../repositories/Message');
+const { emitNewMessage } = require('../socket');
 const logger = require('../utils/logger');
 
 const norm = (v) => String(v || '').replace(/\D/g, '');
+
+const extractSanjuskMessageId = (data) =>
+  data?.messages?.[0]?.id ||
+  data?.data?.messages?.[0]?.id ||
+  data?.messageId ||
+  data?.id ||
+  '';
+
+/**
+ * Records an outbound automation message in the Message collection and pushes
+ * it to any open inbox, exactly as the interactive dispatchers in
+ * whatsappController do for staff-typed replies. Without this, everything sent
+ * by a scheduler (digests, delivery notices, proof nudges, attendance) went out
+ * over the wire but never appeared in the conversation history, so there was no
+ * record that MIS had messaged the customer.
+ *
+ * `source` (e.g. ORDER_DELIVERED, DAILY_DIGEST) tags which flow produced it.
+ * Persistence is best-effort: the message is already delivered by the time we
+ * get here, so a failure to log must not turn a successful send into an error.
+ */
+const recordOutboundMessage = async ({ to, body, source, messageId }) => {
+  try {
+    const saved = await Message.create({
+      fromMe: true,
+      from: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+      to,
+      message: body,
+      body,
+      text: body,
+      timestamp: new Date(),
+      time: new Date(),
+      status: 'sent',
+      direction: 'outgoing',
+      type: 'text',
+      messageId: messageId || '',
+      source: source || '',
+    });
+    emitNewMessage(saved.toObject());
+  } catch (error) {
+    logger.error({ err: error.message, to, source: source || '' }, '[whatsapp] failed to record outbound automation message');
+  }
+};
 
 /**
  * One outbound text, sent by whichever provider is configured.
@@ -24,7 +68,7 @@ const norm = (v) => String(v || '').replace(/\D/g, '');
  * propagates. Quietly sending through a different provider than the one an
  * administrator selected would make delivery problems undiagnosable.
  */
-async function sendWhatsAppText({ to, body }) {
+async function sendWhatsAppText({ to, body, source = '' }) {
   const toClean = norm(to);
 
   // All outbound — automation included — goes through the one SanjuSK account
@@ -39,7 +83,15 @@ async function sendWhatsAppText({ to, body }) {
   }
 
   const result = await sanjusk.sendText({ phone: toClean, text: body, requireEnabled: false });
-  logger.info({ to: toClean, provider: 'sanjusk' }, '[whatsapp] text sent');
+  logger.info({ to: toClean, provider: 'sanjusk', source: source || '' }, '[whatsapp] text sent');
+
+  await recordOutboundMessage({
+    to: toClean,
+    body,
+    source,
+    messageId: extractSanjuskMessageId(result),
+  });
+
   return result;
 }
 

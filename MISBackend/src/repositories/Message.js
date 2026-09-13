@@ -22,6 +22,11 @@ const messageSchema = new mongoose.Schema(
     customerUuid: String,
     customerId: String,
 
+    // Tags an outbound automation send (digest, delivery notice, proof nudge,
+    // attendance, scheduled) with which flow produced it, so automation traffic
+    // is distinguishable from staff-typed replies in the inbox history.
+    source: String,
+
     // NEW: interactive / flow support
     interactiveType: String,
     replyId: String,

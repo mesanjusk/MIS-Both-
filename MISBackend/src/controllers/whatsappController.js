@@ -34,15 +34,6 @@ const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
 const sanjusk = require('../services/sanjuskApiService');
 
-/**
- * Every outbound message — automation and manual alike — is sent through the
- * one SanjuSK account the Home → Inbox uses, as long as a key is saved under
- * Admin → API. Only when no key is configured does sending fall back to the
- * direct-Meta credentials in the server environment. This keeps a single
- * sending identity across the whole product instead of two accounts.
- */
-const useSanjuskRoute = () => sanjusk.isConfigured();
-
 // Every outbound WhatsApp message goes through the SanjuSK account
 // (meta.sanjusk.in) — both incoming and outgoing traffic is handled there, and
 // direct Meta Graph sending has been retired. There is deliberately no Meta
@@ -66,17 +57,12 @@ const extractSanjuskMessageId = (data) =>
   '';
 
 /**
- * Send an interactive message (buttons or list) through SanjuSK when a key is
- * configured, but never let the attendance bot go dark: if the SanjuSK
- * interactive call fails (e.g. the endpoint is not available), fall back to
- * sending it via Meta so the menu still reaches the employee. Unlike plain
- * text — where a silent provider switch would hide delivery problems — an
- * interactive menu that fails to send dead-ends the whole flow, so keeping it
- * delivered is the safer trade. The fallback is logged, not silent.
+ * Send an interactive message (buttons or list) through SanjuSK. Like every
+ * other outbound path, this is SanjuSK-only: there is no Meta fallback, so a
+ * missing key is a hard, visible error rather than a silent switch to a second
+ * provider/number.
  */
-const sendInteractiveViaSanjuskOrMeta = async ({ sanjuskArgs }) => {
-  // SanjuSK-only: interactive buttons/lists are sent through meta.sanjusk.in,
-  // with no Meta fallback (the metaPayload callers still build is ignored).
+const sendInteractiveViaSanjusk = async ({ sanjuskArgs }) => {
   await ensureSanjuskConfigured();
   return sanjusk.sendInteractive({ ...sanjuskArgs, requireEnabled: false });
 };
@@ -101,15 +87,6 @@ const SUPPORTED_INCOMING_TYPES = new Set([
 const RESOLVED_API_VERSION = WHATSAPP_API_VERSION || 'v19.0';
 const MESSAGE_TYPES = new Set(['text', 'image', 'document', 'template', 'flow']);
 
-const ensureWhatsAppMessagingConfig = () => {
-  const config = validateWhatsAppConfig();
-  if (!config.ok) {
-    throw new AppError('Missing WhatsApp configuration', 400);
-  }
-
-  return config;
-};
-
 const normalizeWhatsAppApiError = (error, fallbackMessage = 'WhatsApp API request failed') => {
   const normalized = classifyWhatsAppApiError(error);
   const statusCode =
@@ -133,28 +110,6 @@ const normalizeWhatsAppApiError = (error, fallbackMessage = 'WhatsApp API reques
       : fallbackMessage;
 
   return new AppError(sanitizedMessage, statusCode);
-};
-
-const callWhatsAppMessagesApi = async (payload, { fallbackMessage } = {}) => {
-  const { accessToken, graphVersion, phoneNumberId } = ensureWhatsAppMessagingConfig();
-
-  try {
-    const response = await axios.post(
-      `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
-
-    return response.data;
-  } catch (error) {
-    throw normalizeWhatsAppApiError(error, fallbackMessage || 'Failed to send WhatsApp message');
-  }
 };
 
 const parseWebhookTimestamp = (timestampInSeconds) => {
@@ -613,19 +568,7 @@ const dispatchInteractiveButtons = async ({ to, bodyText, buttons = [] }) => {
   }));
   if (!limitedButtons.length) throw new AppError('At least one button is required', 400);
 
-  const payload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: normalizedTo,
-    type: 'interactive',
-    interactive: {
-      type: 'button',
-      body: { text: String(bodyText || '').slice(0, 1024) },
-      action: { buttons: limitedButtons },
-    },
-  };
-
-  const response = await sendInteractiveViaSanjuskOrMeta({
+  const response = await sendInteractiveViaSanjusk({
     sanjuskArgs: {
       phone: normalizedTo,
       type: 'button',
@@ -635,8 +578,6 @@ const dispatchInteractiveButtons = async ({ to, bodyText, buttons = [] }) => {
         title: String(btn.title).slice(0, 20),
       })),
     },
-    metaPayload: payload,
-    metaFallbackMessage: 'Failed to send WhatsApp button message',
   });
 
   const metaMessageId = extractSanjuskMessageId(response);
@@ -666,29 +607,7 @@ const dispatchInteractiveList = async ({ to, bodyText, buttonLabel = 'View', sec
   if (!normalizedTo) throw new AppError('Invalid recipient number', 400);
   if (!sections.length) throw new AppError('At least one section is required', 400);
 
-  const payload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: normalizedTo,
-    type: 'interactive',
-    interactive: {
-      type: 'list',
-      body: { text: String(bodyText || '').slice(0, 1024) },
-      action: {
-        button: String(buttonLabel).slice(0, 20),
-        sections: sections.map((section) => ({
-          title: String(section.title || '').slice(0, 24),
-          rows: (section.rows || []).slice(0, 10).map((row) => ({
-            id: String(row.id).slice(0, 200),
-            title: String(row.title).slice(0, 24),
-            ...(row.description ? { description: String(row.description).slice(0, 72) } : {}),
-          })),
-        })),
-      },
-    },
-  };
-
-  const response = await sendInteractiveViaSanjuskOrMeta({
+  const response = await sendInteractiveViaSanjusk({
     sanjuskArgs: {
       phone: normalizedTo,
       type: 'list',
@@ -703,8 +622,6 @@ const dispatchInteractiveList = async ({ to, bodyText, buttonLabel = 'View', sec
         })),
       })),
     },
-    metaPayload: payload,
-    metaFallbackMessage: 'Failed to send WhatsApp list message',
   });
 
   const metaMessageId = extractSanjuskMessageId(response);

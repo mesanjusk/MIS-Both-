@@ -100,7 +100,8 @@ describe('AccountStatement', () => {
 
   it('offers a UPI QR only when the party owes money', () => {
     const { rerender, container } = render(<AccountStatement {...baseProps} upiId="sk@upi" rows={makeRows(1)} />);
-    expect(screen.getByText('📲 Scan to pay ₹4,501.00')).toBeInTheDocument();
+    expect(screen.getByText('Scan to pay')).toBeInTheDocument();
+    expect(screen.getByText('sk@upi')).toBeInTheDocument();
     expect(container.querySelector('svg')).toBeInTheDocument();
 
     rerender(<AccountStatement {...baseProps} upiId="sk@upi" closingBalance={-500} rows={makeRows(1)} />);

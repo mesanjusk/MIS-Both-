@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
 import axios from "../apiClient.js";
 import { toast } from "./Toast";
 import AccountStatement from "./AccountStatement";
+import { buildStatementPdf, statementFileName, svgToPngDataUrl } from "../utils/statementPdf";
 
 const fmt = (n) => Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 
@@ -17,10 +16,6 @@ const DEFAULT_PROFILE = {
   upiId: "",
   upiName: "",
 };
-
-// A4 in millimetres, the unit the PDF is built in.
-const PAGE_W_MM = 210;
-const PAGE_H_MM = 297;
 
 /**
  * Preview, share and download the full account statement for one party.
@@ -81,43 +76,20 @@ export default function StatementModal({ open, onClose, statement, partyMobile =
     return () => { cancelled = true; };
   }, [open, statement]);
 
-  const buildPdf = useCallback(async () => {
-    const pageNodes = previewRef.current?.querySelectorAll("[data-statement-page]") || [];
-    if (!pageNodes.length) return null;
-
-    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    for (let i = 0; i < pageNodes.length; i += 1) {
-      const canvas = await html2canvas(pageNodes[i], { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const ratio = canvas.height / canvas.width;
-      // Fit the sheet by width, unless the page ran long — then fit by height so
-      // nothing is cut off.
-      let w = PAGE_W_MM;
-      let h = w * ratio;
-      if (h > PAGE_H_MM) {
-        h = PAGE_H_MM;
-        w = h / ratio;
-      }
-      if (i) pdf.addPage();
-      pdf.addImage(imgData, "JPEG", (PAGE_W_MM - w) / 2, 0, w, h);
-    }
-    return pdf;
-  }, []);
-
   const handleDownloadPDF = useCallback(async () => {
     setBuilding(true);
     try {
-      const pdf = await buildPdf();
-      if (!pdf) return;
-      const safeName = String(statement?.partyName || "statement").replace(/[^\w-]+/g, "-").toLowerCase();
-      pdf.save(`statement-${safeName}.pdf`);
+      // The QR is drawn as an <svg> in the preview; the PDF needs a bitmap.
+      const qr = await svgToPngDataUrl(previewRef.current?.querySelector("svg"));
+      const pdf = await buildStatementPdf({ ...statement, partyMobile }, { ...profile, addressLines }, qr);
+      pdf.save(statementFileName(statement?.partyName));
     } catch (err) {
       console.error("Statement PDF error:", err);
       toast.error("Could not build the PDF");
     } finally {
       setBuilding(false);
     }
-  }, [buildPdf, statement?.partyName]);
+  }, [statement, partyMobile, profile, addressLines]);
 
   const handlePrint = useCallback(() => {
     if (!previewRef.current) return;
@@ -249,7 +221,7 @@ export default function StatementModal({ open, onClose, statement, partyMobile =
             disabled={building}
             className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-60"
           >
-            {building ? "⏳ Building PDF…" : "⬇ Download A4 PDF"}
+            {building ? "⏳ Building PDF…" : "⬇ Download PDF"}
           </button>
         </div>
       </div>

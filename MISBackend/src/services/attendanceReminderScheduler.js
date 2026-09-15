@@ -1,4 +1,5 @@
 const User = require('../repositories/users');
+const { businessDayKey } = require('../utils/businessDay');
 const Attendance = require('../repositories/attendance');
 const {
   getAttendanceConfig,
@@ -19,7 +20,7 @@ async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
   const nowIst = getIstDate(new Date());
   if ((config.weeklyOffDays || [0]).includes(nowIst.getDay())) return;
 
-  const todayDateOnly = new Date(nowIst.toISOString().split('T')[0]);
+  const todayDateOnly = businessDayKey(new Date());
   const users = await User.find({}).lean();
 
   for (const user of users) {

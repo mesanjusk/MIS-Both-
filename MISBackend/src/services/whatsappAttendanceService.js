@@ -188,10 +188,10 @@ function getApplicableCommands({ config, attendance }) {
   );
 }
 
-// "Today" as a UTC-midnight-bucketed Date, same idiom as Attendance.Date.
+// "Today" as the shared business-day key (see utils/businessDay), which is the
+// same UTC-midnight-of-the-IST-date bucket this used to compute by hand.
 function computeIstDateOnly(base = new Date()) {
-  const ist = getIstDate(base);
-  return new Date(ist.toISOString().split('T')[0]);
+  return businessDayKey(base);
 }
 
 // ── WhatsAppPendingInput helpers, local to the attendance-absence flow ─────
@@ -359,7 +359,7 @@ async function handleAbsenceReasonReply({ pending, payload, sendText, rawText })
 
 async function executeAttendanceCommand({ config, command, employee, payload, sendText, sendButtons, sendList, sourceLabel }) {
   const eventTime = getIstDate(new Date());
-  const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
+  const attendanceDate = businessDayKey(eventTime);
   let attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate });
   const currentType = getCurrentAttendanceType(attendance);
   const attendanceType = command.attendanceType;
@@ -426,7 +426,7 @@ async function executeAttendanceCommand({ config, command, employee, payload, se
 
 async function sendApplicableAttendanceButtons({ config, employee, payload, sendText, sendButtons, introText }) {
   const eventTime = getIstDate(new Date());
-  const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
+  const attendanceDate = businessDayKey(eventTime);
   const attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate });
   const applicable = getApplicableCommands({ config, attendance });
 
@@ -455,7 +455,7 @@ async function sendApplicableAttendanceButtons({ config, employee, payload, send
 
 async function sendAttendanceUpdate({ config, employee, payload, sendText, sendButtons, sendList }) {
   const eventTime = getIstDate(new Date());
-  const attendanceDate = new Date(eventTime.toISOString().split('T')[0]);
+  const attendanceDate = businessDayKey(eventTime);
   const attendance = await Attendance.findOne({ Employee_uuid: employee.User_uuid, Date: attendanceDate }).lean();
 
   let statusLines;

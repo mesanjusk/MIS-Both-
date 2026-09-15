@@ -116,10 +116,14 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
 }));
 app.use(cors(corsOptions));
-// allowDots: true — otherwise mongo-sanitize deletes any key containing a
-// literal ".", which strips Meta's hub.mode / hub.verify_token / hub.challenge
-// webhook verification query params before they reach the route handler.
-app.use(mongoSanitize({ allowDots: true }));
+
+// Render and Vercel both put a proxy in front of this server, so req.ip is the
+// proxy's address unless the hop count is declared. Without it the rate
+// limiter groups every user behind one key. TRUST_PROXY names how many hops to
+// trust; the default of 1 matches a single platform proxy. Set it to 0 when
+// running with nothing in front, so a client cannot spoof X-Forwarded-For.
+const trustProxyHops = Number(process.env.TRUST_PROXY ?? 1);
+app.set("trust proxy", Number.isFinite(trustProxyHops) ? trustProxyHops : 1);
 
 // ---------- Core middleware ----------
 app.use(
@@ -129,6 +133,17 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+
+// Sanitization runs AFTER the body parsers: mounted before them it only ever
+// saw the query string, so a JSON body carrying operator keys like $ne reached
+// the routes untouched. The parsers have already captured rawBody above, so
+// webhook HMAC verification still sees the bytes as sent.
+//
+// allowDots: true — otherwise mongo-sanitize deletes any key containing a
+// literal ".", which strips Meta's hub.mode / hub.verify_token / hub.challenge
+// webhook verification query params before they reach the route handler.
+app.use(mongoSanitize({ allowDots: true }));
+
 app.use(compression());
 
 // ---------- General rate limit (all /api routes) ----------

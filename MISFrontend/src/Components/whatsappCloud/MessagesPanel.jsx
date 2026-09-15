@@ -18,6 +18,7 @@ import {
 import ChatHeader from './ChatHeader';
 import ChatWindow from './ChatWindow';
 import ConversationList from './ConversationList';
+import { getMessageText, getConversationPreview } from './messagePreview';
 import EmptyState from './EmptyState';
 import LoadingSkeleton from './LoadingSkeleton';
 import WhatsAppLayout from './WhatsAppLayout';
@@ -29,12 +30,6 @@ const SOCKET_URL =
   stripApiSuffix(import.meta.env.VITE_API_BASE) ||
   window.location.origin;
 
-const getMessageText = (message) =>
-  message?.body ||
-  message?.text?.body ||
-  message?.text ||
-  message?.message ||
-  'Unsupported message payload';
 
 const getTimestampRaw = (message) =>
   message?.timestamp ?? message?.createdAt ?? message?.time;
@@ -313,7 +308,7 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
 
       if (!existing.lastTimestamp || timestampMs >= parseTimestampMs(existing.lastTimestamp)) {
         existing.lastTimestamp = timestamp;
-        existing.lastMessage = getMessageText(message);
+        existing.lastMessage = getConversationPreview(message);
         existing.lastMessageType = message?.messageType || message?.type;
       }
 

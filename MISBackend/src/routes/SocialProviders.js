@@ -9,6 +9,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { createState, consumeState } = require('../services/oauthStateService');
+
+/** State is scoped per provider so it cannot be redeemed at another's callback. */
+const oauthPurpose = (provider) => `social:${String(provider || '').toLowerCase()}`;
 const { requireSocialPermission } = require('../middleware/socialAuthorize');
 const { recordAuditEvent } = require('../services/social/socialAuditLogService');
 const logger = require('../utils/logger');
@@ -100,17 +104,21 @@ router.get('/status', requireAuth, (_req, res) => {
 });
 
 // GET /api/social/providers/:provider/connect — returns the OAuth URL (requires auth so we can attribute connectedBy)
-router.get('/:provider/connect', requireAuth, requireSocialPermission('socialAccountsManage'), (req, res) => {
+router.get('/:provider/connect', requireAuth, requireSocialPermission('socialAccountsManage'), async (req, res) => {
   const service = PROVIDERS[req.params.provider];
   if (!service) return res.status(404).json({ success: false, message: 'Unknown provider' });
 
   try {
-    const returnTo = `${process.env.FRONTEND_URL || ''}/social/accounts`;
-    const state = Buffer.from(
-      JSON.stringify({ userId: req.user.id, userName: req.user.userName || '', returnTo })
-    ).toString('base64');
-    const authUrl = service.getAuthUrl(state);
-    res.json({ success: true, authUrl });
+    // Server-issued and single-use, scoped to this provider. The base64 blob it
+    // replaces carried the actor's identity unsigned, and the permission check
+    // on this endpoint did not carry over to the callback that redeemed it.
+    const state = await createState({
+      purpose: oauthPurpose(req.params.provider),
+      user: req.user,
+      returnTo: `${process.env.FRONTEND_URL || ''}/social/accounts`,
+      meta: { provider: req.params.provider },
+    });
+    res.json({ success: true, authUrl: service.getAuthUrl(state) });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
@@ -124,15 +132,25 @@ router.get('/:provider/callback', async (req, res) => {
 
   const { code, state, error: oauthError, error_description: oauthErrorDescription } = req.query;
 
-  let returnTo = `${process.env.FRONTEND_URL || ''}/social/accounts`;
-  let user = null;
-  try {
-    const parsed = JSON.parse(Buffer.from(state || '', 'base64').toString());
-    if (parsed.returnTo && isSafeRedirect(parsed.returnTo)) returnTo = parsed.returnTo;
-    if (parsed.userId) user = { id: parsed.userId, userName: parsed.userName };
-  } catch {
-    // malformed state — fall back to defaults
+  const defaultReturnTo = `${process.env.FRONTEND_URL || ''}/social/accounts`;
+
+  // Redeem the state issued when an authorized user started this flow. It is
+  // scoped to this provider, so a state issued for one cannot be redeemed at
+  // another's callback, and it establishes who is connecting.
+  const issued = await consumeState(state, oauthPurpose(providerName));
+  if (!issued) {
+    return res.status(400).send(
+      resultPage({
+        ok: false,
+        title: `${providerName} connection failed`,
+        message: 'This sign-in link is invalid, expired, or has already been used. Start again from the app.',
+        returnTo: defaultReturnTo,
+      })
+    );
   }
+
+  const returnTo = isSafeRedirect(issued.return_to) ? issued.return_to : defaultReturnTo;
+  const user = issued.user_id ? { id: issued.user_id, userName: issued.user_name } : null;
 
   if (oauthError) {
     return res.status(400).send(

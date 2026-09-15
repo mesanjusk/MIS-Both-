@@ -31,6 +31,7 @@ import FloatingButtons from '../Components/FloatingButtons';
 import RightSidebar from '../Components/RightSidebar';
 import CustomizeDialog from '../Components/CustomizeDialog';
 import axios, { getApiBase } from '../apiClient';
+import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { ROUTES } from '../constants/routes';
 import { useSidebarVisibility } from '../hooks/useNavCustomize';
 import { itemsForSection } from '../constants/sidebarMenu';
@@ -71,9 +72,7 @@ export default function Layout() {
   const canCreateOrders = usePermission('canCreateOrders');
 
   const openGoogleDriveReconnect = () => {
-    const baseUrl = getApiBase() || window.location.origin;
-    const returnTo = encodeURIComponent(window.location.href);
-    window.location.href = `${baseUrl}/api/google-drive/connect?returnTo=${returnTo}`;
+    startGoogleDriveConnect(window.location.href);
   };
 
   const handleNewOrderClick = useCallback(async () => {

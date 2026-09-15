@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { startGoogleDriveConnect } from '../../utils/googleDriveConnect';
 import {
   Alert,
   AlertTitle,
@@ -2852,7 +2853,7 @@ export default function DesignFilesWidget() {
             <Typography variant="subtitle2" fontWeight={600}>Google Drive disconnected</Typography>
             <Typography variant="body2" color="text.secondary">Reconnect to track design files.</Typography>
           </Box>
-          <Button size="small" variant="outlined" color="warning" onClick={() => window.open('/api/google-drive/connect', '_blank')}>
+          <Button size="small" variant="outlined" color="warning" onClick={() => startGoogleDriveConnect(window.location.href)}>
             Reconnect
           </Button>
         </Stack>

@@ -16,6 +16,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios, { getApiBase } from '../apiClient.js';
+import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
@@ -62,8 +63,10 @@ export default function Login() {
         const returnTo = userGroupValue === 'Vendor'
           ? `${window.location.origin}/vendorHome`
           : `${window.location.origin}/home`;
-        window.location.href = `${BACKEND_BASE}/api/google-drive/connect?returnTo=${encodeURIComponent(returnTo)}`;
-        return;
+        // Only an admin can connect the installation's Drive account; everyone
+        // else carries on to their home page rather than being sent into a
+        // consent screen they cannot complete.
+        if (await startGoogleDriveConnect(returnTo)) return;
       }
       navigate(target, { replace: true });
     } catch (error) {

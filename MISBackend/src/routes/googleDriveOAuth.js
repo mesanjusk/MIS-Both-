@@ -2,6 +2,12 @@ const express = require("express");
 const router = express.Router();
 const GoogleDriveToken = require("../repositories/googleDriveToken");
 const { requireAuth } = require("../middleware/auth");
+const { requireAdmin } = require("../middleware/authorize");
+const { createState, consumeState } = require("../services/oauthStateService");
+
+// Drive is connected once for the whole installation, so starting the flow is
+// an administrative act, not something any caller may trigger.
+const OAUTH_PURPOSE = "google_drive";
 
 const { getGoogleDriveAuthUrl, saveGoogleTokensFromCode, isDriveAutomationEnabled, getGoogleDriveConnectionStatus } = require('../services/googleDriveOAuthService');
 
@@ -38,11 +44,50 @@ function isSafeRedirect(url) {
 }
 
 
-router.get("/connect", async (req, res) => {
+/**
+ * Hand the browser a consent URL carrying a freshly issued state.
+ *
+ * The browser cannot send an Authorization header on a top-level navigation,
+ * so the flow is two steps: the app asks for this URL over the authenticated
+ * API client, then navigates to Google directly. /connect below does the same
+ * thing for a caller that can present a token on the redirect itself.
+ */
+router.get("/auth-url", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { returnTo } = req.query;
-    const url = getGoogleDriveAuthUrl(returnTo || "");
-    return res.redirect(url);
+    const safeReturnTo = isSafeRedirect(returnTo) ? returnTo : "";
+
+    const state = await createState({
+      purpose: OAUTH_PURPOSE,
+      user: req.user,
+      returnTo: safeReturnTo,
+    });
+
+    return res.json({ success: true, authUrl: getGoogleDriveAuthUrl(state) });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to start Google OAuth",
+      error: error.message,
+    });
+  }
+});
+
+router.get("/connect", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { returnTo } = req.query;
+
+    // Validated now, stored against the nonce, and used at the callback — so
+    // the callback cannot choose its own redirect target.
+    const safeReturnTo = isSafeRedirect(returnTo) ? returnTo : "";
+
+    const state = await createState({
+      purpose: OAUTH_PURPOSE,
+      user: req.user,
+      returnTo: safeReturnTo,
+    });
+
+    return res.redirect(getGoogleDriveAuthUrl(state));
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -54,18 +99,28 @@ router.get("/connect", async (req, res) => {
 
 router.get("/callback", async (req, res) => {
   try {
-    const { code, state, returnTo } = req.query;
+    const { code, state } = req.query;
 
     if (!code) {
       return res.status(400).send("Missing authorization code");
     }
 
+    // Redeem the state before touching the token record. Without this an
+    // unauthorized person who could complete Google consent for this OAuth
+    // client was able to replace the installation's Drive connection.
+    const issued = await consumeState(state, OAUTH_PURPOSE);
+    if (!issued) {
+      return res
+        .status(400)
+        .send("This Google sign-in link is invalid, expired, or has already been used. Start again from the app.");
+    }
+
     const result = await saveGoogleTokensFromCode(code);
 
-    // Validate redirect URL to prevent open redirect attacks
+    // The redirect target was validated when the flow started; `returnTo` from
+    // the callback query is deliberately ignored.
     const defaultUrl = process.env.DEFAULT_REDIRECT_URL || process.env.FRONTEND_URL || '/home';
-    const candidateUrl = returnTo || state || defaultUrl;
-    const redirectUrl = isSafeRedirect(candidateUrl) ? candidateUrl : defaultUrl;
+    const redirectUrl = isSafeRedirect(issued.return_to) ? issued.return_to : defaultUrl;
 
     return res.send(`
       <html>

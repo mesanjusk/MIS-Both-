@@ -1,6 +1,7 @@
 // scripts/create-accounting-indexes.js
 //
-// Install the accounting indexes on a deployed database.
+// Install the accounting, shared-link and OAuth-state indexes on a deployed
+// database.
 //
 // Production runs with autoIndex disabled and does not call syncIndexes, so
 // declaring an index in the schema does not create it on the server. This
@@ -82,6 +83,18 @@ async function findDuplicates(collection, field) {
     await Transactions.createIndex({ Source: 1, Order_uuid: 1 }, { name: "Source_Order_uuid" });
     await Transactions.createIndex({ Source: 1, Order_number: 1 }, { name: "Source_Order_number" });
     console.log("✅ Created duplicate-guard lookup indexes on Source + order reference.");
+
+    // Shared invoice/receipt links: expiry is enforced in the read route, so
+    // this only sweeps lapsed rows away.
+    const PublicInvoices = mongoose.connection.collection("public_invoices");
+    await PublicInvoices.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: "expiresAt_ttl" });
+    console.log("✅ Created TTL index on public_invoices.expiresAt.");
+
+    // OAuth state rows are single-use; this clears any never redeemed.
+    const OAuthStates = mongoose.connection.collection("oauthstates");
+    await OAuthStates.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0, name: "expires_at_ttl" });
+    await OAuthStates.createIndex({ nonce: 1 }, { unique: true, name: "nonce_unique" });
+    console.log("✅ Created OAuth state indexes.");
 
     await mongoose.disconnect();
     process.exit(0);

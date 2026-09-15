@@ -5,6 +5,7 @@ const Orders = require('../repositories/order');
 const Usertasks = require('../repositories/usertask');
 const DesignFileLink = require('../repositories/DesignFileLink');
 const { renderTemplate } = require('./whatsappTemplateService');
+const { runDueJobs } = require('./dailyScheduleService');
 const logger = require('../utils/logger');
 
 async function processScheduledMessages() {
@@ -196,36 +197,34 @@ async function sendOwnerDailySummary() {
 }
 
 let schedulerStarted = false;
-let lastMorningRun = '';
-let lastEveningRun = '';
-let lastOwnerSummaryRun = '';
+
+// Scheduled in IST. `catchUpMinutes` is how late a run may still be worth
+// sending after a sleeping or restarting process missed its slot — see
+// dailyScheduleService for why an exact-minute match cannot work here.
+const DAILY_JOBS = [
+  { key: 'digest.morning', hour: 9, minute: 0, catchUpMinutes: 4 * 60, run: () => sendDigestToAllUsers('morning') },
+  {
+    key: 'digest.owner_summary',
+    hour: 9,
+    minute: 0,
+    catchUpMinutes: 4 * 60,
+    run: async () => {
+      await sendOwnerDailySummary();
+      await sendStuckFilesDigest();
+    },
+  },
+  // Shorter window: an "overdue today" digest is about the day that is ending,
+  // so past midnight it is describing yesterday.
+  { key: 'digest.evening', hour: 19, minute: 0, catchUpMinutes: 3 * 60, run: () => sendDigestToAllUsers('evening') },
+];
 
 function initTaskDigestScheduler() {
   if (schedulerStarted) return;
   schedulerStarted = true;
-  setInterval(async () => {
-    const now = new Date();
-    const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    const key = ist.toISOString().slice(0, 10);
-    const hour = ist.getHours();
-    const minute = ist.getMinutes();
-    try {
-      if (hour === 9 && minute === 0 && lastMorningRun !== key) {
-        lastMorningRun = key;
-        await sendDigestToAllUsers('morning');
-      }
-      if (hour === 9 && minute === 0 && lastOwnerSummaryRun !== key) {
-        lastOwnerSummaryRun = key;
-        await sendOwnerDailySummary();
-        await sendStuckFilesDigest();
-      }
-      if (hour === 19 && minute === 0 && lastEveningRun !== key) {
-        lastEveningRun = key;
-        await sendDigestToAllUsers('evening');
-      }
-    } catch (error) {
+  setInterval(() => {
+    runDueJobs(DAILY_JOBS).catch((error) => {
       logger.error('Task digest scheduler error:', error);
-    }
+    });
   }, 60 * 1000);
 }
 
@@ -334,6 +333,7 @@ async function sendStuckFilesDigest() {
 }
 
 module.exports = {
+  DAILY_JOBS,
   initScheduler,
   scheduleMessage,
   getPendingMessages,

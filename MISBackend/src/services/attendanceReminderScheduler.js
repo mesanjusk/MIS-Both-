@@ -6,6 +6,7 @@ const {
   getIstDate,
 } = require('./whatsappAttendanceService');
 const { renderTemplate } = require('./whatsappTemplateService');
+const { runDueJobs } = require('./dailyScheduleService');
 const logger = require('../utils/logger');
 
 // Daily "Good morning, are you coming in today?" broadcast — sent to every
@@ -40,18 +41,24 @@ async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
   }
 }
 
-let lastCheckInRun = '';
+// Two hours. "Are you coming in today?" is worth asking if the process woke
+// late in the morning; by midday the answer is already visible in whether the
+// employee turned up, and asking then reads as broken rather than helpful.
+const CHECK_IN_CATCH_UP_MINUTES = 2 * 60;
 
 function initAttendanceReminderScheduler({ sendText, sendButtons }) {
   setInterval(() => {
-    const nowIst = getIstDate(new Date());
-    const key = nowIst.toISOString().slice(0, 10);
-    if (nowIst.getHours() === 8 && nowIst.getMinutes() === 0 && lastCheckInRun !== key) {
-      lastCheckInRun = key;
-      sendDailyAttendanceCheckIn({ sendText, sendButtons }).catch((err) => {
-        logger.error('[attendance-checkin] scheduler run failed:', err);
-      });
-    }
+    runDueJobs([
+      {
+        key: 'attendance.checkin',
+        hour: 8,
+        minute: 0,
+        catchUpMinutes: CHECK_IN_CATCH_UP_MINUTES,
+        run: () => sendDailyAttendanceCheckIn({ sendText, sendButtons }),
+      },
+    ]).catch((err) => {
+      logger.error('[attendance-checkin] scheduler run failed:', err);
+    });
   }, 60 * 1000);
 }
 

@@ -53,17 +53,16 @@ client.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    const canRetryRemote =
-      isLocalhost &&
-      SERVER_API &&
-      originalConfig.baseURL !== SERVER_API &&
-      !originalConfig.__retriedWithServer &&
-      isNetworkFailure;
-
-    if (canRetryRemote) {
-      originalConfig.__retriedWithServer = true;
-      originalConfig.baseURL = SERVER_API;
-      return client(originalConfig);
+    // A local request that cannot reach a local server used to be retried
+    // against the configured server — production by default — for every method,
+    // so a development POST, PUT or DELETE could be replayed against live data
+    // whenever the local backend was simply not running. The environment is
+    // chosen once, at startup, from VITE_API_LOCAL / VITE_API_SERVER; a failure
+    // to reach it is reported rather than quietly sent somewhere else.
+    if (isLocalhost && isNetworkFailure) {
+      console.error(
+        `Could not reach the API at ${currentBaseURL}. Start the local backend, or point VITE_API_LOCAL at the environment you mean to use.`
+      );
     }
 
     return Promise.reject(error);

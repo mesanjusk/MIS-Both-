@@ -59,6 +59,43 @@ const saveLastRuns = (lastRuns) =>
   });
 
 /**
+ * Claim today's run of one job.
+ *
+ * Every job's marker lives in a single settings object that was loaded whole,
+ * mutated and written back whole. Jobs are driven by separate timers, so two
+ * saves overlapping meant one job's marker overwrote another's — and the job
+ * whose marker was lost ran a second time.
+ *
+ * The claim is one conditional update touching only that job's field: it
+ * succeeds for exactly one caller, and cannot disturb any other job's marker.
+ *
+ * @returns {Promise<boolean>} true if this caller may run the job
+ */
+const claimJobForToday = async (jobKey, today) => {
+  const field = `value.${jobKey}`;
+
+  // The settings document must exist before a field-level update can match it.
+  await AppSetting.updateOne(
+    { key: SETTING_KEY },
+    {
+      $setOnInsert: {
+        key: SETTING_KEY,
+        value: {},
+        description: 'Last completed run day (IST) per scheduled job',
+      },
+    },
+    { upsert: true }
+  );
+
+  const result = await AppSetting.updateOne(
+    { key: SETTING_KEY, [field]: { $ne: today } },
+    { $set: { [field]: today } }
+  );
+
+  return Number(result.modifiedCount || result.nModified || 0) === 1;
+};
+
+/**
  * Decides what a job should do right now.
  *
  *   'run'   — its time has passed today, it has not run, and it is still
@@ -103,14 +140,27 @@ const runDueJobs = async (jobs, { now = new Date() } = {}) => {
   }
 
   const outcomes = [];
-  let dirty = false;
 
   for (const job of jobs) {
     const verdict = decide({ ist, ...job, lastRunDay: lastRuns[job.key] });
     if (verdict === 'skip') continue;
 
-    lastRuns[job.key] = today;
-    dirty = true;
+    // Claim before doing anything. Whoever wins the claim owns today's run;
+    // a concurrent timer that loses simply moves on.
+    let claimed;
+    try {
+      claimed = await claimJobForToday(job.key, today);
+    } catch (error) {
+      logger.error({ job: job.key, err: error.message }, '[scheduler] could not claim daily job; skipping');
+      outcomes.push({ key: job.key, ran: false, reason: 'claim_failed', error: error.message });
+      continue;
+    }
+
+    if (!claimed) {
+      // Someone else already has today: not an error.
+      outcomes.push({ key: job.key, ran: false, reason: 'already_claimed' });
+      continue;
+    }
 
     if (verdict === 'stale') {
       logger.warn({ job: job.key, day: today }, '[scheduler] catch-up window closed; skipping today');
@@ -120,22 +170,20 @@ const runDueJobs = async (jobs, { now = new Date() } = {}) => {
 
     const lateBy = minutesSinceMidnight(ist) - (job.hour * 60 + job.minute);
     try {
-      await saveLastRuns(lastRuns);
-      dirty = false;
       logger.info({ job: job.key, day: today, lateByMinutes: lateBy }, '[scheduler] running daily job');
       await job.run();
       outcomes.push({ key: job.key, ran: true, lateByMinutes: lateBy });
     } catch (error) {
-      logger.error({ job: job.key, err: error.message }, '[scheduler] daily job failed');
+      // The claim is deliberately NOT released. These jobs message every
+      // employee, and a job that failed partway has already sent to some of
+      // them; retrying would message those people twice. At-most-once is the
+      // safer default here, so a failure is surfaced loudly and left for a
+      // person to decide about.
+      logger.error(
+        { job: job.key, day: today, err: error.message },
+        '[scheduler] daily job failed after claiming today — it will NOT be retried automatically'
+      );
       outcomes.push({ key: job.key, ran: false, reason: 'error', error: error.message });
-    }
-  }
-
-  if (dirty) {
-    try {
-      await saveLastRuns(lastRuns);
-    } catch (error) {
-      logger.error({ err: error.message }, '[scheduler] could not persist last-run markers');
     }
   }
 

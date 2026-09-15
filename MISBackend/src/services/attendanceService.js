@@ -1,8 +1,12 @@
 const { v4: uuid } = require('uuid');
 const Attendance = require('../repositories/attendance');
+const { businessDateString, businessDayKey } = require('../utils/businessDay');
 
-const getTodayDateString = (date = new Date()) => date.toISOString().split('T')[0];
-const getDateOnly = (date = new Date()) => { const value = new Date(date); value.setHours(0,0,0,0); return value; };
+// Both were locally defined and disagreed: one produced a UTC date string, the
+// other a local midnight, while the daily schedulers worked in Asia/Kolkata.
+// They now share the one business-day definition (see utils/businessDay).
+const getTodayDateString = (date = new Date()) => businessDateString(date);
+const getDateOnly = (date = new Date()) => businessDayKey(date);
 
 // Shared attendance state machine — used by both the WhatsApp bot and the
 // dashboard so a mark made through either channel obeys the same rules

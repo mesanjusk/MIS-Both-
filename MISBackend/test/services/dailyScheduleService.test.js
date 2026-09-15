@@ -15,6 +15,47 @@ jest.mock('../../src/repositories/appSetting', () => ({
       mockStore.set(key, JSON.parse(JSON.stringify(value)));
       return value;
     }),
+
+    /**
+     * Enough of updateOne to model the per-job claim: the `value.<job>` $ne
+     * guard that makes the claim conditional, $set on that one field, and
+     * $setOnInsert for creating the settings document. modifiedCount is what
+     * tells the caller whether it won the claim.
+     */
+    updateOne: jest.fn(async (filter, update, options = {}) => {
+      const key = filter.key;
+      const exists = mockStore.has(key);
+
+      if (!exists) {
+        if (options.upsert && update.$setOnInsert) {
+          mockStore.set(key, JSON.parse(JSON.stringify(update.$setOnInsert.value || {})));
+          return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
+        }
+        return { matchedCount: 0, modifiedCount: 0 };
+      }
+
+      const current = mockStore.get(key);
+
+      // Honour a `value.<field>: { $ne: x }` condition.
+      const fieldCondition = Object.entries(filter).find(([k]) => k.startsWith('value.'));
+      if (fieldCondition) {
+        const [path, condition] = fieldCondition;
+        const field = path.slice('value.'.length);
+        if (condition && '$ne' in condition && current[field] === condition.$ne) {
+          return { matchedCount: 0, modifiedCount: 0 };
+        }
+      }
+
+      if (update.$set) {
+        for (const [path, val] of Object.entries(update.$set)) {
+          if (path.startsWith('value.')) current[path.slice('value.'.length)] = val;
+        }
+        mockStore.set(key, current);
+        return { matchedCount: 1, modifiedCount: 1 };
+      }
+
+      return { matchedCount: 1, modifiedCount: 0 };
+    }),
   },
 }));
 
@@ -37,6 +78,7 @@ beforeEach(() => {
   mockStore.clear();
   AppSetting.getSetting.mockClear();
   AppSetting.upsertSetting.mockClear();
+  AppSetting.updateOne.mockClear();
 });
 
 describe('decide', () => {

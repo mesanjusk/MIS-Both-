@@ -9,6 +9,8 @@ const { formatIST } = require("../utils/dateTime");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
+const { tierFor } = require('../utils/roleHierarchy');
+const { businessDateString } = require('../utils/businessDay');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
 
 const toLower = (value = "") => String(value || "").trim().toLowerCase();
@@ -97,6 +99,31 @@ const buildPendingTaskMessage = ({ user, assignments }) => {
 // employee. Attendance is what the Operations fallback reads to decide whether
 // a primary is available, so a forged mark does not stop at a wrong timesheet:
 // it silently changes who owns work for the rest of the day.
+/**
+ * Whether the caller may act on `targetUserName`'s attendance.
+ *
+ * A JWT-authenticated request took User_name from the body with nothing tying
+ * it to the caller, so any member of staff could mark, or change the state of,
+ * anyone else's attendance. Attendance decides who the Operations fallback
+ * considers available, so a wrong mark reassigns work as well as a timesheet.
+ *
+ * The shared-device flow is deliberately different: it authenticates with
+ * INTERNAL_API_KEY rather than a session precisely so one device can mark for
+ * everybody, and is left alone here.
+ */
+function mayActOnAttendanceFor(req, targetUserName) {
+  // Shared device key — no session to compare against.
+  if (req.headers['x-internal-key']) return true;
+
+  const caller = String(req.user?.userName || req.user?.User_name || '').trim().toLowerCase();
+  const target = String(targetUserName || '').trim().toLowerCase();
+
+  if (caller && caller === target) return true;
+
+  // Managers and above mark on behalf of their staff.
+  return tierFor(req.user?.userGroup || req.user?.User_group) >= 3;
+}
+
 router.post('/addAttendance', (req, res, next) => {
   // The device key is checked first and validated against INTERNAL_API_KEY;
   // requireInternalKey refuses when the variable is unset rather than opening
@@ -112,7 +139,14 @@ router.post('/addAttendance', (req, res, next) => {
     return res.status(400).json({ success: false, message: 'All fields are required' });
   }
 
-  const currentDate = new Date().toISOString().split('T')[0];
+  if (!mayActOnAttendanceFor(req, User_name)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You can only mark your own attendance.',
+    });
+  }
+
+  const currentDate = businessDateString();
 
   try {
     const user = await User.findOne({ User_name });
@@ -290,7 +324,7 @@ router.get('/getTodayAttendance/:userName', async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const currentDate = new Date().toISOString().split("T")[0];
+    const currentDate = businessDateString();
 
     const todayAttendance = await Attendance.findOne({
       Employee_uuid: user.User_uuid,
@@ -318,11 +352,18 @@ router.get('/getTodayAttendance/:userName', async (req, res) => {
   }
 });
 
-router.post('/setAttendanceState', async (req, res) => {
+router.post('/setAttendanceState', requireAuth, async (req, res) => {
   const { User_name, State } = req.body;
 
   if (!User_name || !State) {
     return res.status(400).json({ success: false, message: 'All fields are required' });
+  }
+
+  if (!mayActOnAttendanceFor(req, User_name)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You can only change your own attendance state.',
+    });
   }
 
   try {
@@ -332,7 +373,7 @@ router.post('/setAttendanceState', async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const currentDate = new Date().toISOString().split('T')[0];
+    const currentDate = businessDateString();
     let todayAttendance = await Attendance.findOne({
       Employee_uuid: user.User_uuid,
       Date: currentDate

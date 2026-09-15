@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
+const Transaction = require('../repositories/transaction');
 const { requireAdmin } = require('../middleware/authorize');
 const PublicInvoice = require('../repositories/publicInvoice');
 const Orders = require('../repositories/order');
@@ -139,13 +141,18 @@ router.post('/migrate', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Save invoice and return shareToken (authenticated)
-router.post('/', requireAuth, async (req, res) => {
+router.post('/', requireAuth, requirePermission('canPostTransactions'), async (req, res) => {
   try {
     const {
       orderNumber, partyName, dateStr,
-      storeName, addressLines, phone, email, gst, upiId, upiName,
       items, extraCharges, grandTotal, cloudinaryUrl,
     } = req.body;
+
+    // Store identity and — critically — the UPI payee come from the business
+    // profile, never from the request. A caller able to set upiId could point
+    // a shared payment link at their own account.
+    const { storeName, addressLines, phone, email, gst, upiId, upiName } =
+      await loadProfileSnapshot();
 
     // Upsert: if same order number re-saved, update rather than duplicate.
     // docType is $ne-matched so legacy docs (saved before docType existed) still match.
@@ -177,7 +184,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 // Update cloudinaryUrl after PDF upload (authenticated)
-router.patch('/:shareToken/pdf', requireAuth, async (req, res) => {
+router.patch('/:shareToken/pdf', requireAuth, requirePermission('canPostTransactions'), async (req, res) => {
   try {
     const { cloudinaryUrl } = req.body;
     await PublicInvoice.findOneAndUpdate(
@@ -222,7 +229,7 @@ router.get('/by-transaction/:transactionUuid', requireAuth, async (req, res) => 
 
 // Create (or refresh) the shareable voucher for a receipt / payment transaction.
 // Idempotent per transaction so the same link keeps working after a re-open.
-router.post('/receipt', requireAuth, async (req, res) => {
+router.post('/receipt', requireAuth, requirePermission('canPostTransactions'), async (req, res) => {
   try {
     const {
       transactionUuid, transactionId, orderNumber,
@@ -233,6 +240,16 @@ router.post('/receipt', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'transactionUuid is required' });
     }
 
+    // A receipt states what the ledger recorded, so the figures come from the
+    // transaction rather than from the request. Accepting amount and party from
+    // the body let a shared receipt disagree with the posting it represents.
+    const txn = await Transaction.findOne({ Transaction_uuid: String(transactionUuid) }).lean();
+    if (!txn) {
+      return res.status(404).json({ success: false, message: 'Transaction not found' });
+    }
+
+    const ledgerAmount = Number(txn.Total_Debit || txn.Total_Credit || 0);
+
     const profile = await loadProfileSnapshot();
     const doc = await PublicInvoice.findOneAndUpdate(
       { transactionUuid: String(transactionUuid), docType: 'receipt' },
@@ -240,13 +257,13 @@ router.post('/receipt', requireAuth, async (req, res) => {
         docType: 'receipt',
         voucherType: ['receipt', 'payment', 'journal'].includes(voucherType) ? voucherType : 'receipt',
         transactionUuid: String(transactionUuid),
-        transactionId:   transactionId != null ? String(transactionId) : '',
-        orderNumber:     orderNumber != null ? String(orderNumber) : '',
+        transactionId:   txn.Transaction_id != null ? String(txn.Transaction_id) : '',
+        orderNumber:     txn.Order_number != null ? String(txn.Order_number) : '',
         partyName:       partyName || '',
-        dateStr:         dateStr || new Date().toLocaleDateString('en-GB'),
-        amount:          Number(amount) || 0,
-        grandTotal:      Number(amount) || 0,
-        paymentMode:     paymentMode || '',
+        dateStr:         dateStr || new Date(txn.Transaction_date || Date.now()).toLocaleDateString('en-GB'),
+        amount:          ledgerAmount,
+        grandTotal:      ledgerAmount,
+        paymentMode:     txn.Payment_mode || paymentMode || '',
         narration:       narration || '',
         items: [],
         extraCharges: [],
@@ -342,6 +359,27 @@ router.get('/p/:shareToken', async (req, res) => {
   try {
     const doc = await PublicInvoice.findOne({ shareToken: req.params.shareToken }).lean();
     if (!doc) return res.status(404).json({ success: false, message: 'Invoice not found' });
+
+    // expiresAt was stored but never checked, and there is no TTL index behind
+    // it, so every link issued was effectively permanent. Answer explicitly:
+    // 410 says the link existed and has lapsed, which is what a customer
+    // looking at an old link needs to be told.
+    if (doc.expiresAt && new Date(doc.expiresAt).getTime() < Date.now()) {
+      return res.status(410).json({
+        success: false,
+        expired: true,
+        message: 'This link has expired. Please ask for a new one.',
+      });
+    }
+
+    if (doc.revokedAt) {
+      return res.status(410).json({
+        success: false,
+        revoked: true,
+        message: 'This link has been withdrawn. Please ask for a new one.',
+      });
+    }
+
     res.json({ success: true, result: doc });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

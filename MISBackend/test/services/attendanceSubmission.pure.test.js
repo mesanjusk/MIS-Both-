@@ -121,12 +121,31 @@ describe('the transition map itself', () => {
 });
 
 describe('the date key a mark is filed under', () => {
-  test('getDateOnly strips the time, so two marks on one day share a record', () => {
-    const morning = getDateOnly(new Date('2026-08-31T04:00:00.000Z'));
-    const evening = getDateOnly(new Date('2026-08-31T18:30:00.000Z'));
+  // The day key is the business calendar date (Asia/Kolkata) read as UTC
+  // midnight. Asserting in UTC keeps these independent of the server's own
+  // timezone — the previous getHours() checks passed under TZ=UTC and failed
+  // under TZ=Asia/Kolkata.
+  test('two marks on one working day share a record', () => {
+    const morning = getDateOnly(new Date('2026-08-31T04:00:00.000Z')); // 09:30 IST
+    const evening = getDateOnly(new Date('2026-08-31T18:29:00.000Z')); // 23:59 IST
     expect(morning.getTime()).toBe(evening.getTime());
-    expect(morning.getHours()).toBe(0);
-    expect(morning.getMinutes()).toBe(0);
+    expect(morning.toISOString()).toBe('2026-08-31T00:00:00.000Z');
+  });
+
+  test('the day rolls at Indian midnight, not at UTC midnight', () => {
+    // 18:30Z is 00:00 the next day in India, so it belongs to the next working
+    // day. Filing it under 31 August was the defect.
+    const lateAug31 = getDateOnly(new Date('2026-08-31T18:29:00.000Z'));
+    const earlySep1 = getDateOnly(new Date('2026-08-31T18:30:00.000Z'));
+
+    expect(lateAug31.toISOString()).toBe('2026-08-31T00:00:00.000Z');
+    expect(earlySep1.toISOString()).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  test('an early-morning UTC moment is still the same Indian day', () => {
+    // 20:00Z on 30 Aug is 01:30 IST on 31 Aug.
+    expect(getDateOnly(new Date('2026-08-30T20:00:00.000Z')).toISOString())
+      .toBe('2026-08-31T00:00:00.000Z');
   });
 
   test('getDateOnly does not mutate the date it was given', () => {
@@ -136,7 +155,9 @@ describe('the date key a mark is filed under', () => {
     expect(original.getTime()).toBe(copy.getTime());
   });
 
-  test('getTodayDateString is a plain YYYY-MM-DD key', () => {
-    expect(getTodayDateString(new Date('2026-08-31T18:30:00.000Z'))).toBe('2026-08-31');
+  test('getTodayDateString is a plain YYYY-MM-DD key in the business timezone', () => {
+    // 18:30Z is already 1 September in India.
+    expect(getTodayDateString(new Date('2026-08-31T18:30:00.000Z'))).toBe('2026-09-01');
+    expect(getTodayDateString(new Date('2026-08-31T18:29:00.000Z'))).toBe('2026-08-31');
   });
 });

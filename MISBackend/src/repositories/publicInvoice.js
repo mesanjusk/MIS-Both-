@@ -50,8 +50,15 @@ const publicInvoiceSchema = new mongoose.Schema(
     // optional cloudinary PDF url
     cloudinaryUrl: { type: String, default: '' },
     expiresAt: { type: Date, default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
+    // Set to withdraw a link before it would otherwise lapse.
+    revokedAt: { type: Date, default: null },
   },
   { timestamps: true, collection: 'public_invoices' }
 );
+
+// Expired links are refused by the read route regardless; this only sweeps the
+// rows away afterwards. Needs creating on a deployed database — production runs
+// with autoIndex off (see scripts/create-accounting-indexes.js).
+publicInvoiceSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model('PublicInvoice', publicInvoiceSchema);

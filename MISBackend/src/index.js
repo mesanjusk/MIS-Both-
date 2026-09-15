@@ -16,6 +16,8 @@ const http = require("http");
 const connectDB = require("./config/mongo");
 const compression = require("compression");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
+const { uploadErrorHandler } = require("./middleware/uploadLimits");
+const { drainPendingMetabspEvents } = require("./controllers/whatsappController");
 const { requireAuth } = require("./middleware/auth");
 const { apiUsageMiddleware } = require("./middleware/apiUsage");
 const {
@@ -106,6 +108,31 @@ const SocialOverviewRouter = require("./routes/SocialOverview");
 const SocialProvidersRouter = require("./routes/SocialProviders");
 const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
 
+/**
+ * Re-run inbound WhatsApp deliveries that were recorded but never processed.
+ *
+ * The webhook stores each delivery before acknowledging it, so a crash or a
+ * processing failure no longer loses the message — this is what picks those
+ * rows back up.
+ */
+const INBOUND_RETRY_INTERVAL_MS = 60 * 1000;
+
+function initInboundWebhookRetry() {
+  const timer = setInterval(async () => {
+    try {
+      const processed = await drainPendingMetabspEvents();
+      if (processed) {
+        logger.info({ processed }, '[whatsapp] reprocessed pending inbound deliveries');
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, '[whatsapp] inbound retry sweep failed');
+    }
+  }, INBOUND_RETRY_INTERVAL_MS);
+
+  // Never hold the process open for the sweep alone.
+  if (timer.unref) timer.unref();
+}
+
 const app = express();
 const server = http.createServer(app);
 initSocket(server);
@@ -116,10 +143,14 @@ app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
 }));
 app.use(cors(corsOptions));
-// allowDots: true — otherwise mongo-sanitize deletes any key containing a
-// literal ".", which strips Meta's hub.mode / hub.verify_token / hub.challenge
-// webhook verification query params before they reach the route handler.
-app.use(mongoSanitize({ allowDots: true }));
+
+// Render and Vercel both put a proxy in front of this server, so req.ip is the
+// proxy's address unless the hop count is declared. Without it the rate
+// limiter groups every user behind one key. TRUST_PROXY names how many hops to
+// trust; the default of 1 matches a single platform proxy. Set it to 0 when
+// running with nothing in front, so a client cannot spoof X-Forwarded-For.
+const trustProxyHops = Number(process.env.TRUST_PROXY ?? 1);
+app.set("trust proxy", Number.isFinite(trustProxyHops) ? trustProxyHops : 1);
 
 // ---------- Core middleware ----------
 app.use(
@@ -129,6 +160,17 @@ app.use(
   })
 );
 app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+
+// Sanitization runs AFTER the body parsers: mounted before them it only ever
+// saw the query string, so a JSON body carrying operator keys like $ne reached
+// the routes untouched. The parsers have already captured rawBody above, so
+// webhook HMAC verification still sees the bytes as sent.
+//
+// allowDots: true — otherwise mongo-sanitize deletes any key containing a
+// literal ".", which strips Meta's hub.mode / hub.verify_token / hub.challenge
+// webhook verification query params before they reach the route handler.
+app.use(mongoSanitize({ allowDots: true }));
+
 app.use(compression());
 
 // ---------- General rate limit (all /api routes) ----------
@@ -253,6 +295,7 @@ app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
   initProofFollowupScheduler();
   initAttendanceReminderScheduler({ sendText: dispatchTextMessage, sendButtons: dispatchInteractiveButtons });
   initSocialPublishingScheduler();
+  initInboundWebhookRetry();
 
   // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
   try {
@@ -291,6 +334,9 @@ app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
 
 // ---------- Error handling ----------
 app.use(notFound);
+// Before the general handler: multer reports an oversized or over-count upload
+// as its own error type, which would otherwise surface as an unexplained 500.
+app.use(uploadErrorHandler);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT) || 5000;

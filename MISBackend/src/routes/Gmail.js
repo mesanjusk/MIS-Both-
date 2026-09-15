@@ -1,5 +1,5 @@
 const express = require('express');
-const multer  = require('multer');
+const { createUpload, limitRequestSize, MB } = require('../middleware/uploadLimits');
 const router  = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/authorize');
@@ -14,11 +14,13 @@ const EmailHistory  = require('../repositories/EmailHistory');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
 
-// 100 MB per-file limit; files go to memory then straight to Gmail API or Drive
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 },
-});
+// 20 files of 100 MB each let one request hold roughly 2 GB in memory. Gmail
+// itself refuses a message over 25 MB, so anything larger could never have been
+// delivered — the limits now match what the API will actually accept.
+const MAX_ATTACHMENT_BYTES = 25 * MB;
+const MAX_ATTACHMENTS = 10;
+const upload = createUpload({ maxFileBytes: MAX_ATTACHMENT_BYTES, maxFiles: MAX_ATTACHMENTS });
+const boundRequest = limitRequestSize(MAX_ATTACHMENT_BYTES + 10 * MB);
 
 const escapeHtml = (s) =>
   String(s || '')
@@ -133,7 +135,7 @@ router.delete('/accounts/:accountId', requireAdmin, async (req, res) => {
 });
 
 // Send email (with optional file attachments)
-router.post('/send', upload.array('files', 20), async (req, res) => {
+router.post('/send', boundRequest, upload.array('files', MAX_ATTACHMENTS), async (req, res) => {
   const { toEmail, toName, vendorUuid, subject, bodyText, gmailAccountId } = req.body;
   if (!toEmail || !subject) {
     return res.status(400).json({ success: false, message: 'toEmail and subject are required' });

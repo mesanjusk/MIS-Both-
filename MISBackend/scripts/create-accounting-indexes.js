@@ -73,8 +73,11 @@ async function findDuplicates(collection, field) {
       process.exit(1);
     }
 
-    await Transactions.createIndex({ Event_key: 1 }, { unique: true, sparse: true, name: "Event_key_unique" });
-    console.log("\n✅ Created unique sparse index on Event_key.");
+    await Transactions.createIndex(
+      { Event_key: 1 },
+      { unique: true, partialFilterExpression: { Event_key: { $type: "string" } }, name: "Event_key_unique" }
+    );
+    console.log("\n✅ Created unique partial index on Event_key.");
 
     await Transactions.createIndex({ Source: 1, Order_uuid: 1 }, { name: "Source_Order_uuid" });
     await Transactions.createIndex({ Source: 1, Order_number: 1 }, { name: "Source_Order_number" });

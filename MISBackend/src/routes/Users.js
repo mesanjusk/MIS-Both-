@@ -39,6 +39,11 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
           id: user._id,
           userName: user.User_name,
           userGroup: user.User_group,
+          // The session generation this token belongs to. requireAuth refuses
+          // the token once the stored value moves past it, which is how a
+          // password change, a role change or a revoke ends a live session
+          // without waiting out the 45-day expiry.
+          sv: Number(user.Session_version || 0),
         },
         process.env.ACCESS_TOKEN_SECRET,
         { expiresIn: process.env.JWT_EXPIRY || "45d" }
@@ -167,7 +172,16 @@ router.put("/updateUser/:id", requireAuth, requireAdminOrOwner, async (req, res)
       updatePayload.Password = isHashedPassword(Password) ? Password : hashPassword(Password);
     }
 
-    const user = await Users.findByIdAndUpdate(id, updatePayload, { new: true }).select('-Password');
+    // A new password or a different role must not leave the old tokens usable.
+    const existing = await Users.findById(id).select('User_group').lean();
+    const roleChanged = existing && User_group && existing.User_group !== User_group;
+    const revokeSessions = Boolean(Password) || roleChanged;
+
+    const user = await Users.findByIdAndUpdate(
+      id,
+      revokeSessions ? { ...updatePayload, $inc: { Session_version: 1 } } : updatePayload,
+      { new: true }
+    ).select('-Password');
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
@@ -275,9 +289,13 @@ router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => 
     const updatePayload = { User_name, Mobile_number, User_group, Allowed_Task_Groups };
     if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
+    // As in /updateUser/:id — a demotion has to take effect immediately.
+    const existing = await Users.findById(id).select('User_group').lean();
+    const roleChanged = existing && User_group && existing.User_group !== User_group;
+
     const updatedUser = await Users.findOneAndUpdate(
       { _id: id },
-      updatePayload,
+      roleChanged ? { ...updatePayload, $inc: { Session_version: 1 } } : updatePayload,
       { new: true }
     ).select('-Password');
 

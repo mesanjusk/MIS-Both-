@@ -210,14 +210,19 @@ async function getNextTransactionId() {
  */
 function buildEventKey({ source, orderUuid, orderNumber, customerUuid }) {
   if (!source) return null;
+
+  // Scope mirrors what the previous find-then-create guard matched on: the
+  // order if there is one, else the customer. With neither, that guard matched
+  // on Source alone — one posting per source, ever — so the key does too rather
+  // than silently dropping the guard.
   const scope = orderUuid
     ? `ou:${String(orderUuid).trim()}`
     : orderNumber
     ? `on:${Number(orderNumber)}`
     : customerUuid
     ? `cu:${String(customerUuid).trim()}`
-    : '';
-  if (!scope) return null;
+    : 'source';
+
   return `${source}|${scope}`;
 }
 
@@ -322,7 +327,8 @@ async function postBalancedTransaction({
       Customer_uuid:    customerUuid || null,
       Upi_reference:    reference    || '',
       Source:           source       || '',
-      Event_key:        eventKey,
+      // Omitted entirely when there is no key — see the partial unique index.
+      ...(eventKey ? { Event_key: eventKey } : {}),
     },
   });
 
@@ -487,6 +493,7 @@ module.exports = {
   money,
   resolvePaymentAccountName,
   validateBalancedJournal,
+  buildEventKey,
   buildLine,
   postBalancedTransaction,
   postCustomerAdvance,

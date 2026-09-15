@@ -29,7 +29,7 @@ const Transaction = require('../../src/repositories/transaction');
 const Counter     = require('../../src/repositories/counter');
 
 const { applyBalanceMovement, lineDelta } = require('../../src/services/accountRegistry');
-const { validateBalancedJournal }         = require('../../src/services/accountingPostingService');
+const { validateBalancedJournal, buildEventKey } = require('../../src/services/accountingPostingService');
 const transactionNumber                   = require('../../src/services/transactionNumberService');
 
 const CASH  = 'acct-cash';
@@ -186,6 +186,61 @@ describe('validateBalancedJournal', () => {
         { Type: 'cr',    Amount: 1000 },
       ])
     ).toEqual({ debit: 1000, credit: 1000 });
+  });
+});
+
+describe('buildEventKey', () => {
+  test('keys on the order when there is one', () => {
+    expect(buildEventKey({ source: 'business:customer_invoice', orderUuid: 'o-1' }))
+      .toBe('business:customer_invoice|ou:o-1');
+  });
+
+  test('is stable, so a retry of the same event produces the same key', () => {
+    const args = { source: 'business:customer_invoice', orderNumber: 5001 };
+    expect(buildEventKey(args)).toBe(buildEventKey(args));
+  });
+
+  test('distinguishes different orders and different sources', () => {
+    expect(buildEventKey({ source: 's', orderUuid: 'o-1' }))
+      .not.toBe(buildEventKey({ source: 's', orderUuid: 'o-2' }));
+    expect(buildEventKey({ source: 'a', orderUuid: 'o-1' }))
+      .not.toBe(buildEventKey({ source: 'b', orderUuid: 'o-1' }));
+  });
+
+  test('falls back to the customer, then to the source alone', () => {
+    expect(buildEventKey({ source: 's', customerUuid: 'c-1' })).toBe('s|cu:c-1');
+    // Matching the old guard, which matched on Source alone when there was no
+    // order — the guard must not vanish just because there is nothing to scope
+    // it by.
+    expect(buildEventKey({ source: 's' })).toBe('s|source');
+  });
+
+  test('has no key without a source', () => {
+    expect(buildEventKey({ source: '', orderUuid: 'o-1' })).toBeNull();
+  });
+});
+
+describe('Transaction schema Event_key index', () => {
+  const Transaction = jest.requireActual('../../src/repositories/transaction');
+
+  test('is unique only over rows that carry a key', () => {
+    // Sparse would not do: an unguarded posting stores no key, and a *null* is
+    // a value a sparse unique index still indexes — so the second such posting
+    // would collide with the first. The index must be partial.
+    const [, options] = Transaction.schema.indexes()
+      .find(([fields]) => Object.keys(fields)[0] === 'Event_key');
+
+    expect(options.unique).toBe(true);
+    expect(options.partialFilterExpression).toEqual({ Event_key: { $type: 'string' } });
+    expect(options.sparse).toBeUndefined();
+  });
+
+  test('a posting with no business key stores no Event_key field at all', () => {
+    const doc = new Transaction({
+      Transaction_date: new Date(), Description: 'x',
+      Total_Debit: 1, Total_Credit: 1, Payment_mode: 'Cash', Created_by: 'test',
+    });
+    expect(doc.toObject()).not.toHaveProperty('Event_key');
   });
 });
 

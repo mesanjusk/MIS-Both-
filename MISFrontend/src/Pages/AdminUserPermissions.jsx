@@ -41,6 +41,7 @@ const DEFAULT_PERMISSIONS = {
   canDeleteTransactions: false,
   canUseEmail: true,
   canManageDesignFiles: true,
+  canViewWhatsapp: true,
   dashboardCards: [],
   allowedWidgets: [],
   topNavHidden: [],
@@ -77,6 +78,7 @@ const PERMISSION_LABELS = [
   { key: 'canDeleteTransactions', label: 'Delete Transactions', desc: 'Can delete transactions and opening balances' },
   { key: 'canUseEmail',           label: 'Use Email',           desc: 'Can send mail and view email history' },
   { key: 'canManageDesignFiles',  label: 'Manage Design Files', desc: 'Can change Drive files and send proofs' },
+  { key: 'canViewWhatsapp',       label: 'View WhatsApp',       desc: 'Can see WhatsApp chats and live messages' },
 ];
 
 const ALL_SIDEBAR_GROUPS = SIDEBAR_GROUPS.map((g) => g.label);

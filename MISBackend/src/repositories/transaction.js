@@ -56,9 +56,11 @@ const TransactionSchema = new mongoose.Schema(
      * order, a receipt for a payment). The unique index below is what actually
      * stops a concurrent retry from posting twice — a find-then-create check
      * cannot, because both callers can read "not found" before either writes.
-     * Left unset for postings that may legitimately repeat.
+     * Left ABSENT for postings that may legitimately repeat — not null: a null
+     * is a value, which a sparse unique index still indexes, so every
+     * unguarded posting would collide with the last one.
      */
-    Event_key: { type: String, default: null },
+    Event_key: { type: String, default: undefined },
   },
   { timestamps: true }
 );
@@ -76,9 +78,13 @@ TransactionSchema.index({ Customer_uuid: 1 });
 TransactionSchema.index({ Upi_reference: 1 });
 TransactionSchema.index({ Transaction_date: -1, Created_by: 1 });
 
-// At most one transaction per business event. Sparse, so the many postings
-// with no Event_key are not treated as duplicates of one another.
-TransactionSchema.index({ Event_key: 1 }, { unique: true, sparse: true });
+// At most one transaction per business event. Partial rather than sparse: the
+// uniqueness applies only to rows that actually carry a key, so the many
+// postings without one are not duplicates of each other.
+TransactionSchema.index(
+  { Event_key: 1 },
+  { unique: true, partialFilterExpression: { Event_key: { $type: 'string' } } }
+);
 
 // Support fast lookup by journal account UUID
 TransactionSchema.index({ 'Journal_entry.Account_id': 1 });

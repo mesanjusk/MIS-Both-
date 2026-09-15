@@ -14,10 +14,25 @@ const request = require('supertest');
 
 process.env.ACCESS_TOKEN_SECRET = 'test-secret-not-a-real-key';
 
+// requireAuth resolves the account behind the token, so the Users model is
+// mocked with a live row; without it every authenticated case below would stop
+// at 401 rather than reaching the guard under test.
+jest.mock('../../src/repositories/users');
+const Users = require('../../src/repositories/users');
+
 const { errorHandler } = require('../../src/middleware/errorHandler');
 
-const tokenFor = (userGroup = 'Office User') =>
-  jwt.sign({ id: 'u-1', userName: 'tester', userGroup }, process.env.ACCESS_TOKEN_SECRET);
+const tokenFor = (userGroup = 'Office User') => {
+  Users.findById.mockReturnValue({
+    select: () => ({
+      lean: async () => ({
+        _id: 'u-1', User_name: 'tester', User_group: userGroup, Session_version: 0,
+        permissions: {},
+      }),
+    }),
+  });
+  return jwt.sign({ id: 'u-1', userName: 'tester', userGroup, sv: 0 }, process.env.ACCESS_TOKEN_SECRET);
+};
 
 /** Does this router refuse an anonymous request to `path`? */
 const expectRejectsAnonymous = async (app, method, path, body) => {

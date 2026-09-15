@@ -16,6 +16,8 @@ const http = require("http");
 const connectDB = require("./config/mongo");
 const compression = require("compression");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
+const { uploadErrorHandler } = require("./middleware/uploadLimits");
+const { drainPendingMetabspEvents } = require("./controllers/whatsappController");
 const { requireAuth } = require("./middleware/auth");
 const { apiUsageMiddleware } = require("./middleware/apiUsage");
 const {
@@ -105,6 +107,31 @@ const SocialCampaignsRouter = require("./routes/SocialCampaigns");
 const SocialOverviewRouter = require("./routes/SocialOverview");
 const SocialProvidersRouter = require("./routes/SocialProviders");
 const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
+
+/**
+ * Re-run inbound WhatsApp deliveries that were recorded but never processed.
+ *
+ * The webhook stores each delivery before acknowledging it, so a crash or a
+ * processing failure no longer loses the message — this is what picks those
+ * rows back up.
+ */
+const INBOUND_RETRY_INTERVAL_MS = 60 * 1000;
+
+function initInboundWebhookRetry() {
+  const timer = setInterval(async () => {
+    try {
+      const processed = await drainPendingMetabspEvents();
+      if (processed) {
+        logger.info({ processed }, '[whatsapp] reprocessed pending inbound deliveries');
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, '[whatsapp] inbound retry sweep failed');
+    }
+  }, INBOUND_RETRY_INTERVAL_MS);
+
+  // Never hold the process open for the sweep alone.
+  if (timer.unref) timer.unref();
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -268,6 +295,7 @@ app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
   initProofFollowupScheduler();
   initAttendanceReminderScheduler({ sendText: dispatchTextMessage, sendButtons: dispatchInteractiveButtons });
   initSocialPublishingScheduler();
+  initInboundWebhookRetry();
 
   // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
   try {
@@ -306,6 +334,9 @@ app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
 
 // ---------- Error handling ----------
 app.use(notFound);
+// Before the general handler: multer reports an oversized or over-count upload
+// as its own error type, which would otherwise surface as an unexplained 500.
+app.use(uploadErrorHandler);
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT) || 5000;

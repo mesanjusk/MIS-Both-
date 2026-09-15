@@ -31,7 +31,7 @@ const {
   getAnalytics,
 } = require('../controllers/whatsappController');
 
-const multer = require('multer');
+const { createUpload, limitRequestSize, MB } = require('../middleware/uploadLimits');
 
 // Rate limiter for sending messages
 const messagingLimiter = createRateLimiter({
@@ -40,9 +40,11 @@ const messagingLimiter = createRateLimiter({
 });
 
 // memory storage (best for cloudinary)
-const upload = multer({
-  storage: multer.memoryStorage(),
-});
+// Unbounded before. WhatsApp caps documents at 100 MB and video at 16 MB, so
+// this is the largest media the platform would accept anyway.
+const MAX_MEDIA_BYTES = 100 * MB;
+const upload = createUpload({ maxFileBytes: MAX_MEDIA_BYTES });
+const boundRequest = limitRequestSize(MAX_MEDIA_BYTES + MB);
 
 // ---------- Embedded Signup ----------
 router.post('/embedded-signup/exchange-code', requireAuth, exchangeMetaToken);
@@ -65,6 +67,7 @@ router.post(
   '/send-media',
   requireAuth,
   messagingLimiter,
+  boundRequest,
   upload.single('file'),
   enforceWhatsApp24hWindow,
   sendMedia

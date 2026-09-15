@@ -12,12 +12,16 @@ const { validateBalancedJournal }      = require('../services/accountingPostingS
 const { resolve: resolveAccount, isUuid, applyBalanceMovement } = require('../services/accountRegistry');
 const { v4: uuid } = require('uuid');
 
-const multer     = require('multer');
 const cloudinary = require('../utils/cloudinary.js');
 const logger     = require('../utils/logger');
+const { createUpload, limitRequestSize, MB, IMAGE_TYPES } = require('../middleware/uploadLimits');
 
-const storage = multer.memoryStorage();
-const upload  = multer({ storage });
+// A transaction attachment is a receipt photo. It had no size limit at all and
+// went straight into memory; Cloudinary resizes to 1920x1080 anyway, so 10 MB
+// is ample.
+const MAX_IMAGE_BYTES = 10 * MB;
+const upload = createUpload({ maxFileBytes: MAX_IMAGE_BYTES, allowedMimeTypes: IMAGE_TYPES });
+const boundRequest = limitRequestSize(MAX_IMAGE_BYTES + MB);
 
 // ---------------------------------------------------------------------------
 // Cloudinary helper
@@ -206,7 +210,7 @@ router.use(requirePermission('canViewAccounts'));
 // POST /addTransaction  – create a new manual transaction
 // ---------------------------------------------------------------------------
 
-router.post('/addTransaction', requirePermission('canPostTransactions'), upload.single('image'), async (req, res) => {
+router.post('/addTransaction', requirePermission('canPostTransactions'), boundRequest, upload.single('image'), async (req, res) => {
   try {
     const {
       Description,
@@ -423,7 +427,7 @@ router.get('/:uuid', async (req, res) => {
 // PUT /:uuid  – update a transaction
 // ---------------------------------------------------------------------------
 
-router.put('/:uuid', requirePermission('canEditTransactions'), upload.single('image'), async (req, res) => {
+router.put('/:uuid', requirePermission('canEditTransactions'), boundRequest, upload.single('image'), async (req, res) => {
   try {
     const { uuid: transactionUuid } = req.params;
 

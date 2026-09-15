@@ -8,19 +8,70 @@ const { renderTemplate } = require('./whatsappTemplateService');
 const { runDueJobs } = require('./dailyScheduleService');
 const logger = require('../utils/logger');
 
-async function processScheduledMessages() {
-  const now = new Date();
-  const messages = await ScheduledMessage.find({ sendAt: { $lte: now }, status: 'scheduled' });
+// A claim is held this long. Longer than any realistic send, short enough that
+// a row whose process died is retried promptly.
+const SEND_LEASE_MS = 2 * 60 * 1000;
 
-  for (const msg of messages) {
-    try {
-      await sendWhatsAppText({ to: msg.to, body: msg.message, source: 'SCHEDULED', activity: 'SCHEDULED_MESSAGES' });
-      msg.status = 'sent';
-    } catch (err) {
-      logger.error('Failed to send scheduled message', err);
-      msg.status = 'failed';
+// Most rows one poll will take, so a backlog is worked through steadily rather
+// than all at once.
+const MAX_PER_POLL = 25;
+
+// Keeps one poll from overlapping the next within this process.
+let polling = false;
+
+/**
+ * Take the next due message, atomically.
+ *
+ * The find-then-send loop this replaces selected every due row with no claim,
+ * so a send lasting longer than the five-second poll was picked up again by the
+ * following poll and delivered twice. findOneAndUpdate both selects the row and
+ * marks it 'sending', so only one caller can win it.
+ */
+async function claimDueMessage(now = new Date()) {
+  return ScheduledMessage.findOneAndUpdate(
+    {
+      sendAt: { $lte: now },
+      $or: [
+        { status: 'scheduled' },
+        // Reclaim a row whose sender died mid-flight.
+        { status: 'sending', leaseUntil: { $lt: now } },
+      ],
+    },
+    { $set: { status: 'sending', leaseUntil: new Date(now.getTime() + SEND_LEASE_MS) } },
+    { sort: { sendAt: 1 }, new: true }
+  );
+}
+
+async function processScheduledMessages() {
+  // A slow batch must not have the next tick start a second pass over it.
+  if (polling) return;
+  polling = true;
+
+  try {
+    for (let i = 0; i < MAX_PER_POLL; i += 1) {
+      const msg = await claimDueMessage();
+      if (!msg) break;
+
+      try {
+        await sendWhatsAppText({
+          to: msg.to, body: msg.message, source: 'SCHEDULED', activity: 'SCHEDULED_MESSAGES',
+        });
+        msg.status = 'sent';
+        msg.leaseUntil = null;
+      } catch (err) {
+        logger.error('Failed to send scheduled message', err);
+        msg.status = 'failed';
+        msg.leaseUntil = null;
+        msg.lastError = String(err?.message || err).slice(0, 500);
+      }
+
+      msg.attempts = Number(msg.attempts || 0) + 1;
+      await msg.save();
     }
-    await msg.save();
+  } catch (err) {
+    logger.error('Scheduled message poll failed', err);
+  } finally {
+    polling = false;
   }
 }
 
@@ -335,6 +386,9 @@ async function sendStuckFilesDigest() {
 module.exports = {
   DAILY_JOBS,
   initScheduler,
+  // Exported for tests: the claim-then-send loop the interval drives.
+  processScheduledMessages,
+  claimDueMessage,
   scheduleMessage,
   getPendingMessages,
   cancelScheduledMessage,

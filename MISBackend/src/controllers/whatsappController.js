@@ -32,6 +32,7 @@ const DesignFileLink = require('../repositories/DesignFileLink');
 const DesignProofLog = require('../repositories/DesignProofLog');
 const { formatIST } = require('../utils/dateTime');
 const logger = require('../utils/logger');
+const inboundQueue = require('../services/inboundWebhookQueue');
 const sanjusk = require('../services/sanjuskApiService');
 
 // Every outbound WhatsApp message goes through the SanjuSK account
@@ -1778,6 +1779,108 @@ const processIncomingWhatsAppPayload = async (payload) => {
   }
 };
 
+/**
+ * Process one recorded inbound delivery.
+ *
+ * Extracted from the webhook handler so the live path and the retry sweep run
+ * exactly the same code over the same stored payload.
+ */
+const handleRecordedMetabspEvent = async (body) => {
+    // SanjuSK does not send a `direction` field — its inbound webhook carries
+    // `event`/`source` instead. So treat a delivery as incoming UNLESS it is
+    // explicitly an outbound echo or a status/ack event. (Meta-style payloads
+    // that do set direction:'outgoing'/fromMe still get skipped here.)
+    // "message.echo" events (WhatsApp Coexistence) are copies of messages the
+    // business itself sent from the WhatsApp app on the phone — not customer
+    // inbounds — so they must never be saved as incoming or trigger a receipt.
+    const eventName = String(body.event || '').toLowerCase();
+    const isOutbound =
+      body.fromMe === true ||
+      body.direction === 'outgoing' ||
+      /sent|deliver|read|status|ack|receipt|echo/.test(eventName);
+    if (isOutbound) {
+      logger.info({ event: body.event || '', source: body.source || '' }, '[whatsapp] metabsp skipped non-inbound event');
+      return;
+    }
+
+    const from = String(body.from || '').replace(/\D/g, '');
+    // For media messages some providers (SanjuSK) put the hosted media URL in
+    // `message` rather than a dedicated media field, so keep the raw value to
+    // reuse as the media URL below.
+    const rawMessage = String(body.message || body.text || body.caption || '');
+    const messageIsUrl = /^https?:\/\/\S+$/i.test(rawMessage.trim());
+    const text = rawMessage;
+
+    logger.info(
+      {
+        event: body.event || '',
+        source: body.source || '',
+        type: body.type || '',
+        messageIsUrl,
+        messageSample: messageIsUrl ? rawMessage.trim().slice(0, 120) : '[non-url text]',
+      },
+      '[whatsapp] metabsp inbound accepted'
+    );
+
+    // SanjuSK hosts media itself and delivers a URL; Meta-style deliveries
+    // carry a mediaId instead. Accept whichever shape arrives, checking the
+    // field names providers commonly use.
+    const isMediaType = ['image', 'video', 'audio', 'document', 'sticker'].includes(
+      String(body.type || '').toLowerCase()
+    );
+    const mediaUrl = String(
+      body.mediaUrl || body.media_url || body.url || body.link ||
+      body.media?.url || body.media?.link ||
+      body.image?.url || body.image?.link ||
+      body.document?.url || body.document?.link ||
+      body.file?.url || body.file?.link ||
+      // SanjuSK: the hosted media URL arrives as the `message` value itself.
+      ((isMediaType && messageIsUrl) ? rawMessage.trim() : '') || ''
+    );
+    const mediaId = String(body.mediaId || body.media_id || body.media?.id || '');
+    const mimeType = String(
+      body.mimeType || body.mime_type || body.media?.mime_type ||
+      body.image?.mime_type || body.document?.mime_type || ''
+    );
+    const caption = String(body.caption || body.media?.caption || body.image?.caption || '');
+    const filename = String(body.filename || body.document?.filename || body.file?.filename || '');
+
+    // If the provider sent media but didn't label the message type, infer it
+    // so the receipt path still recognises an image.
+    const looksLikeImage = /(^image\/)|\.(jpe?g|png|webp|gif|heic)(\?|$)/i.test(mimeType || mediaUrl);
+    const inferredType =
+      body.type || ((mediaUrl || mediaId) ? (looksLikeImage ? 'image' : 'document') : 'text');
+
+    const payload = {
+      fromMe: false,
+      from,
+      to: body.to || body.phoneNumberId || '',
+      message: text,
+      body: text,
+      text,
+      timestamp: body.timestamp || body.time || new Date().toISOString(),
+      time: body.time || body.timestamp || new Date().toISOString(),
+      status: 'received',
+      direction: 'incoming',
+      messageId: body.messageId || '',
+      type: inferredType,
+      mediaId,
+      caption,
+      filename,
+      mimeType,
+      mediaUrl,
+      interactiveType: body.type === 'interactive' ? 'button_reply' : '',
+      replyId: body.interactiveId || '',
+      replyTitle: '',
+      flowId: '',
+      flowToken: '',
+      flowResponseData: '',
+    };
+
+    await processIncomingWhatsAppPayload(payload);
+    await inboundQueue.markDone(event?._id);
+};
+
 const metabspWebhookReceive = async (req, res) => {
   const body = req.body || {};
 
@@ -1821,107 +1924,50 @@ const metabspWebhookReceive = async (req, res) => {
     return res.status(403).json({ message: 'Invalid signature' });
   }
 
+  // Record the delivery BEFORE acknowledging it. Answering 200 first meant any
+  // failure afterwards — a crash, a database blip, a bug in processing — lost
+  // the message for good, because the sender had already been told it worked.
+  const { event, duplicate, recorded } = await inboundQueue.record({
+    provider: 'metabsp',
+    payload: body,
+    providerMessageId: extractSanjuskMessageId(body),
+  });
+
+  if (!recorded) {
+    // Nothing was stored, so do not claim success: a 500 has the sender retry.
+    logger.error('[whatsapp] Refusing to acknowledge a delivery that could not be recorded');
+    return res.status(500).json({ message: 'Could not record delivery' });
+  }
+
   res.status(200).json({ received: true });
+
+  if (duplicate) {
+    logger.info({ dedupe: true }, '[whatsapp] metabsp delivery already recorded; not reprocessing');
+    return;
+  }
 
   setImmediate(async () => {
     try {
-      // SanjuSK does not send a `direction` field — its inbound webhook carries
-      // `event`/`source` instead. So treat a delivery as incoming UNLESS it is
-      // explicitly an outbound echo or a status/ack event. (Meta-style payloads
-      // that do set direction:'outgoing'/fromMe still get skipped here.)
-      // "message.echo" events (WhatsApp Coexistence) are copies of messages the
-      // business itself sent from the WhatsApp app on the phone — not customer
-      // inbounds — so they must never be saved as incoming or trigger a receipt.
-      const eventName = String(body.event || '').toLowerCase();
-      const isOutbound =
-        body.fromMe === true ||
-        body.direction === 'outgoing' ||
-        /sent|deliver|read|status|ack|receipt|echo/.test(eventName);
-      if (isOutbound) {
-        logger.info({ event: body.event || '', source: body.source || '' }, '[whatsapp] metabsp skipped non-inbound event');
-        return;
-      }
-
-      const from = String(body.from || '').replace(/\D/g, '');
-      // For media messages some providers (SanjuSK) put the hosted media URL in
-      // `message` rather than a dedicated media field, so keep the raw value to
-      // reuse as the media URL below.
-      const rawMessage = String(body.message || body.text || body.caption || '');
-      const messageIsUrl = /^https?:\/\/\S+$/i.test(rawMessage.trim());
-      const text = rawMessage;
-
-      logger.info(
-        {
-          event: body.event || '',
-          source: body.source || '',
-          type: body.type || '',
-          messageIsUrl,
-          messageSample: messageIsUrl ? rawMessage.trim().slice(0, 120) : '[non-url text]',
-        },
-        '[whatsapp] metabsp inbound accepted'
-      );
-
-      // SanjuSK hosts media itself and delivers a URL; Meta-style deliveries
-      // carry a mediaId instead. Accept whichever shape arrives, checking the
-      // field names providers commonly use.
-      const isMediaType = ['image', 'video', 'audio', 'document', 'sticker'].includes(
-        String(body.type || '').toLowerCase()
-      );
-      const mediaUrl = String(
-        body.mediaUrl || body.media_url || body.url || body.link ||
-        body.media?.url || body.media?.link ||
-        body.image?.url || body.image?.link ||
-        body.document?.url || body.document?.link ||
-        body.file?.url || body.file?.link ||
-        // SanjuSK: the hosted media URL arrives as the `message` value itself.
-        ((isMediaType && messageIsUrl) ? rawMessage.trim() : '') || ''
-      );
-      const mediaId = String(body.mediaId || body.media_id || body.media?.id || '');
-      const mimeType = String(
-        body.mimeType || body.mime_type || body.media?.mime_type ||
-        body.image?.mime_type || body.document?.mime_type || ''
-      );
-      const caption = String(body.caption || body.media?.caption || body.image?.caption || '');
-      const filename = String(body.filename || body.document?.filename || body.file?.filename || '');
-
-      // If the provider sent media but didn't label the message type, infer it
-      // so the receipt path still recognises an image.
-      const looksLikeImage = /(^image\/)|\.(jpe?g|png|webp|gif|heic)(\?|$)/i.test(mimeType || mediaUrl);
-      const inferredType =
-        body.type || ((mediaUrl || mediaId) ? (looksLikeImage ? 'image' : 'document') : 'text');
-
-      const payload = {
-        fromMe: false,
-        from,
-        to: body.to || body.phoneNumberId || '',
-        message: text,
-        body: text,
-        text,
-        timestamp: body.timestamp || body.time || new Date().toISOString(),
-        time: body.time || body.timestamp || new Date().toISOString(),
-        status: 'received',
-        direction: 'incoming',
-        messageId: body.messageId || '',
-        type: inferredType,
-        mediaId,
-        caption,
-        filename,
-        mimeType,
-        mediaUrl,
-        interactiveType: body.type === 'interactive' ? 'button_reply' : '',
-        replyId: body.interactiveId || '',
-        replyTitle: '',
-        flowId: '',
-        flowToken: '',
-        flowResponseData: '',
-      };
-
-      await processIncomingWhatsAppPayload(payload);
+      await handleRecordedMetabspEvent(body);
+      await inboundQueue.markDone(event?._id);
     } catch (error) {
       logger.error('[whatsapp] metabspWebhookReceive error:', error);
+      // The row goes back to pending so the sweep can retry it, rather than the
+      // delivery being lost behind a 200 that was already sent.
+      await inboundQueue.markFailed(event?._id, error);
     }
   });
 };
+
+/**
+ * Re-run inbound deliveries that were recorded but never processed — because
+ * the process died mid-handling, or the handler threw.
+ *
+ * Exported so the scheduler can sweep periodically; the payload takes the same
+ * path as a live delivery.
+ */
+const drainPendingMetabspEvents = () =>
+  inboundQueue.drain('metabsp', (payload) => handleRecordedMetabspEvent(payload));
 
 const metabspWebhookVerify = (_req, res) => res.status(200).json({ status: 'ok' });
 
@@ -2065,5 +2111,6 @@ module.exports = {
   verifyWebhook,
   receiveWebhook,
   metabspWebhookReceive,
+  drainPendingMetabspEvents,
   metabspWebhookVerify,
 };

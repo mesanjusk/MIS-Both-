@@ -17,6 +17,8 @@
  */
 
 const Transaction = require('../repositories/transaction');
+const transactionNumber = require('./transactionNumberService');
+const logger = require('../utils/logger');
 const { v4: uuid }  = require('uuid');
 const {
   getUuid,
@@ -69,7 +71,7 @@ function money(value) {
 
 function assertPositiveAmount(amount) {
   const clean = money(amount);
-  if (clean <= 0) {
+  if (!Number.isFinite(clean) || clean <= 0) {
     throw Object.assign(new Error('Accounting amount must be greater than zero'), { statusCode: 400 });
   }
   return clean;
@@ -155,15 +157,35 @@ function validateBalancedJournal(lines = []) {
   let debit  = 0;
   let credit = 0;
 
-  for (const line of lines) {
-    const amount = assertPositiveAmount(line.Amount);
-    const type   = normalizeType(line.Type);
+  for (const [index, line] of lines.entries()) {
+    const amount = assertPositiveAmount(line && line.Amount);
+    const type   = normalizeType(line && line.Type);
+
+    // An unrecognized Type used to contribute to neither total, so a journal of
+    // nothing but bogus types summed to 0 = 0 and was accepted as balanced.
+    // Every line must now declare a side it can be posted on.
+    if (type !== 'Debit' && type !== 'Credit') {
+      throw Object.assign(
+        new Error(
+          `Journal_entry[${index}] has an invalid Type '${line && line.Type}' — expected 'Debit' or 'Credit'.`
+        ),
+        { statusCode: 400 }
+      );
+    }
+
     if (type === 'Debit')  debit  += amount;
     if (type === 'Credit') credit += amount;
   }
 
   debit  = Number(debit.toFixed(2));
   credit = Number(credit.toFixed(2));
+
+  if (debit === 0 || credit === 0) {
+    throw Object.assign(
+      new Error('At least one debit and one credit entry are required'),
+      { statusCode: 400 }
+    );
+  }
 
   if (debit !== credit) {
     throw Object.assign(
@@ -176,8 +198,67 @@ function validateBalancedJournal(lines = []) {
 }
 
 async function getNextTransactionId() {
-  const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();
-  return Number(last?.Transaction_id || 0) + 1;
+  return transactionNumber.allocate();
+}
+
+/**
+ * Deterministic identity for a business event that must post at most once.
+ * Mirrors the fields the previous find-then-create guard matched on, so the
+ * same postings are treated as the same event.
+ *
+ * @returns {string|null} null when there is nothing stable to key on
+ */
+function buildEventKey({ source, orderUuid, orderNumber, customerUuid }) {
+  if (!source) return null;
+
+  // Scope mirrors what the previous find-then-create guard matched on: the
+  // order if there is one, else the customer. With neither, that guard matched
+  // on Source alone — one posting per source, ever — so the key does too rather
+  // than silently dropping the guard.
+  const scope = orderUuid
+    ? `ou:${String(orderUuid).trim()}`
+    : orderNumber
+    ? `on:${Number(orderNumber)}`
+    : customerUuid
+    ? `cu:${String(customerUuid).trim()}`
+    : 'source';
+
+  return `${source}|${scope}`;
+}
+
+/**
+ * Look up an existing posting for a business event, falling back to the
+ * pre-Event_key field match so postings made before this field existed are
+ * still recognized as duplicates.
+ */
+async function findByEventKey(eventKey, { source, orderUuid, orderNumber }) {
+  const byKey = await Transaction.findOne({ Event_key: eventKey }).lean();
+  if (byKey) return byKey;
+
+  return Transaction.findOne({
+    Source: source,
+    ...(orderUuid   ? { Order_uuid:   String(orderUuid)   } : {}),
+    ...(orderNumber ? { Order_number: Number(orderNumber) } : {}),
+  }).lean();
+}
+
+/**
+ * Create the posting, treating a duplicate-key rejection as "someone else
+ * posted this event first" rather than an error.
+ *
+ * @returns {Promise<{doc: object, existing: boolean}>}
+ */
+async function createTransaction({ eventKey, doc }) {
+  try {
+    return { doc: await Transaction.create(doc), existing: false };
+  } catch (err) {
+    const isDuplicateEvent = eventKey && (err.code === 11000 || err.code === 11001);
+    if (!isDuplicateEvent) throw err;
+
+    const winner = await Transaction.findOne({ Event_key: eventKey }).lean();
+    if (winner) return { doc: winner, existing: true };
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,38 +300,52 @@ async function postBalancedTransaction({
   const Journal_entry = [debitLine, creditLine];
   const totals        = validateBalancedJournal(Journal_entry);
 
-  // Duplicate-guard: only one posting per source+order combination when requested
-  if (!allowDuplicate && source) {
-    const existing = await Transaction.findOne({
-      Source: source,
-      ...(orderUuid   ? { Order_uuid:   String(orderUuid)      } : {}),
-      ...(orderNumber ? { Order_number: Number(orderNumber) } : {}),
-    }).lean();
+  // Duplicate-guard: at most one posting per source+order combination when
+  // requested. The lookup is only a fast path — two concurrent retries can both
+  // see "not found", so the Event_key unique index is what actually decides.
+  const eventKey = allowDuplicate ? null : buildEventKey({ source, orderUuid, orderNumber, customerUuid });
 
+  if (eventKey) {
+    const existing = await findByEventKey(eventKey, { source, orderUuid, orderNumber });
     if (existing) return { transaction: existing, existing: true };
   }
 
-  const transaction = await Transaction.create({
-    Transaction_uuid: uuid(),
-    Transaction_id:   await getNextTransactionId(),
-    Order_uuid:       orderUuid  || null,
-    Order_number:     orderNumber ? Number(orderNumber) : null,
-    Transaction_date: transactionDate || new Date(),
-    Description:      String(description || 'Business accounting posting'),
-    Total_Debit:      totals.debit,
-    Total_Credit:     totals.credit,
-    Payment_mode:     String(paymentMode || 'Journal'),
-    Created_by:       String(createdBy   || 'system'),
-    Journal_entry,
-    Customer_uuid:    customerUuid || null,
-    Upi_reference:    reference    || '',
-    Source:           source       || '',
+  const transaction = await createTransaction({
+    eventKey,
+    doc: {
+      Transaction_uuid: uuid(),
+      Transaction_id:   await getNextTransactionId(),
+      Order_uuid:       orderUuid  || null,
+      Order_number:     orderNumber ? Number(orderNumber) : null,
+      Transaction_date: transactionDate || new Date(),
+      Description:      String(description || 'Business accounting posting'),
+      Total_Debit:      totals.debit,
+      Total_Credit:     totals.credit,
+      Payment_mode:     String(paymentMode || 'Journal'),
+      Created_by:       String(createdBy   || 'system'),
+      Journal_entry,
+      Customer_uuid:    customerUuid || null,
+      Upi_reference:    reference    || '',
+      Source:           source       || '',
+      // Omitted entirely when there is no key — see the partial unique index.
+      ...(eventKey ? { Event_key: eventKey } : {}),
+    },
   });
 
-  // Update running balances in the Accounts collection (best-effort; non-blocking)
-  updateBalancesForJournal(Journal_entry).catch(() => {});
+  // A concurrent caller won the unique index; its row is the posting.
+  if (transaction.existing) return { transaction: transaction.doc, existing: true };
 
-  return { transaction, existing: false };
+  // Update running balances in the Accounts collection. Awaited so a failure is
+  // logged rather than lost; the transaction itself remains the record.
+  try {
+    await updateBalancesForJournal(Journal_entry);
+  } catch (err) {
+    logger.error(
+      `Account balance update failed after posting txn ${transaction.doc.Transaction_uuid}: ${err.message}`
+    );
+  }
+
+  return { transaction: transaction.doc, existing: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +493,7 @@ module.exports = {
   money,
   resolvePaymentAccountName,
   validateBalancedJournal,
+  buildEventKey,
   buildLine,
   postBalancedTransaction,
   postCustomerAdvance,

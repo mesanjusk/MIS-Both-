@@ -7,7 +7,8 @@ const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const { getCustomerTimeline } = require("../controllers/customerTimelineController");
 const logger = require('../utils/logger');
-const { updateBalancesForJournal } = require('../services/accountRegistry');
+const { updateBalancesForJournal, reverseBalancesForJournal } = require('../services/accountRegistry');
+const transactionNumber = require('../services/transactionNumberService');
 const { maskMobileNumbers } = require('../utils/mobileVisibility');
 
 const OPENING_BALANCE_SOURCE = 'opening:balance';
@@ -27,11 +28,7 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
   // Delete any existing opening balance transaction for this customer
   const existing = await Transaction.find({ Source: OPENING_BALANCE_SOURCE, Customer_uuid: customerUuid }).lean();
   for (const txn of existing) {
-    const reversedLines = (txn.Journal_entry || []).map((l) => ({
-      ...l,
-      Type: l.Type === 'Debit' ? 'Credit' : 'Debit',
-    }));
-    await updateBalancesForJournal(reversedLines).catch(() => {});
+    await reverseBalancesForJournal(txn.Journal_entry || []);
     await Transaction.deleteOne({ _id: txn._id });
   }
 
@@ -45,8 +42,7 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
   const contraLine   = { Account_id: contraAcct.uuid, Account_name: contraAcct.name, Type: side === 'debit' ? 'Credit' : 'Debit', Amount: amount };
   const Journal_entry = side === 'debit' ? [customerLine, contraLine] : [contraLine, customerLine];
 
-  const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();
-  const nextId = Number(last?.Transaction_id || 0) + 1;
+  const nextId = await transactionNumber.allocate();
 
   const txn = await Transaction.create({
     Transaction_uuid: uuid(),
@@ -62,7 +58,7 @@ async function postCustomerOpeningBalance({ customerUuid, customerName, amount, 
     Source: OPENING_BALANCE_SOURCE,
   });
 
-  await updateBalancesForJournal(Journal_entry).catch(() => {});
+  await updateBalancesForJournal(Journal_entry).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
   return txn;
 }
 

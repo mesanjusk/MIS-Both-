@@ -51,7 +51,22 @@ app.use(express.json());
 app.use('/api/usertasks', usertaskRouter);
 app.use(errorHandler);
 
-const TOKEN = jwt.sign({ id: 'u-1', userName: 'tester' }, process.env.ACCESS_TOKEN_SECRET);
+// requireAuth resolves the account behind the token; a live row is stubbed so
+// these requests reach the route rather than stopping at 401.
+jest.mock('../../src/repositories/users');
+const Users = require('../../src/repositories/users');
+// Echo back whichever id was asked for: the rate-limit case below relies on two
+// tokens resolving to two different callers.
+Users.findById.mockImplementation((id) => ({
+  select: () => ({
+    lean: async () => ({
+      _id: id, User_name: 'tester', User_group: 'Office User', Session_version: 0,
+      permissions: {},
+    }),
+  }),
+}));
+
+const TOKEN = jwt.sign({ id: 'u-1', userName: 'tester', sv: 0 }, process.env.ACCESS_TOKEN_SECRET);
 const post = (body) =>
   request(app).post('/api/usertasks/send-message').set('Authorization', `Bearer ${TOKEN}`).send(body);
 
@@ -136,7 +151,7 @@ describe('POST /api/usertasks/send-message', () => {
     // A token of its own: the limiter keys on user id + path, so reusing the
     // shared one would start this test partway through the window the
     // preceding cases already spent.
-    const burstToken = jwt.sign({ id: 'u-burst', userName: 'burst' }, process.env.ACCESS_TOKEN_SECRET);
+    const burstToken = jwt.sign({ id: 'u-burst', userName: 'burst', sv: 0 }, process.env.ACCESS_TOKEN_SECRET);
     const burstPost = () =>
       request(app)
         .post('/api/usertasks/send-message')

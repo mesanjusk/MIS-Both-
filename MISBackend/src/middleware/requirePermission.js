@@ -19,12 +19,18 @@
  *
  * Admin / owner (hierarchy tier 4) always pass: they administer permissions
  * and must not be able to lock themselves out of the operations they grant.
+ *
+ * A token whose user row has been deleted is refused rather than allowed: the
+ * absence of a permissions row is not the absence of restrictions.
  */
 const AppError = require('../utils/AppError');
 const Users = require('../repositories/users');
 const { tierFor } = require('../utils/roleHierarchy');
 const logger = require('../utils/logger');
 
+// req.user.userGroup is the role on the current user record (requireAuth
+// refreshes it from the database), not the role written into the token, so a
+// demoted admin no longer passes this.
 const isTier4 = (req) => tierFor(req.user?.userGroup || req.user?.User_group) >= 4;
 
 /**
@@ -33,8 +39,17 @@ const isTier4 = (req) => tierFor(req.user?.userGroup || req.user?.User_group) >=
  */
 const loadPermissions = async (req) => {
   if (req._permissions !== undefined) return req._permissions;
+
   const user = await Users.findById(req.user.id).select('permissions').lean();
-  req._permissions = user?.permissions || {};
+
+  // A missing row is not an unrestricted user. Treating it as an empty (and so
+  // permissive) permissions object let a token for a deleted account pass every
+  // flag check. requireAuth rejects these first; this is the second line.
+  if (!user) {
+    throw new AppError('Session is no longer valid. Please log in again.', 401);
+  }
+
+  req._permissions = user.permissions || {};
   return req._permissions;
 };
 

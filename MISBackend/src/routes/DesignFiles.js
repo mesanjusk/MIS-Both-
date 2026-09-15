@@ -37,6 +37,7 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
 const { requireAdmin } = require('../middleware/authorize');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
 const Orders = require('../repositories/order');
@@ -70,6 +71,11 @@ const { ORDER_STAGES } = require('../constants/orderStages');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
+
+// Design-file routes mutate Google Drive and send proofs to customers. They
+// were login-only; the permission is permissive by default so existing design
+// staff are unaffected, but it can now be withdrawn from an account.
+const canManageDesignFiles = requirePermission('canManageDesignFiles');
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 // Folder 7 (Approval) covers the MIS 'approval'/'customer' stages, which
@@ -634,7 +640,7 @@ router.get('/orders/search', async (req, res) => {
 });
 
 // ─── POST /api/design-files/link-order ───────────────────────────────────────
-router.post('/link-order', async (req, res) => {
+router.post('/link-order', canManageDesignFiles, async (req, res) => {
   try {
     const { fileIds, orderUuid, files: filesMeta = [] } = req.body || {};
     if (!Array.isArray(fileIds) || !fileIds.length) {
@@ -724,7 +730,7 @@ router.post('/link-order', async (req, res) => {
  * Retry just the Drive rename for a single file (e.g. after closing it in CorelDraw).
  * Body: { fileId, fileName, orderNumber }
  */
-router.post('/rename-file', async (req, res) => {
+router.post('/rename-file', canManageDesignFiles, async (req, res) => {
   try {
     const { fileId, fileName, orderNumber } = req.body || {};
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
@@ -784,7 +790,7 @@ router.post('/rename-file', async (req, res) => {
  *
  * Body: { fileName }
  */
-router.post('/create-file', async (req, res) => {
+router.post('/create-file', canManageDesignFiles, async (req, res) => {
   try {
     const fileName = String(req.body?.fileName || '').trim();
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
@@ -845,7 +851,7 @@ router.post('/create-file', async (req, res) => {
  *
  * Body: { fileId, fileName, orderUuid?, orderNumber?, assigneeId, assignedBy }
  */
-router.post('/assign', async (req, res) => {
+router.post('/assign', canManageDesignFiles, async (req, res) => {
   try {
     const { fileId, fileName, orderUuid, assigneeId, assignedBy } = req.body || {};
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
@@ -921,7 +927,7 @@ router.post('/assign', async (req, res) => {
  *
  * Body: { fileId, fileName, orderUuid, orderNumber, assigneeId }
  */
-router.post('/move-to-print', async (req, res) => {
+router.post('/move-to-print', canManageDesignFiles, async (req, res) => {
   try {
     const { fileId, fileName, orderUuid, assigneeId } = req.body || {};
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
@@ -994,7 +1000,7 @@ router.post('/move-to-print', async (req, res) => {
  * printed historical jobs), so the new order skips design and starts at
  * 'print' instead of the usual 'new_design'.
  */
-router.post('/auto-temp-orders', async (req, res) => {
+router.post('/auto-temp-orders', canManageDesignFiles, async (req, res) => {
   try {
     const { files = [], fromArchive } = req.body || {};
     const initialStage = fromArchive ? 'print' : 'new_design';
@@ -1143,7 +1149,7 @@ router.post('/auto-temp-orders', async (req, res) => {
 // name can change.
 const DEFAULT_DESIGN_ASSIGNEE_NAME = 'Sk Sai';
 
-router.post('/auto-scan-link', async (req, res) => {
+router.post('/auto-scan-link', canManageDesignFiles, async (req, res) => {
   try {
     const { files = [] } = req.body || {};
     if (!Array.isArray(files) || !files.length) {
@@ -1279,7 +1285,7 @@ router.get('/pending', async (_req, res) => {
  * Body: { fileId, fileName, orderUuid, orderNumber, customerUuid, customerName,
  *         mobileNumber, note, mediaLink }
  */
-router.post('/send-proof', async (req, res) => {
+router.post('/send-proof', canManageDesignFiles, async (req, res) => {
   try {
     const { fileId, fileName, orderUuid, orderNumber, customerUuid, customerName, mobileNumber, note, mediaLink } = req.body || {};
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
@@ -1436,7 +1442,7 @@ router.post('/proof-response', async (req, res) => {
  * printed historical jobs), so the new order skips design and starts at
  * 'print' instead of the usual 'new_design'.
  */
-router.post('/confirm-final', async (req, res) => {
+router.post('/confirm-final', canManageDesignFiles, async (req, res) => {
   try {
     const {
       fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items,
@@ -1659,7 +1665,7 @@ router.post('/confirm-final', async (req, res) => {
  *
  * Body: { printJobId, vendorUuid, amount, notes }
  */
-router.post('/update-print-job', async (req, res) => {
+router.post('/update-print-job', canManageDesignFiles, async (req, res) => {
   try {
     const { printJobId, vendorUuid, amount, notes } = req.body || {};
 
@@ -1697,7 +1703,7 @@ router.post('/update-print-job', async (req, res) => {
  *
  * Body: { fileId, orderNumber, vendorName, printJobNumber, originalFileName }
  */
-router.post('/rename-print-file', async (req, res) => {
+router.post('/rename-print-file', canManageDesignFiles, async (req, res) => {
   try {
     const { fileId, orderNumber, vendorName, printJobNumber, originalFileName } = req.body || {};
 

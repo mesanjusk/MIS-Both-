@@ -52,11 +52,20 @@ describe('requirePermission', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
-  test('allows when the user row has no permissions at all', async () => {
-    mockUser(null);
+  test('allows when the user row exists but has no permissions sub-document', async () => {
+    mockUser(undefined);
     const next = jest.fn();
     await requirePermission('canEditOrders')(reqFor('worker'), {}, next);
     expect(next).toHaveBeenCalledWith();
+  });
+
+  test('refuses when the user row is gone, rather than treating it as unrestricted', async () => {
+    // A missing account used to read as an empty — and so permissive —
+    // permissions object, which let a deleted user's token pass every flag.
+    mockUser(null);
+    const next = jest.fn();
+    await requirePermission('canEditOrders')(reqFor('worker'), {}, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 401 }));
   });
 });
 

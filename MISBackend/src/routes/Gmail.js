@@ -2,6 +2,11 @@ const express = require('express');
 const multer  = require('multer');
 const router  = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
+const { requirePermission } = require('../middleware/requirePermission');
+const { createState, consumeState } = require('../services/oauthStateService');
+
+const OAUTH_PURPOSE = 'gmail';
 const { generateAuthUrl, saveTokensFromCode } = require('../services/gmailOAuthService');
 const { sendEmail } = require('../services/gmailSendService');
 const GmailAccount  = require('../repositories/GmailAccount');
@@ -27,13 +32,21 @@ router.get('/callback', async (req, res) => {
   const { code, state } = req.query;
   if (!code) return res.status(400).send('Missing authorization code');
 
-  let addedBy = 'system';
-  let returnTo = `${process.env.FRONTEND_URL || ''}/gmail/accounts`;
-  try {
-    const parsed = JSON.parse(Buffer.from(state || '', 'base64').toString());
-    if (parsed.addedBy) addedBy = parsed.addedBy;
-    if (parsed.returnTo) returnTo = parsed.returnTo;
-  } catch { /* ignore malformed state */ }
+  // Redeem the state this server issued. Both the connecting user and the
+  // redirect come from that row — the callback used to be trusted for both.
+  const issued = await consumeState(state, OAUTH_PURPOSE);
+  if (!issued) {
+    return res.status(400).send(`
+      <html><head><meta charset="utf-8"><title>Gmail Connection Failed</title></head>
+      <body style="font-family:Arial,sans-serif;padding:24px">
+        <h2 style="color:#cf222e">Gmail connection failed</h2>
+        <p>This sign-in link is invalid, expired, or has already been used. Start again from the app.</p>
+      </body></html>
+    `);
+  }
+
+  const addedBy  = issued.user_name || 'system';
+  const returnTo = issued.return_to || `${process.env.FRONTEND_URL || ''}/gmail/accounts`;
 
   try {
     const result = await saveTokensFromCode(code, addedBy);
@@ -61,13 +74,23 @@ router.get('/callback', async (req, res) => {
 // ── All routes below require a valid JWT ──────────────────────────────────────
 router.use(requireAuth);
 
+// Mail reaches customers under the business's own address, and the connected
+// account list is an integration credential. A valid token alone used to be
+// enough for all of it — including disconnecting an account and sending to an
+// arbitrary recipient.
+router.use(requirePermission('canUseEmail'));
+
 // Returns the Google OAuth URL so the frontend can redirect the browser to it
-router.get('/auth-url', (req, res) => {
+router.get('/auth-url', requireAdmin, async (req, res) => {
   try {
-    const returnTo = `${process.env.FRONTEND_URL || ''}/gmail/accounts`;
-    const state    = Buffer.from(
-      JSON.stringify({ addedBy: req.user?.userName || '', returnTo })
-    ).toString('base64');
+    // Server-issued and single-use. The base64 blob this replaced carried the
+    // connecting user's identity in the clear, with nothing binding it to a
+    // request this server had actually authorized.
+    const state = await createState({
+      purpose: OAUTH_PURPOSE,
+      user: req.user,
+      returnTo: `${process.env.FRONTEND_URL || ''}/gmail/accounts`,
+    });
     res.json({ success: true, authUrl: generateAuthUrl(state) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -95,7 +118,7 @@ router.get('/accounts', async (req, res) => {
 });
 
 // Soft-disconnect a Gmail account
-router.delete('/accounts/:accountId', async (req, res) => {
+router.delete('/accounts/:accountId', requireAdmin, async (req, res) => {
   try {
     const updated = await GmailAccount.findOneAndUpdate(
       { accountId: req.params.accountId },

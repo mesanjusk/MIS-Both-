@@ -218,6 +218,78 @@ function invalidateCache() {
 }
 
 /**
+ * Signed movement one journal line applies to its account's stored Balance.
+ * A line on the account's normal side increases it; the opposite side
+ * decreases it.
+ */
+function lineDelta(entryType, amount, normalSide) {
+  const side     = String(normalSide || 'debit').toLowerCase();
+  const isNormal = (entryType === 'Debit'  && side === 'debit') ||
+                   (entryType === 'Credit' && side === 'credit');
+  return isNormal ? amount : -amount;
+}
+
+const round2 = (n) => Number(n.toFixed(2));
+
+/**
+ * Apply a net balance movement: reverse the `reverse` lines and apply the
+ * `apply` lines in one pass.
+ *
+ * Edits and deletions must go through here rather than posting the new journal
+ * on its own — posting alone leaves the superseded journal's movement in the
+ * stored balance forever, which is how balances drift away from the ledger.
+ *
+ * Per-account deltas are netted first, so an edit that only changes an amount
+ * issues a single $inc of the difference instead of a decrement followed by an
+ * increment. Lines whose account no longer exists are skipped, matching the
+ * previous single-line behaviour.
+ *
+ * @param {{reverse?: Array<object>, apply?: Array<object>}} movement
+ */
+async function applyBalanceMovement({ reverse = [], apply = [] } = {}) {
+  const lines = [...reverse, ...apply];
+  const uuids = [...new Set(lines.map((l) => l && l.Account_id).filter(Boolean))];
+  if (!uuids.length) return;
+
+  const accounts = await Accounts.find({ Account_uuid: { $in: uuids } })
+    .select('Account_uuid Normal_balance_side')
+    .lean();
+
+  const sideByUuid = new Map(
+    accounts.map((a) => [a.Account_uuid, a.Normal_balance_side])
+  );
+
+  const deltas = new Map();
+  const collect = (entries, sign) => {
+    for (const line of entries) {
+      if (!line || !line.Account_id) continue;
+      if (!sideByUuid.has(line.Account_id)) continue;
+      const amount = Number(line.Amount);
+      if (!Number.isFinite(amount)) continue;
+      const delta = lineDelta(line.Type, amount, sideByUuid.get(line.Account_id)) * sign;
+      deltas.set(line.Account_id, (deltas.get(line.Account_id) || 0) + delta);
+    }
+  };
+  collect(reverse, -1);
+  collect(apply, 1);
+
+  const ops = [];
+  for (const [Account_uuid, raw] of deltas) {
+    const delta = round2(raw);
+    if (delta === 0) continue;
+    ops.push({
+      updateOne: {
+        filter: { Account_uuid },
+        update: { $inc: { Balance: delta }, $set: { Updated_at: new Date() } },
+      },
+    });
+  }
+  if (!ops.length) return;
+
+  await Accounts.bulkWrite(ops, { ordered: false });
+}
+
+/**
  * Update account balance after a transaction journal line is posted.
  * Uses Normal_balance_side to determine direction.
  *
@@ -226,29 +298,28 @@ function invalidateCache() {
  * @param {number} amount
  */
 async function updateBalance(accountUuid, entryType, amount) {
-  const acct = await Accounts.findOne({ Account_uuid: accountUuid }).lean();
-  if (!acct) return;
-
-  const normalSide = String(acct.Normal_balance_side || 'debit').toLowerCase();
-  const isNormal   = (entryType === 'Debit' && normalSide === 'debit') ||
-                     (entryType === 'Credit' && normalSide === 'credit');
-  const delta      = isNormal ? amount : -amount;
-
-  await Accounts.findOneAndUpdate(
-    { Account_uuid: accountUuid },
-    { $inc: { Balance: delta }, $set: { Updated_at: new Date() } }
-  );
+  return applyBalanceMovement({
+    apply: [{ Account_id: accountUuid, Type: entryType, Amount: amount }],
+  });
 }
 
 /**
- * Bulk-update balances for all lines in a journal entry.
+ * Apply every line in a journal entry to its account balance.
  *
  * @param {Array<{Account_id: string, Type: string, Amount: number}>} journalLines
  */
 async function updateBalancesForJournal(journalLines = []) {
-  await Promise.all(
-    journalLines.map((line) => updateBalance(line.Account_id, line.Type, line.Amount))
-  );
+  return applyBalanceMovement({ apply: journalLines });
+}
+
+/**
+ * Undo a journal entry's effect on account balances — for deletions and for
+ * the superseded half of an edit.
+ *
+ * @param {Array<{Account_id: string, Type: string, Amount: number}>} journalLines
+ */
+async function reverseBalancesForJournal(journalLines = []) {
+  return applyBalanceMovement({ reverse: journalLines });
 }
 
 module.exports = {
@@ -260,5 +331,8 @@ module.exports = {
   invalidateCache,
   updateBalance,
   updateBalancesForJournal,
+  reverseBalancesForJournal,
+  applyBalanceMovement,
+  lineDelta,
   SYSTEM_ACCOUNT_META,
 };

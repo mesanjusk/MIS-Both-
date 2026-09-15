@@ -1,13 +1,15 @@
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
 const router  = express.Router();
 
 const Transaction = require('../repositories/transaction');
-const Counter     = require('../repositories/counter');
+const TransactionAudit = require('../repositories/transactionAudit');
+const transactionNumber = require('../services/transactionNumberService');
 const Orders      = require('../repositories/order');
 const { refreshOrderPaymentStatus }    = require('../services/businessWorkflowService');
 const { validateBalancedJournal }      = require('../services/accountingPostingService');
-const { resolve: resolveAccount, isUuid, updateBalancesForJournal } = require('../services/accountRegistry');
+const { resolve: resolveAccount, isUuid, applyBalanceMovement } = require('../services/accountRegistry');
 const { v4: uuid } = require('uuid');
 
 const multer     = require('multer');
@@ -48,6 +50,69 @@ const toNum = (v) => {
   const n = Number(String(v ?? '').replace(/[₹,\s]/g, '').trim());
   return Number.isFinite(n) ? n : 0;
 };
+
+/** The authenticated user a posting is attributed to. */
+function actingUser(req) {
+  return String(req.user?.userName || req.user?.User_name || req.user?.id || 'unknown');
+}
+
+/** The financially meaningful shape of a transaction, for the audit trail. */
+function auditSnapshot(txn) {
+  if (!txn) return null;
+  return {
+    Transaction_date: txn.Transaction_date,
+    Description:      txn.Description,
+    Total_Debit:      txn.Total_Debit,
+    Total_Credit:     txn.Total_Credit,
+    Payment_mode:     txn.Payment_mode,
+    Order_number:     txn.Order_number,
+    Customer_uuid:    txn.Customer_uuid,
+    Journal_entry:    (txn.Journal_entry || []).map((l) => ({
+      Account_id: l.Account_id, Account_name: l.Account_name, Type: l.Type, Amount: l.Amount,
+    })),
+  };
+}
+
+/**
+ * Append an audit row. Never fails the request: the mutation has already
+ * happened, and losing the request would be worse than losing the trail entry,
+ * which is logged loudly instead.
+ */
+async function recordAudit(req, { action, transaction, before, after }) {
+  try {
+    await TransactionAudit.create({
+      Transaction_uuid: transaction.Transaction_uuid,
+      Transaction_id:   transaction.Transaction_id ?? null,
+      action,
+      actor:    actingUser(req),
+      actor_id: String(req.user?.id || ''),
+      before:   before ? auditSnapshot(before) : null,
+      after:    after  ? auditSnapshot(after)  : null,
+    });
+  } catch (err) {
+    logger.error(`Transaction audit write failed for ${transaction.Transaction_uuid} (${action}): ${err.message}`);
+  }
+}
+
+/**
+ * Apply a balance movement and report failure instead of swallowing it.
+ *
+ * The transaction collection is the ledger of record; Accounts.Balance is a
+ * running cache of it. When the cache write fails the transaction still stands,
+ * so the request is not failed — but the caller is told, and the log carries
+ * enough detail to re-run reconcile-account-balances.js.
+ *
+ * @returns {Promise<string|null>} warning message, or null when applied cleanly
+ */
+async function applyBalances(movement, context) {
+  try {
+    await applyBalanceMovement(movement);
+    return null;
+  } catch (err) {
+    logger.error(`Account balance update failed while ${context}: ${err.message}`);
+    return 'Transaction saved, but account balances could not be updated. Run the balance reconciliation script.';
+  }
+}
 
 function buildOrderFilter(Order_uuid, Order_number) {
   const ou = String(Order_uuid  || '').trim();
@@ -132,11 +197,16 @@ async function resolveJournalAccounts(rawLines = []) {
 
 router.use(requireAuth);
 
+// Reading the ledger at all requires account access. Authentication alone used
+// to be enough here, so a user with canViewAccounts=false still reached every
+// transaction route including DELETE.
+router.use(requirePermission('canViewAccounts'));
+
 // ---------------------------------------------------------------------------
 // POST /addTransaction  – create a new manual transaction
 // ---------------------------------------------------------------------------
 
-router.post('/addTransaction', upload.single('image'), async (req, res) => {
+router.post('/addTransaction', requirePermission('canPostTransactions'), upload.single('image'), async (req, res) => {
   try {
     const {
       Description,
@@ -157,9 +227,13 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
       Source,
     } = req.body;
 
-    if (!Description || !Transaction_date || Total_Debit === undefined || Total_Credit === undefined || !Payment_mode || !Created_by) {
+    if (!Description || !Transaction_date || !Payment_mode) {
       return res.status(400).json({ success: false, message: 'Required fields are missing.' });
     }
+
+    // The actor is whoever holds the token. Taking it from the body let any
+    // caller attribute a posting to someone else.
+    const actor = actingUser(req);
 
     // Parse Journal_entry
     let rawJournal = [];
@@ -183,34 +257,31 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
     const Journal_entry = await resolveJournalAccounts(rawJournal);
 
     // Enforce double-entry balance
+    let journalTotals;
     try {
-      validateBalancedJournal(Journal_entry);
+      journalTotals = validateBalancedJournal(Journal_entry);
     } catch (balErr) {
       return res.status(400).json({ success: false, message: balErr.message });
     }
 
     const imageUrl = req.file ? await uploadToCloudinary(req.file) : null;
 
-    // Atomic transaction ID
-    const txnCounter = await Counter.findByIdAndUpdate(
-      'transaction_number',
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).lean();
+    // Atomic transaction ID (shared allocator — see transactionNumberService)
+    const nextTransactionId = await transactionNumber.allocate();
 
     const newTransaction = new Transaction({
       Transaction_uuid: uuid(),
-      Transaction_id:   Number(txnCounter?.seq || 1),
+      Transaction_id:   nextTransactionId,
       Order_uuid:       Order_uuid  || null,
       Order_number:     toNum(Order_number) || null,
       Transaction_date,
-      Total_Debit:      toNum(Total_Debit),
-      Total_Credit:     toNum(Total_Credit),
+      Total_Debit:      journalTotals.debit,
+      Total_Credit:     journalTotals.credit,
       Journal_entry,
       Payment_mode,
       Description,
       image:            imageUrl,
-      Created_by,
+      Created_by:       actor,
       Customer_uuid:    Customer_uuid    || null,
       Upi_reference:    Upi_reference    || '',
       Upi_status:       Upi_status       || '',
@@ -222,8 +293,14 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
 
     await newTransaction.save();
 
-    // Update account balances (non-blocking)
-    updateBalancesForJournal(Journal_entry).catch(() => {});
+    await recordAudit(req, { action: 'create', transaction: newTransaction, after: newTransaction });
+
+    // Update account balances. Awaited: a silent failure here is what lets the
+    // stored balance drift away from the journal.
+    const balanceWarning = await applyBalances(
+      { apply: Journal_entry },
+      `creating txn ${newTransaction.Transaction_uuid}`
+    );
 
     // Refresh order payment status
     try {
@@ -232,7 +309,12 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
       logger.error(`refreshOrderPaymentStatus failed after saving txn ${newTransaction.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.status(201).json({ success: true, message: 'Transaction created successfully', result: newTransaction });
+    return res.status(201).json({
+      success: true,
+      message: 'Transaction created successfully',
+      result: newTransaction,
+      ...(balanceWarning ? { balanceWarning } : {}),
+    });
   } catch (error) {
     logger.error('Error in /addTransaction:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -341,7 +423,7 @@ router.get('/:uuid', async (req, res) => {
 // PUT /:uuid  – update a transaction
 // ---------------------------------------------------------------------------
 
-router.put('/:uuid', upload.single('image'), async (req, res) => {
+router.put('/:uuid', requirePermission('canEditTransactions'), upload.single('image'), async (req, res) => {
   try {
     const { uuid: transactionUuid } = req.params;
 
@@ -372,16 +454,32 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid JSON format for Journal_entry' });
     }
 
-    // Resolve account names → UUIDs in updated journal lines
-    const Journal_entry = rawJournal.length ? await resolveJournalAccounts(rawJournal) : [];
-
-    if (Journal_entry.length) {
-      try {
-        validateBalancedJournal(Journal_entry);
-      } catch (balErr) {
-        return res.status(400).json({ success: false, message: balErr.message });
-      }
+    // An edit may not blank the journal: an empty array used to bypass
+    // validation entirely and leave the old balance movement stranded.
+    if (!Array.isArray(rawJournal) || !rawJournal.length) {
+      return res.status(400).json({ success: false, message: 'Journal_entry must be a non-empty array.' });
     }
+
+    const badIdx = rawJournal.findIndex((e) => !e.Account_id || !e.Type || e.Amount === undefined);
+    if (badIdx !== -1) {
+      return res.status(400).json({ success: false, message: `Journal_entry[${badIdx}] is missing Account_id, Type, or Amount.` });
+    }
+
+    // Resolve account names → UUIDs in updated journal lines
+    const Journal_entry = await resolveJournalAccounts(rawJournal);
+
+    let journalTotals;
+    try {
+      journalTotals = validateBalancedJournal(Journal_entry);
+    } catch (balErr) {
+      return res.status(400).json({ success: false, message: balErr.message });
+    }
+
+    // The transaction as it stands before the edit: its journal is needed to
+    // back the old movement out of the account balances, and the rest of it is
+    // the audit trail's "before". Read before the update so it is not lost.
+    const previous = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
+    if (!previous) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
     const imageUrl    = req.file ? await uploadToCloudinary(req.file) : undefined;
 
@@ -390,10 +488,11 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
       Transaction_date,
       Order_uuid:       Order_uuid || null,
       Order_number:     toNum(Order_number) || null,
-      Total_Debit:      toNum(Total_Debit),
-      Total_Credit:     toNum(Total_Credit),
+      Total_Debit:      journalTotals.debit,
+      Total_Credit:     journalTotals.credit,
       Payment_mode,
-      Created_by,
+      // Created_by is deliberately not overwritten — it is who posted the
+      // transaction. Who edited it is recorded in the audit trail below.
       Journal_entry,
       Customer_uuid:    Customer_uuid    || null,
       Upi_reference:    Upi_reference    || '',
@@ -413,8 +512,13 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
 
     if (!updated) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
-    // Recalculate account balances after edit (non-blocking)
-    if (Journal_entry.length) updateBalancesForJournal(Journal_entry).catch(() => {});
+    await recordAudit(req, { action: 'edit', transaction: updated, before: previous, after: updated });
+
+    // Net the superseded journal out and the new one in, in a single pass.
+    const balanceWarning = await applyBalances(
+      { reverse: previous.Journal_entry || [], apply: Journal_entry },
+      `editing txn ${updated.Transaction_uuid}`
+    );
 
     try {
       await refreshOrderPaymentStatus({ orderUuid: updated.Order_uuid, orderNumber: updated.Order_number });
@@ -422,7 +526,12 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
       logger.error(`refreshOrderPaymentStatus failed after editing txn ${updated.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.json({ success: true, message: 'Transaction updated successfully', result: updated });
+    return res.json({
+      success: true,
+      message: 'Transaction updated successfully',
+      result: updated,
+      ...(balanceWarning ? { balanceWarning } : {}),
+    });
   } catch (error) {
     logger.error('Error in PUT /transactions/:uuid:', error);
     return res.status(500).json({ success: false, message: 'Failed to update transaction' });
@@ -433,12 +542,21 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
 // DELETE /:uuid
 // ---------------------------------------------------------------------------
 
-router.delete('/:uuid', async (req, res) => {
+router.delete('/:uuid', requirePermission('canDeleteTransactions'), async (req, res) => {
   try {
     const tx = await Transaction.findOne({ Transaction_uuid: req.params.uuid }).lean();
     if (!tx) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
     await Transaction.findOneAndDelete({ Transaction_uuid: req.params.uuid });
+
+    await recordAudit(req, { action: 'delete', transaction: tx, before: tx });
+
+    // Back the deleted journal's movement out of the account balances —
+    // deletion used to leave it applied forever.
+    const balanceWarning = await applyBalances(
+      { reverse: tx.Journal_entry || [] },
+      `deleting txn ${tx.Transaction_uuid}`
+    );
 
     try {
       await refreshOrderPaymentStatus({ orderUuid: tx.Order_uuid, orderNumber: tx.Order_number });
@@ -446,7 +564,11 @@ router.delete('/:uuid', async (req, res) => {
       logger.error(`refreshOrderPaymentStatus failed after deleting txn ${tx.Transaction_uuid}: ${refreshErr.message}`);
     }
 
-    return res.json({ success: true, message: 'Transaction deleted successfully' });
+    return res.json({
+      success: true,
+      message: 'Transaction deleted successfully',
+      ...(balanceWarning ? { balanceWarning } : {}),
+    });
   } catch (error) {
     logger.error('Error in DELETE /transactions/:uuid:', error);
     return res.status(500).json({ success: false, message: 'Failed to delete transaction' });

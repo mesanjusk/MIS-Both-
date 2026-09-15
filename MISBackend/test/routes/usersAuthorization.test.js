@@ -40,6 +40,7 @@ jest.mock('../../src/middleware/rateLimit', () => ({
   createRateLimiter: () => (_req, _res, next) => next(),
 }));
 
+const Users = require('../../src/repositories/users');
 const usersRouter = require('../../src/routes/Users');
 const { errorHandler } = require('../../src/middleware/errorHandler');
 
@@ -48,8 +49,24 @@ app.use(express.json());
 app.use('/api/users', usersRouter);
 app.use(errorHandler);
 
-const tokenFor = (userGroup) =>
-  jwt.sign({ id: 'u-1', userName: 'tester', userGroup }, process.env.ACCESS_TOKEN_SECRET);
+/**
+ * A token for a live account in the given role.
+ *
+ * requireAuth resolves the account behind the token and reads the role from it
+ * rather than from the payload, so the stubbed row has to exist and carry the
+ * same role — otherwise every request here stops at 401 and never reaches the
+ * role guard these tests are about.
+ */
+const tokenFor = (userGroup) => {
+  Users.findById.mockReturnValue({
+    select: () => ({
+      lean: async () => ({
+        _id: 'u-1', User_name: 'tester', User_group: userGroup, Session_version: 0,
+      }),
+    }),
+  });
+  return jwt.sign({ id: 'u-1', userName: 'tester', userGroup, sv: 0 }, process.env.ACCESS_TOKEN_SECRET);
+};
 
 const NEW_USER = {
   User_name: 'someone',

@@ -7,6 +7,15 @@ const UsersSchema = new mongoose.Schema({
   phone: { type: String, unique: true, sparse: true },
   User_name: { type: String, required: true },
   Password: { type: String, required: true },
+
+  /**
+   * Bumped whenever every existing session for this user must stop working:
+   * a password change, a role change, or an administrative revoke. Tokens
+   * carry the value they were issued with, and requireAuth refuses any token
+   * whose value is behind the stored one. Without it a 45-day token outlives
+   * a demotion or a password reset.
+   */
+  Session_version: { type: Number, default: 0 },
   Mobile_number: { type: String, required: true, unique: true },
   User_group: { type: String, required: true },
   Amount: { type: Number, required: true },
@@ -93,6 +102,18 @@ const UsersSchema = new mongoose.Schema({
       canViewReports:  { type: Boolean, default: true },
       canViewAccounts: { type: Boolean, default: true },
       canExportData:   { type: Boolean, default: false },
+      // Accounting actions, split so that reading the ledger, posting to it and
+      // removing from it can be granted separately. Deleting a financial record
+      // defaults off, as canDeleteOrders does.
+      canPostTransactions:   { type: Boolean, default: true },
+      canEditTransactions:   { type: Boolean, default: true },
+      canDeleteTransactions: { type: Boolean, default: false },
+      // Integration actions that reach customers or external accounts.
+      canUseEmail:           { type: Boolean, default: true },
+      canManageDesignFiles:  { type: Boolean, default: true },
+      // Governs the live WhatsApp message stream as well as the pages: every
+      // authenticated socket used to receive every inbound message.
+      canViewWhatsapp:       { type: Boolean, default: true },
       dashboardCards:  { type: [String], default: [] }, // empty = show all cards
       allowedWidgets:      { type: [String], default: [] }, // empty = allow all home widgets
       topNavHidden:        { type: [String], default: [] }, // top navbar dropdown labels hidden by admin
@@ -113,6 +134,12 @@ const UsersSchema = new mongoose.Schema({
       canViewReports: true,
       canViewAccounts: true,
       canExportData: false,
+      canPostTransactions: true,
+      canEditTransactions: true,
+      canDeleteTransactions: false,
+      canUseEmail: true,
+      canManageDesignFiles: true,
+      canViewWhatsapp: true,
       dashboardCards: [],
       allowedWidgets: [],
       topNavHidden: [],

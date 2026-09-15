@@ -48,14 +48,22 @@ function isGoogleAuthError(error) {
   );
 }
 
-function getGoogleDriveAuthUrl(returnTo = "") {
+/**
+ * Build the consent URL.
+ *
+ * `state` must be a server-issued, single-use nonce (see oauthStateService),
+ * not a return URL: the callback connects the Drive account this whole
+ * installation uses, so it has to be tied to an authorization someone was
+ * allowed to start. The redirect target is held server-side against that nonce.
+ */
+function getGoogleDriveAuthUrl(state = "") {
   const oauth2Client = getOAuthClient();
 
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
     scope: SCOPES,
-    state: returnTo || "",
+    state: state || "",
   });
 }
 

@@ -6,6 +6,7 @@ const Counter = require("../repositories/counter");
 const { v4: uuid } = require("uuid");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const { whatsappLimiter } = require('../middleware/rateLimit');
+const { enforceWhatsApp24hWindow } = require('../middleware/whatsapp24hGuard');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
 
@@ -74,10 +75,22 @@ const MAX_WHATSAPP_TEXT_LENGTH = 4096;
 // router-wide requireAuth above is not enough on its own: with no cap, one
 // leaked staff token can pump messages through the account faster than anyone
 // notices, and a number that sends in that pattern gets rate-limited or banned
-// by Meta. It therefore carries the same 30-per-minute, per-user limit as
-// /api/whatsapp/send-text, which is the equivalent route on the WhatsApp
-// router.
-router.post('/send-message', whatsappLimiter, async (req, res) => {
+// by Meta. It therefore carries the same 30-per-minute, per-user limit and the
+// same 24-hour customer-service-window check as /api/whatsapp/send-text, which
+// is the equivalent route on the WhatsApp router. Free text to someone who has
+// not messaged in 24 hours is refused by WhatsApp policy; enforcing it here
+// turns a silent provider rejection into a 403 the caller can act on.
+// Validates the request and restates it in the shape the 24-hour window guard
+// reads.
+//
+// The guard keys off `to` and `type`. This route's body predates it and uses
+// { mobile, message }, with a `type` that means something else entirely — the
+// callers send 'customer' and 'order_update' as a category label, not a
+// WhatsApp message type. Left alone, the guard would look for a conversation
+// under `to`, find nothing, log "unable to resolve conversation identity" and
+// wave the send through, which is enforcement in name only. So fill in `to`
+// and set `type` to what this route actually sends: text.
+const prepareDirectSend = (req, res, next) => {
   const mobile = String(req.body?.mobile ?? '').trim();
   const message = String(req.body?.message ?? '').trim();
 
@@ -99,8 +112,16 @@ router.post('/send-message', whatsappLimiter, async (req, res) => {
       .json({ error: `Message must be ${MAX_WHATSAPP_TEXT_LENGTH} characters or fewer` });
   }
 
+  req.body.to = normalizeWhatsAppNumber(mobile);
+  req.body.type = 'text';
+  req.directSend = { to: req.body.to, message };
+  return next();
+};
+
+router.post('/send-message', whatsappLimiter, prepareDirectSend, enforceWhatsApp24hWindow, async (req, res) => {
+  const { to: formattedMobile, message } = req.directSend;
+
   try {
-    const formattedMobile = normalizeWhatsAppNumber(mobile);
     await sendWhatsAppText({ to: formattedMobile, body: message, source: 'TASK_MESSAGE', activity: 'TASK_NOTIFICATIONS' });
     logger.info(
       { to: formattedMobile, by: req.user?.userName || req.user?.id || '' },

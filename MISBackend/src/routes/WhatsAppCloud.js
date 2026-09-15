@@ -5,6 +5,7 @@ const { createRateLimiter } = require('../middleware/rateLimit');
 const { enforceWhatsApp24hWindow } = require('../middleware/whatsapp24hGuard');
 const asyncHandler = require('../utils/asyncHandler');
 const sanjusk = require('../services/sanjuskApiService');
+const sanjuskConversation = require('../services/sanjuskConversationService');
 
 const {
   exchangeMetaToken,
@@ -126,19 +127,42 @@ router.get(
   })
 );
 
+// Two different questions, and the provider only answers one of them
+// directly.
+//
+// With `since`, the caller is polling a cursor they already hold, and passing
+// it straight through is exactly right. Without one, the caller means "show me
+// the conversation" — but the provider's endpoint is ascending and limited, so
+// a bare request returns the oldest rows in the account's history. That is
+// what the inbox was doing on a five-second timer: re-reading the first page
+// ever written and showing nothing from the last several days, in either
+// direction. Route that case through the tail reader, which walks the cursor
+// to the newest messages and keeps them.
 router.get(
   '/sanjusk/messages',
   requireAuth,
   asyncHandler(async (req, res) => {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 100));
+
+    if (!req.query.since) {
+      const { rows, nextSince } = await sanjuskConversation.getRecentMessages({ limit });
+      return res.json({
+        success: true,
+        data: rows.map(normalizeSanjuskMessage),
+        nextSince: nextSince || null,
+        hasMore: false,
+      });
+    }
+
     const data = await sanjusk.listMessages({
       since: req.query.since,
       direction: req.query.direction,
       phone: req.query.phone,
-      limit: Math.min(100, Math.max(1, Number(req.query.limit) || 100)),
+      limit,
       requireEnabled: false,
     });
     const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
-    res.json({
+    return res.json({
       success: true,
       data: rows.map(normalizeSanjuskMessage),
       nextSince: data?.nextSince || null,

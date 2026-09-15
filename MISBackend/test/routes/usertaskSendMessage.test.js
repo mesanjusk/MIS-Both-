@@ -4,8 +4,8 @@
 // POST /api/usertasks/send-message takes a number and a body from the caller
 // and sends it. It has always required a token (router.use(requireAuth)), but
 // nothing beyond that: no send cap, no check that the "number" was a number,
-// and the provider's raw reply was handed straight back to the browser. These
-// cover each of those.
+// no 24-hour customer-service-window check, and the provider's raw reply was
+// handed straight back to the browser. These cover each of those.
 //
 // The repositories and the send path are mocked so this runs without a mongod
 // or a live WhatsApp account; every assertion below lands in the route's own
@@ -31,6 +31,16 @@ jest.mock('../../src/repositories/counter', () => ({
   findOneAndUpdate: jest.fn(async () => ({ seq: 1 })),
 }));
 
+// The 24-hour window guard looks up the last inbound message from this
+// contact. `mockLastIncoming` is what it finds; null means the customer has never
+// written, which is the closed-window case.
+let mockLastIncoming = null;
+jest.mock('../../src/repositories/Message', () => ({
+  findOne: jest.fn(() => ({
+    sort: () => ({ lean: async () => mockLastIncoming }),
+  })),
+}));
+
 // The limiter is deliberately NOT mocked here — its 30/minute cap is one of
 // the things under test.
 const usertaskRouter = require('../../src/routes/Usertask');
@@ -49,6 +59,8 @@ const VALID = { mobile: '9876543210', message: 'hello' };
 
 beforeEach(() => {
   mockSendWhatsAppText.mockClear();
+  // Default to an open window; the window cases below set their own.
+  mockLastIncoming = { timestamp: new Date() };
 });
 
 describe('POST /api/usertasks/send-message', () => {
@@ -91,6 +103,33 @@ describe('POST /api/usertasks/send-message', () => {
     expect(mockSendWhatsAppText).toHaveBeenCalledWith(
       expect.objectContaining({ to: '919876543210', body: 'hello' })
     );
+  });
+
+  it('refuses free text when the customer has not written in 24 hours', async () => {
+    mockLastIncoming = { timestamp: new Date(Date.now() - 25 * 60 * 60 * 1000) };
+
+    const res = await post(VALID);
+
+    expect(res.status).toBe(403);
+    expect(mockSendWhatsAppText).not.toHaveBeenCalled();
+  });
+
+  it('refuses free text when the customer has never written', async () => {
+    mockLastIncoming = null;
+
+    const res = await post(VALID);
+
+    expect(res.status).toBe(403);
+    expect(mockSendWhatsAppText).not.toHaveBeenCalled();
+  });
+
+  it('allows the send inside the 24-hour window', async () => {
+    mockLastIncoming = { timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000) };
+
+    const res = await post(VALID);
+
+    expect(res.status).toBe(200);
+    expect(mockSendWhatsAppText).toHaveBeenCalledTimes(1);
   });
 
   it('caps one caller at 30 sends per minute', async () => {

@@ -637,7 +637,7 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
     await txn.save();
 
     // Update account balances (non-blocking)
-    updateBalancesForJournal(journal).catch(() => {});
+    await updateBalancesForJournal(journal).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
 
     entry.entry_status     = 'confirmed';
     entry.transaction_uuid = txn.Transaction_uuid;

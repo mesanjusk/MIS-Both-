@@ -5,9 +5,12 @@ const { requireAdmin } = require('../middleware/authorize');
 const { v4: uuidv4 } = require('uuid');
 const Accounts = require('../repositories/accounts');
 const Transaction = require('../repositories/transaction');
+const logger = require('../utils/logger');
+const transactionNumber = require('../services/transactionNumberService');
 const {
   resolve: resolveAccount,
   updateBalancesForJournal,
+  reverseBalancesForJournal,
   invalidateCache,
 } = require('../services/accountRegistry');
 
@@ -116,11 +119,7 @@ router.post('/opening-balance', async (req, res) => {
       );
       if (hasThisAccount) {
         // Reverse balance impact before deleting
-        const reversedLines = (txn.Journal_entry || []).map((l) => ({
-          ...l,
-          Type: l.Type === 'Debit' ? 'Credit' : 'Debit',
-        }));
-        await updateBalancesForJournal(reversedLines).catch(() => {});
+        await reverseBalancesForJournal(txn.Journal_entry || []);
         await Transaction.deleteOne({ _id: txn._id });
       }
     }
@@ -136,8 +135,7 @@ router.post('/opening-balance', async (req, res) => {
 
     const Journal_entry = [debitLine, creditLine];
 
-    const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();
-    const nextId = Number(last?.Transaction_id || 0) + 1;
+    const nextId = await transactionNumber.allocate();
 
     const txn = await Transaction.create({
       Transaction_uuid: uuidv4(),
@@ -152,7 +150,7 @@ router.post('/opening-balance', async (req, res) => {
       Source: OPENING_BALANCE_SOURCE,
     });
 
-    await updateBalancesForJournal(Journal_entry).catch(() => {});
+    await updateBalancesForJournal(Journal_entry).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
 
     res.json({ transaction: txn });
   } catch (err) {
@@ -223,11 +221,7 @@ router.post('/opening-balance/bulk', async (req, res) => {
             (l) => l.Account_id === acctResult.uuid && l.Account_name?.toLowerCase() !== 'opening balance equity'
           );
           if (hasThisAccount) {
-            const reversedLines = (txn.Journal_entry || []).map((l) => ({
-              ...l,
-              Type: l.Type === 'Debit' ? 'Credit' : 'Debit',
-            }));
-            await updateBalancesForJournal(reversedLines).catch(() => {});
+            await reverseBalancesForJournal(txn.Journal_entry || []);
             await Transaction.deleteOne({ _id: txn._id });
           }
         }
@@ -241,8 +235,7 @@ router.post('/opening-balance/bulk', async (req, res) => {
           : { Account_id: acctResult.uuid, Account_name: acctResult.name, Type: 'Credit', Amount: row.amount };
 
         const Journal_entry = [debitLine, creditLine];
-        const last = await Transaction.findOne().sort({ Transaction_id: -1 }).lean();
-        const nextId = Number(last?.Transaction_id || 0) + 1;
+        const nextId = await transactionNumber.allocate();
 
         await Transaction.create({
           Transaction_uuid: uuidv4(),
@@ -257,7 +250,7 @@ router.post('/opening-balance/bulk', async (req, res) => {
           Source: OPENING_BALANCE_SOURCE,
         });
 
-        await updateBalancesForJournal(Journal_entry).catch(() => {});
+        await updateBalancesForJournal(Journal_entry).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
         results.push({ account_name: row.account_name, amount: row.amount, side: row.side, success: true, message: `Saved for ${acctResult.name}` });
       } catch (rowErr) {
         results.push({ account_name: row.account_name, amount: row.amount, side: row.side, success: false, error: rowErr.message });
@@ -283,11 +276,7 @@ router.delete('/opening-balance/:accountUuid', async (req, res) => {
         (l) => l.Account_id === accountUuid && l.Account_name?.toLowerCase() !== 'opening balance equity'
       );
       if (hasAccount) {
-        const reversedLines = (txn.Journal_entry || []).map((l) => ({
-          ...l,
-          Type: l.Type === 'Debit' ? 'Credit' : 'Debit',
-        }));
-        await updateBalancesForJournal(reversedLines).catch(() => {});
+        await reverseBalancesForJournal(txn.Journal_entry || []);
         await Transaction.deleteOne({ _id: txn._id });
         deleted++;
       }

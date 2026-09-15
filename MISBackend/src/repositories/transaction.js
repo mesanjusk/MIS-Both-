@@ -49,6 +49,16 @@ const TransactionSchema = new mongoose.Schema(
 
     // Originating module / business event (e.g. 'business:customer_receipt')
     Source: { type: String, default: '', index: true },
+
+    /**
+     * Deterministic identity of the business event this posting represents,
+     * set only for postings that must happen at most once (an invoice for an
+     * order, a receipt for a payment). The unique index below is what actually
+     * stops a concurrent retry from posting twice — a find-then-create check
+     * cannot, because both callers can read "not found" before either writes.
+     * Left unset for postings that may legitimately repeat.
+     */
+    Event_key: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -65,6 +75,10 @@ TransactionSchema.index({ Created_by: 1 });
 TransactionSchema.index({ Customer_uuid: 1 });
 TransactionSchema.index({ Upi_reference: 1 });
 TransactionSchema.index({ Transaction_date: -1, Created_by: 1 });
+
+// At most one transaction per business event. Sparse, so the many postings
+// with no Event_key are not treated as duplicates of one another.
+TransactionSchema.index({ Event_key: 1 }, { unique: true, sparse: true });
 
 // Support fast lookup by journal account UUID
 TransactionSchema.index({ 'Journal_entry.Account_id': 1 });

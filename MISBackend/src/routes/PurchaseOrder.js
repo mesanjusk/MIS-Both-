@@ -13,7 +13,7 @@ const Customers     = require('../repositories/customer');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 const { postBalancedTransaction, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
-const { updateBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
+const { updateBalancesForJournal, reverseBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
 
 /**
  * Resolve or auto-create a vendor-specific payable account (Liability / credit-normal).
@@ -119,11 +119,7 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
 
   if (existingTxn) {
     // Reverse the old balance impact before applying the updated amounts
-    const reversalLines = existingTxn.Journal_entry.map((line) => ({
-      ...((line._doc || line)),
-      Type: line.Type === 'Debit' ? 'Credit' : 'Debit',
-    }));
-    await updateBalancesForJournal(reversalLines).catch(() => {});
+    await reverseBalancesForJournal(existingTxn.Journal_entry || []);
 
     const [debitLine, creditLine] = await Promise.all([
       buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  total),
@@ -136,7 +132,7 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
     existingTxn.Order_uuid    = po.Order_uuid || existingTxn.Order_uuid || null;
     if (txnDate) existingTxn.Transaction_date = new Date(txnDate);
     await existingTxn.save();
-    await updateBalancesForJournal([debitLine, creditLine]).catch(() => {});
+    await updateBalancesForJournal([debitLine, creditLine]).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
     await syncVendorLedgerEntry(po, { total, postedAt, transactionUuid: existingTxn.Transaction_uuid });
     return existingTxn;
   }

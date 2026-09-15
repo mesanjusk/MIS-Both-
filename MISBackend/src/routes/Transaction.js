@@ -1,8 +1,10 @@
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
 const router  = express.Router();
 
 const Transaction = require('../repositories/transaction');
+const TransactionAudit = require('../repositories/transactionAudit');
 const transactionNumber = require('../services/transactionNumberService');
 const Orders      = require('../repositories/order');
 const { refreshOrderPaymentStatus }    = require('../services/businessWorkflowService');
@@ -48,6 +50,49 @@ const toNum = (v) => {
   const n = Number(String(v ?? '').replace(/[₹,\s]/g, '').trim());
   return Number.isFinite(n) ? n : 0;
 };
+
+/** The authenticated user a posting is attributed to. */
+function actingUser(req) {
+  return String(req.user?.userName || req.user?.User_name || req.user?.id || 'unknown');
+}
+
+/** The financially meaningful shape of a transaction, for the audit trail. */
+function auditSnapshot(txn) {
+  if (!txn) return null;
+  return {
+    Transaction_date: txn.Transaction_date,
+    Description:      txn.Description,
+    Total_Debit:      txn.Total_Debit,
+    Total_Credit:     txn.Total_Credit,
+    Payment_mode:     txn.Payment_mode,
+    Order_number:     txn.Order_number,
+    Customer_uuid:    txn.Customer_uuid,
+    Journal_entry:    (txn.Journal_entry || []).map((l) => ({
+      Account_id: l.Account_id, Account_name: l.Account_name, Type: l.Type, Amount: l.Amount,
+    })),
+  };
+}
+
+/**
+ * Append an audit row. Never fails the request: the mutation has already
+ * happened, and losing the request would be worse than losing the trail entry,
+ * which is logged loudly instead.
+ */
+async function recordAudit(req, { action, transaction, before, after }) {
+  try {
+    await TransactionAudit.create({
+      Transaction_uuid: transaction.Transaction_uuid,
+      Transaction_id:   transaction.Transaction_id ?? null,
+      action,
+      actor:    actingUser(req),
+      actor_id: String(req.user?.id || ''),
+      before:   before ? auditSnapshot(before) : null,
+      after:    after  ? auditSnapshot(after)  : null,
+    });
+  } catch (err) {
+    logger.error(`Transaction audit write failed for ${transaction.Transaction_uuid} (${action}): ${err.message}`);
+  }
+}
 
 /**
  * Apply a balance movement and report failure instead of swallowing it.
@@ -152,11 +197,16 @@ async function resolveJournalAccounts(rawLines = []) {
 
 router.use(requireAuth);
 
+// Reading the ledger at all requires account access. Authentication alone used
+// to be enough here, so a user with canViewAccounts=false still reached every
+// transaction route including DELETE.
+router.use(requirePermission('canViewAccounts'));
+
 // ---------------------------------------------------------------------------
 // POST /addTransaction  – create a new manual transaction
 // ---------------------------------------------------------------------------
 
-router.post('/addTransaction', upload.single('image'), async (req, res) => {
+router.post('/addTransaction', requirePermission('canPostTransactions'), upload.single('image'), async (req, res) => {
   try {
     const {
       Description,
@@ -177,9 +227,13 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
       Source,
     } = req.body;
 
-    if (!Description || !Transaction_date || Total_Debit === undefined || Total_Credit === undefined || !Payment_mode || !Created_by) {
+    if (!Description || !Transaction_date || !Payment_mode) {
       return res.status(400).json({ success: false, message: 'Required fields are missing.' });
     }
+
+    // The actor is whoever holds the token. Taking it from the body let any
+    // caller attribute a posting to someone else.
+    const actor = actingUser(req);
 
     // Parse Journal_entry
     let rawJournal = [];
@@ -227,7 +281,7 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
       Payment_mode,
       Description,
       image:            imageUrl,
-      Created_by,
+      Created_by:       actor,
       Customer_uuid:    Customer_uuid    || null,
       Upi_reference:    Upi_reference    || '',
       Upi_status:       Upi_status       || '',
@@ -238,6 +292,8 @@ router.post('/addTransaction', upload.single('image'), async (req, res) => {
     });
 
     await newTransaction.save();
+
+    await recordAudit(req, { action: 'create', transaction: newTransaction, after: newTransaction });
 
     // Update account balances. Awaited: a silent failure here is what lets the
     // stored balance drift away from the journal.
@@ -367,7 +423,7 @@ router.get('/:uuid', async (req, res) => {
 // PUT /:uuid  – update a transaction
 // ---------------------------------------------------------------------------
 
-router.put('/:uuid', upload.single('image'), async (req, res) => {
+router.put('/:uuid', requirePermission('canEditTransactions'), upload.single('image'), async (req, res) => {
   try {
     const { uuid: transactionUuid } = req.params;
 
@@ -419,11 +475,10 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: balErr.message });
     }
 
-    // The journal the edit replaces, needed to back its movement out of the
-    // account balances. Read before the update so it is not lost.
-    const previous = await Transaction.findOne({ Transaction_uuid: transactionUuid })
-      .select('Journal_entry')
-      .lean();
+    // The transaction as it stands before the edit: its journal is needed to
+    // back the old movement out of the account balances, and the rest of it is
+    // the audit trail's "before". Read before the update so it is not lost.
+    const previous = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
     if (!previous) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
     const imageUrl    = req.file ? await uploadToCloudinary(req.file) : undefined;
@@ -436,7 +491,8 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
       Total_Debit:      journalTotals.debit,
       Total_Credit:     journalTotals.credit,
       Payment_mode,
-      Created_by,
+      // Created_by is deliberately not overwritten — it is who posted the
+      // transaction. Who edited it is recorded in the audit trail below.
       Journal_entry,
       Customer_uuid:    Customer_uuid    || null,
       Upi_reference:    Upi_reference    || '',
@@ -455,6 +511,8 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
     );
 
     if (!updated) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    await recordAudit(req, { action: 'edit', transaction: updated, before: previous, after: updated });
 
     // Net the superseded journal out and the new one in, in a single pass.
     const balanceWarning = await applyBalances(
@@ -484,12 +542,14 @@ router.put('/:uuid', upload.single('image'), async (req, res) => {
 // DELETE /:uuid
 // ---------------------------------------------------------------------------
 
-router.delete('/:uuid', async (req, res) => {
+router.delete('/:uuid', requirePermission('canDeleteTransactions'), async (req, res) => {
   try {
     const tx = await Transaction.findOne({ Transaction_uuid: req.params.uuid }).lean();
     if (!tx) return res.status(404).json({ success: false, message: 'Transaction not found' });
 
     await Transaction.findOneAndDelete({ Transaction_uuid: req.params.uuid });
+
+    await recordAudit(req, { action: 'delete', transaction: tx, before: tx });
 
     // Back the deleted journal's movement out of the account balances —
     // deletion used to leave it applied forever.

@@ -36,6 +36,11 @@ const DEFAULT_PERMISSIONS = {
   canViewReports: true,
   canViewAccounts: true,
   canExportData: false,
+  canPostTransactions: true,
+  canEditTransactions: true,
+  canDeleteTransactions: false,
+  canUseEmail: true,
+  canManageDesignFiles: true,
   dashboardCards: [],
   allowedWidgets: [],
   topNavHidden: [],
@@ -67,6 +72,11 @@ const PERMISSION_LABELS = [
   { key: 'canViewReports',   label: 'View Reports',    desc: 'Can access all report pages' },
   { key: 'canViewAccounts',  label: 'View Accounts',   desc: 'Can access account & UPI pages' },
   { key: 'canExportData',    label: 'Export Data',     desc: 'Can export reports as CSV/PDF' },
+  { key: 'canPostTransactions',   label: 'Post Transactions',   desc: 'Can create transactions and opening balances' },
+  { key: 'canEditTransactions',   label: 'Edit Transactions',   desc: 'Can modify existing transactions' },
+  { key: 'canDeleteTransactions', label: 'Delete Transactions', desc: 'Can delete transactions and opening balances' },
+  { key: 'canUseEmail',           label: 'Use Email',           desc: 'Can send mail and view email history' },
+  { key: 'canManageDesignFiles',  label: 'Manage Design Files', desc: 'Can change Drive files and send proofs' },
 ];
 
 const ALL_SIDEBAR_GROUPS = SIDEBAR_GROUPS.map((g) => g.label);

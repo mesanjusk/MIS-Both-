@@ -2,6 +2,8 @@ const express = require('express');
 const multer  = require('multer');
 const router  = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requireAdmin } = require('../middleware/authorize');
+const { requirePermission } = require('../middleware/requirePermission');
 const { generateAuthUrl, saveTokensFromCode } = require('../services/gmailOAuthService');
 const { sendEmail } = require('../services/gmailSendService');
 const GmailAccount  = require('../repositories/GmailAccount');
@@ -61,8 +63,14 @@ router.get('/callback', async (req, res) => {
 // ── All routes below require a valid JWT ──────────────────────────────────────
 router.use(requireAuth);
 
+// Mail reaches customers under the business's own address, and the connected
+// account list is an integration credential. A valid token alone used to be
+// enough for all of it — including disconnecting an account and sending to an
+// arbitrary recipient.
+router.use(requirePermission('canUseEmail'));
+
 // Returns the Google OAuth URL so the frontend can redirect the browser to it
-router.get('/auth-url', (req, res) => {
+router.get('/auth-url', requireAdmin, (req, res) => {
   try {
     const returnTo = `${process.env.FRONTEND_URL || ''}/gmail/accounts`;
     const state    = Buffer.from(
@@ -95,7 +103,7 @@ router.get('/accounts', async (req, res) => {
 });
 
 // Soft-disconnect a Gmail account
-router.delete('/accounts/:accountId', async (req, res) => {
+router.delete('/accounts/:accountId', requireAdmin, async (req, res) => {
   try {
     const updated = await GmailAccount.findOneAndUpdate(
       { accountId: req.params.accountId },

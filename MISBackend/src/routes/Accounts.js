@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const Accounts = require('../repositories/accounts');
 const Transaction = require('../repositories/transaction');
 const logger = require('../utils/logger');
+const { requirePermission } = require('../middleware/requirePermission');
 const transactionNumber = require('../services/transactionNumberService');
 const {
   resolve: resolveAccount,
@@ -54,6 +55,10 @@ router.get('/fix-opening-balance-uuid', requireAuth, requireAdmin, async (_req, 
 
 router.use(requireAuth);
 
+// The accounts ledger is financial data: reading it requires account access,
+// and changing an opening balance is a posting like any other.
+router.use(requirePermission('canViewAccounts'));
+
 router.get('/', async (_req, res) => {
   try {
     const accounts = await Accounts.find({}).sort({ Account_code: 1 }).lean();
@@ -90,7 +95,7 @@ router.get('/opening-balance', async (_req, res) => {
 
 // POST /api/accounts/opening-balance — upsert opening balance for one account
 // Body: { accountUuid, amount, side ('debit'|'credit'), date? }
-router.post('/opening-balance', async (req, res) => {
+router.post('/opening-balance', requirePermission('canPostTransactions'), async (req, res) => {
   try {
     const { accountUuid, amount, side, date } = req.body;
     const cleanAmount = Number(amount);
@@ -160,7 +165,7 @@ router.post('/opening-balance', async (req, res) => {
 
 // POST /api/accounts/opening-balance/bulk — batch upload from CSV text
 // Body: { csv_text, date?, uploaded_by? }
-router.post('/opening-balance/bulk', async (req, res) => {
+router.post('/opening-balance/bulk', requirePermission('canPostTransactions'), async (req, res) => {
   try {
     const { csv_text, date, uploaded_by } = req.body;
     if (!csv_text || !csv_text.trim()) {
@@ -266,7 +271,7 @@ router.post('/opening-balance/bulk', async (req, res) => {
 });
 
 // DELETE /api/accounts/opening-balance/:accountUuid — remove opening balance for one account
-router.delete('/opening-balance/:accountUuid', async (req, res) => {
+router.delete('/opening-balance/:accountUuid', requirePermission('canDeleteTransactions'), async (req, res) => {
   try {
     const { accountUuid } = req.params;
     const txns = await Transaction.find({ Source: OPENING_BALANCE_SOURCE }).lean();
@@ -290,7 +295,7 @@ router.delete('/opening-balance/:accountUuid', async (req, res) => {
 // DELETE /api/accounts/:uuid?migrateToUuid=<newUuid>
 // Deletes an account record. If migrateToUuid is provided, all Journal_entry
 // lines referencing the old UUID are updated to point to the new account instead.
-router.delete('/:uuid', async (req, res) => {
+router.delete('/:uuid', requirePermission('canDeleteTransactions'), async (req, res) => {
   try {
     const { uuid: oldUuid } = req.params;
     const { migrateToUuid } = req.query;

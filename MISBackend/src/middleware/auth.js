@@ -28,8 +28,8 @@ const decodeToken = (token, path) => {
  *
  * A valid signature only proves the token was issued; it says nothing about
  * whether the account still exists, still holds the role written into it, or
- * has since been revoked. Tokens live 45 days, so trusting the payload alone
- * kept deleted and demoted users working for up to that long — and a token
+ * has since been revoked. Tokens can be long-lived, so trusting the payload
+ * alone would keep deleted and demoted users working until expiry — and a token
  * naming a user who no longer exists passed the permission guard entirely,
  * because a missing row read as an empty, permissive permissions object.
  *

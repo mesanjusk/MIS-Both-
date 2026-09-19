@@ -12,10 +12,29 @@ const UsersSchema = new mongoose.Schema({
    * Bumped whenever every existing session for this user must stop working:
    * a password change, a role change, or an administrative revoke. Tokens
    * carry the value they were issued with, and requireAuth refuses any token
-   * whose value is behind the stored one. Without it a 45-day token outlives
+   * whose value is behind the stored one. Without it a long-lived token outlives
    * a demotion or a password reset.
    */
   Session_version: { type: Number, default: 0 },
+
+  // Short-lived, single-use OAuth state rows. Stored on the existing Users
+  // collection so starting an OAuth flow never needs to create another Mongo
+  // collection (production can be at the provider collection limit).
+  // select:false prevents these internal nonces/redirects from leaking through
+  // normal user API responses.
+  OAuth_states: {
+    type: [{
+      nonce: { type: String, required: true },
+      purpose: { type: String, required: true },
+      user_name: { type: String, default: '' },
+      return_to: { type: String, default: '' },
+      meta: { type: mongoose.Schema.Types.Mixed, default: null },
+      expires_at: { type: Date, required: true },
+    }],
+    default: [],
+    select: false,
+  },
+
   Mobile_number: { type: String, required: true, unique: true },
   User_group: { type: String, required: true },
   Amount: { type: Number, required: true },

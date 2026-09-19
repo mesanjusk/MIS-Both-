@@ -20,9 +20,13 @@ export async function startGoogleDriveConnect(returnTo = window.location.href) {
     window.location.href = authUrl;
     return true;
   } catch (error) {
-    // 403 for a non-admin, or the endpoint is unreachable — either way there is
-    // nothing this user can do here.
-    console.error("Could not start Google Drive connection:", error);
+    // Missing server-side OAuth configuration is an optional integration state,
+    // not a login failure. Other failures remain visible for debugging.
+    if (error?.response?.status === 503 && error?.response?.data?.configurationRequired) {
+      console.info("Google Drive OAuth is not configured; continuing without Drive.");
+    } else {
+      console.error("Could not start Google Drive connection:", error);
+    }
     return false;
   }
 }

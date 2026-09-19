@@ -5,20 +5,15 @@ let redirectingToLogin = false;
 
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
-const PRODUCTION_SERVER = "https://mis-both.onrender.com";
-const RETIRED_PRODUCTION_SERVERS = new Set([
-  "https://misbackend-e078.onrender.com",
-]);
+// Production is controlled by VITE_API_SERVER. dash.sanjusk.in is currently
+// configured to use the long-running MIS backend below, so do not silently
+// rewrite it to another Render service in application code.
+const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "").replace(/\/$/, "") : url);
-const normalizeProductionServer = (url) => {
-  const normalized = stripApiSuffix(url);
-  if (!normalized || RETIRED_PRODUCTION_SERVERS.has(normalized)) return PRODUCTION_SERVER;
-  return normalized;
-};
 
 const LOCAL_API  = stripApiSuffix(import.meta.env.VITE_API_LOCAL) || "http://localhost:5000";
-const SERVER_API = normalizeProductionServer(import.meta.env.VITE_API_SERVER);
+const SERVER_API = stripApiSuffix(import.meta.env.VITE_API_SERVER) || PRODUCTION_SERVER;
 
 const hostname    = window.location.hostname;
 const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";

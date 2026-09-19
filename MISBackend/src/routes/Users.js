@@ -42,11 +42,11 @@ router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.stri
           // The session generation this token belongs to. requireAuth refuses
           // the token once the stored value moves past it, which is how a
           // password change, a role change or a revoke ends a live session
-          // without waiting out the 45-day expiry.
+          // without waiting out the configured token expiry.
           sv: Number(user.Session_version || 0),
         },
         process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: process.env.JWT_EXPIRY || "45d" }
+        { expiresIn: process.env.JWT_EXPIRY || "365d" }
       );
 
       // Migrate plain-text passwords to scrypt on first login

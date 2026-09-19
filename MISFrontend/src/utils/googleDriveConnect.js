@@ -23,7 +23,9 @@ export async function startGoogleDriveConnect(returnTo = window.location.href) {
     // Missing server-side OAuth configuration is an optional integration state,
     // not a login failure. Other failures remain visible for debugging.
     if (error?.response?.status === 503 && error?.response?.data?.configurationRequired) {
-      console.info("Google Drive OAuth is not configured; continuing without Drive.");
+      console.info("Google Drive OAuth is not configured on the server.");
+    } else if (error?.response?.status === 403) {
+      console.info("This user is not permitted to reconnect the shared Google Drive account.");
     } else {
       console.error("Could not start Google Drive connection:", error);
     }

@@ -21,7 +21,7 @@ import TransactionEditModal from '../Components/TransactionEditModal';
 import TransactionDocumentModal from '../Components/TransactionDocumentModal';
 import UpdateDelivery from '../Pages/updateDelivery';
 import StatementModal from '../Components/StatementModal';
-import { getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
+import { getCustomerLedgerLegs, getVoucherInfo, isSalesInvoiceTransaction } from '../utils/voucher';
 import { ROUTES } from '../constants/routes';
 import ExportGuard from '../Components/ExportGuard';
 
@@ -142,10 +142,9 @@ const AllTransaction3 = () => {
   }, [customers, customerUuid]);
 
   const customerTransactions = useMemo(
-    () =>
-      transactions.filter(t =>
-        (t.Journal_entry || []).some(e => e.Account_id === customerUuid)
-      ),
+    () => transactions.filter((transaction) =>
+      getCustomerLedgerLegs(transaction, customerUuid).length > 0
+    ),
     [transactions, customerUuid]
   );
 
@@ -153,11 +152,9 @@ const AllTransaction3 = () => {
     return customerTransactions.reduce((acc, transaction) => {
       const txDate = new Date(transaction.Transaction_date);
       if (!startDate || txDate < new Date(startDate)) {
-        (transaction.Journal_entry || []).forEach(entry => {
-          if (entry.Account_id === customerUuid) {
-            if (entry.Type === 'Debit') acc += entry.Amount || 0;
-            if (entry.Type === 'Credit') acc -= entry.Amount || 0;
-          }
+        getCustomerLedgerLegs(transaction, customerUuid).forEach((entry) => {
+          if (entry.Type === 'Debit') acc += entry.Amount || 0;
+          if (entry.Type === 'Credit') acc -= entry.Amount || 0;
         });
       }
       return acc;
@@ -167,13 +164,15 @@ const AllTransaction3 = () => {
   const filteredTransactions = useMemo(() => {
     return customerTransactions.filter(transaction => {
       const txDate = new Date(transaction.Transaction_date);
+      const endExclusive = endDate
+        ? new Date(new Date(endDate).getTime() + 24 * 60 * 60 * 1000)
+        : null;
       const withinDateRange =
         (!startDate || new Date(startDate) <= txDate) &&
-        (!endDate || new Date(endDate) >= txDate);
+        (!endExclusive || txDate < endExclusive);
 
-      const hasMatchingType = (transaction.Journal_entry || []).some(entry =>
-        entry.Account_id === customerUuid &&
-        (filterType === "All" || entry.Type === filterType)
+      const hasMatchingType = getCustomerLedgerLegs(transaction, customerUuid).some((entry) =>
+        filterType === "All" || entry.Type === filterType
       );
 
       return withinDateRange && hasMatchingType;
@@ -217,7 +216,12 @@ const AllTransaction3 = () => {
 
     for (const transaction of sortedCustomerTransactions) {
       const legs = transaction.Journal_entry || [];
-      const counterEntry = legs.find(e => e.Account_id !== customerUuid);
+      const customerEntries = getCustomerLedgerLegs(transaction, customerUuid);
+      const directCustomerEntries = new Set(customerEntries.filter((entry) => legs.includes(entry)));
+      const counterEntry = legs.find((entry) =>
+        String(entry?.Account_id || '') !== String(customerUuid || '') &&
+        !directCustomerEntries.has(entry)
+      );
       const counterName = counterEntry
         ? ((counterEntry.Account_name && !UUID_RE.test(counterEntry.Account_name))
             ? counterEntry.Account_name
@@ -225,7 +229,7 @@ const AllTransaction3 = () => {
         : 'N/A';
       const counterIsCashOrBank = !!counterEntry && cashOrBankUuids.has(counterEntry.Account_id);
 
-      for (const entry of legs.filter(e => e.Account_id === customerUuid)) {
+      for (const entry of customerEntries) {
         const debit  = entry.Type === 'Debit'  ? (entry.Amount || 0) : 0;
         const credit = entry.Type === 'Credit' ? (entry.Amount || 0) : 0;
         running += debit - credit;
@@ -250,11 +254,9 @@ const AllTransaction3 = () => {
   const calculateTotals = () => {
     const totals = filteredTransactions.reduce(
       (acc, transaction) => {
-        (transaction.Journal_entry || []).forEach(entry => {
-          if (entry.Account_id === customerUuid) {
-            if (entry.Type === 'Debit') acc.debit += entry.Amount || 0;
-            if (entry.Type === 'Credit') acc.credit += entry.Amount || 0;
-          }
+        getCustomerLedgerLegs(transaction, customerUuid).forEach((entry) => {
+          if (entry.Type === 'Debit') acc.debit += entry.Amount || 0;
+          if (entry.Type === 'Credit') acc.credit += entry.Amount || 0;
         });
         return acc;
       },

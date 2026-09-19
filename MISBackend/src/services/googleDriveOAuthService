@@ -4,6 +4,14 @@ const logger = require('../utils/logger');
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
+function isGoogleDriveOAuthConfigured() {
+  return Boolean(
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
+
 function sanitizeFileName(value = "") {
   return String(value)
     .replace(/[\\/:*?"<>|#%{}~&]/g, " ")
@@ -16,8 +24,11 @@ function getOAuthClient() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error("Missing Google OAuth env configuration");
+  if (!isGoogleDriveOAuthConfigured()) {
+    const error = new Error("Google Drive OAuth is not configured on the server.");
+    error.code = "GOOGLE_DRIVE_CONFIGURATION_REQUIRED";
+    error.configurationRequired = true;
+    throw error;
   }
 
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
@@ -122,6 +133,13 @@ async function saveGoogleTokensFromCode(code) {
 }
 
 async function getAuthorizedDriveClient() {
+  if (!isGoogleDriveOAuthConfigured()) {
+    const err = new Error("Google Drive OAuth is not configured on the server.");
+    err.code = "GOOGLE_DRIVE_CONFIGURATION_REQUIRED";
+    err.configurationRequired = true;
+    throw err;
+  }
+
   const saved = await GoogleDriveToken.findOne({
     provider: "google_drive",
   });
@@ -187,10 +205,14 @@ async function getAuthorizedDriveClient() {
 
 async function getGoogleDriveConnectionStatus({ verifyToken = false } = {}) {
   const saved = await GoogleDriveToken.findOne({ provider: "google_drive" }).lean();
+  const oauthConfigured = isGoogleDriveOAuthConfigured();
+  const hasRefreshToken = Boolean(saved?.refreshToken);
 
   const baseStatus = {
-    connected: Boolean(saved?.refreshToken),
-    reconnectRequired: !saved?.refreshToken,
+    connected: oauthConfigured && hasRefreshToken,
+    reconnectRequired: oauthConfigured && !hasRefreshToken,
+    oauthConfigured,
+    configurationRequired: !oauthConfigured,
     email: saved?.email || null,
     lastConnectedAt: saved?.updatedAt || saved?.createdAt || null,
     expiryDate: saved?.expiryDate || null,
@@ -198,10 +220,14 @@ async function getGoogleDriveConnectionStatus({ verifyToken = false } = {}) {
     templateFileIdConfigured: !!process.env.DRIVE_TEMPLATE_FILE_ID,
     targetFolderIdConfigured: !!process.env.DRIVE_TARGET_FOLDER_ID,
     redirectUriConfigured: !!process.env.GOOGLE_REDIRECT_URI,
-    message: saved?.refreshToken ? "Google Drive connected." : "Google Drive is not connected.",
+    message: !oauthConfigured
+      ? "Google Drive OAuth is not configured on the server."
+      : hasRefreshToken
+        ? "Google Drive connected."
+        : "Google Drive is not connected.",
   };
 
-  if (!verifyToken || !saved?.refreshToken) {
+  if (!verifyToken || !hasRefreshToken || !oauthConfigured) {
     return baseStatus;
   }
 
@@ -276,6 +302,7 @@ module.exports = {
   getAuthorizedDriveClient,
   copyOrderTemplateFileOAuth,
   isDriveAutomationEnabled,
+  isGoogleDriveOAuthConfigured,
   getGoogleDriveConnectionStatus,
   isGoogleAuthError,
 };

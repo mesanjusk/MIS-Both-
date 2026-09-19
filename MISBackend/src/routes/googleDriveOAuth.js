@@ -9,7 +9,7 @@ const { createState, consumeState } = require("../services/oauthStateService");
 // an administrative act, not something any caller may trigger.
 const OAUTH_PURPOSE = "google_drive";
 
-const { getGoogleDriveAuthUrl, saveGoogleTokensFromCode, isDriveAutomationEnabled, getGoogleDriveConnectionStatus } = require('../services/googleDriveOAuthService');
+const { getGoogleDriveAuthUrl, saveGoogleTokensFromCode, isGoogleDriveOAuthConfigured, getGoogleDriveConnectionStatus } = require('../services/googleDriveOAuthService');
 
 /**
  * Validates that a redirect URL is safe (same origin as configured frontend).
@@ -54,6 +54,14 @@ function isSafeRedirect(url) {
  */
 router.get("/auth-url", requireAuth, requireAdmin, async (req, res) => {
   try {
+    if (!isGoogleDriveOAuthConfigured()) {
+      return res.status(503).json({
+        success: false,
+        configurationRequired: true,
+        message: "Google Drive OAuth is not configured on the server.",
+      });
+    }
+
     const { returnTo } = req.query;
     const safeReturnTo = isSafeRedirect(returnTo) ? returnTo : "";
 
@@ -75,6 +83,14 @@ router.get("/auth-url", requireAuth, requireAdmin, async (req, res) => {
 
 router.get("/connect", requireAuth, requireAdmin, async (req, res) => {
   try {
+    if (!isGoogleDriveOAuthConfigured()) {
+      return res.status(503).json({
+        success: false,
+        configurationRequired: true,
+        message: "Google Drive OAuth is not configured on the server.",
+      });
+    }
+
     const { returnTo } = req.query;
 
     // Validated now, stored against the nonce, and used at the callback — so

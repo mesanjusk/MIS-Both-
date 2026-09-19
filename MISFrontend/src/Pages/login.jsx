@@ -15,13 +15,11 @@ import { alpha } from '@mui/material/styles';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
-import axios, { getApiBase } from '../apiClient.js';
+import axios from '../apiClient.js';
 import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
-
-const BACKEND_BASE = getApiBase() || import.meta.env.VITE_API_SERVER || 'https://misbackend-e078.onrender.com';
 
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
 
@@ -58,8 +56,9 @@ export default function Login() {
       const connected = !!statusRes?.data?.connected;
       const reconnectRequired = !!statusRes?.data?.reconnectRequired;
       const automationEnabled = !!statusRes?.data?.automationEnabled;
+      const oauthConfigured = statusRes?.data?.oauthConfigured === true;
       const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
-      if (automationEnabled && (!connected || reconnectRequired)) {
+      if (automationEnabled && oauthConfigured && (!connected || reconnectRequired)) {
         const returnTo = userGroupValue === 'Vendor'
           ? `${window.location.origin}/vendorHome`
           : `${window.location.origin}/home`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getVoucherInfo, isSalesInvoiceTransaction, pickPartyLeg } from './voucher';
+import { getCustomerLedgerLegs, getVoucherInfo, isSalesInvoiceTransaction, pickPartyLeg } from './voucher';
 
 const salesInvoice = {
   Transaction_id: 782,
@@ -120,5 +120,71 @@ describe('pickPartyLeg', () => {
     const txn = { Transaction_id: 91, Customer_uuid: 'cust-1', Journal_entry: [cashLeg, custLeg] };
     const leg = pickPartyLeg(txn, isParty);
     expect(getVoucherInfo({ transaction: txn, entry: leg, counterIsCashOrBank: true }).display).toBe('RCT-91');
+  });
+});
+
+
+describe('getCustomerLedgerLegs', () => {
+  it('uses the direct customer UUID leg for manual invoice rows', () => {
+    expect(getCustomerLedgerLegs(salesInvoice, 'cust-1')).toEqual([salesInvoice.Journal_entry[0]]);
+  });
+
+  it('includes accounting-service invoices posted through Customer Receivable', () => {
+    const txn = {
+      Transaction_id: 900,
+      Customer_uuid: 'cust-1',
+      Source: 'business:customer_invoice:ord-900',
+      Total_Debit: 1740,
+      Total_Credit: 1740,
+      Journal_entry: [
+        { Account_id: 'acct-ar', Account_name: 'Customer Receivable', Type: 'Debit', Amount: 1740 },
+        { Account_id: 'acct-sales', Account_name: 'Sales', Type: 'Credit', Amount: 1740 },
+      ],
+    };
+
+    expect(getCustomerLedgerLegs(txn, 'cust-1')).toEqual([txn.Journal_entry[0]]);
+  });
+
+  it('includes accounting-service receipts as a customer credit', () => {
+    const txn = {
+      Transaction_id: 901,
+      Customer_uuid: 'cust-1',
+      Source: 'business:customer_receipt',
+      Total_Debit: 500,
+      Total_Credit: 500,
+      Journal_entry: [
+        { Account_id: 'acct-cash', Account_name: 'Cash', Type: 'Debit', Amount: 500 },
+        { Account_id: 'acct-ar', Account_name: 'Customer Receivable', Type: 'Credit', Amount: 500 },
+      ],
+    };
+
+    expect(getCustomerLedgerLegs(txn, 'cust-1')).toEqual([txn.Journal_entry[1]]);
+  });
+
+  it('does not leak a transaction into another customer statement', () => {
+    const txn = {
+      Customer_uuid: 'cust-2',
+      Source: 'business:customer_invoice:ord-2',
+      Journal_entry: [
+        { Account_id: 'acct-ar', Account_name: 'Customer Receivable', Type: 'Debit', Amount: 100 },
+        { Account_id: 'acct-sales', Account_name: 'Sales', Type: 'Credit', Amount: 100 },
+      ],
+    };
+
+    expect(getCustomerLedgerLegs(txn, 'cust-1')).toEqual([]);
+  });
+
+  it('falls back to the source metadata for a legacy customer-linked invoice with no named control leg', () => {
+    const txn = {
+      Customer_uuid: 'cust-1',
+      Source: 'business:customer_invoice:legacy',
+      Total_Debit: 690,
+      Total_Credit: 690,
+      Journal_entry: [],
+    };
+
+    expect(getCustomerLedgerLegs(txn, 'cust-1')).toEqual([
+      expect.objectContaining({ Type: 'Debit', Amount: 690, __virtualCustomerLeg: true }),
+    ]);
   });
 });

@@ -61,18 +61,15 @@ export default function Login() {
         return true;
       }
 
-      const normalizedRole = String(userGroupValue || '').trim().toLowerCase();
-      const canConnectDrive = ['admin', 'owner', 'manager'].includes(normalizedRole);
-
-      if (!canConnectDrive) {
-        setErrorText('Google Drive connection is mandatory. An Admin/Owner/Manager must reconnect Google Drive before you can continue.');
-        return false;
-      }
-
+      // Do not duplicate backend role logic here. Stored roles include aliases
+      // such as "Admin User" / "Super Admin"; requireAdmin on /auth-url is the
+      // source of truth and already resolves those aliases correctly.
       const returnTo = `${window.location.origin}${target}`;
       const redirecting = await startGoogleDriveConnect(returnTo);
       if (!redirecting) {
-        setErrorText('Google Drive connection is mandatory and could not be started. Please check the Google OAuth configuration.');
+        setErrorText(
+          'Google Drive connection is mandatory. If you are an administrator, please try again; otherwise an Admin/Owner/Manager must reconnect Google Drive.'
+        );
       }
       return redirecting;
     } catch (error) {

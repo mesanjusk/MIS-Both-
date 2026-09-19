@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -16,6 +16,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios from '../apiClient.js';
+import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
@@ -43,11 +44,48 @@ export default function Login() {
   const [errorText, setErrorText] = useState('');
   const { setAuthData, userName, userGroup } = useAuth();
 
+  const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
+    const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
+
+    try {
+      const statusRes = await axios.get('/api/google-drive/status', { params: { check: 1 } });
+      const status = statusRes?.data || {};
+
+      if (!status.oauthConfigured || status.configurationRequired) {
+        setErrorText('Google Drive is mandatory, but Google OAuth is not configured on the server. Please contact the administrator.');
+        return false;
+      }
+
+      if (status.connected && !status.reconnectRequired) {
+        navigate(target, { replace: true });
+        return true;
+      }
+
+      const normalizedRole = String(userGroupValue || '').trim().toLowerCase();
+      const canConnectDrive = ['admin', 'owner', 'manager'].includes(normalizedRole);
+
+      if (!canConnectDrive) {
+        setErrorText('Google Drive connection is mandatory. An Admin/Owner/Manager must reconnect Google Drive before you can continue.');
+        return false;
+      }
+
+      const returnTo = `${window.location.origin}${target}`;
+      const redirecting = await startGoogleDriveConnect(returnTo);
+      if (!redirecting) {
+        setErrorText('Google Drive connection is mandatory and could not be started. Please check the Google OAuth configuration.');
+      }
+      return redirecting;
+    } catch (error) {
+      console.error('Mandatory Google Drive check failed:', error);
+      setErrorText(error?.response?.data?.message || 'Google Drive is mandatory and its connection could not be verified. Please try again.');
+      return false;
+    }
+  }, [navigate]);
+
   useEffect(() => {
     if (!userName || !getStoredToken()) return;
-    const target = userGroup === 'Vendor' ? '/vendorHome' : '/home';
-    navigate(target, { replace: true });
-  }, [navigate, userGroup, userName]);
+    void ensureMandatoryGoogleDrive(userGroup);
+  }, [ensureMandatoryGoogleDrive, userGroup, userName]);
 
   async function submit(e) {
     e.preventDefault();
@@ -66,9 +104,8 @@ export default function Login() {
         mobileNumber: data.userMobile || data.userMob || '',
         permissions: data.permissions || {},
       });
-      toast.success('Login successful. Redirecting...');
-      const target = data.userGroup === 'Vendor' ? '/vendorHome' : '/home';
-      navigate(target, { replace: true });
+      toast.success('Login successful. Verifying Google Drive...');
+      await ensureMandatoryGoogleDrive(data.userGroup);
     } catch (error) {
       console.error('Login error:', error);
       setErrorText('An error occurred during login. Please try again.');

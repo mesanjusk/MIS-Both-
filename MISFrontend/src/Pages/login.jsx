@@ -16,7 +16,6 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios from '../apiClient.js';
-import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
@@ -50,31 +49,6 @@ export default function Login() {
     navigate(target, { replace: true });
   }, [navigate, userGroup, userName]);
 
-  async function checkGoogleDriveAndRedirect(userGroupValue) {
-    try {
-      const statusRes = await axios.get('/api/google-drive/status', { params: { check: 1 } });
-      const connected = !!statusRes?.data?.connected;
-      const reconnectRequired = !!statusRes?.data?.reconnectRequired;
-      const automationEnabled = !!statusRes?.data?.automationEnabled;
-      const oauthConfigured = statusRes?.data?.oauthConfigured === true;
-      const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
-      if (automationEnabled && oauthConfigured && (!connected || reconnectRequired)) {
-        const returnTo = userGroupValue === 'Vendor'
-          ? `${window.location.origin}/vendorHome`
-          : `${window.location.origin}/home`;
-        // Only an admin can connect the installation's Drive account; everyone
-        // else carries on to their home page rather than being sent into a
-        // consent screen they cannot complete.
-        if (await startGoogleDriveConnect(returnTo)) return;
-      }
-      navigate(target, { replace: true });
-    } catch (error) {
-      console.error('Google Drive status check failed:', error);
-      const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
-      navigate(target, { replace: true });
-    }
-  }
-
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
@@ -93,7 +67,8 @@ export default function Login() {
         permissions: data.permissions || {},
       });
       toast.success('Login successful. Redirecting...');
-      await checkGoogleDriveAndRedirect(data.userGroup);
+      const target = data.userGroup === 'Vendor' ? '/vendorHome' : '/home';
+      navigate(target, { replace: true });
     } catch (error) {
       console.error('Login error:', error);
       setErrorText('An error occurred during login. Please try again.');

@@ -93,6 +93,68 @@ export function pickPartyLeg(transaction, isPartyAccount = () => false) {
   return legs.find((l) => lower(l.Type) === 'debit') || legs[0];
 }
 
+const CUSTOMER_CONTROL_NAMES = new Set(['customer receivable', 'customer advance']);
+
+const isCustomerControlLeg = (entry) => {
+  const name = lower(entry?.Account_name);
+  const id = lower(entry?.Account_id);
+  return CUSTOMER_CONTROL_NAMES.has(name) || CUSTOMER_CONTROL_NAMES.has(id);
+};
+
+/**
+ * Return the journal leg(s) that should appear on one customer's statement.
+ *
+ * Older/manual invoice rows post directly to the customer's UUID. Newer
+ * accounting-service rows keep the customer in Transaction.Customer_uuid and
+ * post the GL side to Customer Receivable / Customer Advance. The old
+ * Statement screen only recognised the first shape, so valid automated
+ * invoices/receipts disappeared from the customer's ledger.
+ *
+ * Direct customer legs always win. When the transaction belongs to this
+ * customer but uses a control account, that control leg is the customer's
+ * sub-ledger movement. A source-based synthetic leg is only a last-resort for
+ * legacy rows whose control-account name was not preserved.
+ */
+export function getCustomerLedgerLegs(transaction, customerUuid) {
+  const customerId = String(customerUuid || '').trim();
+  if (!transaction || !customerId) return [];
+
+  const legs = Array.isArray(transaction.Journal_entry) ? transaction.Journal_entry : [];
+  const direct = legs.filter((entry) => String(entry?.Account_id || '').trim() === customerId);
+  if (direct.length) return direct;
+
+  if (String(transaction.Customer_uuid || '').trim() !== customerId) return [];
+
+  const control = legs.filter(isCustomerControlLeg);
+  if (control.length) return control;
+
+  const amount = Number(transaction.Total_Debit || transaction.Total_Credit || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return [];
+
+  const source = lower(transaction.Source);
+  if (source === 'invoice' || source.startsWith('business:customer_invoice')) {
+    return [{
+      Account_id: customerId,
+      Account_name: '',
+      Type: 'Debit',
+      Amount: amount,
+      __virtualCustomerLeg: true,
+    }];
+  }
+
+  if (source.startsWith('business:customer_receipt') || source.startsWith('business:customer_advance')) {
+    return [{
+      Account_id: customerId,
+      Account_name: '',
+      Type: 'Credit',
+      Amount: amount,
+      __virtualCustomerLeg: true,
+    }];
+  }
+
+  return [];
+}
+
 /**
  * Classify a ledger row and derive its voucher number.
  *

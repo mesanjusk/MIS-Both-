@@ -4,6 +4,7 @@ const router = express.Router();
 const { v4: uuid } = require('uuid');
 const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
+const Transaction = require('../repositories/transaction');
 const ProductionJob = require('../repositories/productionJob');
 const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
@@ -12,6 +13,11 @@ const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whats
 const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
+const {
+  postVendorOpeningBalance,
+  postVendorLedgerEntry,
+  reverseAndDeleteTransaction,
+} = require('../services/accountingPostingService');
 const logger = require('../utils/logger');
 
 function toNumber(value, fallback = 0) {
@@ -65,14 +71,37 @@ async function ensureVendorMaster(vendorPayload = {}) {
   });
 
   if (created.Opening_balance > 0 && created.Opening_balance_type !== 'none') {
-    await VendorLedger.create({
-      vendor_uuid: created.Vendor_uuid,
-      vendor_name: created.Vendor_name,
-      entry_type: 'opening',
-      amount: created.Opening_balance,
-      dr_cr: created.Opening_balance_type === 'advance' ? 'dr' : 'cr',
-      narration: 'Opening balance',
-    });
+    let posting = null;
+    try {
+      posting = await postVendorOpeningBalance({
+        amount: created.Opening_balance,
+        balanceType: created.Opening_balance_type,
+        vendorUuid: created.Vendor_uuid,
+        partyName: created.Vendor_name,
+        createdBy: vendorPayload.created_by || vendorPayload.createdBy || 'system',
+        sourceSuffix: `vendor:${created.Vendor_uuid}`,
+      });
+
+      await VendorLedger.create({
+        vendor_uuid: created.Vendor_uuid,
+        vendor_name: created.Vendor_name,
+        entry_type: 'opening',
+        amount: created.Opening_balance,
+        dr_cr: created.Opening_balance_type === 'advance' ? 'dr' : 'cr',
+        narration: 'Opening balance',
+        transaction_uuid: posting?.transaction?.Transaction_uuid || '',
+        reference_type: 'vendor_opening',
+        reference_id: created.Vendor_uuid,
+      });
+    } catch (error) {
+      // Do not leave a vendor with an opening balance that never reached the
+      // unified ledger. Roll the just-created master and posting back.
+      if (posting?.transaction?.Transaction_uuid && !posting.existing) {
+        await reverseAndDeleteTransaction({ Transaction_uuid: posting.transaction.Transaction_uuid }).catch(() => {});
+      }
+      await VendorMaster.deleteOne({ _id: created._id }).catch(() => {});
+      throw error;
+    }
   }
 
   return created;
@@ -384,27 +413,90 @@ router.get('/ledger/:vendorUuid', async (req, res) => {
 });
 
 router.post('/ledger', async (req, res) => {
+  let posting = null;
   try {
-    const vendor = await ensureVendorMaster({ vendor_uuid: req.body.vendor_uuid, vendor_name: req.body.vendor_name || req.body.vendorName });
-    const created = await VendorLedger.create({
+    const vendor = await ensureVendorMaster({
+      vendor_uuid: req.body.vendor_uuid,
+      vendor_name: req.body.vendor_name || req.body.vendorName,
+    });
+
+    const amount = toNumber(req.body.amount, 0);
+    const entryType = String(req.body.entry_type || '').trim();
+    const drCr = String(req.body.dr_cr || '').trim().toLowerCase();
+    if (!(amount > 0)) {
+      return res.status(400).json({ success: false, message: 'A positive amount is required' });
+    }
+    if (!entryType || !['dr', 'cr'].includes(drCr)) {
+      return res.status(400).json({ success: false, message: 'entry_type and dr_cr (dr/cr) are required' });
+    }
+
+    const entryUuid = uuid();
+    const referenceType = String(req.body.reference_type || '').trim();
+    const referenceId = String(req.body.reference_id || '').trim();
+    let transactionUuid = String(req.body.transaction_uuid || '').trim();
+
+    if (transactionUuid) {
+      const existingTxn = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
+      if (!existingTxn) {
+        return res.status(400).json({ success: false, message: 'transaction_uuid does not reference an existing transaction' });
+      }
+    } else {
+      const sourceSuffix = referenceType && referenceId
+        ? `${referenceType}:${referenceId}`
+        : `manual:${entryUuid}`;
+
+      posting = await postVendorLedgerEntry({
+        entryType,
+        drCr,
+        amount,
+        paymentMode: req.body.payment_mode || req.body.paymentMode || 'Cash',
+        orderUuid: req.body.order_uuid || null,
+        orderNumber: req.body.order_number || null,
+        createdBy: req.user?.userName || req.user?.name || 'system',
+        transactionDate: req.body.date || new Date(),
+        narration: String(req.body.narration || ''),
+        reference: req.body.reference || '',
+        sourceSuffix,
+      });
+      transactionUuid = posting?.transaction?.Transaction_uuid || '';
+    }
+
+    if (!transactionUuid) {
+      throw new Error('Unified accounting transaction was not created');
+    }
+
+    const ledgerDoc = {
+      entry_uuid: entryUuid,
       vendor_uuid: vendor.Vendor_uuid,
       vendor_name: vendor.Vendor_name,
       date: req.body.date || new Date(),
-      entry_type: req.body.entry_type,
+      entry_type: entryType,
       job_uuid: req.body.job_uuid || '',
       order_uuid: req.body.order_uuid || '',
       order_number: req.body.order_number || null,
-      amount: toNumber(req.body.amount, 0),
-      dr_cr: req.body.dr_cr,
+      amount,
+      dr_cr: drCr,
       narration: String(req.body.narration || ''),
-      transaction_uuid: req.body.transaction_uuid || '',
-      reference_type: req.body.reference_type || '',
-      reference_id: req.body.reference_id || '',
-    });
-    res.json({ success: true, result: created });
+      transaction_uuid: transactionUuid,
+      reference_type: referenceType,
+      reference_id: referenceId,
+    };
+
+    const created = referenceType && referenceId
+      ? await VendorLedger.findOneAndUpdate(
+          { vendor_uuid: vendor.Vendor_uuid, reference_type: referenceType, reference_id: referenceId },
+          { $set: ledgerDoc },
+          { new: true, upsert: true, setDefaultsOnInsert: true }
+        )
+      : await VendorLedger.create(ledgerDoc);
+
+    return res.json({ success: true, result: created });
   } catch (error) {
+    if (posting?.transaction?.Transaction_uuid && !posting.existing) {
+      await reverseAndDeleteTransaction({ Transaction_uuid: posting.transaction.Transaction_uuid }).catch(() => {});
+    }
     logger.error('Failed to create vendor ledger entry', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error?.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

@@ -278,8 +278,30 @@ app.use("/vendors", legacyRedirect("/api/vendors"));
 app.use("/paymentfollowup", legacyRedirect("/api/paymentfollowup"));
 
 // ---------- Init DB + schedulers ----------
+async function runLedgerIntegrityStartupTask() {
+  const mode = String(process.env.LEDGER_INTEGRITY_STARTUP_MODE || '').trim().toLowerCase();
+  if (!mode || mode === 'off' || mode === 'false' || mode === '0') return;
+
+  if (mode !== 'audit') {
+    logger.error({ mode }, '[ledger-integrity-startup] unsupported mode; only audit is allowed by this runner');
+    return;
+  }
+
+  try {
+    const { auditLedgerIntegrity } = require('./services/ledgerIntegrityService');
+    const report = await auditLedgerIntegrity({ sampleLimit: 100 });
+    logger.info(
+      { report },
+      '[ledger-integrity-startup] AUDIT_RESULT'
+    );
+  } catch (err) {
+    logger.error({ err: err?.message || err }, '[ledger-integrity-startup] audit failed');
+  }
+}
+
 (async () => {
   await connectDB();
+  await runLedgerIntegrityStartupTask();
   try {
     const result = await ensureDefaultFeatureToggles();
     await invalidateFeatureToggles();

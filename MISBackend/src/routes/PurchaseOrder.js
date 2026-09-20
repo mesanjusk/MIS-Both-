@@ -435,3 +435,4 @@ router.put('/:id/status', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.syncPurchasePosting = syncPurchasePosting;

@@ -146,8 +146,11 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
       transactionUuid: posting?.transaction?.Transaction_uuid || '',
     });
   } catch (error) {
-    // Never retain a general-ledger posting without its required vendor
-    // sub-ledger link. The PO request will fail and can be retried safely.
+    // Never retain either side of a broken GL/sub-ledger pair.
+    await VendorLedger.deleteMany({
+      reference_type: 'purchase_order',
+      reference_id: String(po.PO_uuid),
+    }).catch(() => {});
     await reverseAndDeleteTransaction({ Source: txnSource }).catch(() => {});
     throw error;
   }

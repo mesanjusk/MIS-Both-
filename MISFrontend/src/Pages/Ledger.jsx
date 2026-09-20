@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Box, Paper, Tab, Tabs, CircularProgress, Stack } from '@mui/material';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
@@ -9,13 +9,27 @@ import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 
 // The five money-report screens that used to be separate sidebar entries. They
 // are folded into one page here so "Ledger" is the single place to read the
-// books. Each keeps its own proven logic — this page only provides the tabs and
-// mounts one view at a time.
-const Register     = lazy(() => import('../Reports/allTransaction'));   // Account Book
-const PartyBalances = lazy(() => import('../Reports/allTransaction1'));  // receivable / payable
-const Statement    = lazy(() => import('../Reports/allTransaction3'));   // per-party statement
-const CashBank     = lazy(() => import('../Reports/allTransaction4D'));  // daily cash & bank
-const RegisterEdit = lazy(() => import('../Reports/allTransaction5'));   // register with edit
+// books. Visited views stay mounted so tab changes preserve their fetched data,
+// filters, scroll position and local UI state.
+const loadRegister = () => import('../Reports/allTransaction');
+const loadPartyBalances = () => import('../Reports/allTransaction1');
+const loadStatement = () => import('../Reports/allTransaction3');
+const loadCashBank = () => import('../Reports/allTransaction4D');
+const loadRegisterEdit = () => import('../Reports/allTransaction5');
+
+const Register = lazy(loadRegister);
+const PartyBalances = lazy(loadPartyBalances);
+const Statement = lazy(loadStatement);
+const CashBank = lazy(loadCashBank);
+const RegisterEdit = lazy(loadRegisterEdit);
+
+const LEDGER_PRELOADERS = [
+  loadRegister,
+  loadPartyBalances,
+  loadStatement,
+  loadCashBank,
+  loadRegisterEdit,
+];
 
 // Order defines the tab index; `key` is what old routes redirect to via ?tab=.
 const TABS = [
@@ -35,7 +49,31 @@ export default function Ledger() {
     return idx === -1 ? 0 : idx;
   }, [searchParams]);
 
-  const ActiveComponent = TABS[activeIndex].Component;
+  const [mountedTabs, setMountedTabs] = useState(() => new Set([TABS[activeIndex].key]));
+
+  useEffect(() => {
+    const key = TABS[activeIndex].key;
+    setMountedTabs((current) => {
+      if (current.has(key)) return current;
+      const updated = new Set(current);
+      updated.add(key);
+      return updated;
+    });
+  }, [activeIndex]);
+
+  useEffect(() => {
+    const preload = () => {
+      LEDGER_PRELOADERS.forEach((loader) => loader().catch(() => {}));
+    };
+
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+
+    const id = window.setTimeout(preload, 800);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const handleChange = (_event, next) => {
     const params = new URLSearchParams(searchParams);
@@ -59,16 +97,30 @@ export default function Ledger() {
         </Tabs>
       </Paper>
 
-      <Suspense
-        fallback={
-          <Stack alignItems="center" sx={{ py: 6 }}>
-            <CircularProgress />
-          </Stack>
-        }
-      >
-        {/* Key forces a fresh mount per tab so each view loads its own data cleanly. */}
-        <ActiveComponent key={TABS[activeIndex].key} />
-      </Suspense>
+      {TABS
+        .filter((tab, index) => index === activeIndex || mountedTabs.has(tab.key))
+        .map((tab, index) => {
+          const TabComponent = tab.Component;
+          const isActive = index === activeIndex;
+          return (
+            <Box
+              key={tab.key}
+              role="tabpanel"
+              aria-hidden={!isActive}
+              sx={{ display: isActive ? 'block' : 'none' }}
+            >
+              <Suspense
+                fallback={
+                  <Stack alignItems="center" sx={{ py: 6 }}>
+                    <CircularProgress />
+                  </Stack>
+                }
+              >
+                <TabComponent />
+              </Suspense>
+            </Box>
+          );
+        })}
     </Box>
   );
 }

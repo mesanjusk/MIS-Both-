@@ -49,17 +49,18 @@ export default function Ledger() {
     return idx === -1 ? 0 : idx;
   }, [searchParams]);
 
-  const [mountedTabs, setMountedTabs] = useState(() => new Set([TABS[activeIndex].key]));
+  const activeKey = TABS[activeIndex].key;
+  const [mountedTabs, setMountedTabs] = useState(() => new Set([activeKey]));
 
   useEffect(() => {
-    const key = TABS[activeIndex].key;
+    const key = activeKey;
     setMountedTabs((current) => {
       if (current.has(key)) return current;
       const updated = new Set(current);
       updated.add(key);
       return updated;
     });
-  }, [activeIndex]);
+  }, [activeKey]);
 
   useEffect(() => {
     const preload = () => {
@@ -98,10 +99,10 @@ export default function Ledger() {
       </Paper>
 
       {TABS
-        .filter((tab, index) => index === activeIndex || mountedTabs.has(tab.key))
-        .map((tab, index) => {
+        .filter((tab) => tab.key === activeKey || mountedTabs.has(tab.key))
+        .map((tab) => {
           const TabComponent = tab.Component;
-          const isActive = index === activeIndex;
+          const isActive = tab.key === activeKey;
           return (
             <Box
               key={tab.key}

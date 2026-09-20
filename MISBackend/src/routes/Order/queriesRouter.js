@@ -6,6 +6,7 @@ const Customers = require("../../repositories/customer");
 const Transaction = require("../../repositories/transaction");
 const ProductionJob = require("../../repositories/productionJob");
 const logger = require("../../utils/logger");
+const { refreshOrderPaymentStatus } = require("../../services/businessWorkflowService");
 const { escapeRegex, idToFilter } = require("../../utils/orderHelpers");
 const { latestStatusProjectionStages } = require("./_shared");
 
@@ -148,18 +149,37 @@ router.get("/all-data", async (_req, res) => {
 
 router.patch("/bills/:id/status", async (req, res) => {
   try {
-    const filter = idToFilter(String(req.params.id || "").trim());
+    const id = String(req.params.id || "").trim();
+    const filter = idToFilter(id);
     if (!filter) return res.status(400).json({ success: false, message: "Invalid Order id" });
+
     const incoming = String(req.body?.billStatus || "").toLowerCase().trim();
-    if (!["paid", "unpaid"].includes(incoming)) return res.status(400).json({ success: false, message: "billStatus must be 'paid' or 'unpaid'" });
-    const billPaidAt = incoming === "paid" ? new Date() : null;
-    const set = { billStatus: incoming, billPaidAt, billPaidBy: incoming === "paid" ? (req.body?.paidBy ? String(req.body.paidBy).trim() : "system") : null, billPaidNote: incoming === "paid" ? (req.body?.paidNote || null) : null, billPaidTxnUuid: incoming === "paid" ? (req.body?.txnUuid || null) : null, billPaidTxnId: incoming === "paid" ? (req.body?.txnId ?? null) : null };
-    const upd = await Orders.updateOne(filter, { $set: set }, { runValidators: false });
-    if (upd.matchedCount === 0) return res.status(404).json({ success: false, message: "Order not found" });
-    return res.json({ success: true, result: { billStatus: incoming, billPaidAt, billPaidBy: set.billPaidBy } });
+    if (!["paid", "unpaid"].includes(incoming)) {
+      return res.status(400).json({ success: false, message: "billStatus must be 'paid' or 'unpaid'" });
+    }
+
+    const order = await Orders.findOne(filter).lean();
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    // Payment state is derived exclusively from the unified ledger. This route
+    // no longer allows a UI flag to claim Paid without the matching receipt.
+    const refreshed = await refreshOrderPaymentStatus({ orderId: order._id });
+    const actual = String(refreshed?.billStatus || "unpaid").toLowerCase();
+
+    if (actual !== incoming) {
+      return res.status(409).json({
+        success: false,
+        message: incoming === "paid"
+          ? "Order cannot be marked paid until ledger receipts/advances cover the order total."
+          : "Order has enough ledger receipts to remain paid; reverse/edit the receipt first.",
+        result: refreshed,
+      });
+    }
+
+    return res.json({ success: true, result: refreshed });
   } catch (e) {
     logger.error("PATCH /order/bills/:id/status error:", e);
-    return res.status(500).json({ success: false, message: e.message });
+    return res.status(e?.statusCode || 500).json({ success: false, message: e.message });
   }
 });
 

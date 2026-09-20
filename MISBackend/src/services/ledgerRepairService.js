@@ -77,23 +77,39 @@ function vendorCandidateSources(row = {}) {
   return [...new Set(out.filter(Boolean))];
 }
 
-async function findExistingVendorTransaction(row) {
+function buildTransactionLookup(transactions = []) {
+  const byUuid = new Map();
+  const bySource = new Map();
+  for (const txn of transactions) {
+    const uuid = String(txn.Transaction_uuid || '').trim();
+    const source = String(txn.Source || '').trim();
+    if (uuid) byUuid.set(uuid, txn);
+    if (source && !bySource.has(source)) bySource.set(source, txn);
+  }
+  return { byUuid, bySource };
+}
+
+function addTransactionToLookup(lookup, txn) {
+  if (!lookup || !txn) return;
+  const uuid = String(txn.Transaction_uuid || '').trim();
+  const source = String(txn.Source || '').trim();
+  if (uuid) lookup.byUuid.set(uuid, txn);
+  if (source) lookup.bySource.set(source, txn);
+}
+
+function findExistingVendorTransaction(row, lookup) {
   const transactionUuid = String(row.transaction_uuid || '').trim();
-  if (transactionUuid) {
-    const linked = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
-    if (linked) return linked;
+  if (transactionUuid && lookup?.byUuid.has(transactionUuid)) {
+    return lookup.byUuid.get(transactionUuid);
   }
 
   const refId = String(row.reference_id || '').trim();
-  if (refId) {
-    const byRefUuid = await Transaction.findOne({ Transaction_uuid: refId }).lean();
-    if (byRefUuid) return byRefUuid;
+  if (refId && lookup?.byUuid.has(refId)) {
+    return lookup.byUuid.get(refId);
   }
 
-  const sources = vendorCandidateSources(row);
-  if (sources.length) {
-    const bySource = await Transaction.findOne({ Source: { $in: sources } }).lean();
-    if (bySource) return bySource;
+  for (const source of vendorCandidateSources(row)) {
+    if (lookup?.bySource.has(source)) return lookup.bySource.get(source);
   }
 
   return null;
@@ -117,7 +133,7 @@ function receiptAmountForOrder(order, transactions) {
   );
 }
 
-async function repairPurchaseOrders({ apply, result }) {
+async function repairPurchaseOrders({ apply, result, transactionLookup, plannedSources }) {
   const pos = await PurchaseOrder.find({ status: { $ne: 'cancelled' } }).lean();
   const { syncPurchasePosting } = require('../routes/PurchaseOrder');
 
@@ -127,8 +143,8 @@ async function repairPurchaseOrders({ apply, result }) {
     if (!(total > 0)) continue;
 
     const source = `${BUSINESS_SOURCES.PURCHASE}:${po.PO_uuid}`;
-    const existing = await Transaction.findOne({ Source: source }).lean();
-    if (existing) continue;
+    if (transactionLookup.bySource.has(source)) continue;
+    plannedSources.add(source);
 
     result.actions.purchaseOrders.push({
       poUuid: po.PO_uuid,
@@ -139,10 +155,11 @@ async function repairPurchaseOrders({ apply, result }) {
 
     if (!apply) continue;
     try {
-      await syncPurchasePosting(po, {
+      const posting = await syncPurchasePosting(po, {
         txnDate: po.poDate || po.createdAt || null,
         createdBy: 'ledger-history-repair',
       });
+      addTransactionToLookup(transactionLookup, posting?.transaction || posting);
       result.applied.purchaseOrders += 1;
     } catch (error) {
       result.failures.push({ area: 'purchaseOrder', id: po.PO_uuid, error: error.message });
@@ -150,10 +167,10 @@ async function repairPurchaseOrders({ apply, result }) {
   }
 }
 
-async function repairVendorLedger({ apply, result }) {
+async function repairVendorLedger({ apply, result, transactionLookup, plannedSources }) {
   const rows = await VendorLedger.find({ amount: { $gt: 0 } }).sort({ date: 1, createdAt: 1 });
   for (const row of rows) {
-    const existing = await findExistingVendorTransaction(row);
+    const existing = findExistingVendorTransaction(row, transactionLookup);
     if (existing) {
       if (String(row.transaction_uuid || '') !== String(existing.Transaction_uuid || '')) {
         result.actions.vendorLedger.push({
@@ -169,6 +186,18 @@ async function repairVendorLedger({ apply, result }) {
           result.applied.vendorLinks += 1;
         }
       }
+      continue;
+    }
+
+    const plannedSource = vendorCandidateSources(row).find((source) => plannedSources.has(source));
+    if (plannedSource) {
+      result.actions.vendorLedger.push({
+        entryUuid: row.entry_uuid,
+        entryType: row.entry_type,
+        amount: row.amount,
+        action: 'link_after_source_repair',
+        source: plannedSource,
+      });
       continue;
     }
 
@@ -202,6 +231,7 @@ async function repairVendorLedger({ apply, result }) {
       if (!uuid) throw new Error('Posting did not return Transaction_uuid');
       row.transaction_uuid = uuid;
       await row.save();
+      addTransactionToLookup(transactionLookup, posting.transaction);
       result.applied.vendorCreated += 1;
     } catch (error) {
       result.failures.push({ area: 'vendorLedger', id: row.entry_uuid, error: error.message });
@@ -706,8 +736,13 @@ async function repairLedgerIntegrity({ apply = false } = {}) {
     postAudit: null,
   };
 
-  await repairPurchaseOrders({ apply, result });
-  await repairVendorLedger({ apply, result });
+  const transactionLookup = buildTransactionLookup(
+    await Transaction.find({}, { Transaction_uuid: 1, Source: 1 }).lean()
+  );
+  const plannedSources = new Set();
+
+  await repairPurchaseOrders({ apply, result, transactionLookup, plannedSources });
+  await repairVendorLedger({ apply, result, transactionLookup, plannedSources });
   await repairDiaries({ apply, result });
   await repairBankStatements({ apply, result });
   await repairPaidOrderFlags({ apply, result });
@@ -727,5 +762,7 @@ async function repairLedgerIntegrity({ apply = false } = {}) {
 module.exports = {
   inferPaymentMode,
   vendorCandidateSources,
+  buildTransactionLookup,
+  findExistingVendorTransaction,
   repairLedgerIntegrity,
 };

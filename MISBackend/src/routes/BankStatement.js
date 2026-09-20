@@ -7,10 +7,14 @@ const pdfParse = require('pdf-parse');
 const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
 const Transaction = require('../repositories/transaction');
-const Counter = require('../repositories/counter');
 const logger = require('../utils/logger');
-const { resolve: resolveAccount, updateBalancesForJournal } = require('../services/accountRegistry');
-const { SYSTEM_ACCOUNTS, BUSINESS_SOURCES } = require('../services/accountingPostingService');
+const { resolve: resolveAccount } = require('../services/accountRegistry');
+const {
+  SYSTEM_ACCOUNTS,
+  BUSINESS_SOURCES,
+  upsertBalancedTransaction,
+  reverseAndDeleteTransaction,
+} = require('../services/accountingPostingService');
 const { parseAmount } = require('../utils/money');
 
 router.use(requireAuth);
@@ -547,10 +551,24 @@ router.get('/:uuid', async (req, res) => {
 // PUT /api/bank-statement/:uuid/entry/:entryUuid  — update match or account assignment
 router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   try {
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
+    if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
+
     const {
       match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party,
       account_assigned, entry_status,
     } = req.body;
+
+    if (entry_status === 'confirmed' && entry.entry_status !== 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Use the confirm action so a ledger transaction is created before marking this row confirmed',
+      });
+    }
+
     const setFields = {};
     if (match_status             !== undefined) setFields['entries.$[e].match_status']             = match_status;
     if (matched_diary_uuid       !== undefined) setFields['entries.$[e].matched_diary_uuid']       = matched_diary_uuid;
@@ -559,6 +577,52 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     if (account_assigned         !== undefined) setFields['entries.$[e].account_assigned']         = account_assigned;
     if (entry_status             !== undefined) setFields['entries.$[e].entry_status']             = entry_status;
     if (match_status === 'manual') setFields['entries.$[e].match_status'] = 'manual';
+
+    if (entry.entry_status === 'confirmed' && entry.transaction_uuid) {
+      const linkedTxn = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid });
+      const isBankOwned = String(linkedTxn?.Source || '').startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`);
+
+      if (entry_status !== undefined && entry_status !== 'confirmed') {
+        if (isBankOwned) {
+          await reverseAndDeleteTransaction({ Transaction_uuid: entry.transaction_uuid });
+        }
+        setFields['entries.$[e].transaction_uuid'] = null;
+      } else if (account_assigned !== undefined && String(account_assigned) !== String(entry.account_assigned || '')) {
+        if (!isBankOwned) {
+          return res.status(409).json({
+            success: false,
+            message: 'This bank row reuses a confirmed Diary transaction. Change/reopen the Diary entry instead.',
+          });
+        }
+
+        const amount = Number(entry.credit > 0 ? entry.credit : entry.debit);
+        const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
+        const posting = entry.direction === 'in'
+          ? await upsertBalancedTransaction({
+              amount,
+              debitAccount: SYSTEM_ACCOUNTS.BANK,
+              creditAccount: account_assigned,
+              paymentMode: 'Bank',
+              description: entry.description || account_assigned,
+              transactionDate: entry.txn_date || new Date(),
+              createdBy: req.user?.userName || 'bank_statement',
+              source,
+              reference: entry.ref_no || '',
+            })
+          : await upsertBalancedTransaction({
+              amount,
+              debitAccount: account_assigned,
+              creditAccount: SYSTEM_ACCOUNTS.BANK,
+              paymentMode: 'Bank',
+              description: entry.description || account_assigned,
+              transactionDate: entry.txn_date || new Date(),
+              createdBy: req.user?.userName || 'bank_statement',
+              source,
+              reference: entry.ref_no || '',
+            });
+        setFields['entries.$[e].transaction_uuid'] = posting.transaction.Transaction_uuid;
+      }
+    }
 
     await BankStatement.updateOne(
       { statement_uuid: req.params.uuid },
@@ -570,12 +634,11 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     return res.json({ success: true, result: updated });
   } catch (err) {
     logger.error({ err }, 'PUT /bank-statement/:uuid/entry/:entryUuid');
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
   }
 });
 
 // POST /api/bank-statement/:uuid/entry/:entryUuid/confirm
-// Confirms a bank statement entry → creates a UUID-based double-entry transaction.
 router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
   try {
     const { confirmed_by } = req.body;
@@ -584,69 +647,82 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
 
     const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
     if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
+
+    if (entry.entry_status === 'confirmed' && entry.transaction_uuid) {
+      const existing = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean();
+      if (existing) {
+        return res.json({ success: true, message: 'Entry already confirmed', result: stmt });
+      }
+      entry.entry_status = 'pending';
+      entry.transaction_uuid = null;
+    }
+
+    // A bank row auto-matched to an already-confirmed Diary entry is the same
+    // real-world payment. Reuse that transaction instead of double-posting it.
+    if (entry.matched_diary_uuid && entry.matched_diary_entry_uuid) {
+      const diary = await DiaryDraft.findOne({ diary_uuid: entry.matched_diary_uuid }).lean();
+      const diaryEntry = (diary?.entries || []).find(
+        (e) => String(e.entry_uuid) === String(entry.matched_diary_entry_uuid)
+      );
+      if (diaryEntry?.transaction_uuid) {
+        const diaryTxn = await Transaction.findOne({ Transaction_uuid: diaryEntry.transaction_uuid }).lean();
+        if (diaryTxn) {
+          entry.entry_status = 'confirmed';
+          entry.transaction_uuid = diaryTxn.Transaction_uuid;
+          await stmt.save();
+          return res.json({ success: true, message: 'Linked to matched Diary transaction', result: stmt });
+        }
+      }
+    }
+
     if (!entry.account_assigned) {
       return res.status(400).json({ success: false, message: 'Assign an account before confirming' });
     }
-    if (entry.entry_status === 'confirmed') {
-      return res.status(400).json({ success: false, message: 'Entry is already confirmed' });
+
+    const amount = Number(entry.credit > 0 ? entry.credit : entry.debit);
+    if (!(amount > 0)) {
+      return res.status(400).json({ success: false, message: 'Bank entry amount must be greater than zero' });
     }
 
-    const amount = entry.credit > 0 ? entry.credit : entry.debit;
-
-    // Resolve both accounts to UUID + name pairs
-    const [bankAcct, assignedAcct] = await Promise.all([
-      resolveAccount(SYSTEM_ACCOUNTS.BANK),
-      resolveAccount(entry.account_assigned),
-    ]);
-
+    const assignedAcct = await resolveAccount(entry.account_assigned);
     if (assignedAcct.name === assignedAcct.uuid) {
       return res.status(400).json({
         success: false,
-        message: `Assigned account '${entry.account_assigned}' could not be resolved to a name. Check that it exists in Accounts or Customers.`,
+        message: `Assigned account '${entry.account_assigned}' could not be resolved. Check Accounts/Customers.`,
       });
     }
 
-    const journal = entry.direction === 'in'
-      ? [
-          { Account_id: bankAcct.uuid,     Account_name: bankAcct.name,     Type: 'Debit',  Amount: amount },
-          { Account_id: assignedAcct.uuid, Account_name: assignedAcct.name, Type: 'Credit', Amount: amount },
-        ]
-      : [
-          { Account_id: assignedAcct.uuid, Account_name: assignedAcct.name, Type: 'Debit',  Amount: amount },
-          { Account_id: bankAcct.uuid,     Account_name: bankAcct.name,     Type: 'Credit', Amount: amount },
-        ];
+    const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
+    const common = {
+      amount,
+      paymentMode: 'Bank',
+      description: entry.description || entry.account_assigned,
+      transactionDate: entry.txn_date || new Date(),
+      createdBy: confirmed_by || req.user?.userName || 'bank_statement',
+      source,
+      reference: entry.ref_no || '',
+    };
 
-    const counter = await Counter.findByIdAndUpdate(
-      'transaction_number',
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).lean();
+    const posting = entry.direction === 'in'
+      ? await upsertBalancedTransaction({
+          ...common,
+          debitAccount: SYSTEM_ACCOUNTS.BANK,
+          creditAccount: assignedAcct.uuid,
+        })
+      : await upsertBalancedTransaction({
+          ...common,
+          debitAccount: assignedAcct.uuid,
+          creditAccount: SYSTEM_ACCOUNTS.BANK,
+        });
 
-    const txn = new Transaction({
-      Transaction_uuid: uuid(),
-      Transaction_id:   Number(counter?.seq || 1),
-      Transaction_date: entry.txn_date,
-      Description:      entry.description || entry.account_assigned,
-      Total_Debit:      amount,
-      Total_Credit:     amount,
-      Payment_mode:     'Bank',
-      Created_by:       confirmed_by || 'bank_statement',
-      Journal_entry:    journal,
-      Source:           BUSINESS_SOURCES.BANK_STATEMENT,
-    });
-    await txn.save();
-
-    // Update account balances (non-blocking)
-    await updateBalancesForJournal(journal).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
-
-    entry.entry_status     = 'confirmed';
-    entry.transaction_uuid = txn.Transaction_uuid;
+    entry.entry_status = 'confirmed';
+    entry.transaction_uuid = posting.transaction.Transaction_uuid;
     await stmt.save();
 
-    return res.json({ success: true, message: 'Transaction created', result: stmt });
+    return res.json({ success: true, message: 'Transaction created/linked', result: stmt });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/:uuid/entry/:entryUuid/confirm');
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
   }
 });
 
@@ -655,11 +731,20 @@ router.delete('/:uuid', async (req, res) => {
   try {
     const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
     if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    for (const entry of stmt.entries || []) {
+      if (!entry.transaction_uuid) continue;
+      const txn = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean();
+      if (String(txn?.Source || '').startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+        await reverseAndDeleteTransaction({ Transaction_uuid: entry.transaction_uuid });
+      }
+    }
+
     await BankStatement.deleteOne({ statement_uuid: req.params.uuid });
-    return res.json({ success: true, message: 'Statement deleted' });
+    return res.json({ success: true, message: 'Statement deleted; bank-owned postings reversed' });
   } catch (err) {
     logger.error({ err }, 'DELETE /bank-statement/:uuid');
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
   }
 });
 

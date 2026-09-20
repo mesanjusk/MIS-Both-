@@ -506,7 +506,7 @@ async function postCustomerReceipt(payload = {}) {
     transactionDate: payload.transactionDate,
     source:          sourceWithSuffix(BUSINESS_SOURCES.CUSTOMER_RECEIPT, payload.sourceSuffix),
     reference:       payload.reference,
-    allowDuplicate:  true,
+    allowDuplicate:  payload.allowDuplicate !== false,
   });
 }
 
@@ -524,6 +524,23 @@ async function postVendorBill(payload = {}) {
     source:          sourceWithSuffix(BUSINESS_SOURCES.VENDOR_BILL, payload.sourceSuffix),
     reference:       payload.reference,
     allowDuplicate:  false,
+  });
+}
+
+async function upsertVendorBill(payload = {}) {
+  const source = sourceWithSuffix(BUSINESS_SOURCES.VENDOR_BILL, payload.sourceSuffix);
+  return upsertBalancedTransaction({
+    amount:          payload.amount,
+    debitAccount:    payload.expenseAccount || SYSTEM_ACCOUNTS.JOB_WORK_EXPENSE,
+    creditAccount:   payload.payableAccount || SYSTEM_ACCOUNTS.VENDOR_PAYABLE,
+    paymentMode:     'Journal',
+    description:     payload.description || buildDescription('Vendor bill posted', payload),
+    orderUuid:       payload.orderUuid,
+    orderNumber:     payload.orderNumber,
+    createdBy:       payload.createdBy,
+    transactionDate: payload.transactionDate,
+    source,
+    reference:       payload.reference,
   });
 }
 
@@ -712,6 +729,7 @@ module.exports = {
   postCustomerInvoice,
   postCustomerReceipt,
   postVendorBill,
+  upsertVendorBill,
   postVendorAdvance,
   postVendorOpeningBalance,
   postVendorLedgerEntry,

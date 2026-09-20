@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useEffect, useState } from 'react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { describe, expect, test, vi } from 'vitest';
 
 import KeepAliveOutlet from './KeepAliveOutlet';
@@ -21,6 +21,7 @@ function Navigation() {
 
 function StatefulPage({ name, onMount }) {
   const [value, setValue] = useState('');
+  const location = useLocation();
 
   useEffect(() => {
     onMount(name);
@@ -34,6 +35,7 @@ function StatefulPage({ name, onMount }) {
         value={value}
         onChange={(event) => setValue(event.target.value)}
       />
+      <span data-testid={`${name}-location`}>{location.pathname}</span>
     </label>
   );
 }
@@ -60,6 +62,12 @@ describe('KeepAliveOutlet', () => {
     fireEvent.change(screen.getByLabelText('one-input'), { target: { value: 'keep me' } });
     fireEvent.click(screen.getByRole('button', { name: 'Two' }));
     fireEvent.change(screen.getByLabelText('two-input'), { target: { value: 'second page' } });
+
+    // The hidden first page keeps its own router location rather than reacting
+    // to /two while it is cached in the background.
+    expect(screen.getByTestId('one-location')).toHaveTextContent('/one');
+    expect(screen.getByTestId('two-location')).toHaveTextContent('/two');
+
     fireEvent.click(screen.getByRole('button', { name: 'One' }));
 
     expect(screen.getByLabelText('one-input')).toHaveValue('keep me');

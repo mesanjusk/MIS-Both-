@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useOutlet } from 'react-router-dom';
+import {
+  UNSAFE_LocationContext as LocationContext,
+  useLocation,
+  useNavigationType,
+  useOutlet,
+} from 'react-router-dom';
 
 import PageToggleGuard from './PageToggleGuard';
 
@@ -23,6 +28,7 @@ const routeCacheKey = (pathname) => {
  */
 export default function KeepAliveOutlet() {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const outlet = useOutlet();
   const currentKey = routeCacheKey(location.pathname);
   const cacheRef = useRef(new Map());
@@ -31,7 +37,11 @@ export default function KeepAliveOutlet() {
   // Always retain the newest route element for the active pathname. React
   // reconciles it under the same keyed pane, so component state is preserved.
   if (outlet) {
-    cacheRef.current.set(currentKey, outlet);
+    cacheRef.current.set(currentKey, {
+      element: outlet,
+      location,
+      navigationType,
+    });
   }
 
   useEffect(() => {
@@ -56,8 +66,11 @@ export default function KeepAliveOutlet() {
     <>
       {paneKeys.map((key) => {
         const isActive = key === currentKey;
-        const element = isActive ? outlet : cacheRef.current.get(key);
-        if (!element) return null;
+        const cached = cacheRef.current.get(key);
+        const entry = isActive
+          ? { element: outlet, location, navigationType }
+          : cached;
+        if (!entry?.element) return null;
 
         return (
           <div
@@ -70,9 +83,16 @@ export default function KeepAliveOutlet() {
               width: '100%',
             }}
           >
-            <PageToggleGuard pathname={key} active={isActive}>
-              {element}
-            </PageToggleGuard>
+            <LocationContext.Provider
+              value={{
+                location: entry.location,
+                navigationType: entry.navigationType,
+              }}
+            >
+              <PageToggleGuard pathname={key} active={isActive}>
+                {entry.element}
+              </PageToggleGuard>
+            </LocationContext.Provider>
           </div>
         );
       })}

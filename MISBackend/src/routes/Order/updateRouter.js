@@ -3,8 +3,6 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const Orders = require("../../repositories/order");
-const ProductionJob = require("../../repositories/productionJob");
-const VendorLedger = require("../../repositories/vendorLedger");
 const { assignOrderToUser } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
 const { refreshOrderPaymentStatus } = require("../../services/businessWorkflowService");
@@ -139,11 +137,13 @@ router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, r
         req.body?.updatedBy || req.user?.userName || "system"
       );
     } else {
-      await ProductionJob.deleteMany({ "linkedOrders.orderUuid": saved.Order_uuid });
-      await VendorLedger.deleteMany({
-        order_uuid: saved.Order_uuid,
-        reference_type: { $in: ["vendor_assignment", "vendor_assignment_bill", "vendor_assignment_advance"] },
-      });
+      // Run the same canonical cleanup path used by normal assignment sync so
+      // stale vendor bills/advances are reversed from the unified ledger too.
+      await syncVendorJobsForOrder(
+        saved,
+        [],
+        req.body?.updatedBy || req.user?.userName || "system"
+      );
     }
 
     const refreshed = await Orders.findById(saved._id).lean();

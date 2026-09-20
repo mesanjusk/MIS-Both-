@@ -580,7 +580,10 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
 
     if (entry.entry_status === 'confirmed' && entry.transaction_uuid) {
       const linkedTxn = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid });
-      const isBankOwned = String(linkedTxn?.Source || '').startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`);
+      const linkedSource = String(linkedTxn?.Source || '');
+      const isBankOwned =
+        linkedSource === BUSINESS_SOURCES.BANK_STATEMENT ||
+        linkedSource.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`);
 
       if (entry_status !== undefined && entry_status !== 'confirmed') {
         if (isBankOwned) {
@@ -735,7 +738,8 @@ router.delete('/:uuid', async (req, res) => {
     for (const entry of stmt.entries || []) {
       if (!entry.transaction_uuid) continue;
       const txn = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean();
-      if (String(txn?.Source || '').startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+      const source = String(txn?.Source || '');
+      if (source === BUSINESS_SOURCES.BANK_STATEMENT || source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
         await reverseAndDeleteTransaction({ Transaction_uuid: entry.transaction_uuid });
       }
     }

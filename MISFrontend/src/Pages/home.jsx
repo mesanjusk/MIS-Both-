@@ -15,15 +15,25 @@ import { useAuth } from '../context/AuthContext';
 
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
 
-const OutstandingReport = lazy(() => import('../Reports/outstandingReport'));
-const AllTransaction4D = lazy(() => import('../Reports/allTransaction4D'));
-const AllDelivery = lazy(() => import('../Reports/allDelivery'));
-const AllBills = lazy(() => import('../Reports/allBills'));
-const AllAttandance = lazy(() => import('./AllAttandance'));
-const RateCalculator = lazy(() => import('./RateCalculator'));
-const DayBook = lazy(() => import('./DayBook'));
-const OrderLedger = lazy(() => import('./OrderLedger'));
-const HomeInbox = lazy(() => import('./HomeInbox'));
+const loadOutstandingReport = () => import('../Reports/outstandingReport');
+const loadAllTransaction4D = () => import('../Reports/allTransaction4D');
+const loadAllDelivery = () => import('../Reports/allDelivery');
+const loadAllBills = () => import('../Reports/allBills');
+const loadAllAttandance = () => import('./AllAttandance');
+const loadRateCalculator = () => import('./RateCalculator');
+const loadDayBook = () => import('./DayBook');
+const loadOrderLedger = () => import('./OrderLedger');
+const loadHomeInbox = () => import('./HomeInbox');
+
+const OutstandingReport = lazy(loadOutstandingReport);
+const AllTransaction4D = lazy(loadAllTransaction4D);
+const AllDelivery = lazy(loadAllDelivery);
+const AllBills = lazy(loadAllBills);
+const AllAttandance = lazy(loadAllAttandance);
+const RateCalculator = lazy(loadRateCalculator);
+const DayBook = lazy(loadDayBook);
+const OrderLedger = lazy(loadOrderLedger);
+const HomeInbox = lazy(loadHomeInbox);
 
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
@@ -38,11 +48,33 @@ const HOME_TABS = [
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
 
+const HOME_TAB_PRELOADERS = [
+  loadHomeInbox,
+  loadOrderLedger,
+  loadOutstandingReport,
+  loadAllTransaction4D,
+  loadAllDelivery,
+  loadAllBills,
+  loadAllAttandance,
+  loadRateCalculator,
+  loadDayBook,
+];
+
 const LEGACY_HOME_TAB_IDS = {
   quickLinks: 'workflow',
   recentAttendance: 'attendance',
   ordersBoard: 'orders',
 };
+
+const HOME_TAB_STORAGE_KEY = 'mis.home.activeTab';
+
+function storedHomeTab() {
+  try {
+    return sessionStorage.getItem(HOME_TAB_STORAGE_KEY) || 'workflow';
+  } catch {
+    return 'workflow';
+  }
+}
 
 /* ─── Main Home Component ───────────────────────────────────────── */
 export default function Home() {
@@ -51,8 +83,12 @@ export default function Home() {
   const { userName, permissions } = useAuth();
 
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('workflow');
+  const [activeTab, setActiveTab] = useState(storedHomeTab);
+  // Keep only tabs the user has actually opened mounted. That preserves each
+  // screen's state/data when switching tabs without paying the cost of mounting
+  // every dashboard screen on first load.
+  const [mountedTabs, setMountedTabs] = useState(() => new Set([storedHomeTab()]));
+
   const visibleTabs = useMemo(() => {
     const configured = permissions?.allowedWidgets || [];
     if (!configured.length) return HOME_TABS;
@@ -61,32 +97,79 @@ export default function Home() {
     return filtered.length ? filtered : HOME_TABS;
   }, [permissions?.allowedWidgets]);
 
-  /* Init user */
+  /* Init user — no artificial loading delay. */
   useEffect(() => {
     const user = location.state?.id || localStorage.getItem('User_name') || userName;
-    if (!user) { navigate('/'); return; }
+    if (!user) {
+      navigate('/');
+      return;
+    }
     setLoggedInUser(user);
-    const timer = setTimeout(() => setIsLoading(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  }, [location.state?.id, navigate, userName]);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(visibleTabs[0]?.id || 'workflow');
+      const fallback = visibleTabs[0]?.id || 'workflow';
+      setActiveTab(fallback);
+      setMountedTabs((current) => {
+        const next = new Set(current);
+        next.add(fallback);
+        return next;
+      });
+      try {
+        sessionStorage.setItem(HOME_TAB_STORAGE_KEY, fallback);
+      } catch {
+        // sessionStorage can be unavailable in hardened/private browser modes.
+      }
     }
   }, [activeTab, visibleTabs]);
 
+  // Download the remaining home-tab JS chunks after the first screen is usable.
+  // This does not mount the tabs or call their APIs; it only removes the
+  // first-click chunk download so the dashboard feels like a local app.
+  useEffect(() => {
+    if (!loggedInUser) return undefined;
+
+    const preload = () => {
+      HOME_TAB_PRELOADERS.forEach((loader) => {
+        loader().catch(() => {
+          // A failed prefetch is harmless; React.lazy will retry on navigation.
+        });
+      });
+    };
+
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+
+    const id = window.setTimeout(preload, 800);
+    return () => window.clearTimeout(id);
+  }, [loggedInUser]);
+
   if (!loggedInUser) return <LinearProgress sx={{ borderRadius: 1, mt: 2 }} />;
 
-  const ActiveComponent = visibleTabs.find((tab) => tab.id === activeTab)?.Component || WorkflowWidget;
+  const resolvedActiveTab = visibleTabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : (visibleTabs[0]?.id || 'workflow');
+
+  const handleTabChange = (_, next) => {
+    setActiveTab(next);
+    setMountedTabs((current) => {
+      if (current.has(next)) return current;
+      const updated = new Set(current);
+      updated.add(next);
+      return updated;
+    });
+    try {
+      sessionStorage.setItem(HOME_TAB_STORAGE_KEY, next);
+    } catch {
+      // Non-critical preference only.
+    }
+  };
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default' }}>
-
-      {isLoading && (
-        <LinearProgress sx={{ mx: { xs: 1, md: 1.5 }, mt: 1.5, mb: 1, borderRadius: 1 }} />
-      )}
-
       {/* ── Tab bar ── */}
       <Box sx={{ px: { xs: 1, md: 1.5 }, pt: 1.5, flexShrink: 0 }}>
         <Paper
@@ -100,8 +183,8 @@ export default function Home() {
           }}
         >
           <Tabs
-            value={activeTab}
-            onChange={(_, next) => setActiveTab(next)}
+            value={resolvedActiveTab}
+            onChange={handleTabChange}
             variant="scrollable"
             scrollButtons="auto"
             allowScrollButtonsMobile
@@ -136,7 +219,7 @@ export default function Home() {
         </Paper>
       </Box>
 
-      {/* ── Active tab ── */}
+      {/* ── Visited tabs stay mounted so returning to one is instant ── */}
       <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, md: 1.5 }, py: 1.5 }}>
         <Paper
           elevation={0}
@@ -150,9 +233,24 @@ export default function Home() {
             boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
           }}
         >
-          <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
-            <ActiveComponent />
-          </Suspense>
+          {visibleTabs
+            .filter((tab) => tab.id === resolvedActiveTab || mountedTabs.has(tab.id))
+            .map((tab) => {
+              const TabComponent = tab.Component;
+              const isActive = tab.id === resolvedActiveTab;
+              return (
+                <Box
+                  key={tab.id}
+                  role="tabpanel"
+                  aria-hidden={!isActive}
+                  sx={{ display: isActive ? 'block' : 'none', minHeight: '100%' }}
+                >
+                  <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
+                    <TabComponent />
+                  </Suspense>
+                </Box>
+              );
+            })}
         </Paper>
       </Box>
     </Box>

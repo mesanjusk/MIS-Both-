@@ -25,6 +25,7 @@ const {
   resolve: resolveAccount,
   isUuid,
   updateBalancesForJournal,
+  applyBalanceMovement,
 } = require('./accountRegistry');
 const { parseAmount } = require('../utils/money');
 
@@ -45,6 +46,7 @@ const SYSTEM_ACCOUNTS = Object.freeze({
   PURCHASE:            'Purchase',
   STOCK:               'Stock',
   GENERAL_EXPENSE:     'General Expense',
+  OPENING_BALANCE_EQUITY: 'Opening Balance Equity',
 });
 
 // ---------------------------------------------------------------------------
@@ -56,6 +58,9 @@ const BUSINESS_SOURCES = Object.freeze({
   CUSTOMER_RECEIPT:  'business:customer_receipt',
   VENDOR_BILL:       'business:vendor_bill',
   VENDOR_PAYMENT:    'business:vendor_payment',
+  VENDOR_ADVANCE:    'business:vendor_advance',
+  VENDOR_OPENING:    'business:vendor_opening',
+  VENDOR_LEDGER:     'business:vendor_ledger',
   PURCHASE:          'business:purchase',
   CASH_EXPENSE:      'business:cash_expense',
   BANK_STATEMENT:    'business:bank_statement',
@@ -348,6 +353,103 @@ async function postBalancedTransaction({
   return { transaction: transaction.doc, existing: false };
 }
 
+/**
+ * Create or replace one deterministic business posting.
+ *
+ * Unlike postBalancedTransaction(), this intentionally updates an existing
+ * Source-matched posting when an upstream document is edited. The old journal
+ * movement is reversed and the replacement is applied in one net balance pass,
+ * preventing edited POs/vendor jobs/steps from leaving stale balances behind.
+ */
+async function upsertBalancedTransaction({
+  amount,
+  debitAccount,
+  creditAccount,
+  paymentMode = 'Journal',
+  description,
+  orderUuid = null,
+  orderNumber = null,
+  customerUuid = null,
+  createdBy = 'system',
+  transactionDate = new Date(),
+  source,
+  reference = '',
+}) {
+  if (!source) {
+    throw Object.assign(new Error('A deterministic Source is required for an accounting upsert'), { statusCode: 400 });
+  }
+
+  const cleanAmount = assertPositiveAmount(amount);
+  const [debitLine, creditLine] = await Promise.all([
+    buildLine(debitAccount, 'Debit', cleanAmount),
+    buildLine(creditAccount, 'Credit', cleanAmount),
+  ]);
+  const Journal_entry = [debitLine, creditLine];
+  const totals = validateBalancedJournal(Journal_entry);
+
+  const existing = await Transaction.findOne({ Source: String(source) });
+  if (!existing) {
+    return postBalancedTransaction({
+      amount: cleanAmount,
+      debitAccount,
+      creditAccount,
+      paymentMode,
+      description,
+      orderUuid,
+      orderNumber,
+      customerUuid,
+      createdBy,
+      transactionDate,
+      source,
+      reference,
+      allowDuplicate: false,
+    });
+  }
+
+  const previousJournal = (existing.Journal_entry || []).map((line) => ({
+    Account_id: line.Account_id,
+    Account_name: line.Account_name,
+    Type: line.Type,
+    Amount: line.Amount,
+  }));
+
+  existing.Order_uuid = orderUuid || null;
+  existing.Order_number = orderNumber ? Number(orderNumber) : null;
+  existing.Transaction_date = transactionDate || existing.Transaction_date || new Date();
+  existing.Description = String(description || existing.Description || 'Business accounting posting');
+  existing.Total_Debit = totals.debit;
+  existing.Total_Credit = totals.credit;
+  existing.Payment_mode = String(paymentMode || 'Journal');
+  existing.Journal_entry = Journal_entry;
+  existing.Customer_uuid = customerUuid || null;
+  existing.Upi_reference = reference || '';
+  existing.Source = String(source);
+  await existing.save();
+
+  await applyBalanceMovement({ reverse: previousJournal, apply: Journal_entry });
+
+  return { transaction: existing, existing: true };
+}
+
+/**
+ * Remove a posted business event and reverse its balance-cache movement.
+ * Transaction is the ledger of record; Accounts.Balance is repaired from the
+ * exact journal being removed.
+ */
+async function reverseAndDeleteTransaction(query = {}) {
+  const existing = await Transaction.findOne(query);
+  if (!existing) return null;
+  const journal = (existing.Journal_entry || []).map((line) => ({
+    Account_id: line.Account_id,
+    Account_name: line.Account_name,
+    Type: line.Type,
+    Amount: line.Amount,
+  }));
+  await Transaction.deleteOne({ _id: existing._id });
+  await applyBalanceMovement({ reverse: journal });
+  return existing;
+}
+
 // ---------------------------------------------------------------------------
 // Business-event posting helpers
 // ---------------------------------------------------------------------------
@@ -425,6 +527,114 @@ async function postVendorBill(payload = {}) {
   });
 }
 
+async function postVendorAdvance(payload = {}) {
+  const paymentAccountName = resolvePaymentAccountName(payload.paymentMode);
+  const source = sourceWithSuffix(BUSINESS_SOURCES.VENDOR_ADVANCE, payload.sourceSuffix);
+  return upsertBalancedTransaction({
+    amount:          payload.amount,
+    debitAccount:    SYSTEM_ACCOUNTS.VENDOR_ADVANCE,
+    creditAccount:   paymentAccountName,
+    paymentMode:     payload.paymentMode || paymentAccountName,
+    description:     payload.description || buildDescription('Vendor advance paid', payload),
+    orderUuid:       payload.orderUuid,
+    orderNumber:     payload.orderNumber,
+    createdBy:       payload.createdBy,
+    transactionDate: payload.transactionDate,
+    source,
+    reference:       payload.reference,
+  });
+}
+
+async function postVendorOpeningBalance(payload = {}) {
+  const isAdvance = String(payload.balanceType || payload.type || '').toLowerCase() === 'advance';
+  const source = sourceWithSuffix(BUSINESS_SOURCES.VENDOR_OPENING, payload.sourceSuffix || payload.vendorUuid);
+  return upsertBalancedTransaction({
+    amount:          payload.amount,
+    debitAccount:    isAdvance ? SYSTEM_ACCOUNTS.VENDOR_ADVANCE : SYSTEM_ACCOUNTS.OPENING_BALANCE_EQUITY,
+    creditAccount:   isAdvance ? SYSTEM_ACCOUNTS.OPENING_BALANCE_EQUITY : SYSTEM_ACCOUNTS.VENDOR_PAYABLE,
+    paymentMode:     'Journal',
+    description:     payload.description || `Vendor opening balance - ${payload.partyName || payload.vendorName || ''}`.trim(),
+    createdBy:       payload.createdBy,
+    transactionDate: payload.transactionDate,
+    source,
+  });
+}
+
+/**
+ * Canonical posting for manually-created VendorLedger rows.
+ * This prevents the vendor sub-ledger from becoming a second independent set
+ * of books: every balance-affecting row gets a unified Transaction_uuid.
+ */
+async function postVendorLedgerEntry(payload = {}) {
+  const entryType = String(payload.entryType || '').trim().toLowerCase();
+  const drCr = String(payload.drCr || '').trim().toLowerCase();
+  const paymentAccount = resolvePaymentAccountName(payload.paymentMode);
+  let debitAccount;
+  let creditAccount;
+
+  switch (entryType) {
+    case 'opening':
+      if (drCr === 'dr') {
+        debitAccount = SYSTEM_ACCOUNTS.VENDOR_ADVANCE;
+        creditAccount = SYSTEM_ACCOUNTS.OPENING_BALANCE_EQUITY;
+      } else {
+        debitAccount = SYSTEM_ACCOUNTS.OPENING_BALANCE_EQUITY;
+        creditAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      }
+      break;
+    case 'advance_paid':
+      debitAccount = SYSTEM_ACCOUNTS.VENDOR_ADVANCE;
+      creditAccount = paymentAccount;
+      break;
+    case 'payment':
+      debitAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      creditAccount = paymentAccount;
+      break;
+    case 'job_bill':
+      debitAccount = SYSTEM_ACCOUNTS.JOB_WORK_EXPENSE;
+      creditAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      break;
+    case 'material_bill':
+      debitAccount = SYSTEM_ACCOUNTS.PURCHASE;
+      creditAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      break;
+    case 'material_issued':
+      debitAccount = SYSTEM_ACCOUNTS.VENDOR_ADVANCE;
+      creditAccount = SYSTEM_ACCOUNTS.STOCK;
+      break;
+    case 'debit_note':
+      debitAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      creditAccount = SYSTEM_ACCOUNTS.PURCHASE;
+      break;
+    case 'adjustment':
+      if (drCr === 'dr') {
+        debitAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+        creditAccount = SYSTEM_ACCOUNTS.GENERAL_EXPENSE;
+      } else {
+        debitAccount = SYSTEM_ACCOUNTS.GENERAL_EXPENSE;
+        creditAccount = SYSTEM_ACCOUNTS.VENDOR_PAYABLE;
+      }
+      break;
+    default:
+      throw Object.assign(new Error(`Unsupported vendor ledger entry_type '${entryType}'`), { statusCode: 400 });
+  }
+
+  const source = sourceWithSuffix(BUSINESS_SOURCES.VENDOR_LEDGER, payload.sourceSuffix);
+  return upsertBalancedTransaction({
+    amount:          payload.amount,
+    debitAccount,
+    creditAccount,
+    paymentMode:     entryType === 'payment' || entryType === 'advance_paid' ? (payload.paymentMode || paymentAccount) : 'Journal',
+    description:     payload.description || payload.narration || `Vendor ledger ${entryType}`,
+    orderUuid:       payload.orderUuid,
+    orderNumber:     payload.orderNumber,
+    createdBy:       payload.createdBy,
+    transactionDate: payload.transactionDate,
+    source,
+    reference:       payload.reference,
+  });
+}
+
 async function postVendorPayment(payload = {}) {
   const paymentAccountName = resolvePaymentAccountName(payload.paymentMode);
   return postBalancedTransaction({
@@ -496,10 +706,15 @@ module.exports = {
   buildEventKey,
   buildLine,
   postBalancedTransaction,
+  upsertBalancedTransaction,
+  reverseAndDeleteTransaction,
   postCustomerAdvance,
   postCustomerInvoice,
   postCustomerReceipt,
   postVendorBill,
+  postVendorAdvance,
+  postVendorOpeningBalance,
+  postVendorLedgerEntry,
   postVendorPayment,
   postPurchase,
   postCashExpense,

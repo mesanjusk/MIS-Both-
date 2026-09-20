@@ -1,6 +1,8 @@
 const {
   inferPaymentMode,
   vendorCandidateSources,
+  buildTransactionLookup,
+  findExistingVendorTransaction,
 } = require('../../src/services/ledgerRepairService');
 
 describe('ledgerRepairService pure helpers', () => {
@@ -65,5 +67,24 @@ describe('ledgerRepairService pure helpers', () => {
       entry_type: 'job_bill',
     });
     expect(new Set(sources).size).toBe(sources.length);
+  });
+
+  test('preloaded transaction lookup resolves vendor rows without database calls', () => {
+    const txn = {
+      Transaction_uuid: 'txn-1',
+      Source: 'business:purchase:po-1',
+    };
+    const lookup = buildTransactionLookup([txn]);
+
+    expect(findExistingVendorTransaction({
+      reference_type: 'purchase_order',
+      reference_id: 'po-1',
+      entry_type: 'material_bill',
+    }, lookup)).toBe(txn);
+
+    expect(findExistingVendorTransaction({
+      transaction_uuid: 'txn-1',
+      entry_type: 'payment',
+    }, lookup)).toBe(txn);
   });
 });

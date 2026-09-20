@@ -282,20 +282,33 @@ async function runLedgerIntegrityStartupTask() {
   const mode = String(process.env.LEDGER_INTEGRITY_STARTUP_MODE || '').trim().toLowerCase();
   if (!mode || mode === 'off' || mode === 'false' || mode === '0') return;
 
-  if (mode !== 'audit') {
-    logger.error({ mode }, '[ledger-integrity-startup] unsupported mode; only audit is allowed by this runner');
-    return;
-  }
-
   try {
-    const { auditLedgerIntegrity } = require('./services/ledgerIntegrityService');
-    const report = await auditLedgerIntegrity({ sampleLimit: 100 });
-    logger.info(
-      { report },
-      '[ledger-integrity-startup] AUDIT_RESULT'
+    if (mode === 'audit') {
+      const { auditLedgerIntegrity } = require('./services/ledgerIntegrityService');
+      const report = await auditLedgerIntegrity({ sampleLimit: 100 });
+      logger.info({ report }, '[ledger-integrity-startup] AUDIT_RESULT');
+      return;
+    }
+
+    if (mode === 'plan' || mode === 'repair') {
+      const { repairLedgerIntegrity } = require('./services/ledgerRepairService');
+      const report = await repairLedgerIntegrity({ apply: mode === 'repair' });
+      logger.info(
+        { report },
+        `[ledger-integrity-startup] ${mode === 'repair' ? 'REPAIR_RESULT' : 'PLAN_RESULT'}`
+      );
+      return;
+    }
+
+    logger.error(
+      { mode },
+      '[ledger-integrity-startup] unsupported mode; expected audit, plan, repair, or off'
     );
   } catch (err) {
-    logger.error({ err: err?.message || err }, '[ledger-integrity-startup] audit failed');
+    logger.error(
+      { mode, err: err?.message || err },
+      '[ledger-integrity-startup] task failed'
+    );
   }
 }
 

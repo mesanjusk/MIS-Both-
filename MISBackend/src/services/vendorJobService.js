@@ -14,7 +14,12 @@ const VendorLedger = require("../repositories/vendorLedger");
 const VendorMaster = require("../repositories/vendorMaster");
 const Counter = require("../repositories/counter");
 const { mapVendorJobType } = require("../utils/orderHelpers");
-const { postVendorBill } = require("./accountingPostingService");
+const {
+  upsertVendorBill,
+  postVendorAdvance,
+  reverseAndDeleteTransaction,
+  BUSINESS_SOURCES,
+} = require("./accountingPostingService");
 const logger = require("../utils/logger");
 
 const JOB_CATEGORIES = ["general", "post_printing", "printing"];
@@ -202,7 +207,30 @@ async function upsertVendorJob(input = {}) {
   const ledgerFilterBase = { reference_type: billReferenceType, reference_id: ledgerKey };
   const ledgerAdvanceFilterBase = { reference_type: advanceReferenceType, reference_id: ledgerKey };
 
+  let accountingPosting = null;
+  let advancePosting = null;
+  const orderUuidForPosting = linkedOrdersDoc[0]?.orderUuid || null;
+  const orderNumberForPosting = linkedOrdersDoc[0]?.orderNumber || null;
+
+  // VendorLedger is a sub-ledger only. Every amount-bearing row must point to
+  // the unified Transaction collection; updates replace the same deterministic
+  // posting instead of stacking duplicates.
   if (cleanAmount > 0) {
+    accountingPosting = await upsertVendorBill({
+      amount: cleanAmount,
+      orderUuid: orderUuidForPosting,
+      orderNumber: orderNumberForPosting,
+      createdBy,
+      partyName: vendor.Vendor_name,
+      narration: notes || workType || resolvedJobType,
+      description: notes || `${workType || resolvedJobType} vendor job`,
+      transactionDate: dueDate || job.job_date || new Date(),
+      sourceSuffix: ledgerKey,
+    });
+
+    const transactionUuid = accountingPosting?.transaction?.Transaction_uuid || "";
+    if (!transactionUuid) throw new Error("Vendor bill transaction was not created");
+
     await VendorLedger.findOneAndUpdate(
       ledgerFilterBase,
       {
@@ -212,19 +240,40 @@ async function upsertVendorJob(input = {}) {
           date: dueDate || new Date(),
           entry_type: resolvedJobMode === "vendor_with_material" ? "material_bill" : "job_bill",
           job_uuid: job.job_uuid,
-          order_uuid: linkedOrdersDoc[0]?.orderUuid || "",
-          order_number: linkedOrdersDoc[0]?.orderNumber ?? null,
+          order_uuid: orderUuidForPosting || "",
+          order_number: orderNumberForPosting ?? null,
           amount: cleanAmount,
           dr_cr: "cr",
-          narration: notes || `${workType || resolvedJobType} job${linkedOrdersDoc[0]?.orderNumber ? ` for order #${linkedOrdersDoc[0].orderNumber}` : ""}`,
+          narration: notes || `${workType || resolvedJobType} job${orderNumberForPosting ? ` for order #${orderNumberForPosting}` : ""}`,
+          transaction_uuid: transactionUuid,
         },
         $setOnInsert: ledgerFilterBase,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
+  } else {
+    await VendorLedger.deleteMany(ledgerFilterBase);
+    await reverseAndDeleteTransaction({
+      Source: `${BUSINESS_SOURCES.VENDOR_BILL}:${ledgerKey}`,
+    });
   }
 
   if (cleanAdvance > 0) {
+    advancePosting = await postVendorAdvance({
+      amount: cleanAdvance,
+      paymentMode: input.advancePaymentMode || "Cash",
+      orderUuid: orderUuidForPosting,
+      orderNumber: orderNumberForPosting,
+      createdBy,
+      partyName: vendor.Vendor_name,
+      narration: `Advance paid for ${workType || resolvedJobType}`,
+      transactionDate: new Date(),
+      sourceSuffix: ledgerKey,
+    });
+
+    const advanceTxnUuid = advancePosting?.transaction?.Transaction_uuid || "";
+    if (!advanceTxnUuid) throw new Error("Vendor advance transaction was not created");
+
     await VendorLedger.findOneAndUpdate(
       ledgerAdvanceFilterBase,
       {
@@ -234,41 +283,25 @@ async function upsertVendorJob(input = {}) {
           date: new Date(),
           entry_type: "advance_paid",
           job_uuid: job.job_uuid,
-          order_uuid: linkedOrdersDoc[0]?.orderUuid || "",
-          order_number: linkedOrdersDoc[0]?.orderNumber ?? null,
+          order_uuid: orderUuidForPosting || "",
+          order_number: orderNumberForPosting ?? null,
           amount: cleanAdvance,
           dr_cr: "dr",
-          narration: `Advance paid for ${workType || resolvedJobType}${linkedOrdersDoc[0]?.orderNumber ? ` on order #${linkedOrdersDoc[0].orderNumber}` : ""}`,
+          narration: `Advance paid for ${workType || resolvedJobType}${orderNumberForPosting ? ` on order #${orderNumberForPosting}` : ""}`,
+          transaction_uuid: advanceTxnUuid,
         },
         $setOnInsert: ledgerAdvanceFilterBase,
       },
-      { upsert: true, new: true }
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
   } else {
     await VendorLedger.deleteMany(ledgerAdvanceFilterBase);
+    await reverseAndDeleteTransaction({
+      Source: `${BUSINESS_SOURCES.VENDOR_ADVANCE}:${ledgerKey}`,
+    });
   }
 
-  let accountingPosting = null;
-  if (postAccountingBill && cleanAmount > 0) {
-    // Non-fatal: the VendorLedger row above is the record of the bill; a
-    // failure to also mirror it into the general accounting ledger shouldn't
-    // block the vendor-job save itself.
-    try {
-      accountingPosting = await postVendorBill({
-        amount: cleanAmount,
-        orderUuid: linkedOrdersDoc[0]?.orderUuid || null,
-        orderNumber: linkedOrdersDoc[0]?.orderNumber || null,
-        createdBy,
-        partyName: vendor.Vendor_name,
-        narration: notes || workType || resolvedJobType,
-        sourceSuffix: ledgerKey,
-      });
-    } catch (acctErr) {
-      logger.warn({ acctErr }, "vendorJobService: accounting post failed (non-fatal)");
-    }
-  }
-
-  return { job, vendor, accountingPosting };
+  return { job, vendor, accountingPosting, advancePosting };
 }
 
 /**
@@ -285,14 +318,19 @@ async function deleteStaleVendorJobs(orderUuid, touchedJobIds = []) {
   const staleJobs = existingJobs.filter((job) => !touchedSet.has(String(job._id)));
   if (!staleJobs.length) return;
 
-  await ProductionJob.deleteMany({ _id: { $in: staleJobs.map((j) => j._id) } });
   const staleJobUuids = staleJobs.map((job) => job.job_uuid).filter(Boolean);
+  for (const jobUuid of staleJobUuids) {
+    await reverseAndDeleteTransaction({ Source: `${BUSINESS_SOURCES.VENDOR_BILL}:${jobUuid}` });
+    await reverseAndDeleteTransaction({ Source: `${BUSINESS_SOURCES.VENDOR_ADVANCE}:${jobUuid}` });
+  }
+
   if (staleJobUuids.length) {
     await VendorLedger.deleteMany({
       order_uuid: orderUuid,
       reference_id: { $in: staleJobUuids },
     });
   }
+  await ProductionJob.deleteMany({ _id: { $in: staleJobs.map((j) => j._id) } });
 }
 
 module.exports = {

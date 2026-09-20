@@ -5,10 +5,14 @@ const { requireAuth } = require('../middleware/auth');
 const { v4: uuid } = require('uuid');
 const DiaryDraft = require('../repositories/diaryDraft');
 const Transaction = require('../repositories/transaction');
-const Counter = require('../repositories/counter');
 const Customer = require('../repositories/customer');
+const BankStatement = require('../repositories/bankStatement');
 const logger = require('../utils/logger');
-const { resolve: resolveAccount, getName: getAccountName, updateBalancesForJournal } = require('../services/accountRegistry');
+const { resolve: resolveAccount, getName: getAccountName } = require('../services/accountRegistry');
+const {
+  upsertBalancedTransaction,
+  reverseAndDeleteTransaction,
+} = require('../services/accountingPostingService');
 const { extractCsvFromFile } = require('../services/geminiOcrService');
 const { parseAmount: toAmt } = require('../utils/money');
 
@@ -448,9 +452,31 @@ router.post('/:uuid/reopen', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Diary is not confirmed' });
     }
     draft.status = 'draft';
-    draft.entries.forEach((entry) => {
-      if (entry.entry_status === 'confirmed') entry.entry_status = 'draft';
-    });
+    for (const entry of draft.entries) {
+      if (entry.entry_status !== 'confirmed') continue;
+
+      const txnUuid = entry.transaction_uuid;
+      if (txnUuid) {
+        await reverseAndDeleteTransaction({ Transaction_uuid: txnUuid });
+
+        // A bank statement row may have been matched to this diary transaction.
+        // Reopening the diary invalidates that confirmation too; keep the match
+        // metadata, but clear the financial link so it can be reconfirmed later.
+        await BankStatement.updateMany(
+          { 'entries.transaction_uuid': txnUuid },
+          {
+            $set: {
+              'entries.$[e].transaction_uuid': null,
+              'entries.$[e].entry_status': 'pending',
+            },
+          },
+          { arrayFilters: [{ 'e.transaction_uuid': txnUuid }] }
+        );
+      }
+
+      entry.transaction_uuid = null;
+      entry.entry_status = 'draft';
+    }
     draft.markModified('entries');
     await draft.save();
     return res.json({ success: true, result: draft });
@@ -477,64 +503,53 @@ router.post('/:uuid/confirm', async (req, res) => {
     let created = 0;
     for (const entry of draft.entries) {
       if (entry.entry_status === 'rejected') continue;
-      if (!entry.account_assigned)           continue;
+      if (!entry.account_assigned) continue;
 
       const ledgerAccountUuid = entry.book === 'bank' ? bankUuid : cashUuid;
-      const ledgerAccountName = await getAccountName(ledgerAccountUuid);
-
       const assignedAcct = await resolveAccount(entry.account_assigned);
       if (assignedAcct.name === assignedAcct.uuid) {
         logger.error(`Diary confirm: cannot resolve name for account_assigned '${entry.account_assigned}' — skipping entry`);
         continue;
       }
 
-      const journal = entry.direction === 'in'
-        ? [
-            { Account_id: ledgerAccountUuid,   Account_name: ledgerAccountName,   Type: 'Debit',  Amount: entry.amount },
-            { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Credit', Amount: entry.amount },
-          ]
-        : [
-            { Account_id: assignedAcct.uuid,   Account_name: assignedAcct.name,   Type: 'Debit',  Amount: entry.amount },
-            { Account_id: ledgerAccountUuid,   Account_name: ledgerAccountName,   Type: 'Credit', Amount: entry.amount },
-          ];
-
-      const counter = await Counter.findByIdAndUpdate(
-        'transaction_number',
-        { $inc: { seq: 1 } },
-        { new: true, upsert: true, setDefaultsOnInsert: true }
-      ).lean();
-
       const paymentMode = PAYMENT_MODE_MAP[entry.mode] || 'Cash';
-      const description = [entry.party, entry.notes].filter(Boolean).join(' - ');
+      const description = [entry.party, entry.notes].filter(Boolean).join(' - ') || 'Diary entry';
+      const source = `diary:${draft.diary_uuid}:${entry.entry_uuid}`;
 
-      const txn = new Transaction({
-        Transaction_uuid: uuid(),
-        Transaction_id:   Number(counter?.seq || 1),
-        Transaction_date: draft.diary_date || new Date(),
-        Description:      description,
-        Total_Debit:      entry.amount,
-        Total_Credit:     entry.amount,
-        Payment_mode:     paymentMode,
-        Created_by:       confirmed_by || 'diary',
-        Journal_entry:    journal,
-        Source:           'diary',
-      });
-      await txn.save();
+      const posting = entry.direction === 'in'
+        ? await upsertBalancedTransaction({
+            amount: entry.amount,
+            debitAccount: ledgerAccountUuid,
+            creditAccount: assignedAcct.uuid,
+            paymentMode,
+            description,
+            transactionDate: draft.diary_date || new Date(),
+            createdBy: confirmed_by || req.user?.userName || 'diary',
+            source,
+          })
+        : await upsertBalancedTransaction({
+            amount: entry.amount,
+            debitAccount: assignedAcct.uuid,
+            creditAccount: ledgerAccountUuid,
+            paymentMode,
+            description,
+            transactionDate: draft.diary_date || new Date(),
+            createdBy: confirmed_by || req.user?.userName || 'diary',
+            source,
+          });
 
-      await updateBalancesForJournal(journal).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
-
-      entry.transaction_uuid = txn.Transaction_uuid;
-      entry.entry_status     = 'confirmed';
+      entry.transaction_uuid = posting.transaction.Transaction_uuid;
+      entry.entry_status = 'confirmed';
       created++;
     }
 
     draft.status = 'confirmed';
     draft.markModified('entries');
     await draft.save();
-    return res.json({ success: true, message: `${created} transaction(s) created`, result: draft });
+    return res.json({ success: true, message: `${created} transaction(s) created/updated`, result: draft });
   } catch (err) {
     logger.error({ err }, 'POST /diary/:uuid/confirm');
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
   }
 });
 

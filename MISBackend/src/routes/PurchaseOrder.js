@@ -12,7 +12,14 @@ const VendorLedger  = require('../repositories/vendorLedger');
 const Customers     = require('../repositories/customer');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
-const { postBalancedTransaction, buildLine, SYSTEM_ACCOUNTS } = require('../services/accountingPostingService');
+const {
+  postBalancedTransaction,
+  upsertBalancedTransaction,
+  reverseAndDeleteTransaction,
+  buildLine,
+  SYSTEM_ACCOUNTS,
+  BUSINESS_SOURCES,
+} = require('../services/accountingPostingService');
 const { updateBalancesForJournal, reverseBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
 
 /**
@@ -104,59 +111,51 @@ function calcPoTotal(items = []) {
  * runs on create as well as on every edit, keyed by the PO's own source code.
  */
 async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } = {}) {
-  const extraTotal = (po.extraCharges || []).reduce((sum, c) => sum + toNumber(c.amount, 0), 0);
-  const total      = toNumber(po.totalAmount, 0) + extraTotal;
-  const txnSource  = `business:purchase:${po.PO_uuid}`;
+  const extraTotal = (po.extraCharges || []).reduce((sum, charge) => sum + toNumber(charge.amount, 0), 0);
+  const total = toNumber(po.totalAmount, 0) + extraTotal;
+  const txnSource = `${BUSINESS_SOURCES.PURCHASE}:${po.PO_uuid}`;
 
-  if (total <= 0) return null;
+  // Cancelled/zero-value POs are not financial obligations. If a posting
+  // existed before an edit/cancellation, remove it and its vendor sub-ledger row.
+  if (po.status === 'cancelled' || total <= 0) {
+    await reverseAndDeleteTransaction({ Source: txnSource });
+    await VendorLedger.deleteMany({ reference_type: 'purchase_order', reference_id: String(po.PO_uuid) });
+    return null;
+  }
 
-  // Credit the payable party itself when the vendor is one, so the cost lands
-  // in that party's ledger rather than in a separate name-derived account.
   const party = await resolvePayableParty(po.Vendor_uuid);
   const vendorAccountId = party ? party.Customer_uuid : await resolveVendorAccount(po.Vendor_name);
   const postedAt = txnDate ? new Date(txnDate) : (po.poDate ? new Date(po.poDate) : new Date());
-  const existingTxn = await Transaction.findOne({ Source: txnSource });
 
-  if (existingTxn) {
-    // Reverse the old balance impact before applying the updated amounts
-    await reverseBalancesForJournal(existingTxn.Journal_entry || []);
-
-    const [debitLine, creditLine] = await Promise.all([
-      buildLine(SYSTEM_ACCOUNTS.PURCHASE, 'Debit',  total),
-      buildLine(vendorAccountId,          'Credit', total),
-    ]);
-    existingTxn.Journal_entry = [debitLine, creditLine];
-    existingTxn.Total_Debit   = total;
-    existingTxn.Total_Credit  = total;
-    existingTxn.Description   = `PO #${po.PO_Number} from ${po.Vendor_name} (updated)`;
-    existingTxn.Order_uuid    = po.Order_uuid || existingTxn.Order_uuid || null;
-    if (txnDate) existingTxn.Transaction_date = new Date(txnDate);
-    await existingTxn.save();
-    await updateBalancesForJournal([debitLine, creditLine]).catch((err) => logger.error(`Account balance update failed: ${err.message}`));
-    await syncVendorLedgerEntry(po, { total, postedAt, transactionUuid: existingTxn.Transaction_uuid });
-    return existingTxn;
-  }
-
-  const posted = await postBalancedTransaction({
-    amount:         total,
-    debitAccount:   SYSTEM_ACCOUNTS.PURCHASE,
-    creditAccount:  vendorAccountId,
-    paymentMode:    'Journal',
-    description:    `PO #${po.PO_Number} from ${po.Vendor_name}`,
-    orderUuid:      po.Order_uuid || '',
+  const posting = await upsertBalancedTransaction({
+    amount: total,
+    debitAccount: SYSTEM_ACCOUNTS.PURCHASE,
+    creditAccount: vendorAccountId,
+    paymentMode: 'Journal',
+    description: `PO #${po.PO_Number} from ${po.Vendor_name}`,
+    orderUuid: po.Order_uuid || null,
     transactionDate: postedAt,
     createdBy,
-    source:         txnSource,
-    allowDuplicate: false,
+    source: txnSource,
   });
 
-  await syncVendorLedgerEntry(po, {
-    total,
-    postedAt,
-    transactionUuid: posted?.transaction?.Transaction_uuid || '',
-  });
+  try {
+    await syncVendorLedgerEntry(po, {
+      total,
+      postedAt,
+      transactionUuid: posting?.transaction?.Transaction_uuid || '',
+    });
+  } catch (error) {
+    // Never retain either side of a broken GL/sub-ledger pair.
+    await VendorLedger.deleteMany({
+      reference_type: 'purchase_order',
+      reference_id: String(po.PO_uuid),
+    }).catch(() => {});
+    await reverseAndDeleteTransaction({ Source: txnSource }).catch(() => {});
+    throw error;
+  }
 
-  return posted;
+  return posting;
 }
 
 /**
@@ -165,29 +164,26 @@ async function syncPurchasePosting(po, { txnDate = null, createdBy = 'system' } 
  */
 async function syncVendorLedgerEntry(po, { total, postedAt, transactionUuid = '' }) {
   if (!po?.Vendor_uuid || !(total > 0)) return null;
-  try {
-    return await VendorLedger.findOneAndUpdate(
-      { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
-      {
-        $set: {
-          vendor_uuid:  String(po.Vendor_uuid),
-          vendor_name:  String(po.Vendor_name || ''),
-          date:         postedAt,
-          entry_type:   'material_bill',
-          order_uuid:   po.Order_uuid || '',
-          amount:       total,
-          dr_cr:        'cr',
-          narration:    `PO #${po.PO_Number}${po.Order_uuid ? ` for order ${po.Order_uuid}` : ''}`,
-          transaction_uuid: transactionUuid,
-        },
-        $setOnInsert: { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
+  if (!transactionUuid) throw new Error('Purchase posting is missing transaction UUID');
+
+  return VendorLedger.findOneAndUpdate(
+    { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
+    {
+      $set: {
+        vendor_uuid: String(po.Vendor_uuid),
+        vendor_name: String(po.Vendor_name || ''),
+        date: postedAt,
+        entry_type: 'material_bill',
+        order_uuid: po.Order_uuid || '',
+        amount: total,
+        dr_cr: 'cr',
+        narration: `PO #${po.PO_Number}${po.Order_uuid ? ` for order ${po.Order_uuid}` : ''}`,
+        transaction_uuid: transactionUuid,
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    );
-  } catch (err) {
-    logger.error(`Vendor ledger sync failed for PO ${po.PO_uuid}: ${err.message}`);
-    return null;
-  }
+      $setOnInsert: { reference_type: 'purchase_order', reference_id: String(po.PO_uuid) },
+    },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
 }
 
 /** Parse "DD.MM.YYYY" from a notes string into a UTC midnight Date. */
@@ -241,15 +237,18 @@ router.post('/create', async (req, res) => {
       createdBy:        String(req.body.createdBy || req.user?.userName || ''),
     });
 
-    // Post the vendor cost immediately so the order is mapped to a vendor
-    // account from the moment the PO exists, not only after its first edit.
+    // A PO and its accounting posting are one business event. If posting fails,
+    // roll the new PO back rather than leaving an un-ledgered financial record.
     try {
       await syncPurchasePosting(po, {
-        txnDate:   poDate,
+        txnDate: poDate,
         createdBy: String(req.body.createdBy || req.user?.userName || 'system'),
       });
     } catch (txnErr) {
-      logger.error(`Transaction posting failed for new PO ${po.PO_uuid}: ${txnErr.message}`);
+      await PurchaseOrder.deleteOne({ _id: po._id }).catch(() => {});
+      await VendorLedger.deleteMany({ reference_type: 'purchase_order', reference_id: String(po.PO_uuid) }).catch(() => {});
+      await reverseAndDeleteTransaction({ Source: `${BUSINESS_SOURCES.PURCHASE}:${po.PO_uuid}` }).catch(() => {});
+      throw txnErr;
     }
 
     res.status(201).json({ success: true, result: po });
@@ -394,14 +393,10 @@ router.put('/:id', async (req, res) => {
 
     const saved = await po.save();
 
-    try {
-      await syncPurchasePosting(saved, {
-        txnDate:   req.body.poDate || saved.poDate || null,
-        createdBy: req.user?.userName || 'system',
-      });
-    } catch (txnErr) {
-      logger.error(`Transaction upsert failed for PO ${po.PO_uuid}: ${txnErr.message}`);
-    }
+    await syncPurchasePosting(saved, {
+      txnDate: req.body.poDate || saved.poDate || null,
+      createdBy: req.user?.userName || 'system',
+    });
 
     res.json({ success: true, result: saved });
   } catch (error) {
@@ -411,8 +406,6 @@ router.put('/:id', async (req, res) => {
 });
 
 // PUT /api/purchaseorder/:id/status
-// When status changes to 'received', posts a centralized Purchase accounting entry
-// so the PO flow is fully represented in the unified transaction system.
 router.put('/:id/status', async (req, res) => {
   try {
     const status = String(req.body.status || '').toLowerCase();
@@ -420,50 +413,24 @@ router.put('/:id/status', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 
-    const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id)).lean();
+    const po = await PurchaseOrder.findOne(buildPoLookup(req.params.id));
     if (!po) return res.status(404).json({ success: false, message: 'PO not found' });
 
-    const patch = { status };
+    po.status = status;
     if (status === 'received') {
-      patch.receivedDate = req.body.receivedDate || new Date();
-
-      // Post Purchase accounting entry only once (idempotent via allowDuplicate:false)
-      const poTotal = po.totalAmount ||
-        (Array.isArray(po.Items) ? calcPoTotal(po.Items) : 0);
-
-      if (poTotal > 0) {
-        try {
-          const vendorAccountId = await resolveVendorAccount(po.Vendor_name);
-          const txnSource = `business:purchase:${po.PO_uuid}`;
-          const existingTxn = await Transaction.findOne({ Source: txnSource });
-          if (!existingTxn) {
-            await postBalancedTransaction({
-              amount:        poTotal,
-              debitAccount:  SYSTEM_ACCOUNTS.PURCHASE,
-              creditAccount: vendorAccountId,
-              paymentMode:   'Journal',
-              description:   `PO #${po.PO_Number} received from ${po.Vendor_name}`,
-              orderUuid:     po.Order_uuid || '',
-              createdBy:     req.body.createdBy || req.user?.userName || 'system',
-              source:        txnSource,
-              allowDuplicate: false,
-            });
-          }
-        } catch (postErr) {
-          logger.error(`postPurchase failed for PO ${po.PO_uuid}: ${postErr.message}`);
-        }
-      }
+      po.receivedDate = req.body.receivedDate || new Date();
     }
+    const updated = await po.save();
 
-    const updated = await PurchaseOrder.findOneAndUpdate(
-      buildPoLookup(req.params.id),
-      { $set: patch },
-      { new: true }
-    );
-    res.json({ success: true, result: updated });
+    await syncPurchasePosting(updated, {
+      txnDate: updated.poDate || updated.createdAt || null,
+      createdBy: req.body.createdBy || req.user?.userName || 'system',
+    });
+
+    return res.json({ success: true, result: updated });
   } catch (error) {
     logger.error('PO status update failed', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error?.statusCode || 500).json({ success: false, message: error.message });
   }
 });
 

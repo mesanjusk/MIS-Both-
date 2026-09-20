@@ -60,6 +60,7 @@ export default function WhatsAppCloudDashboard() {
     [isSuperAdmin],
   );
   const [activeTab, setActiveTab] = useState('inbox');
+  const [mountedTabs, setMountedTabs] = useState(() => new Set(['inbox']));
   const [search, setSearch] = useState('');
   const [connectionState, setConnectionState] = useState('loading');
   const [connectionStatus, setConnectionStatus] = useState('Checking...');
@@ -103,17 +104,26 @@ export default function WhatsAppCloudDashboard() {
     };
   }, [statusTick]);
 
-  const renderSection = useMemo(() => {
-    if (activeTab === 'inbox')         return <MessagesPanel search={search} />;
-    if (activeTab === 'templates')     return <SendMessagePanel />;
-    if (activeTab === 'campaigns')     return <BulkSender />;
-    if (activeTab === 'autoReply')     return <AutoReplyManagementPanel />;
-    if (activeTab === 'analytics')     return <AnalyticsDashboard />;
-    if (activeTab === 'messageTemplates') return <WhatsAppMessageTemplates />;
-    if (activeTab === 'projectHub' && isSuperAdmin)      return <WhatsAppProjectHub />;
-    // ─────────────────────────────────────────────────────────────────────────
+  const handleTabChange = (_event, value) => {
+    setActiveTab(value);
+    setMountedTabs((current) => {
+      if (current.has(value)) return current;
+      const updated = new Set(current);
+      updated.add(value);
+      return updated;
+    });
+  };
+
+  const renderPanel = (tabKey) => {
+    if (tabKey === 'inbox') return <MessagesPanel search={search} />;
+    if (tabKey === 'templates') return <SendMessagePanel />;
+    if (tabKey === 'campaigns') return <BulkSender />;
+    if (tabKey === 'autoReply') return <AutoReplyManagementPanel />;
+    if (tabKey === 'analytics') return <AnalyticsDashboard />;
+    if (tabKey === 'messageTemplates') return <WhatsAppMessageTemplates />;
+    if (tabKey === 'projectHub' && isSuperAdmin) return <WhatsAppProjectHub />;
     return <WhatsAppAttendanceSettings />;
-  }, [activeTab, search, isSuperAdmin]);
+  };
 
   const connectionChipColor =
     connectionState === 'connected'
@@ -162,7 +172,7 @@ export default function WhatsAppCloudDashboard() {
               orientation="vertical"
               variant="scrollable"
               value={activeTab}
-              onChange={(_, value) => setActiveTab(value)}
+              onChange={handleTabChange}
               sx={{
                 mt: 1.25,
                 '& .MuiTabs-flexContainer': { gap: 0.75 },
@@ -247,7 +257,7 @@ export default function WhatsAppCloudDashboard() {
 
               <Tabs
                 value={activeTab}
-                onChange={(_, value) => setActiveTab(value)}
+                onChange={handleTabChange}
                 variant="scrollable"
                 scrollButtons="auto"
                 allowScrollButtonsMobile
@@ -283,10 +293,24 @@ export default function WhatsAppCloudDashboard() {
 
             {statusError ? <ErrorState message={statusError} /> : null}
 
-            <Box sx={{ minHeight: 0, flex: 1, overflow: 'hidden' }}>
-              <Suspense fallback={<LoadingSkeleton lines={isDesktop ? 9 : 7} />}>
-                {renderSection}
-              </Suspense>
+            <Box sx={{ minHeight: 0, flex: 1, overflow: 'hidden', position: 'relative' }}>
+              {visibleNavItems
+                .filter((item) => item.key === activeTab || mountedTabs.has(item.key))
+                .map((item) => {
+                  const isActive = item.key === activeTab;
+                  return (
+                    <Box
+                      key={item.key}
+                      role="tabpanel"
+                      aria-hidden={!isActive}
+                      sx={{ display: isActive ? 'block' : 'none', height: '100%', minHeight: 0 }}
+                    >
+                      <Suspense fallback={<LoadingSkeleton lines={isDesktop ? 9 : 7} />}>
+                        {renderPanel(item.key)}
+                      </Suspense>
+                    </Box>
+                  );
+                })}
             </Box>
           </Stack>
         </Box>

@@ -16,11 +16,15 @@ import { usePageToggles } from '../hooks/usePageToggles';
  * down to enforce something that is almost always empty, and the API behind
  * the page enforces its own switch regardless.
  */
-export default function PageToggleGuard({ children }) {
-  const { pathname } = useLocation();
+export default function PageToggleGuard({ children, pathname: pathnameOverride, active = true }) {
+  const { pathname: currentPathname } = useLocation();
+  const pathname = pathnameOverride || currentPathname;
   const { isPageDisabled, togglesLoaded } = usePageToggles();
 
-  if (!togglesLoaded || !isPageDisabled(pathname)) return children;
+  // Cached routes stay mounted while hidden. Only enforce the toggle on the
+  // route the user is actively viewing, otherwise a disabled current route
+  // would accidentally tear down every hidden cached screen too.
+  if (!active || !togglesLoaded || !isPageDisabled(pathname)) return children;
 
   return (
     <div className="mx-auto max-w-md p-10 text-center">

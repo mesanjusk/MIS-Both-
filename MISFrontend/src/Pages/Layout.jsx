@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-import PageToggleGuard from '../Components/PageToggleGuard';
+import KeepAliveOutlet from '../Components/KeepAliveOutlet';
 import {
   Alert,
   BottomNavigation,
@@ -236,12 +236,12 @@ export default function Layout() {
             }}
           >
             <Box sx={{ flex: 1, minHeight: 0, maxWidth: 1700, mx: 'auto', width: '100%', px: { xs: 0.65, md: 1 } }}>
-              {/* A switched-off page renders its notice here, inside the
-                  navigation, so the user can go somewhere else rather than
-                  reaching for the back button. */}
-              <PageToggleGuard>
-                <Outlet />
-              </PageToggleGuard>
+              {/* Keep every visited authenticated route mounted. Returning to
+                  Orders, Customers, Accounts, Reports, Admin, Social, etc.
+                  restores the exact screen instance instead of remounting and
+                  re-fetching it. Page-toggle enforcement happens per cached
+                  route inside KeepAliveOutlet. */}
+              <KeepAliveOutlet />
             </Box>
           </Box>
 

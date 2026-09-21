@@ -1145,13 +1145,15 @@ function LinkOrderDialog({ open, selectedFiles, onClose, onSuccess, fromArchive 
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
-        <Button variant="outlined" color="warning" onClick={handleQuickCreate}
-          disabled={selectedFiles.length === 0 || submitting}
-          startIcon={submitting ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
-          sx={{ mr: 'auto', order: -1 }}
-        >
-          Quick Create {selectedFiles.length > 0 ? selectedFiles.length : ''} & Rename
-        </Button>
+        {fromArchive && (
+          <Button variant="outlined" color="warning" onClick={handleQuickCreate}
+            disabled={selectedFiles.length === 0 || submitting}
+            startIcon={submitting ? <CircularProgress size={14} /> : <AutoFixHighRoundedIcon />}
+            sx={{ mr: 'auto', order: -1 }}
+          >
+            Quick Create {selectedFiles.length > 0 ? selectedFiles.length : ''} & Rename
+          </Button>
+        )}
         <Button variant="contained" onClick={handleSubmit}
           disabled={!order || submitting}
           startIcon={submitting ? <CircularProgress size={14} /> : <LinkRoundedIcon />}
@@ -2719,7 +2721,6 @@ export default function DesignFilesWidget() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkFile, setRelinkFile] = useState(null);
   const [deliverFile, setDeliverFile] = useState(null);
-  const [autoTempOpen, setAutoTempOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [singlePrintFile, setSinglePrintFile] = useState(null);
   const [createFileOpen, setCreateFileOpen] = useState(false);
@@ -2928,16 +2929,7 @@ export default function DesignFilesWidget() {
 
         <Box sx={{ flex: 1 }} />
 
-        {/* Create Temp Orders */}
-        {activeTab !== 'archive' && unmatchedInView.length > 0 && (
-          <Button size="small" variant="outlined" color="warning"
-            startIcon={<AutoFixHighRoundedIcon sx={{ fontSize: '13px !important' }} />}
-            onClick={() => setAutoTempOpen(true)}
-            sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-          >
-            Create Temp ({unmatchedInView.length})
-          </Button>
-        )}
+        {/* Draft design files intentionally stay off the Orders dashboard until Final. */}
 
         {/* Export + print buttons */}
         {activeTab !== 'archive' && filteredFiles.length > 0 && (
@@ -3190,11 +3182,6 @@ export default function DesignFilesWidget() {
         selectedFiles={relinkFile ? [relinkFile] : selectedFiles}
         onClose={() => { setLinkDialogOpen(false); setRelinkFile(null); }}
         onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setLinkDialogOpen(false); setRelinkFile(null); setSelectedIds(new Set()); load(); }}
-      />
-      <AutoTempDialog
-        open={autoTempOpen} files={unmatchedInView}
-        onClose={() => setAutoTempOpen(false)}
-        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setAutoTempOpen(false); load(); }}
       />
       <PrintJobDialog
         open={printDialogOpen || !!singlePrintFile}

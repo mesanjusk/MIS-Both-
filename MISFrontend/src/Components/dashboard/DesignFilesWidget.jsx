@@ -1028,7 +1028,7 @@ function EditPrintJobDialog({ open, file, onClose, onSuccess }) {
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit}
-          disabled={!vendor || !order || submitting}
+          disabled={!vendor || submitting}
           startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
         >
           Update Print Job
@@ -1462,7 +1462,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" color="error" onClick={handleSubmit}
-          disabled={!vendor || submitting || validating || (validateFinal && Object.values(validation).some((v) => !v.valid))}
+          disabled={!vendor || !order || submitting || validating || (validateFinal && Object.values(validation).some((v) => !v.valid))}
           startIcon={submitting || validating ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
         >
           Create Print Bill
@@ -1927,11 +1927,13 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
             <Typography variant="body2" fontWeight={600} color="primary.main" sx={{ flex: 1, fontSize: 12 }}>
               {selectedFiles.length} selected
             </Typography>
-            <Button size="small" variant="outlined"
-              startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
-              onClick={() => setArchiveLinkOpen(true)}
-              sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-            >Link to Order</Button>
+            {selectedFiles.every((file) => [5, 6].includes(Number(file.stageNumber))) && (
+              <Button size="small" variant="outlined"
+                startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                onClick={() => setArchiveLinkOpen(true)}
+                sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+              >Link to Order</Button>
+            )}
             {selectedFiles.some((f) => f.stageNumber === 6) && (
               <Button size="small" variant="outlined" color="error"
                 startIcon={<ReceiptLongRoundedIcon sx={{ fontSize: '13px !important' }} />}
@@ -3067,7 +3069,7 @@ export default function DesignFilesWidget() {
                     onConfirm={file.stageNumber === 5 ? setConfirmFile : undefined}
                     onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                     onEditPrintJob={file.stageNumber === 6 && file.printJobId ? setEditPrintJobFile : undefined}
-                    onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
+                    onRelink={!activeTabDef.viewOnly && [5, 6].includes(Number(file.stageNumber)) ? setRelinkFile : undefined}
                     onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                     onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
                     onMoveToPrint={!activeTabDef.viewOnly ? handleMoveToPrint : undefined}

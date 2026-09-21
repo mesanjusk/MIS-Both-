@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import axios from '../apiClient.js';
 import { getVoucherInfo } from '../utils/voucher';
+import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) =>
@@ -158,8 +159,20 @@ export default function AllTransaction() {
   const isCash = (id) => cashUuidSet.has(id) || cashNameSet.has((id || '').toLowerCase()) || (!cashUuidSet.size && /^cash$/i.test(id || ''));
   const isBank = (id) => bankUuidSet.has(id) || bankNameSet.has((id || '').toLowerCase());
 
-  // Opening balance for an account = DR − CR of all txns BEFORE selected date
+  const availableDates = Array.from(
+    new Set(transactions.map((txn) => new Date(txn.Transaction_date).toISOString().slice(0, 10)).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a));
+
+  const dateCountMap = transactions.reduce((map, txn) => {
+    const date = new Date(txn.Transaction_date).toISOString().slice(0, 10);
+    if (date) map[date] = (map[date] || 0) + 1;
+    return map;
+  }, {});
+
+  // Opening balance for an account = DR − CR of all txns BEFORE selected date.
+  // "All Dates" intentionally starts at zero and shows the full ledger movement.
   const calcOpening = (isAccountFn) => {
+    if (!selectedDate) return 0;
     let dr = 0, cr = 0;
     for (const txn of transactions) {
       if (new Date(txn.Transaction_date).toISOString().slice(0, 10) >= selectedDate) continue;
@@ -173,9 +186,9 @@ export default function AllTransaction() {
   };
 
   // Transactions for selected date, classified by account leg
-  const dayTxns = transactions.filter(
-    (txn) => new Date(txn.Transaction_date).toISOString().slice(0, 10) === selectedDate
-  );
+  const dayTxns = selectedDate
+    ? transactions.filter((txn) => new Date(txn.Transaction_date).toISOString().slice(0, 10) === selectedDate)
+    : transactions;
 
   const classify = (isAccountFn) =>
     dayTxns
@@ -214,39 +227,17 @@ export default function AllTransaction() {
   return (
     <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
 
-      {/* ── LEFT sidebar ── */}
-      <Paper
-        variant="outlined"
-        sx={{
-          width: 188,
-          flexShrink: 0,
-          borderRadius: 2.5,
-          display: { xs: 'none', md: 'flex' },
-          flexDirection: 'column',
-          alignSelf: 'flex-start',
-          position: 'sticky',
-          top: 8,
-          overflow: 'hidden',
-        }}
-      >
-        <Box sx={{ p: 1.25 }}>
-          <Typography variant="subtitle2" fontWeight={800}>Cash & Bank</Typography>
-          <Typography variant="caption" color="text.secondary">Select transaction date</Typography>
-        </Box>
-        <Divider />
-        <Box sx={{ p: 1.25 }}>
-        <TextField
-          label="Date"
-          type="date"
-          size="small"
-          fullWidth
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ '& input': { fontSize: 12, py: 0.7 } }}
-        />
-        </Box>
-      </Paper>
+      <DeliveryDateSidebar
+        title="Cash & Bank"
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+        availableDates={availableDates}
+        dateCountMap={dateCountMap}
+        allCount={transactions.length}
+        loading={loading}
+        countLabel="transactions"
+        formatDate={fmtDate}
+      />
 
       {/* ── RIGHT panel ── */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -261,15 +252,15 @@ export default function AllTransaction() {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h5" fontWeight={900} noWrap>Cash & Bank</Typography>
             <Typography variant="body2" color="text.secondary">
-              {selectedDate ? fmtDate(selectedDate) : 'Select date'} · Cash and bank ledger
+              {selectedDate ? fmtDate(selectedDate) : 'All Dates'} · {dayTxns.length} transactions
             </Typography>
           </Box>
           <TextField
             label="Date"
             type="date"
             size="small"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            value={selectedDate || ''}
+            onChange={(e) => setSelectedDate(e.target.value || null)}
             InputLabelProps={{ shrink: true }}
             sx={{ display: { xs: 'block', md: 'none' }, minWidth: 160 }}
           />
@@ -292,7 +283,7 @@ export default function AllTransaction() {
                 prefix="Cash"
               />
               {cashRows.length === 0 ? (
-                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No cash transactions for this date.</Typography>
+                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No cash transactions found for this selection.</Typography>
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                   <Box sx={{ flex: 1 }}>
@@ -318,7 +309,7 @@ export default function AllTransaction() {
                 prefix="Bank"
               />
               {bankRows.length === 0 ? (
-                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No bank transactions for this date.</Typography>
+                <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No bank transactions found for this selection.</Typography>
               ) : (
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                   <Box sx={{ flex: 1 }}>

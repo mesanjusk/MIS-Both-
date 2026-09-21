@@ -6,8 +6,8 @@
  *
  * Lifecycle:
  *   draft      → file seen in stage 1-7, no order assigned yet
- *   confirmed  → office confirmed in Final (stage 8), real order assigned
- *   printing   → file in stage 9, purchase order created
+ *   confirmed  → office confirmed in Final (stage 5), real order assigned
+ *   printing   → Printing stage/folder (stage 6), production/payable workflow active
  */
 
 const mongoose = require('mongoose');

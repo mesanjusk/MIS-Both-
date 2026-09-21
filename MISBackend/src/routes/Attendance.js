@@ -250,31 +250,30 @@ router.get("/GetAttendanceList", async (req, res) => {
       filter.Date = {};
       if (req.query.from) filter.Date.$gte = new Date(req.query.from);
       if (req.query.to) filter.Date.$lte = new Date(req.query.to);
-    } else {
-      const since = new Date();
-      since.setDate(since.getDate() - 90);
-      filter.Date = { $gte: since };
     }
+
+    // No implicit rolling cutoff here. The Attendance dashboard owns its
+    // selected date/range and must be able to browse every stored record
+    // (including older months such as April). Callers that want a bounded
+    // response can still pass ?from= and/or ?to= explicitly.
     const data = await Attendance.find(filter).sort({ Date: -1 });
-    if (data.length > 0) {
-      const result = data.map((record) => {
-        const recordObj = record.toObject ? record.toObject() : record;
-        return {
-          ...recordObj,
-          User: Array.isArray(recordObj.User)
-            ? recordObj.User.map((entry) => ({
-                ...entry,
-                ist: formatIST(entry?.CreatedAt),
-              }))
-            : [],
-          createdAtIST: formatIST(recordObj.createdAt),
-          updatedAtIST: formatIST(recordObj.updatedAt),
-        };
-      });
-      res.json({ success: true, result });
-    } else {
-      res.status(404).json({ success: false, message: "Details not found" });
-    }
+    const result = data.map((record) => {
+      const recordObj = record.toObject ? record.toObject() : record;
+      return {
+        ...recordObj,
+        User: Array.isArray(recordObj.User)
+          ? recordObj.User.map((entry) => ({
+              ...entry,
+              ist: formatIST(entry?.CreatedAt),
+            }))
+          : [],
+        createdAtIST: formatIST(recordObj.createdAt),
+        updatedAtIST: formatIST(recordObj.updatedAt),
+      };
+    });
+
+    // Empty attendance is a valid report result, not a missing resource.
+    res.json({ success: true, result });
   } catch (err) {
     logger.error("Error fetching attendance:", err);
     res.status(500).json({ success: false, message: err.message });

@@ -698,6 +698,13 @@ export default function DayBook() {
   }, [selectedUuid, loadDiary]);
 
   useEffect(() => {
+    if (!selectedUuid && !ledgerDateParam) {
+      setDiary(null);
+      setLedgerTxns(null);
+    }
+  }, [selectedUuid, ledgerDateParam]);
+
+  useEffect(() => {
     if (!ledgerDateParam) {
       setLedgerTxns(null);
       setLedgerMeta({ cashAccounts: [], cashNames: [], bankAccounts: [], bankNames: [] });
@@ -1064,7 +1071,11 @@ export default function DayBook() {
                   ) : allDayBookRows.map((row) => (
                     <TableRow key={row.date} hover onClick={() => handleSidebarDateSelect(row.date)} sx={{ cursor: 'pointer' }}>
                       <TableCell sx={{ fontWeight: 700 }}>{fmtDate(row.date)}</TableCell>
-                      <TableCell>{statusChip(row.status === 'Ledger' ? 'draft' : row.status)}</TableCell>
+                      <TableCell>
+                        {row.status === 'Ledger'
+                          ? <Chip label="Ledger" color="info" size="small" variant="outlined" />
+                          : statusChip(row.status)}
+                      </TableCell>
                       <TableCell align="right">{row.entries ?? '—'}</TableCell>
                       <TableCell align="right">{row.opening == null ? '—' : money(row.opening)}</TableCell>
                       <TableCell align="right">{row.closing == null ? '—' : money(row.closing)}</TableCell>

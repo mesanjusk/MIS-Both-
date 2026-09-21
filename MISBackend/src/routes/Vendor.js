@@ -564,6 +564,7 @@ router.get('/printing-payables', requirePermission('canViewAccounts'), async (re
       result: rows,
       dates,
       total: allRows.length,
+      unmatched: allRows.filter((row) => !row.vendorMatched).length,
     });
   } catch (error) {
     logger.error('Failed to scan Drive Printing payables', error);

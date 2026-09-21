@@ -26,6 +26,7 @@ import {
 const EMPTY = {
   serverLocalPath: '',
   networkShareRoot: '',
+  driveAnchorFolderName: '',
   note: '',
 };
 
@@ -69,6 +70,7 @@ export default function NetworkFileSettings() {
       const payload = {
         serverLocalPath: normalizeWindowsPath(form.serverLocalPath),
         networkShareRoot: normalizeWindowsPath(form.networkShareRoot),
+        driveAnchorFolderName: String(form.driveAnchorFolderName || '').trim(),
         note: String(form.note || '').trim(),
       };
       const res = await axios.put('/api/network-files/settings', payload);
@@ -140,6 +142,15 @@ export default function NetworkFileSettings() {
               onChange={update('networkShareRoot')}
               placeholder="\\SERVER-PC\DailyWork\1 Month"
               helperText="This is the actual path Bills will open. Prefer the server computer name instead of an IP so DHCP/IP changes do not break it."
+              fullWidth
+            />
+
+            <TextField
+              label="Google Drive anchor folder"
+              value={form.driveAnchorFolderName}
+              onChange={update('driveAnchorFolderName')}
+              placeholder="1 Month"
+              helperText="Set this to the Drive folder that corresponds to the UNC root. For your current setup, use 1 Month."
               fullWidth
             />
 

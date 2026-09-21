@@ -158,6 +158,17 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
     ).lean(),
   ]);
 
+  const payablePartyByUuidForJobs = new Map(
+    payableParties.map((party) => [party.Customer_uuid, party])
+  );
+  const payablePartyByNameForJobs = new Map();
+  payableParties.forEach((party) => {
+    const key = normalizePartyName(party.Customer_name);
+    if (key && !payablePartyByNameForJobs.has(key)) {
+      payablePartyByNameForJobs.set(key, party);
+    }
+  });
+
   const orderUuids = [...new Set(orders.map((order) => order.Order_uuid).filter(Boolean))];
   const poLookupClauses = [];
   if (folderIds.length) poLookupClauses.push({ sourceDriveFolderId: { $in: folderIds } });
@@ -220,8 +231,14 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
     const doc = job.job_number
       ? postPressDocByNumber.get(`PPJ-${job.job_number}`)
       : null;
+    const payableParty =
+      payablePartyByUuidForJobs.get(job.vendor_uuid)
+      || payablePartyByNameForJobs.get(normalizePartyName(job.vendor_name))
+      || null;
     const enriched = {
       ...job,
+      payableVendorUuid: payableParty?.Customer_uuid || '',
+      payableVendorName: payableParty?.Customer_name || job.vendor_name || '',
       documentGenerated: Boolean(doc),
       documentShareToken: doc?.shareToken || '',
       documentPdfUrl: doc?.cloudinaryUrl || '',

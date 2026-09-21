@@ -1125,15 +1125,32 @@ router.put('/production-jobs/:jobUuid/status', async (req, res) => {
     if (!valid.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
+
+    const existing = await ProductionJob.findOne({ job_uuid: req.params.jobUuid }).lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'Job not found' });
+
+    if (existing.job_category === 'post_printing' && existing.driveFileId) {
+      await verifyPrintingWorkflowIdentity({
+        orderNumber: existing.order_number,
+        orderUuid: existing.order_uuid,
+        folderId: existing.driveFileId,
+        canonicalizeVendor: false,
+        assignedBy: req.user?.userName || 'System',
+      });
+    }
+
     const updated = await ProductionJob.findOneAndUpdate(
       { job_uuid: req.params.jobUuid },
       { $set: { status } },
       { new: true }
     );
-    if (!updated) return res.status(404).json({ success: false, message: 'Job not found' });
     res.json({ success: true, result: updated });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || undefined,
+      message: error.message,
+    });
   }
 });
 

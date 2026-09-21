@@ -27,6 +27,25 @@ function includesName(fullName, expected) {
   return Boolean(full && want && full.includes(want));
 }
 
+function parsePrintingFolderName(name = '') {
+  const raw = String(name || '').trim();
+  const match = raw.match(/^(\d+)\s*(.*)$/);
+  if (!match) return { orderNumber: null, vendorName: '', customerName: '' };
+
+  const orderNumber = Number(match[1]);
+  const tail = String(match[2] || '').replace(/^[\s_-]+/, '').trim();
+  const separator = tail.match(/\s+-\s+/);
+  if (!separator) {
+    return { orderNumber, vendorName: tail, customerName: '' };
+  }
+  const splitAt = separator.index;
+  return {
+    orderNumber,
+    vendorName: tail.slice(0, splitAt).trim(),
+    customerName: tail.slice(splitAt + separator[0].length).trim(),
+  };
+}
+
 function workflowError(message, code, statusCode = 422) {
   const err = new Error(message);
   err.code = code;
@@ -174,7 +193,8 @@ async function verifyPrintingWorkflowIdentity({
   }
 
   const actualFolderName = String(printingFolder.data.name || '');
-  const printingNumber = extractLeadingOrderNumber(actualFolderName);
+  const parsedPrinting = parsePrintingFolderName(actualFolderName);
+  const printingNumber = parsedPrinting.orderNumber || extractLeadingOrderNumber(actualFolderName);
   if (printingNumber !== Number(order.Order_Number)) {
     throw workflowError(
       `Printing folder "${actualFolderName}" does not match Order #${order.Order_Number}.`,
@@ -194,6 +214,25 @@ async function verifyPrintingWorkflowIdentity({
 
   let party = null;
   let canonicalFolderName = actualFolderName;
+
+  if (!canonicalizeVendor) {
+    if (
+      !parsedPrinting.customerName
+      || normalizeName(parsedPrinting.customerName) !== normalizeName(customer.Customer_name)
+    ) {
+      throw workflowError(
+        `Printing folder customer does not match MIS customer "${customer.Customer_name}".`,
+        'PRINTING_CUSTOMER_MISMATCH'
+      );
+    }
+
+    if (!finalLink.printFolderId) {
+      await DesignFileLink.updateOne(
+        { _id: finalLink._id },
+        { $set: { printFolderId: folderId } }
+      );
+    }
+  }
 
   if (canonicalizeVendor) {
     party = await Customers.findOne(

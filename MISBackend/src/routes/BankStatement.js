@@ -799,6 +799,79 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/bank-statement/ledger-accounts
+// Bank/customer ledgers that can represent an imported statement.
+router.get('/ledger-accounts', async (_req, res) => {
+  try {
+    const docs = await Customer.find(
+      { Customer_group: 'Bank and Account' },
+      { Customer_name: 1, Customer_uuid: 1 }
+    ).sort({ Customer_name: 1 }).lean();
+
+    const result = docs
+      .filter((doc) => doc?.Customer_uuid && doc?.Customer_name && !/cash/i.test(doc.Customer_name))
+      .map((doc) => ({ uuid: doc.Customer_uuid, name: doc.Customer_name }));
+
+    return res.json({ success: true, result });
+  } catch (err) {
+    logger.error({ err }, 'GET /bank-statement/ledger-accounts');
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// PUT /api/bank-statement/:uuid/ledger-account
+// Explicitly choose the bank ledger for a statement and immediately repair all
+// confirmed rows so the visible ledger reflects reconciliation.
+router.put('/:uuid/ledger-account', async (req, res) => {
+  try {
+    const { ledger_account_uuid } = req.body || {};
+    if (!ledger_account_uuid) {
+      return res.status(400).json({ success: false, message: 'ledger_account_uuid is required' });
+    }
+
+    const bankDoc = await Customer.findOne({
+      Customer_uuid: ledger_account_uuid,
+      Customer_group: 'Bank and Account',
+    }, { Customer_name: 1, Customer_uuid: 1 }).lean();
+
+    if (!bankDoc || !bankDoc.Customer_name || /cash/i.test(bankDoc.Customer_name)) {
+      return res.status(400).json({ success: false, message: 'Select a valid non-cash Bank and Account ledger' });
+    }
+
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    stmt.ledger_account_uuid = bankDoc.Customer_uuid;
+    stmt.ledger_account_name = bankDoc.Customer_name;
+    stmt.ledger_account_locked = true;
+
+    const stats = { linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    for (const entry of stmt.entries || []) {
+      if (entry.entry_status !== 'confirmed') continue;
+
+      const result = await ensureBankEntryInLedger({
+        stmt,
+        entry,
+        actor: req.user?.userName || 'bank_statement_mapping',
+      });
+
+      if (Object.prototype.hasOwnProperty.call(stats, result.mode)) stats[result.mode] += 1;
+      else stats.skipped += 1;
+    }
+
+    await stmt.save();
+    return res.json({
+      success: true,
+      message: `Bank ledger set to ${bankDoc.Customer_name} and confirmed rows synchronized`,
+      result: stmt,
+      sync: stats,
+    });
+  } catch (err) {
+    logger.error({ err }, 'PUT /bank-statement/:uuid/ledger-account');
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
+  }
+});
+
 // GET /api/bank-statement/by-date?date=YYYY-MM-DD
 // Returns unmatched, non-confirmed bank statement entries for a given date
 router.get('/by-date', async (req, res) => {

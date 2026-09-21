@@ -238,31 +238,179 @@ router.get("/GetBillListPaged", async (req, res) => {
     const skip = (page - 1) * limit;
     const search = String(req.query.search || "").trim();
     const paid = String(req.query.paid || "").trim().toLowerCase();
+    const date = String(req.query.date || "").trim();
     const rx = search ? new RegExp(escapeRegex(search), "i") : null;
-    const amountToDouble = (path) => ({ $convert: { input: { $replaceAll: { input: { $replaceAll: { input: { $replaceAll: { input: { $toString: { $ifNull: [path, "0"] } }, find: "₹", replacement: "" } }, find: ",", replacement: "" } }, find: " ", replacement: "" } }, to: "double", onError: 0, onNull: 0 } });
+
+    let dateMatch = null;
+    if (date) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ success: false, message: "date must be YYYY-MM-DD" });
+      }
+      // Bills use the same visible calendar date convention as the Delivery tab.
+      const start = new Date(`${date}T00:00:00+05:30`);
+      const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+      dateMatch = { createdAt: { $gte: start, $lt: end } };
+    }
+
+    // Customer names live in the customer collection, so resolve matching
+    // customer UUIDs first. This makes the "Search customer" box actually
+    // search customer names instead of only raw UUIDs/order remarks.
+    const matchingCustomers = rx
+      ? await Customers.find({ Customer_name: rx }, { Customer_uuid: 1 }).lean()
+      : [];
+    const matchingCustomerUuids = matchingCustomers
+      .map((row) => row.Customer_uuid)
+      .filter(Boolean);
+
+    const amountToDouble = (path) => ({
+      $convert: {
+        input: {
+          $replaceAll: {
+            input: {
+              $replaceAll: {
+                input: {
+                  $replaceAll: {
+                    input: { $toString: { $ifNull: [path, "0"] } },
+                    find: "₹",
+                    replacement: "",
+                  },
+                },
+                find: ",",
+                replacement: "",
+              },
+            },
+            find: " ",
+            replacement: "",
+          },
+        },
+        to: "double",
+        onError: 0,
+        onNull: 0,
+      },
+    });
+
+    const searchClauses = rx
+      ? [
+          { Customer_uuid: rx },
+          ...(matchingCustomerUuids.length ? [{ Customer_uuid: { $in: matchingCustomerUuids } }] : []),
+          { "Items.Remark": rx },
+          ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : []),
+        ]
+      : [];
+
     const pipeline = [
-      { $addFields: { latestStatus: { $cond: [{ $gt: [{ $size: { $ifNull: ["$Status", []] } }, 0] }, { $arrayElemAt: ["$Status", { $subtract: [{ $size: "$Status" }, 1] }] }, null] } } },
-      // A bill exists for any order that was EVER delivered, matching the
-      // Delivery tab (GetDeliveredList): stage is "delivered"/"paid" OR any
-      // Status entry's Task contains "delivered". The stage-based delivery
-      // workflow writes Task labels like "delivered - Delivered", and delivery
-      // is often tracked only via `stage`, so requiring an exact "delivered"
-      // Status Task (or that it be the *latest* status) silently dropped
-      // hundreds of genuinely delivered/billed orders from the Bills tab.
-      { $addFields: { latestTaskLower: { $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } } }, billStatusLower: { $toLower: { $trim: { input: { $ifNull: ["$billStatus", ""] } } } }, wasDelivered: { $or: [{ $in: [{ $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } }, ["delivered", "paid"]] }, { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $regexMatch: { input: { $ifNull: ["$$s.Task", ""] }, regex: "delivered", options: "i" } } } } }] }, hasBillable: { $anyElementTrue: { $map: { input: { $ifNull: ["$Items", []] }, as: "it", in: { $gt: [amountToDouble("$$it.Amount"), 0] } } } } } },
+      {
+        $addFields: {
+          latestStatus: {
+            $cond: [
+              { $gt: [{ $size: { $ifNull: ["$Status", []] } }, 0] },
+              { $arrayElemAt: ["$Status", { $subtract: [{ $size: "$Status" }, 1] }] },
+              null,
+            ],
+          },
+        },
+      },
+      {
+        $addFields: {
+          latestTaskLower: {
+            $toLower: { $trim: { input: { $ifNull: ["$latestStatus.Task", ""] } } },
+          },
+          billStatusLower: {
+            $toLower: { $trim: { input: { $ifNull: ["$billStatus", "unpaid"] } } },
+          },
+          wasDelivered: {
+            $or: [
+              {
+                $in: [
+                  { $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } },
+                  ["delivered", "paid"],
+                ],
+              },
+              {
+                $anyElementTrue: {
+                  $map: {
+                    input: { $ifNull: ["$Status", []] },
+                    as: "s",
+                    in: {
+                      $regexMatch: {
+                        input: { $ifNull: ["$s.Task", ""] },
+                        regex: "delivered",
+                        options: "i",
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+          hasBillable: {
+            $anyElementTrue: {
+              $map: {
+                input: { $ifNull: ["$Items", []] },
+                as: "it",
+                in: { $gt: [amountToDouble("$it.Amount"), 0] },
+              },
+            },
+          },
+        },
+      },
       { $match: { wasDelivered: true, hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
-      ...(rx ? [{ $match: { $or: [{ Customer_uuid: rx }, { "Items.Remark": rx }, ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : [])] } }] : []),
-      // Sort on a numeric-normalized order number with a unique _id tiebreaker.
-      // Some Order_Number values are stored as strings and others as numbers;
-      // sorting the raw field mixes BSON types, producing an unstable order so
-      // skip/limit pages overlapped and repeated rows on "Load more".
-      { $addFields: { orderNumberSort: { $convert: { input: "$Order_Number", to: "double", onError: 0, onNull: 0 } } } },
-      { $sort: { orderNumberSort: -1, _id: -1 } },
-      { $facet: { data: [{ $skip: skip }, { $limit: limit }], total: [{ $count: "count" }] } },
+      ...(rx ? [{ $match: { $or: searchClauses } }] : []),
+      {
+        $facet: {
+          data: [
+            ...(dateMatch ? [{ $match: dateMatch }] : []),
+            {
+              $addFields: {
+                orderNumberSort: {
+                  $convert: {
+                    input: "$Order_Number",
+                    to: "double",
+                    onError: 0,
+                    onNull: 0,
+                  },
+                },
+              },
+            },
+            { $sort: { orderNumberSort: -1, _id: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+          ],
+          total: [
+            ...(dateMatch ? [{ $match: dateMatch }] : []),
+            { $count: "count" },
+          ],
+          dates: [
+            {
+              $group: {
+                _id: {
+                  $dateToString: {
+                    format: "%Y-%m-%d",
+                    date: "$createdAt",
+                    timezone: "Asia/Kolkata",
+                  },
+                },
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: -1 } },
+            { $limit: 366 },
+          ],
+        },
+      },
     ];
+
     const result = await Orders.aggregate(pipeline);
-    return res.json({ success: true, result: result?.[0]?.data || [], total: result?.[0]?.total?.[0]?.count || 0, page, limit });
+    const bucket = result?.[0] || {};
+    return res.json({
+      success: true,
+      result: bucket.data || [],
+      total: bucket.total?.[0]?.count || 0,
+      dates: (bucket.dates || []).map((row) => ({ date: row._id, count: row.count })),
+      page,
+      limit,
+    });
   } catch (err) {
     logger.error("GetBillListPaged error:", err);
     return res.status(500).json({ success: false, message: err.message });

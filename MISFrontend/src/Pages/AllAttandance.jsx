@@ -3,10 +3,15 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Autocomplete,
   Box,
+  Button,
   Card,
   CardContent,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   IconButton,
   MenuItem,
@@ -28,7 +33,9 @@ import LoginRoundedIcon from "@mui/icons-material/LoginRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import toast from "react-hot-toast";
 import axios from "../apiClient";
+import { isSuperAdminRole } from "../constants/roles";
 import DeliveryDateSidebar from "../Components/reports/DeliveryDateSidebar";
 import {
   fetchUserNames,
@@ -122,7 +129,12 @@ export default function AllAttandance() {
   const [ledgerTransactions, setLedgerTransactions] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState("");
+  const [mapDialogOpen, setMapDialogOpen] = useState(false);
+  const [mapTarget, setMapTarget] = useState(null);
+  const [mapAccountId, setMapAccountId] = useState("");
+  const [mappingAccount, setMappingAccount] = useState(false);
 
+  const canManageMappings = isSuperAdminRole(localStorage.getItem("User_group") || "");
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -329,6 +341,49 @@ export default function AllAttandance() {
     loadLedger();
   };
 
+  const linkedAccountOwners = useMemo(() => {
+    const map = {};
+    memberOptions.forEach((member) => {
+      if (member.accountId) map[member.accountId] = member;
+    });
+    return map;
+  }, [memberOptions]);
+
+  const openMapDialog = (member) => {
+    if (!canManageMappings || !member?.uuid) return;
+    setMapTarget(member);
+    setMapAccountId(member.accountId || "");
+    setMapDialogOpen(true);
+  };
+
+  const closeMapDialog = () => {
+    if (mappingAccount) return;
+    setMapDialogOpen(false);
+    setMapTarget(null);
+    setMapAccountId("");
+  };
+
+  const saveAccountMapping = async () => {
+    if (!mapTarget?.uuid) return;
+    setMappingAccount(true);
+    try {
+      const res = await axios.patch(`/api/users/link-account/${mapTarget.uuid}`, {
+        AccountID: mapAccountId || "",
+      });
+      if (!res.data?.success) throw new Error(res.data?.message || "Could not save account mapping");
+
+      toast.success(res.data?.message || "Ledger account linked");
+      setMapDialogOpen(false);
+      setMapTarget(null);
+      setMapAccountId("");
+      await Promise.all([loadAttendance(), loadAccounts(), loadLedger()]);
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || "Could not save account mapping");
+    } finally {
+      setMappingAccount(false);
+    }
+  };
+
   return (
     <Box sx={{ display: "flex", minHeight: "80vh", gap: 2, p: { xs: 1, md: 2 } }}>
       <DeliveryDateSidebar
@@ -469,10 +524,40 @@ export default function AllAttandance() {
                         {!selectedDate && <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(row.DateISO)}</TableCell>}
                         <TableCell>
                           <Typography variant="body2" fontWeight={700}>{row.User_name}</Typography>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
                             {row.User_group && <Typography variant="caption" color="text.secondary">{row.User_group}</Typography>}
                             <SourceBadge source={row.Source} />
                           </Stack>
+                          {row.AccountID ? (
+                            <Tooltip title={row.AccountID}>
+                              <Typography
+                                variant="caption"
+                                color="primary.main"
+                                noWrap
+                                sx={{ display: "block", maxWidth: 180 }}
+                              >
+                                {accountById[row.AccountID]?.Account_name || "Ledger account mapped"}
+                              </Typography>
+                            </Tooltip>
+                          ) : canManageMappings ? (
+                            <Button
+                              size="small"
+                              color="warning"
+                              variant="text"
+                              onClick={() => openMapDialog({
+                                uuid: row.User_uuid,
+                                name: row.User_name,
+                                accountId: "",
+                              })}
+                              sx={{ p: 0, minWidth: 0, textTransform: "none", fontSize: 10.5 }}
+                            >
+                              Account not mapped · Map
+                            </Button>
+                          ) : (
+                            <Typography variant="caption" color="warning.dark">
+                              Account not mapped
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell><TimeBadge value={row.In} /></TableCell>
                         <TableCell><TimeBadge value={row.Break} /></TableCell>
@@ -540,7 +625,11 @@ export default function AllAttandance() {
                     ) : ledgerRows.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} align="center" sx={{ py: 4, color: "text.secondary" }}>
-                          No ledger entries matched to staff AccountID for this selection.
+                          {selectedMember && !selectedMember.accountId
+                            ? canManageMappings
+                              ? "This member has no ledger account mapped. Use Map Account in the attendance row."
+                              : "This member has no ledger account mapped."
+                            : "No ledger entries matched to staff AccountID for this selection."}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -592,6 +681,78 @@ export default function AllAttandance() {
           </Paper>
         </Stack>
       </Box>
+
+      <Dialog open={mapDialogOpen} onClose={closeMapDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Map Ledger Account</DialogTitle>
+        <DialogContent sx={{ pt: "12px !important" }}>
+          <Stack spacing={1.5}>
+            <Box>
+              <Typography variant="body2" fontWeight={700}>{mapTarget?.name || "Staff member"}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Choose the ledger account by name. The Account UUID is stored automatically.
+              </Typography>
+            </Box>
+
+            <Autocomplete
+              options={accounts}
+              value={accounts.find((account) => account.Account_uuid === mapAccountId) || null}
+              onChange={(_event, account) => setMapAccountId(account?.Account_uuid || "")}
+              getOptionLabel={(account) =>
+                [account?.Account_name, account?.Account_group].filter(Boolean).join(" — ")
+              }
+              isOptionEqualToValue={(option, value) => option.Account_uuid === value.Account_uuid}
+              getOptionDisabled={(account) => {
+                const owner = linkedAccountOwners[account.Account_uuid];
+                return Boolean(owner && owner.uuid !== mapTarget?.uuid);
+              }}
+              renderOption={(props, account) => {
+                const owner = linkedAccountOwners[account.Account_uuid];
+                return (
+                  <li {...props} key={account.Account_uuid}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2">{account.Account_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {[
+                          account.Account_group,
+                          account.Account_code ? `Code ${account.Account_code}` : "",
+                          owner && owner.uuid !== mapTarget?.uuid ? `Linked to ${owner.name}` : "",
+                        ].filter(Boolean).join(" · ")}
+                      </Typography>
+                    </Box>
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Linked Ledger Account"
+                  placeholder="Search account name"
+                  helperText={
+                    accounts.length
+                      ? "Accounts already linked to another staff member are disabled."
+                      : "No ledger accounts are available for this login."
+                  }
+                />
+              )}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          {mapTarget?.accountId ? (
+            <Button color="warning" onClick={() => setMapAccountId("")} disabled={mappingAccount}>
+              Clear Mapping
+            </Button>
+          ) : null}
+          <Button onClick={closeMapDialog} disabled={mappingAccount}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={saveAccountMapping}
+            disabled={mappingAccount || (!mapAccountId && !mapTarget?.accountId)}
+          >
+            {mappingAccount ? "Saving…" : mapAccountId ? "Link Account" : "Clear Mapping"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

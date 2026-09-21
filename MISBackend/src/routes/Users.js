@@ -10,10 +10,40 @@ const jwt = require('jsonwebtoken');
 const { hashPassword, isHashedPassword, verifyPassword } = require("../utils/password");
 const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
+const Accounts = require("../repositories/accounts");
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
 const { maskMobileNumbers } = require('../utils/mobileVisibility');
+
+async function validateUserAccountLink(accountId, excludeUserId = null) {
+  const cleanAccountId = String(accountId || '').trim();
+  if (!cleanAccountId) return '';
+
+  const account = await Accounts.findOne({ Account_uuid: cleanAccountId })
+    .select('Account_uuid Account_name')
+    .lean();
+  if (!account) {
+    const err = new Error('Selected ledger account was not found.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const linkedFilter = { AccountID: cleanAccountId };
+  if (excludeUserId && mongoose.isValidObjectId(excludeUserId)) {
+    linkedFilter._id = { $ne: excludeUserId };
+  }
+
+  const alreadyLinked = await Users.findOne(linkedFilter).select('User_name').lean();
+  if (alreadyLinked) {
+    const err = new Error(`This ledger account is already linked to ${alreadyLinked.User_name || 'another user'}.`);
+    err.statusCode = 409;
+    throw err;
+  }
+
+  return cleanAccountId;
+}
+
 
 // LOGIN
 router.post("/login", authLimiter, validate({ body: z.object({ User_name: z.string().min(1), Password: z.string().min(1) }) }), async (req, res) => {
@@ -89,6 +119,7 @@ router.post("/addUser", requireAuth, requireAdminOrOwner, authLimiter, validate(
   Mobile_number: z.string().min(1, 'Mobile_number is required'),
   User_group: z.string().min(1, 'User_group is required'),
   Amount: z.any().optional(),
+  AccountID: z.string().optional(),
   Allowed_Task_Groups: z.any().optional(),
   Capabilities: z.any().optional(),
 }) }), async (req, res) => {
@@ -97,12 +128,14 @@ router.post("/addUser", requireAuth, requireAdminOrOwner, authLimiter, validate(
     Password,
     Mobile_number,
     Amount,
+    AccountID,
     User_group,
     Allowed_Task_Groups,
     Capabilities,
   } = req.body;
 
   try {
+    const cleanAccountId = await validateUserAccountLink(AccountID);
     const check = await Users.findOne({ Mobile_number });
     if (check) {
       return res.status(409).json({ success: false, message: "User with this mobile number already exists" });
@@ -113,6 +146,7 @@ router.post("/addUser", requireAuth, requireAdminOrOwner, authLimiter, validate(
         Mobile_number,
         User_group,
         Amount,
+        AccountID: cleanAccountId,
         Allowed_Task_Groups,
         Capabilities: Array.isArray(Capabilities) ? Capabilities : [],
         User_uuid: uuid()
@@ -122,7 +156,7 @@ router.post("/addUser", requireAuth, requireAdminOrOwner, authLimiter, validate(
     }
   } catch (e) {
     logger.error("Error saving user:", e);
-    res.status(500).json({ success: false, message: e.message || "Server error" });
+    res.status(e.statusCode || 500).json({ success: false, message: e.message || "Server error" });
   }
 });
 
@@ -157,15 +191,19 @@ router.get("/GetUserList", requireAuth, async (req, res) => {
 // password, so it is a privilege-escalation path, not a profile edit.
 router.put("/updateUser/:id", requireAuth, requireAdminOrOwner, async (req, res) => {
   const { id } = req.params;
-  const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
+  const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups, Capabilities, AccountID } = req.body;
 
   try {
+    const hasAccountIdUpdate = Object.prototype.hasOwnProperty.call(req.body, 'AccountID');
     const updatePayload = {
       User_name,
       Mobile_number,
       User_group,
       Allowed_Task_Groups,
     };
+    if (hasAccountIdUpdate) {
+      updatePayload.AccountID = await validateUserAccountLink(AccountID, id);
+    }
     if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
     if (Password) {
@@ -190,7 +228,7 @@ router.put("/updateUser/:id", requireAuth, requireAdminOrOwner, async (req, res)
     res.json({ success: true, result: user });
   } catch (error) {
     logger.error(error);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message || "Server error" });
   }
 });
 
@@ -283,10 +321,14 @@ router.get('/:id', requireAuth, async (req, res) => {
 // it carries the same guard.
 router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => {
   const { id } = req.params;
-  const { User_name, Mobile_number, User_group, Allowed_Task_Groups, Capabilities } = req.body;
+  const { User_name, Mobile_number, User_group, Allowed_Task_Groups, Capabilities, AccountID } = req.body;
 
   try {
+    const hasAccountIdUpdate = Object.prototype.hasOwnProperty.call(req.body, 'AccountID');
     const updatePayload = { User_name, Mobile_number, User_group, Allowed_Task_Groups };
+    if (hasAccountIdUpdate) {
+      updatePayload.AccountID = await validateUserAccountLink(AccountID, id);
+    }
     if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
     // As in /updateUser/:id — a demotion has to take effect immediately.
@@ -313,10 +355,48 @@ router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => 
     });
   } catch (error) {
     logger.error('Error updating user:', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      message: 'Error updating user',
+      message: error.message || 'Error updating user',
       error: error.message,
+    });
+  }
+});
+
+// PATCH USER LEDGER ACCOUNT LINK — Admin/Owner only.
+// Used by Attendance so an unmapped staff member can be linked without editing
+// unrelated profile fields.
+router.patch('/link-account/:userUuid', requireAuth, requireAdminOrOwner, validate({
+  body: z.object({ AccountID: z.string() }),
+}), async (req, res) => {
+  const { userUuid } = req.params;
+
+  try {
+    const filters = [{ User_uuid: userUuid }];
+    if (mongoose.isValidObjectId(userUuid)) filters.push({ _id: userUuid });
+
+    const existing = await Users.findOne({ $or: filters }).select('_id User_name AccountID').lean();
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const cleanAccountId = await validateUserAccountLink(req.body.AccountID, existing._id);
+    const updatedUser = await Users.findByIdAndUpdate(
+      existing._id,
+      { $set: { AccountID: cleanAccountId } },
+      { new: true }
+    ).select('-Password');
+
+    return res.json({
+      success: true,
+      message: cleanAccountId ? 'Ledger account linked successfully.' : 'Ledger account mapping cleared.',
+      result: updatedUser,
+    });
+  } catch (error) {
+    logger.error('Error linking user ledger account:', error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Could not link ledger account',
     });
   }
 });

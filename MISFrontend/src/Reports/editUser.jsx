@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Autocomplete, TextField } from '@mui/material';
 import axios from '../apiClient.js';
 import { toast, ToastContainer } from '../Components';
 import { CAPABILITY_LABELS } from '../constants/orderStages';
@@ -8,12 +9,14 @@ const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 export default function EditUser({ userId, closeModal }) {
     const [groupOptions, setGroupOptions] = useState([]);
     const [taskGroupOptions, setTaskGroupOptions] = useState([]);
+    const [accounts, setAccounts] = useState([]);
     const [values, setValues] = useState({
         User_name: '',
         Mobile_number: '',
         User_group: '',
         Allowed_Task_Groups: [],
         Capabilities: [],
+        AccountID: '',
     });
 
     useEffect(() => {
@@ -35,14 +38,23 @@ export default function EditUser({ userId, closeModal }) {
                     setTaskGroupOptions(taskOptions);
                 }
             })
-            .catch(err => {
+            .catch(() => {
                 toast.error("Failed to load task groups");
+            });
+
+        axios.get("/api/accounts")
+            .then(res => {
+                const rows = Array.isArray(res.data?.accounts) ? res.data.accounts : [];
+                setAccounts(rows.filter((account) => account?.Account_uuid && account?.Account_name));
+            })
+            .catch(() => {
+                setAccounts([]);
             });
     }, []);
 
     useEffect(() => {
         if (userId) {
-            axios.get(`/user/${userId}`)
+            axios.get(`/api/users/${userId}`)
                 .then(res => {
                     if (res.data.success) {
                         const user = res.data.result;
@@ -52,6 +64,7 @@ export default function EditUser({ userId, closeModal }) {
                             User_group: user.User_group || '',
                             Allowed_Task_Groups: user.Allowed_Task_Groups || [],
                             Capabilities: user.Capabilities || [],
+                            AccountID: user.AccountID || '',
                         });
                     }
                 })
@@ -87,10 +100,11 @@ export default function EditUser({ userId, closeModal }) {
         }
 
         try {
-            const res = await axios.put(`/user/update/${userId}`, {
+            const res = await axios.put(`/api/users/update/${userId}`, {
                 User_name: values.User_name,
                 Mobile_number: values.Mobile_number,
                 User_group: values.User_group,
+                AccountID: values.AccountID || '',
                 Allowed_Task_Groups: values.Allowed_Task_Groups,
                 Capabilities: values.Capabilities,
             });
@@ -141,6 +155,29 @@ export default function EditUser({ userId, closeModal }) {
                             <option key={index} value={group}>{group}</option>
                         ))}
                     </select>
+                    <label className="mt-2">Linked Ledger Account</label>
+                    <Autocomplete
+                        options={accounts}
+                        value={accounts.find((account) => account.Account_uuid === values.AccountID) || null}
+                        onChange={(_event, account) => setValues((prev) => ({ ...prev, AccountID: account?.Account_uuid || '' }))}
+                        getOptionLabel={(account) =>
+                            [account?.Account_name, account?.Account_group].filter(Boolean).join(' — ')
+                        }
+                        isOptionEqualToValue={(option, value) => option.Account_uuid === value.Account_uuid}
+                        renderInput={(params) => (
+                            <TextField
+                                {...params}
+                                size="small"
+                                placeholder="Search account name"
+                                helperText={
+                                    values.AccountID
+                                        ? 'Linked automatically by account UUID.'
+                                        : 'No account mapped yet.'
+                                }
+                            />
+                        )}
+                    />
+
                     <label className="mt-2">Allowed Task Groups</label>
                     <select
                         multiple

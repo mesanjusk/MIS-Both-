@@ -392,7 +392,7 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 
       {/* Bank sections side by side */}
       {(bankIn.length > 0 || bankOut.length > 0) && (
-        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main' }}>
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5, borderColor: 'info.main' }}>
           <Typography variant="subtitle2" fontWeight={700} color="info.dark" sx={{ mb: 1 }}>
             Bank Entries — UPI Sanju SK
           </Typography>
@@ -585,7 +585,7 @@ function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccount
   return (
     <Paper
       variant="outlined"
-      sx={{ p: 1.5, borderRadius: 3, borderColor: 'secondary.main', bgcolor: '#fdf5ff', mb: 2 }}
+      sx={{ p: 1.25, borderRadius: 2.5, borderColor: 'secondary.main', bgcolor: '#fdf5ff', mb: 2 }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
         <Box>
@@ -903,14 +903,24 @@ export default function DayBook() {
   ];
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
 
       {/* ---- LEFT: diary list sidebar ---- */}
       <Paper
         variant="outlined"
-        sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: 'none', md: 'block' } }}
+        sx={{
+          width: 188,
+          flexShrink: 0,
+          borderRadius: 2.5,
+          display: { xs: 'none', md: 'flex' },
+          flexDirection: 'column',
+          overflow: 'hidden',
+          height: 'calc(100vh - 94px)',
+          position: 'sticky',
+          top: 8,
+        }}
       >
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 1.5, pb: 0.5 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 1.25, pb: 0.75 }}>
           <Typography variant="subtitle2" fontWeight={700}>Day Books</Typography>
           <Stack direction="row" spacing={0.5}>
             <IconButton size="small" onClick={loadList}><RefreshRoundedIcon fontSize="small" /></IconButton>
@@ -955,7 +965,19 @@ export default function DayBook() {
             <List dense disablePadding sx={{ overflowY: 'auto', flex: 1 }}>
               {sidebarItems.map((item) => (
                 <ListItem key={item.key} disablePadding>
-                  <ListItemButton selected={item.selected} onClick={item.onClick} sx={{ borderRadius: 2 }}>
+                  <ListItemButton
+                    selected={item.selected}
+                    onClick={item.onClick}
+                    sx={{
+                      borderRadius: 0,
+                      px: 1.5,
+                      py: 0.75,
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&.Mui-selected': { bgcolor: 'primary.main', color: 'primary.contrastText' },
+                      '&.Mui-selected:hover': { bgcolor: 'primary.dark' },
+                    }}
+                  >
                     <ListItemText
                       primary={item.label}
                       secondary={item.sub}
@@ -983,7 +1005,13 @@ export default function DayBook() {
       <Box sx={{ flex: 1, minWidth: 0 }}>
 
         {/* Header */}
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={0.75}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', lg: 'center' }}
+          sx={{ mb: 1 }}
+        >
           <Box>
             <Typography variant="h5" fontWeight={900}>
               Day Book{diary
@@ -994,7 +1022,7 @@ export default function DayBook() {
               {ledgerDateParam ? 'Historical cash/bank transactions (read-only)' : 'Review diary entries, assign accounts, then confirm to post transactions'}
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+          <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center">
             <Button
               variant="outlined"
               startIcon={<AddRoundedIcon />}
@@ -1085,37 +1113,37 @@ export default function DayBook() {
           </Box>
         )}
 
-        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 3 }}>{error}</Alert>}
-        {successMsg && <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>{successMsg}</Alert>}
+        {error && <Alert severity="error" sx={{ mb: 1, borderRadius: 2.5 }}>{error}</Alert>}
+        {successMsg && <Alert severity="success" sx={{ mb: 1, borderRadius: 2.5 }}>{successMsg}</Alert>}
 
         {diary && !loading && (
           <>
             {/* Status banner */}
             {diary.status === 'confirmed' && (
-              <Alert severity="success" sx={{ mb: 2, borderRadius: 3 }}>
+              <Alert severity="success" sx={{ mb: 1, borderRadius: 2.5 }}>
                 This day book is confirmed. All transactions have been posted to the ledger.
                 Use the <strong>Edit</strong> icon to reopen for corrections.
               </Alert>
             )}
             {isDraft && suggestedCount > 0 && (
-              <Alert severity="warning" icon={<AutoFixHighRoundedIcon />} sx={{ mb: 2, borderRadius: 3 }}>
+              <Alert severity="warning" icon={<AutoFixHighRoundedIcon />} sx={{ mb: 1, borderRadius: 2.5 }}>
                 <strong>{suggestedCount} {suggestedCount === 1 ? 'entry has' : 'entries have'} auto-suggested accounts</strong> (shown in amber).
                 Review and click <strong>Accept</strong> on each, or use <strong>Accept {suggestedCount} Suggestions</strong> to approve all at once.
               </Alert>
             )}
             {isDraft && unassigned > 0 && (
-              <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
+              <Alert severity="warning" sx={{ mb: 1, borderRadius: 2.5 }}>
                 {unassigned} {unassigned === 1 ? 'entry needs' : 'entries need'} an account assigned before confirming.
               </Alert>
             )}
 
             {/* Summary cards */}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+            <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
               {summaryCards.map(({ label, value, color }) => (
-                <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
-                  <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
+                  <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
                     <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
+                    <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{money(value)}</Typography>
                   </CardContent>
                 </Card>
               ))}
@@ -1147,7 +1175,7 @@ export default function DayBook() {
 
             {/* Bank entries split into IN/OUT */}
             {bankEntries.length > 0 && (
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, borderColor: 'info.main', mb: 2 }}>
+              <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5, borderColor: 'info.main', mb: 2 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                   <Box>
                     <Typography variant="subtitle2" fontWeight={700} color="info.dark">

@@ -6,13 +6,33 @@ import { FaWhatsapp, FaSortUp, FaSortDown } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { Autocomplete, TextField } from '@mui/material';
+import {
+  Autocomplete,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import TrendingDownRoundedIcon from '@mui/icons-material/TrendingDownRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
-import SummaryCard from '../Components/dashboard/SummaryCard';
 import ExportGuard from '../Components/ExportGuard';
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
+import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 
 const todayISO = () => new Date().toLocaleDateString('en-CA');
 
@@ -254,180 +274,252 @@ const OutstandingReport = () => {
   };
 
   return (
-    <div className="pt-04 pb-12 max-w-8xl mx-auto px-4">
-      <div className="flex flex-col md:flex-row justify-between gap-3 mb-4 items-center">
-        <h2 className="text-xl font-semibold text-blue-700">Outstanding Report</h2>
-        <ExportGuard>
-          <div className="flex gap-2">
-            <button onClick={exportToExcel} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-              Export Excel
-            </button>
-            <button onClick={exportToPDF} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-              Export PDF
-            </button>
-          </div>
-        </ExportGuard>
-      </div>
-
-      {/* KPI summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <SummaryCard title="Total Receivable" value={`₹${totals.totalReceivable.toLocaleString('en-IN')}`} icon={TrendingUpRoundedIcon} variant="success" />
-        <SummaryCard title="Total Payable" value={`₹${totals.totalPayable.toLocaleString('en-IN')}`} icon={TrendingDownRoundedIcon} variant="danger" />
-        <SummaryCard title="Net Outstanding" value={`₹${totals.netOutstanding.toLocaleString('en-IN')}`} icon={AccountBalanceWalletRoundedIcon} variant="primary" />
-        <SummaryCard title="Parties" value={totals.partyCount} icon={GroupsRoundedIcon} variant="warning" trend={rangeLabel} />
-      </div>
-
-      {/* Date filters */}
-      <div className="flex flex-wrap gap-2 mb-3 items-center">
-        {DATE_PRESETS.map((preset) => (
-          <button
-            key={preset.key}
-            onClick={() => setDatePreset(preset.key)}
-            className={`px-3 py-1.5 rounded text-sm transition ${
-              datePreset === preset.key ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-            }`}
-          >
-            {preset.label}
-          </button>
-        ))}
-        {loading ? <span className="text-xs text-gray-500">Loading…</span> : null}
-      </div>
-
-      {datePreset === 'custom' ? (
-        <div className="flex flex-col md:flex-row gap-3 mb-4 items-center">
-          <TextField
-            size="small"
-            label="From"
-            type="date"
-            value={customFrom}
-            onChange={(e) => setCustomFrom(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            size="small"
-            label="To"
-            type="date"
-            value={customTo}
-            onChange={(e) => setCustomTo(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-          />
-        </div>
-      ) : null}
-
-      {/* Party + type filters */}
-      <div className="flex flex-col md:flex-row gap-3 mb-4 items-center">
-        <div className="flex-1 min-w-[220px]">
-          <Autocomplete
-            size="small"
-            options={partyOptions}
-            value={partyFilter || null}
-            onChange={(_, value) => setPartyFilter(value || '')}
-            renderInput={(params) => <TextField {...params} label="Filter by party" placeholder="All parties" />}
-          />
-        </div>
-
-        <div className="flex-1 min-w-[220px]">
-          <Autocomplete
-            size="small"
-            options={groupOptions}
-            value={groupFilter || null}
-            onChange={(_, value) => setGroupFilter(value || '')}
-            renderInput={(params) => <TextField {...params} label="Filter by customer group" placeholder="All groups" />}
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {['receivable', 'payable', 'all'].map((type) => (
-            <button
-              key={type}
-              onClick={() => setFilterType(type)}
-              className={`px-4 py-2 rounded transition ${
-                filterType === type
-                  ? type === 'receivable'
-                    ? 'bg-blue-600 text-white'
-                    : type === 'payable'
-                    ? 'bg-red-600 text-white'
-                    : 'bg-gray-700 text-white'
-                  : type === 'receivable'
-                  ? 'bg-blue-100 text-blue-700'
-                  : type === 'payable'
-                  ? 'bg-red-100 text-red-700'
-                  : 'bg-gray-100 text-gray-700'
-              }`}
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
+      {/* Delivery-style date sidebar */}
+      <Paper
+        variant="outlined"
+        sx={{
+          width: 188,
+          flexShrink: 0,
+          borderRadius: 2.5,
+          display: { xs: 'none', md: 'flex' },
+          flexDirection: 'column',
+          alignSelf: 'flex-start',
+          position: 'sticky',
+          top: 8,
+          overflow: 'hidden',
+        }}
+      >
+        <Box sx={{ p: 1.25 }}>
+          <Typography variant="subtitle2" fontWeight={800}>Outstanding</Typography>
+          <Typography variant="caption" color="text.secondary">Date range</Typography>
+        </Box>
+        <Box>
+          {DATE_PRESETS.map((preset) => (
+            <Box
+              key={preset.key}
+              onClick={() => setDatePreset(preset.key)}
+              sx={{
+                px: 1.5,
+                py: 1,
+                cursor: 'pointer',
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                bgcolor: datePreset === preset.key ? 'primary.main' : 'transparent',
+                color: datePreset === preset.key ? 'primary.contrastText' : 'text.primary',
+                '&:hover': { bgcolor: datePreset === preset.key ? 'primary.dark' : 'action.hover' },
+              }}
             >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-            </button>
+              <Typography variant="body2" fontWeight={800}>{preset.label}</Typography>
+              {preset.key === datePreset && preset.key !== 'all' && preset.key !== 'custom' && (
+                <Typography variant="caption" sx={{ opacity: 0.8 }}>{rangeLabel}</Typography>
+              )}
+            </Box>
           ))}
-        </div>
-      </div>
+        </Box>
+        {datePreset === 'custom' && (
+          <Stack spacing={1} sx={{ p: 1.25, borderTop: '1px solid', borderColor: 'divider' }}>
+            <TextField size="small" label="From" type="date" value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)} InputLabelProps={{ shrink: true }}
+              sx={{ '& input': { fontSize: 12, py: 0.7 } }} />
+            <TextField size="small" label="To" type="date" value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)} InputLabelProps={{ shrink: true }}
+              sx={{ '& input': { fontSize: 12, py: 0.7 } }} />
+          </Stack>
+        )}
+      </Paper>
 
-      {/* Table */}
-      <div className="overflow-auto">
-        <table className="w-full table-auto text-sm border shadow-sm rounded bg-white">
-          <thead className="bg-blue-100 text-blue-900">
-            <tr>
-              <th onClick={() => handleSort('name')} className="border px-3 py-2 cursor-pointer text-left">
-                Customer {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-              </th>
-              <th onClick={() => handleSort('group')} className="border px-3 py-2 cursor-pointer text-left">
-                Group {sortConfig.key === 'group' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-              </th>
-              <th onClick={() => handleSort('mobile')} className="border px-3 py-2 cursor-pointer text-left">
-                Mobile {sortConfig.key === 'mobile' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-              </th>
-              <th onClick={() => handleSort('balance')} className="border px-3 py-2 cursor-pointer text-right">
-                Outstanding {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-              </th>
-              <th className="border px-3 py-2 text-center">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedReport.length === 0 ? (
-              <tr>
-                <td colSpan="5" className="text-center py-6 text-gray-500">
-                  No outstanding balances found for this filter.
-                </td>
-              </tr>
-            ) : (
-              sortedReport.map((item, index) => (
-                <tr key={item.uuid || index} className="border-t hover:bg-gray-50 transition">
-                  <td onClick={() => viewTransactions(item)} className="px-3 py-2 text-blue-700 cursor-pointer">
-                    {item.name}
-                  </td>
-                  <td className="px-3 py-2">{item.group}</td>
-                  <td className="px-3 py-2">{item.mobile}</td>
-                  <td className={`px-3 py-2 text-right font-semibold ${item.balance < 0 ? 'text-red-600' : 'text-blue-700'}`}>
-                    ₹{Math.abs(item.balance).toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    {item.mobile !== 'No phone number' ? (
-                      <button onClick={() => sendWhatsApp(item)}>
-                        <FaWhatsapp className="text-blue-600 text-lg hover:text-blue-700 transition" />
-                      </button>
-                    ) : (
-                      <span className="text-gray-400 text-xs">No action</span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-          {sortedReport.length > 0 ? (
-            <tfoot>
-              <tr className="bg-gray-100 font-semibold">
-                <td className="px-3 py-2" colSpan={3}>
-                  NET OUTSTANDING
-                </td>
-                <td className={`px-3 py-2 text-right ${totals.netOutstanding < 0 ? 'text-red-600' : 'text-blue-700'}`}>
-                  ₹{Math.abs(totals.netOutstanding).toLocaleString('en-IN')}
-                </td>
-                <td className="px-3 py-2" />
-              </tr>
-            </tfoot>
-          ) : null}
-        </table>
-      </div>
-    </div>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={0.8}
+          alignItems={{ xs: 'stretch', lg: 'center' }}
+          sx={{ mb: 1 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={900} noWrap>Outstanding</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {rangeLabel} · {totals.partyCount} part{totals.partyCount === 1 ? 'y' : 'ies'}
+            </Typography>
+          </Box>
+
+          <Stack direction="row" spacing={0.5}>
+            <ExportGuard>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<FileDownloadRoundedIcon />}
+                onClick={exportToExcel}
+                disabled={!sortedReport.length}
+                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
+              >
+                Excel
+              </Button>
+            </ExportGuard>
+            <ExportGuard>
+              <Button
+                size="small"
+                variant="contained"
+                color="error"
+                startIcon={<PictureAsPdfRoundedIcon />}
+                onClick={exportToPDF}
+                disabled={!sortedReport.length}
+                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
+              >
+                PDF
+              </Button>
+            </ExportGuard>
+          </Stack>
+        </Stack>
+
+        {/* Mobile date presets */}
+        <Stack direction="row" spacing={0.5} sx={{ display: { xs: 'flex', md: 'none' }, overflowX: 'auto', mb: 1, pb: 0.25 }}>
+          {DATE_PRESETS.map((preset) => (
+            <Chip
+              key={preset.key}
+              size="small"
+              label={preset.label}
+              color={datePreset === preset.key ? 'primary' : 'default'}
+              variant={datePreset === preset.key ? 'filled' : 'outlined'}
+              onClick={() => setDatePreset(preset.key)}
+            />
+          ))}
+        </Stack>
+
+        {datePreset === 'custom' && (
+          <Stack direction="row" spacing={0.75} sx={{ display: { xs: 'flex', md: 'none' }, mb: 1 }}>
+            <TextField fullWidth size="small" label="From" type="date" value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+            <TextField fullWidth size="small" label="To" type="date" value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+          </Stack>
+        )}
+
+        <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
+          {[
+            { label: 'Receivable', value: `₹${totals.totalReceivable.toLocaleString('en-IN')}`, color: 'success.dark', Icon: TrendingUpRoundedIcon },
+            { label: 'Payable', value: `₹${totals.totalPayable.toLocaleString('en-IN')}`, color: 'error.dark', Icon: TrendingDownRoundedIcon },
+            { label: 'Net', value: `₹${totals.netOutstanding.toLocaleString('en-IN')}`, color: 'primary.main', Icon: AccountBalanceWalletRoundedIcon },
+            { label: 'Parties', value: totals.partyCount, color: 'warning.dark', Icon: GroupsRoundedIcon },
+          ].map(({ label, value, color, Icon }) => (
+            <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
+              <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">{label}</Typography>
+                    <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{value}</Typography>
+                  </Box>
+                  <Icon sx={{ fontSize: 19, color }} />
+                </Stack>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+
+        <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5, mb: 1 }}>
+          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.75} alignItems={{ xs: 'stretch', lg: 'center' }}>
+            <Autocomplete
+              size="small"
+              options={partyOptions}
+              value={partyFilter || null}
+              onChange={(_, value) => setPartyFilter(value || '')}
+              sx={{ minWidth: { lg: 220 }, flex: 1 }}
+              renderInput={(params) => <TextField {...params} label="Party" placeholder="All parties" />}
+            />
+            <Autocomplete
+              size="small"
+              options={groupOptions}
+              value={groupFilter || null}
+              onChange={(_, value) => setGroupFilter(value || '')}
+              sx={{ minWidth: { lg: 210 }, flex: 1 }}
+              renderInput={(params) => <TextField {...params} label="Customer group" placeholder="All groups" />}
+            />
+            <Stack direction="row" spacing={0.5}>
+              {[
+                ['receivable', 'Receivable', 'success'],
+                ['payable', 'Payable', 'error'],
+                ['all', 'All', 'primary'],
+              ].map(([type, label, color]) => (
+                <Button
+                  key={type}
+                  size="small"
+                  color={color}
+                  variant={filterType === type ? 'contained' : 'outlined'}
+                  onClick={() => setFilterType(type)}
+                  sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </Stack>
+            {loading && <CircularProgress size={20} />}
+          </Stack>
+        </Paper>
+
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2.5, maxHeight: '68vh' }}>
+          <Table size="small" stickyHeader sx={{ '& .MuiTableCell-root': { py: 0.75 } }}>
+            <TableHead>
+              <TableRow>
+                <TableCell onClick={() => handleSort('name')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
+                  Customer {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                </TableCell>
+                <TableCell onClick={() => handleSort('group')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
+                  Group {sortConfig.key === 'group' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                </TableCell>
+                <TableCell onClick={() => handleSort('mobile')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
+                  Mobile {sortConfig.key === 'mobile' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                </TableCell>
+                <TableCell onClick={() => handleSort('balance')} align="right" sx={{ fontWeight: 800, cursor: 'pointer' }}>
+                  Outstanding {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                </TableCell>
+                <TableCell align="center" sx={{ fontWeight: 800, width: 80 }}>Action</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {!loading && sortedReport.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                    No outstanding balances found for this filter.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sortedReport.map((item, index) => (
+                  <TableRow key={item.uuid || index} hover>
+                    <TableCell onClick={() => viewTransactions(item)} sx={{ cursor: 'pointer' }}>
+                      <Typography variant="body2" fontWeight={800} color="primary.main">{item.name}</Typography>
+                    </TableCell>
+                    <TableCell>{item.group}</TableCell>
+                    <TableCell>{item.mobile}</TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight={900} color={item.balance < 0 ? 'error.main' : 'success.dark'}>
+                        ₹{Math.abs(item.balance).toLocaleString('en-IN')}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      {item.mobile !== 'No phone number' ? (
+                        <Tooltip title="Send outstanding reminder">
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="success"
+                            onClick={() => sendWhatsApp(item)}
+                            sx={{ minWidth: 32, px: 0.7, borderRadius: 1.5 }}
+                          >
+                            <FaWhatsapp />
+                          </Button>
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    </Box>
   );
 };
 

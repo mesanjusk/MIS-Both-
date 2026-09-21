@@ -87,17 +87,17 @@ function TxnTable({ rows, title, color, customerMap = {}, kind = 'receipt' }) {
 // ── 4 summary cards per account section ──────────────────────────────────────
 function SummaryCards({ opening, receipts, payments, closing, prefix }) {
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+    <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
       {[
         { label: 'Opening Balance',        value: opening,  color: 'text.primary' },
         { label: `${prefix} Receipts (+)`, value: receipts, color: 'success.dark' },
         { label: `${prefix} Payments (−)`, value: payments, color: 'error.dark' },
         { label: 'Closing Balance',        value: closing,  color: closing >= 0 ? 'success.dark' : 'error.dark' },
       ].map(({ label, value, color }) => (
-        <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
-          <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+        <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
+          <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
             <Typography variant="caption" color="text.secondary">{label}</Typography>
-            <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
+            <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{money(value)}</Typography>
           </CardContent>
         </Card>
       ))}
@@ -212,15 +212,29 @@ export default function AllTransaction() {
   const bankClosing  = bankOpening + bankReceipts - bankPayments;
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
 
       {/* ── LEFT sidebar ── */}
       <Paper
         variant="outlined"
-        sx={{ width: 220, flexShrink: 0, borderRadius: 3, display: { xs: 'none', md: 'block' }, p: 2 }}
+        sx={{
+          width: 188,
+          flexShrink: 0,
+          borderRadius: 2.5,
+          display: { xs: 'none', md: 'flex' },
+          flexDirection: 'column',
+          alignSelf: 'flex-start',
+          position: 'sticky',
+          top: 8,
+          overflow: 'hidden',
+        }}
       >
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>Account Ledger</Typography>
-        <Divider sx={{ mb: 2 }} />
+        <Box sx={{ p: 1.25 }}>
+          <Typography variant="subtitle2" fontWeight={800}>Cash & Bank</Typography>
+          <Typography variant="caption" color="text.secondary">Select transaction date</Typography>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 1.25 }}>
         <TextField
           label="Date"
           type="date"
@@ -229,21 +243,36 @@ export default function AllTransaction() {
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
           InputLabelProps={{ shrink: true }}
+          sx={{ '& input': { fontSize: 12, py: 0.7 } }}
         />
+        </Box>
       </Paper>
 
       {/* ── RIGHT panel ── */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
 
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1.5 }}>
-          <Box>
-            <Typography variant="h5" fontWeight={900}>
-              Account Ledger{selectedDate ? ` — ${fmtDate(selectedDate)}` : ''}
-            </Typography>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={0.75}
+          justifyContent="space-between"
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          sx={{ mb: 1 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={900} noWrap>Cash & Bank</Typography>
             <Typography variant="body2" color="text.secondary">
-              Cash and bank transactions for the selected date
+              {selectedDate ? fmtDate(selectedDate) : 'Select date'} · Cash and bank ledger
             </Typography>
           </Box>
+          <TextField
+            label="Date"
+            type="date"
+            size="small"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ display: { xs: 'block', md: 'none' }, minWidth: 160 }}
+          />
         </Stack>
 
         {loading && <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>}
@@ -251,7 +280,7 @@ export default function AllTransaction() {
         {!loading && (
           <>
             {/* ── CASH SECTION ── */}
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
+            <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5, mb: 1.25 }}>
               <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
                 Cash — {cashDocs[0]?.Customer_name || 'Cash'}
               </Typography>
@@ -265,7 +294,7 @@ export default function AllTransaction() {
               {cashRows.length === 0 ? (
                 <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No cash transactions for this date.</Typography>
               ) : (
-                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                   <Box sx={{ flex: 1 }}>
                     <TxnTable rows={cashIn} kind="receipt"  title="Cash Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>
@@ -277,7 +306,7 @@ export default function AllTransaction() {
             </Paper>
 
             {/* ── BANK SECTION ── */}
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: 'info.main' }}>
+            <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2.5, borderColor: 'info.main' }}>
               <Typography variant="subtitle1" fontWeight={800} color="info.dark" sx={{ mb: 1.5 }}>
                 Bank — {bankDocs.map((b) => b.Customer_name).join(' / ') || 'Bank'}
               </Typography>
@@ -291,7 +320,7 @@ export default function AllTransaction() {
               {bankRows.length === 0 ? (
                 <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>No bank transactions for this date.</Typography>
               ) : (
-                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                   <Box sx={{ flex: 1 }}>
                     <TxnTable rows={bankIn} kind="receipt"  title="Bank Receipts (IN)"  color="success.dark" customerMap={customerMap} />
                   </Box>

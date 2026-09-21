@@ -650,11 +650,23 @@ router.post('/link-order', canManageDesignFiles, async (req, res) => {
       return res.status(400).json({ success: false, message: 'orderUuid required' });
     }
 
-    const explicitStages = filesMeta
-      .map((file) => Number(file?.stageNumber || 0))
-      .filter(Boolean);
-    const beforeFinal = explicitStages.some((stageNumber) => ![5, 6].includes(stageNumber));
-    if (beforeFinal) {
+    const explicitStageByFile = new Map(
+      filesMeta
+        .filter((file) => file?.fileId)
+        .map((file) => [file.fileId, Number(file?.stageNumber || 0) || null])
+    );
+    const recordedLinks = await DesignFileLink.find(
+      { driveFileId: { $in: fileIds } },
+      { driveFileId: 1, stageNumber: 1 }
+    ).lean();
+    const recordedStageByFile = new Map(
+      recordedLinks.map((link) => [link.driveFileId, Number(link.stageNumber || 0) || null])
+    );
+    const invalidLinkFile = fileIds.find((fileId) => {
+      const stageNumber = explicitStageByFile.get(fileId) || recordedStageByFile.get(fileId);
+      return stageNumber && ![5, 6].includes(stageNumber);
+    });
+    if (invalidLinkFile) {
       return res.status(409).json({
         success: false,
         code: 'LINK_BEFORE_FINAL_BLOCKED',
@@ -1033,6 +1045,14 @@ router.post('/auto-temp-orders', canManageDesignFiles, async (req, res) => {
         success: false,
         code: 'ORDER_BEFORE_FINAL_BLOCKED',
         message: 'Design-board files stay as drafts. Create the MIS order only after the job reaches Final / Printing.',
+      });
+    }
+    const invalidArchiveFile = files.find((file) => ![5, 6].includes(Number(file?.stageNumber || 0)));
+    if (invalidArchiveFile) {
+      return res.status(409).json({
+        success: false,
+        code: 'ARCHIVE_ORDER_BEFORE_FINAL_BLOCKED',
+        message: 'Archive order creation is allowed only for Final / Printing items.',
       });
     }
     const initialStage = 'print';
@@ -1579,6 +1599,24 @@ router.post('/confirm-final', canManageDesignFiles, async (req, res) => {
 
     const customer = await Customers.findOne({ Customer_uuid: customerUuid }).lean();
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
+    if (!assigneeId) {
+      return res.status(400).json({
+        success: false,
+        code: 'PRINT_VENDOR_REQUIRED',
+        message: 'Select the printer/vendor before creating the MIS order.',
+      });
+    }
+    const printerParty = await Customers.findOne({
+      _id: assigneeId,
+      Customer_group: ACCOUNT_PAYABLE_GROUP,
+    });
+    if (!printerParty) {
+      return res.status(400).json({
+        success: false,
+        code: 'PRINT_VENDOR_INVALID',
+        message: 'Selected printer/vendor is not an Account Payable party.',
+      });
+    }
 
     const orderNum = await nextOrderNumber();
     const orderUuid = uuidv4();
@@ -1707,36 +1745,27 @@ router.post('/confirm-final', canManageDesignFiles, async (req, res) => {
       logger.warn('rename block error — %s', renameBlockErr?.message);
     }
 
-    // Assign the order and the file to the chosen Account Payable party.
-    let assigneeName = null;
-    if (assigneeId) {
-      try {
-        const party = await Customers.findById(assigneeId);
-        if (party) {
-          assigneeName = party.Customer_name;
-          await DesignFileLink.updateOne(
-            { driveFileId: fileId },
-            {
-              $set: {
-                assignedTo: party._id,
-                assignedToType: 'vendor',
-                assignedToName: party.Customer_name,
-                assignedBy: req.user?.userName || 'System',
-                assignedAt: new Date(),
-              },
-            }
-          );
-          await assignOrderToUser({
-            orderId: orderUuid,
-            vendorId: party._id,
-            assignedBy: req.user?.userName || 'System',
-            via: 'design-file',
-          });
-        }
-      } catch (assignErr) {
-        logger.warn('design-files/confirm-final: assign failed — %s', assignErr?.message);
+    // The printer/vendor is mandatory at the Final -> Print gate so the
+    // Printing folder and MIS order start with one canonical identity.
+    const assigneeName = printerParty.Customer_name;
+    await DesignFileLink.updateOne(
+      { driveFileId: fileId },
+      {
+        $set: {
+          assignedTo: printerParty._id,
+          assignedToType: 'vendor',
+          assignedToName: printerParty.Customer_name,
+          assignedBy: req.user?.userName || 'System',
+          assignedAt: new Date(),
+        },
       }
-    }
+    );
+    await assignOrderToUser({
+      orderId: orderUuid,
+      vendorId: printerParty._id,
+      assignedBy: req.user?.userName || 'System',
+      via: 'design-file',
+    });
 
     // Every new order gets an empty folder in the Printing folder of the same
     // date folder the design file lives in, named "<orderNumber> <assignee>"

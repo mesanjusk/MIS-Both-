@@ -311,7 +311,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   if (file.stageNumber === 6 && file.printJobNumber == null && onCreatePrintJob) {
     actions.push({ key: 'createPJ', label: 'Create print job', icon: ReceiptLongRoundedIcon, color: 'warning.main', run: () => onCreatePrintJob(file) });
   }
-  if (file.orderUuid && onRelink) {
+  if (file.orderUuid && onRelink && [5, 6].includes(Number(file.stageNumber))) {
     actions.push({ key: 'relink', label: `Change order (currently #${file.orderNumber})`, icon: SwapHorizRoundedIcon, color: 'info.main', run: () => onRelink(file) });
   }
   if (needsRename && onRename) {
@@ -623,7 +623,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const [items, setItems] = useState([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
   const [extraCharges, setExtraCharges] = useState([]);
   const [itemOptions, setItemOptions] = useState([]);
-  const [stage, setStage] = useState(fromArchive ? 'print' : 'new_design');
+  const [stage, setStage] = useState('print');
   const [assigneeId, setAssigneeId] = useState('');
   const [assignees, setAssignees] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
@@ -637,7 +637,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
       setItems([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
       return;
     }
-    setStage(fromArchive ? 'print' : 'new_design');
+    setStage('print');
     setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
     setLoadingData(true);
     Promise.all([
@@ -783,32 +783,25 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
             />
           </Stack>
 
-          {/* Stage + assignee — the assignee also names the Printing folder
-              this order gets ("793 Anand"). */}
+          {/* Final confirmation is the one production gate: the order is
+              created directly in Print and the selected printer names the
+              matching Printing folder. */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField
-              select label="Stage" size="small" value={stage}
-              onChange={(e) => setStage(e.target.value)} disabled={submitting}
+              label="MIS Stage"
+              size="small"
+              value="Print"
+              disabled
+              helperText="Real MIS order is created only now, from Final"
               sx={{ flex: 1 }}
-            >
-              {STAGE_GROUPS.flatMap((group) => [
-                <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {group.label}
-                </ListSubheader>,
-                ...group.sections.map((section) => (
-                  <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
-                    {section.label}
-                  </MenuItem>
-                )),
-              ])}
-            </TextField>
+            />
             <TextField
-              select label="Assign to" size="small" value={assigneeId}
+              select label="Printer / Vendor" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
               disabled={submitting || loadingData}
               helperText={
                 stageAssignees.length
-                  ? `${CAPABILITY_LABELS[stageCapability] || 'Stage'} parties · goes on the Printing folder`
+                  ? `${CAPABILITY_LABELS[stageCapability] || 'Printing'} parties · goes on the Printing folder`
                   : `Nobody tagged for ${CAPABILITY_LABELS[stageCapability] || 'this stage'} yet — showing everyone`
               }
               sx={{ flex: 1 }}
@@ -1039,7 +1032,7 @@ function EditPrintJobDialog({ open, file, onClose, onSuccess }) {
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" onClick={handleSubmit}
-          disabled={!vendor || submitting}
+          disabled={!vendor || !order || submitting}
           startIcon={submitting ? <CircularProgress size={14} /> : <ReceiptLongRoundedIcon />}
         >
           Update Print Job
@@ -1324,7 +1317,10 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
   const total = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
   const handleSubmit = async () => {
-    if (!vendor) return;
+    if (!vendor || !order) {
+      setError('A confirmed MIS order is required before creating a print job.');
+      return;
+    }
     setSubmitting(true); setError('');
     try {
       const res = await axios.post('/api/design-files/create-print-job', {
@@ -1382,7 +1378,7 @@ function PrintJobDialog({ open, selectedFiles, onClose, onSuccess, validateFinal
               isOptionEqualToValue={(a, b) => a.Order_uuid === b.Order_uuid}
               loading={searching} disabled={submitting}
               renderInput={(params) => (
-                <TextField {...params} label="Link to Order (optional)" placeholder="Search order…" size="small"
+                <TextField {...params} label="Confirmed MIS Order *" placeholder="Search order…" size="small"
                   InputProps={{ ...params.InputProps, endAdornment: <>{searching ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
                 />
               )}
@@ -2688,7 +2684,7 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
                     onConfirm={file.stageNumber === 5 ? onConfirm : undefined}
                     onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                     onEditPrintJob={file.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
-                    onRelink={onRelink}
+                    onRelink={[5, 6].includes(Number(file.stageNumber)) ? onRelink : undefined}
                     onAssign={onAssign}
                     onDeliver={onDeliver}
                     onMoveToPrint={onMoveToPrint}
@@ -3077,7 +3073,7 @@ export default function DesignFilesWidget() {
                       onConfirm={file.stageNumber === 5 ? setConfirmFile : undefined}
                       onCreatePrintJob={file.stageNumber === 6 && file.printJobNumber == null ? handleCreatePrintJob : undefined}
                       onEditPrintJob={file.stageNumber === 6 && file.printJobId ? setEditPrintJobFile : undefined}
-                      onRelink={!activeTabDef.viewOnly ? setRelinkFile : undefined}
+                      onRelink={!activeTabDef.viewOnly && [5, 6].includes(Number(file.stageNumber)) ? setRelinkFile : undefined}
                       onAssign={!activeTabDef.viewOnly ? handleAssign : undefined}
                       onDeliver={!activeTabDef.viewOnly ? setDeliverFile : undefined}
                       onMoveToPrint={!activeTabDef.viewOnly ? handleMoveToPrint : undefined}
@@ -3121,13 +3117,15 @@ export default function DesignFilesWidget() {
                 {selectedIds.size} selected
               </Typography>
 
-              <Button size="small" variant="outlined"
-                startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
-                onClick={() => setLinkDialogOpen(true)}
-                sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
-              >
-                Link to Order
-              </Button>
+              {selectedFiles.every((file) => [5, 6].includes(Number(file.stageNumber))) && (
+                <Button size="small" variant="outlined"
+                  startIcon={<LinkRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                  onClick={() => setLinkDialogOpen(true)}
+                  sx={{ fontSize: '0.72rem', py: 0.3, px: 0.9, minHeight: 24 }}
+                >
+                  Link to Order
+                </Button>
+              )}
 
               {/* Create Print Bill — shown when any selected file is in the Printing stage */}
               {selectedFiles.some((f) => f.stageNumber === 6) && (

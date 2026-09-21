@@ -98,7 +98,7 @@ export default function PostPressJobEditor({
     const inferredExtra = knownExtra || Math.max(0, grand - primaryAmount);
 
     setJobType(job?.job_type || 'lamination');
-    setVendorId(job?.vendor_uuid || '');
+    setVendorId(job?.payableVendorUuid || job?.vendor_uuid || '');
     setQty(n(primary?.quantity) || 1);
     setUnit(primary?.uom || 'Pcs');
     setRate(n(primary?.rate) || (primaryAmount && n(primary?.quantity)

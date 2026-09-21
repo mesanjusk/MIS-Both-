@@ -29,12 +29,21 @@ import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceW
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
+import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 import ExportGuard from '../Components/ExportGuard';
+import PurchaseInvoiceEditor from '../Components/PurchaseInvoiceEditor';
+import {
+  copyPathToClipboard,
+  joinWindowsPath,
+  launchMisFileUrl,
+  normalizeWindowsPath,
+} from '../utils/localFileLauncher';
 
 const todayISO = new Date().toISOString().slice(0, 10);
 const money = (value) =>
@@ -86,6 +95,8 @@ export default function PayableAccount() {
   const [invoiceDrafts, setInvoiceDrafts] = useState({});
   const [vendorDrafts, setVendorDrafts] = useState({});
   const [savingFolderId, setSavingFolderId] = useState('');
+  const [localShareRoot, setLocalShareRoot] = useState('');
+  const [invoiceEditorRow, setInvoiceEditorRow] = useState(null);
 
   const loadCore = useCallback(async () => {
     setLoading(true);
@@ -114,6 +125,30 @@ export default function PayableAccount() {
       setLoading(false);
     }
   }, []);
+
+  const loadNetworkFileSettings = useCallback(async () => {
+    const res = await axios.get('/api/network-files/settings');
+    const root = normalizeWindowsPath(res?.data?.result?.networkShareRoot || '');
+    setLocalShareRoot(root);
+    return root;
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    loadNetworkFileSettings().catch(() => {
+      if (alive) setLocalShareRoot('');
+    });
+
+    const handleSettingsUpdate = (event) => {
+      if (!alive) return;
+      setLocalShareRoot(normalizeWindowsPath(event?.detail?.networkShareRoot || ''));
+    };
+    window.addEventListener('network-file-settings-updated', handleSettingsUpdate);
+    return () => {
+      alive = false;
+      window.removeEventListener('network-file-settings-updated', handleSettingsUpdate);
+    };
+  }, [loadNetworkFileSettings]);
 
   const loadPrinting = useCallback(async (refresh = false) => {
     setPrintingLoading(true);
@@ -336,6 +371,64 @@ export default function PayableAccount() {
     });
   };
 
+  const openPrintingLocalFolder = async (row) => {
+    let shareRoot = localShareRoot;
+    let relativePath = '';
+    let anchorFound = true;
+
+    try {
+      const resolved = await axios.get('/api/network-files/resolve', {
+        params: { fileId: row.folderId },
+      });
+      shareRoot = normalizeWindowsPath(resolved?.data?.result?.networkShareRoot || shareRoot);
+      relativePath = String(resolved?.data?.result?.relativePath || '').trim();
+      anchorFound = resolved?.data?.result?.anchorFound !== false;
+      if (shareRoot) setLocalShareRoot(shareRoot);
+    } catch {
+      // Fall back to the known archive structure below.
+    }
+
+    if (!shareRoot) {
+      try {
+        shareRoot = await loadNetworkFileSettings();
+      } catch {
+        // A clear message is shown below.
+      }
+    }
+
+    if (!shareRoot) {
+      toast.error('Network folder is not configured. Ask Admin to set Admin → Network Files.');
+      return;
+    }
+
+    const target = relativePath && anchorFound
+      ? joinWindowsPath(shareRoot, relativePath)
+      : joinWindowsPath(
+          shareRoot,
+          row.monthFolderName,
+          row.dateFolderName,
+          'Printing',
+          row.folderName
+        );
+
+    if (!target) {
+      toast.error('Could not resolve the local Printing folder path.');
+      return;
+    }
+
+    await copyPathToClipboard(target);
+    toast.success('Opening local Printing folder…');
+    launchMisFileUrl(target, { select: false });
+  };
+
+  const openPurchaseInvoiceEditor = (row) => {
+    setInvoiceEditorRow({
+      ...row,
+      vendorUuid: vendorDrafts[row.folderId] || row.vendorUuid || '',
+      invoiceValue: Number(invoiceDrafts[row.folderId] || row.invoiceValue || 0),
+    });
+  };
+
   const savePrintingInvoice = async (row) => {
     const vendorUuid = vendorDrafts[row.folderId] || row.vendorUuid || '';
     const amount = Number(invoiceDrafts[row.folderId] || 0);
@@ -354,6 +447,7 @@ export default function PayableAccount() {
       const res = await axios.post('/api/purchaseorder/printing-invoice', {
         sourceDriveFolderId: row.folderId,
         sourceDriveFolderName: row.folderName,
+        poUuid: row.poUuid || '',
         Vendor_uuid: vendorUuid,
         amount,
         orderNumber: row.orderNumber || null,
@@ -688,9 +782,9 @@ export default function PayableAccount() {
                     <TableCell sx={{ fontWeight: 700, width: 70 }}>Order</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Vendor / Freelancer</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 48 }}>Drive</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Invoice Value</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Save</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 58 }}>Folder</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 135 }}>Invoice Value</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 112 }}>Invoice</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -766,33 +860,59 @@ export default function PayableAccount() {
                             </Tooltip>
                           </TableCell>
                           <TableCell>
-                            <Tooltip title="Open Printing job folder in Google Drive">
+                            <Tooltip
+                              title={
+                                localShareRoot
+                                  ? 'Open synced/local Printing folder'
+                                  : 'Open local folder (Admin → Network Files must be configured)'
+                              }
+                            >
                               <IconButton
                                 size="small"
-                                component="a"
-                                href={row.driveFolderUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                onClick={() => openPrintingLocalFolder(row)}
+                                sx={{ border: '1px solid', borderColor: 'divider' }}
+                                aria-label="open local Printing folder"
                               >
-                                <OpenInNewRoundedIcon fontSize="small" />
+                                <FolderOpenRoundedIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           </TableCell>
                           <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={draftAmount}
-                              onChange={(e) => {
-                                setInvoiceDrafts((prev) => ({
-                                  ...prev,
-                                  [row.folderId]: e.target.value,
-                                }));
-                              }}
-                              inputProps={{ min: 0, step: '0.01' }}
-                              placeholder="₹0"
-                              sx={{ width: 105 }}
-                            />
+                            <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                              <TextField
+                                size="small"
+                                type="number"
+                                value={draftAmount}
+                                onChange={(e) => {
+                                  setInvoiceDrafts((prev) => ({
+                                    ...prev,
+                                    [row.folderId]: e.target.value,
+                                  }));
+                                }}
+                                inputProps={{ min: 0, step: '0.01' }}
+                                placeholder="₹0"
+                                sx={{ width: 95 }}
+                              />
+                              <Tooltip title={row.poUuid ? 'Quick update invoice value' : 'Quick add invoice value'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color={row.poUuid ? 'primary' : 'success'}
+                                    disabled={
+                                      savingFolderId === row.folderId
+                                      || !selectedVendorId
+                                      || !(Number(draftAmount || 0) > 0)
+                                      || (!changed && Boolean(row.poUuid))
+                                    }
+                                    onClick={() => savePrintingInvoice(row)}
+                                  >
+                                    {savingFolderId === row.folderId
+                                      ? <CircularProgress size={18} />
+                                      : <SaveRoundedIcon fontSize="small" />}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </Stack>
                             {row.poNumber ? (
                               <Typography variant="caption" color="text.secondary" display="block">
                                 PO #{row.poNumber}
@@ -800,25 +920,17 @@ export default function PayableAccount() {
                             ) : null}
                           </TableCell>
                           <TableCell align="center">
-                            <Tooltip title={row.poUuid ? 'Update invoice value' : 'Add invoice value to payable ledger'}>
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  color={row.poUuid ? 'primary' : 'success'}
-                                  disabled={
-                                    savingFolderId === row.folderId
-                                    || !selectedVendorId
-                                    || !(Number(draftAmount || 0) > 0)
-                                    || (!changed && Boolean(row.poUuid))
-                                  }
-                                  onClick={() => savePrintingInvoice(row)}
-                                >
-                                  {savingFolderId === row.folderId
-                                    ? <CircularProgress size={18} />
-                                    : <SaveRoundedIcon fontSize="small" />}
-                                </IconButton>
-                              </span>
-                            </Tooltip>
+                            <Button
+                              size="small"
+                              variant={row.poUuid ? 'outlined' : 'contained'}
+                              color={row.poUuid ? 'primary' : 'success'}
+                              startIcon={row.poUuid ? <EditRoundedIcon /> : <ReceiptLongRoundedIcon />}
+                              onClick={() => openPurchaseInvoiceEditor(row)}
+                              disabled={!selectedVendorId}
+                              sx={{ textTransform: 'none', whiteSpace: 'nowrap', fontWeight: 800 }}
+                            >
+                              {row.poUuid ? 'Edit Invoice' : 'Create Invoice'}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -857,6 +969,21 @@ export default function PayableAccount() {
           </Paper>
         </Stack>
       </Box>
+
+      <PurchaseInvoiceEditor
+        open={Boolean(invoiceEditorRow)}
+        onClose={() => setInvoiceEditorRow(null)}
+        row={invoiceEditorRow}
+        parties={parties}
+        initialVendorId={
+          invoiceEditorRow
+            ? (vendorDrafts[invoiceEditorRow.folderId] || invoiceEditorRow.vendorUuid || '')
+            : ''
+        }
+        onSaved={async () => {
+          await Promise.all([loadCore(), loadPrinting(true)]);
+        }}
+      />
     </Box>
   );
 }

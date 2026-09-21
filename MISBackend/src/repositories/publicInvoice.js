@@ -12,13 +12,18 @@ const publicInvoiceSchema = new mongoose.Schema(
     },
     // 'invoice'   → sale invoice built from an order
     // 'receipt'   → money-received / money-paid voucher built from a ledger transaction
-    // 'statement' → running account statement for one party over a date range
-    docType:     { type: String, enum: ['invoice', 'receipt', 'statement'], default: 'invoice', index: true },
+    // 'statement'      → running account statement for one party over a date range
+    // 'purchase_order' → vendor/freelancer purchase document using the invoice visual
+    docType:     { type: String, enum: ['invoice', 'receipt', 'statement', 'purchase_order'], default: 'invoice', index: true },
     // 'receipt' (money in) | 'payment' (money out) | 'journal' — only used when docType === 'receipt'
     voucherType: { type: String, default: '' },
     orderNumber: { type: String, default: '', index: true },
     partyName:   { type: String, default: '' },
     dateStr:     { type: String, default: '' },
+    documentTitle: { type: String, default: '' },
+    partyLabel:    { type: String, default: '' },
+    numberLabel:   { type: String, default: '' },
+    hidePaymentSection: { type: Boolean, default: false },
     // business profile snapshot at time of invoice
     storeName:    { type: String, default: '' },
     addressLines: { type: [String], default: [] },

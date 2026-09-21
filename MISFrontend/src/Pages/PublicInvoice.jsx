@@ -104,6 +104,10 @@ export default function PublicInvoice() {
         partyName={inv.partyName}
         items={inv.items || []}
         extraCharges={inv.extraCharges || []}
+        documentTitle={inv.documentTitle || (inv.docType === 'purchase_order' ? 'PURCHASE ORDER' : 'INVOICE')}
+        partyLabel={inv.partyLabel || (inv.docType === 'purchase_order' ? 'Vendor / Freelancer' : 'Bill To')}
+        numberLabel={inv.numberLabel || (inv.docType === 'purchase_order' ? 'PO No' : 'Invoice No')}
+        hidePaymentSection={Boolean(inv.hidePaymentSection || inv.docType === 'purchase_order')}
       />
     </Box>
   );

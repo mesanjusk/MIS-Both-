@@ -138,7 +138,7 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
   const orderNumbers = [...new Set(rawRows.map((row) => row.orderNumber).filter(Boolean))];
   const folderIds = rawRows.map((row) => row.folderId).filter(Boolean);
 
-  const [orders, payableParties, sourcePos] = await Promise.all([
+  const [orders, payableParties] = await Promise.all([
     orderNumbers.length
       ? Orders.find(
           { Order_Number: { $in: orderNumbers } },
@@ -155,24 +155,33 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
         Capabilities: 1,
       }
     ).lean(),
-    folderIds.length
-      ? PurchaseOrder.find(
-          { sourceDriveFolderId: { $in: folderIds } },
-          {
-            PO_uuid: 1,
-            PO_Number: 1,
-            Order_uuid: 1,
-            Vendor_uuid: 1,
-            Vendor_name: 1,
-            totalAmount: 1,
-            extraCharges: 1,
-            status: 1,
-            poDate: 1,
-            sourceDriveFolderId: 1,
-          }
-        ).lean()
-      : [],
   ]);
+
+  const orderUuids = [...new Set(orders.map((order) => order.Order_uuid).filter(Boolean))];
+  const poLookupClauses = [];
+  if (folderIds.length) poLookupClauses.push({ sourceDriveFolderId: { $in: folderIds } });
+  if (orderUuids.length) poLookupClauses.push({ Order_uuid: { $in: orderUuids } });
+
+  const sourcePos = poLookupClauses.length
+    ? await PurchaseOrder.find(
+        { $or: poLookupClauses },
+        {
+          PO_uuid: 1,
+          PO_Number: 1,
+          Order_uuid: 1,
+          Vendor_uuid: 1,
+          Vendor_name: 1,
+          Items: 1,
+          totalAmount: 1,
+          extraCharges: 1,
+          notes: 1,
+          status: 1,
+          poDate: 1,
+          expectedDelivery: 1,
+          sourceDriveFolderId: 1,
+        }
+      ).sort({ createdAt: -1 }).lean()
+    : [];
 
   const orderByNumber = new Map(orders.map((order) => [Number(order.Order_Number), order]));
   const partyByUuid = new Map(payableParties.map((party) => [party.Customer_uuid, party]));
@@ -181,7 +190,18 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
     const key = normalizePartyName(party.Customer_name);
     if (key && !partyByName.has(key)) partyByName.set(key, party);
   });
-  const poByFolder = new Map(sourcePos.map((po) => [po.sourceDriveFolderId, po]));
+  const poByFolder = new Map(
+    sourcePos
+      .filter((po) => po.sourceDriveFolderId)
+      .map((po) => [po.sourceDriveFolderId, po])
+  );
+  const poByOrderVendor = new Map();
+  sourcePos.forEach((po) => {
+    if (po.sourceDriveFolderId || !po.Order_uuid || !po.Vendor_uuid || po.status === 'cancelled') return;
+    const key = `${po.Order_uuid}|${po.Vendor_uuid}`;
+    if (!poByOrderVendor.has(key)) poByOrderVendor.set(key, []);
+    poByOrderVendor.get(key).push(po);
+  });
 
   const orderCustomerIds = [...new Set(orders.map((order) => order.Customer_uuid).filter(Boolean))];
   const orderCustomers = orderCustomerIds.length
@@ -194,8 +214,12 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
 
   const rows = rawRows.map((row) => {
     const order = row.orderNumber ? orderByNumber.get(Number(row.orderNumber)) : null;
-    const savedPo = poByFolder.get(row.folderId) || null;
     const parsedParty = row.vendorName ? partyByName.get(normalizePartyName(row.vendorName)) : null;
+    const exactSourcePo = poByFolder.get(row.folderId) || null;
+    const legacyCandidates = order?.Order_uuid && parsedParty?.Customer_uuid
+      ? (poByOrderVendor.get(`${order.Order_uuid}|${parsedParty.Customer_uuid}`) || [])
+      : [];
+    const savedPo = exactSourcePo || (legacyCandidates.length === 1 ? legacyCandidates[0] : null);
     const savedParty = savedPo?.Vendor_uuid ? partyByUuid.get(savedPo.Vendor_uuid) : null;
     const party = savedParty || parsedParty || null;
     const extras = (savedPo?.extraCharges || []).reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
@@ -214,6 +238,11 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       poUuid: savedPo?.PO_uuid || '',
       poNumber: savedPo?.PO_Number || null,
       poStatus: savedPo?.status || '',
+      poDate: savedPo?.poDate || null,
+      expectedDelivery: savedPo?.expectedDelivery || null,
+      poItems: Array.isArray(savedPo?.Items) ? savedPo.Items : [],
+      extraCharges: Array.isArray(savedPo?.extraCharges) ? savedPo.extraCharges : [],
+      notes: savedPo?.notes || '',
       invoiceValue,
       driveFolderUrl: `https://drive.google.com/drive/folders/${row.folderId}`,
     };

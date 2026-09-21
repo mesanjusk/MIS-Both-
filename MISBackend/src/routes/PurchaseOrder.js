@@ -320,9 +320,31 @@ router.post('/printing-invoice', async (req, res) => {
     const folderId = String(req.body.sourceDriveFolderId || '').trim();
     const folderName = String(req.body.sourceDriveFolderName || '').trim();
     const vendorUuid = String(req.body.Vendor_uuid || req.body.vendorUuid || '').trim();
+    const requestedPoUuid = String(req.body.poUuid || '').trim();
     const amount = toNumber(req.body.amount, 0);
     const orderNumber = toNumber(req.body.orderNumber, 0);
     const poDate = req.body.poDate ? new Date(req.body.poDate) : new Date();
+    const normalizedRequestItems = normalizeItems(req.body.Items || req.body.items || []);
+    const extraCharges = Array.isArray(req.body.extraCharges)
+      ? req.body.extraCharges
+          .filter((charge) => String(charge?.label || '').trim() && toNumber(charge?.amount, 0) > 0)
+          .map((charge) => ({
+            label: String(charge.label).trim(),
+            amount: toNumber(charge.amount, 0),
+          }))
+      : [];
+    const fallbackItems = amount > 0
+      ? [{
+          itemName: `Printing Invoice${orderNumber ? ` - Order #${orderNumber}` : ''}`,
+          qty: 1,
+          unit: 'Job',
+          rate: amount,
+          amount,
+        }]
+      : [];
+    const invoiceItems = normalizedRequestItems.length ? normalizedRequestItems : fallbackItems;
+    const invoiceTotal = calcPoTotal(invoiceItems)
+      + extraCharges.reduce((sum, charge) => sum + toNumber(charge.amount, 0), 0);
 
     if (!folderId) {
       return res.status(400).json({ success: false, message: 'Printing folder ID is required' });
@@ -330,8 +352,8 @@ router.post('/printing-invoice', async (req, res) => {
     if (!vendorUuid) {
       return res.status(400).json({ success: false, message: 'Vendor / freelancer is required' });
     }
-    if (!(amount > 0)) {
-      return res.status(400).json({ success: false, message: 'Invoice value must be greater than zero' });
+    if (!(invoiceTotal > 0)) {
+      return res.status(400).json({ success: false, message: 'Purchase invoice total must be greater than zero' });
     }
 
     const party = await resolvePayableParty(vendorUuid);
@@ -346,7 +368,22 @@ router.post('/printing-invoice', async (req, res) => {
       ? await Orders.findOne({ Order_Number: orderNumber }, { Order_uuid: 1, Order_Number: 1 }).lean()
       : null;
 
-    let po = await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+    let po = requestedPoUuid
+      ? await PurchaseOrder.findOne({ PO_uuid: requestedPoUuid })
+      : await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+
+    // Older Delivery-created POs predate sourceDriveFolderId. Reuse one only
+    // when the order+vendor match is unambiguous; otherwise create a new
+    // source-specific PO rather than guessing.
+    if (!po && order?.Order_uuid) {
+      const candidates = await PurchaseOrder.find({
+        Order_uuid: order.Order_uuid,
+        Vendor_uuid: party.Customer_uuid,
+        status: { $ne: 'cancelled' },
+      }).sort({ createdAt: -1 }).limit(2);
+      if (candidates.length === 1) po = candidates[0];
+    }
+
     const isNew = !po;
 
     if (!po) {
@@ -360,19 +397,22 @@ router.post('/printing-invoice', async (req, res) => {
     po.Order_uuid = order?.Order_uuid || po.Order_uuid || '';
     po.Vendor_uuid = party.Customer_uuid;
     po.Vendor_name = party.Customer_name;
-    po.Items = [{
-      itemName: `Printing Invoice${orderNumber ? ` - Order #${orderNumber}` : ''}`,
-      qty: 1,
-      unit: 'Job',
-      rate: amount,
-      amount,
-    }];
-    po.status = po.status === 'cancelled' ? 'draft' : (po.status || 'draft');
+    po.Items = invoiceItems;
+    po.extraCharges = extraCharges;
+    po.status = req.body.status && ['draft', 'sent', 'received'].includes(String(req.body.status).toLowerCase())
+      ? String(req.body.status).toLowerCase()
+      : (po.status === 'cancelled' ? 'draft' : (po.status || 'draft'));
     po.poDate = Number.isNaN(poDate.getTime()) ? new Date() : poDate;
+    if (req.body.expectedDelivery) {
+      const expected = new Date(req.body.expectedDelivery);
+      if (!Number.isNaN(expected.getTime())) po.expectedDelivery = expected;
+    }
     po.sourceType = 'drive_printing_folder';
     po.sourceDriveFolderId = folderId;
     po.sourceDriveFolderName = folderName;
-    po.notes = `Drive Printing folder: ${folderName || folderId}`;
+    po.notes = typeof req.body.notes !== 'undefined'
+      ? String(req.body.notes || '')
+      : (po.notes || `Drive Printing folder: ${folderName || folderId}`);
     po.createdBy = po.createdBy || String(req.user?.userName || '');
 
     const saved = await po.save();

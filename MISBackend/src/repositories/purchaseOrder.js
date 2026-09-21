@@ -29,7 +29,7 @@ const purchaseOrderSchema = new mongoose.Schema(
     notes: { type: String, default: '' },
     createdBy: { type: String, default: '' },
     sourceType: { type: String, default: '', index: true },
-    sourceDriveFolderId: { type: String, default: undefined, index: true },
+    sourceDriveFolderId: { type: String, default: undefined },
     sourceDriveFolderName: { type: String, default: '' },
   },
   { timestamps: true }

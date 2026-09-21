@@ -7,6 +7,7 @@ const pdfParse = require('pdf-parse');
 const BankStatement = require('../repositories/bankStatement');
 const DiaryDraft = require('../repositories/diaryDraft');
 const Transaction = require('../repositories/transaction');
+const Customer = require('../repositories/customer');
 const logger = require('../utils/logger');
 const { resolve: resolveAccount } = require('../services/accountRegistry');
 const {
@@ -399,6 +400,254 @@ async function autoMatchEntries(stmtEntries) {
   return stmtEntries;
 }
 
+// --------------- bank-ledger reconciliation helpers ---------------
+
+const normalizeLedgerName = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+function chooseBankLedgerDoc(statementAccountName, docs = []) {
+  const bankDocs = (docs || []).filter(
+    (doc) => doc?.Customer_uuid && doc?.Customer_name && !/cash/i.test(doc.Customer_name)
+  );
+  if (!bankDocs.length) return null;
+
+  const target = normalizeLedgerName(statementAccountName);
+  if (target) {
+    const exact = bankDocs.find((doc) => normalizeLedgerName(doc.Customer_name) === target);
+    if (exact) return exact;
+
+    const contains = bankDocs.find((doc) => {
+      const name = normalizeLedgerName(doc.Customer_name);
+      return name && target && (target.includes(name) || name.includes(target));
+    });
+    if (contains) return contains;
+  }
+
+  // Keep this fallback identical to DiaryDraft's behaviour: the first
+  // non-cash "Bank and Account" ledger is the default bank book.
+  return bankDocs[0];
+}
+
+async function resolveStatementBankLedger(stmt) {
+  if (stmt?.ledger_account_uuid) {
+    const resolved = await resolveAccount(stmt.ledger_account_uuid);
+    if (resolved.name && resolved.name !== resolved.uuid) {
+      if (!stmt.ledger_account_name) stmt.ledger_account_name = resolved.name;
+      return resolved;
+    }
+  }
+
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1, Customer_uuid: 1 }
+  ).lean();
+
+  const chosen = chooseBankLedgerDoc(stmt?.account_name, docs);
+  if (chosen) {
+    stmt.ledger_account_uuid = chosen.Customer_uuid;
+    stmt.ledger_account_name = chosen.Customer_name;
+    return { uuid: chosen.Customer_uuid, name: chosen.Customer_name };
+  }
+
+  // Safe fallback for installations that have not configured a dedicated bank
+  // ledger customer yet.
+  const fallback = await resolveAccount(SYSTEM_ACCOUNTS.BANK);
+  stmt.ledger_account_uuid = fallback.uuid;
+  stmt.ledger_account_name = fallback.name;
+  return fallback;
+}
+
+const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
+
+function lineMatchesAccount(line, identifiers = []) {
+  const candidates = identifiers
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+  const id = String(line?.Account_id || '').trim().toLowerCase();
+  const name = String(line?.Account_name || '').trim().toLowerCase();
+  return candidates.includes(id) || candidates.includes(name);
+}
+
+function transactionMatchesBankEntry(transaction, entry, bankLedger, assignedAcct) {
+  if (!transaction || !entry || !bankLedger || !assignedAcct) return false;
+
+  const source = String(transaction.Source || '');
+  if (source === BUSINESS_SOURCES.BANK_STATEMENT ||
+      source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+    return false;
+  }
+
+  const amount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
+  if (!(amount > 0)) return false;
+
+  const bankType = entry.direction === 'in' ? 'Debit' : 'Credit';
+  const counterType = entry.direction === 'in' ? 'Credit' : 'Debit';
+  const bankIds = [bankLedger.uuid, bankLedger.name];
+  const counterIds = [assignedAcct.uuid, assignedAcct.name, entry.account_assigned];
+
+  const lines = Array.isArray(transaction.Journal_entry) ? transaction.Journal_entry : [];
+  const bankLeg = lines.some((line) =>
+    lineMatchesAccount(line, bankIds) &&
+    String(line?.Type || '') === bankType &&
+    roundMoney(line?.Amount) === amount
+  );
+  const counterLeg = lines.some((line) =>
+    lineMatchesAccount(line, counterIds) &&
+    String(line?.Type || '') === counterType &&
+    roundMoney(line?.Amount) === amount
+  );
+
+  return bankLeg && counterLeg;
+}
+
+async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, excludeTransactionUuid }) {
+  const txnDate = entry?.txn_date ? new Date(entry.txn_date) : null;
+  if (!txnDate || Number.isNaN(txnDate.getTime())) {
+    return { transaction: null, ambiguous: false, matches: [] };
+  }
+
+  const dayStart = new Date(txnDate);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+  const dayTransactions = await Transaction.find({
+    Transaction_date: { $gte: dayStart, $lt: dayEnd },
+  }).sort({ Transaction_id: 1 }).lean();
+
+  let matches = dayTransactions.filter((txn) =>
+    String(txn.Transaction_uuid || '') !== String(excludeTransactionUuid || '') &&
+    transactionMatchesBankEntry(txn, entry, bankLedger, assignedAcct)
+  );
+
+  if (matches.length > 1 && entry.ref_no) {
+    const ref = String(entry.ref_no).replace(/\s+/g, '').toLowerCase();
+    const refMatches = matches.filter(
+      (txn) => String(txn.Upi_reference || '').replace(/\s+/g, '').toLowerCase() === ref
+    );
+    if (refMatches.length === 1) matches = refMatches;
+  }
+
+  return {
+    transaction: matches.length === 1 ? matches[0] : null,
+    ambiguous: matches.length > 1,
+    matches,
+  };
+}
+
+function diaryLinkFromSource(source) {
+  const match = String(source || '').match(/^diary:([^:]+):([^:]+)$/);
+  return match ? { diaryUuid: match[1], entryUuid: match[2] } : null;
+}
+
+async function ensureBankEntryInLedger({ stmt, entry, actor }) {
+  if (!entry?.account_assigned) {
+    return { mode: 'skipped', reason: 'missing_account' };
+  }
+
+  const amount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
+  if (!(amount > 0)) {
+    return { mode: 'skipped', reason: 'invalid_amount' };
+  }
+
+  const [bankLedger, assignedAcct] = await Promise.all([
+    resolveStatementBankLedger(stmt),
+    resolveAccount(entry.account_assigned),
+  ]);
+
+  if (assignedAcct.name === assignedAcct.uuid) {
+    throw Object.assign(
+      new Error(`Assigned account '${entry.account_assigned}' could not be resolved. Check Accounts/Customers.`),
+      { statusCode: 400 }
+    );
+  }
+
+  const currentTxn = entry.transaction_uuid
+    ? await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean()
+    : null;
+  const currentSource = String(currentTxn?.Source || '');
+  const currentIsBankOwned =
+    currentSource === BUSINESS_SOURCES.BANK_STATEMENT ||
+    currentSource.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`);
+
+  // If this statement row already points at a real Diary/manual transaction,
+  // trust that link. It is the same real-world payment, so do not post it twice.
+  if (currentTxn && !currentIsBankOwned) {
+    return { mode: 'linked', transaction: currentTxn, existing: true };
+  }
+
+  // Before creating or moving a bank-statement-owned posting, look for the
+  // same date + amount + direction + counter-account in the actual bank ledger.
+  // This catches rows that already exist from Diary/manual entry and prevents
+  // the duplicate hidden posting that caused the reported mismatch.
+  const candidate = await findExistingLedgerTransaction({
+    entry,
+    bankLedger,
+    assignedAcct,
+    excludeTransactionUuid: currentTxn?.Transaction_uuid,
+  });
+
+  if (candidate.transaction) {
+    if (currentTxn && currentIsBankOwned) {
+      await reverseAndDeleteTransaction({ Transaction_uuid: currentTxn.Transaction_uuid });
+    }
+
+    entry.entry_status = 'confirmed';
+    entry.transaction_uuid = candidate.transaction.Transaction_uuid;
+    entry.match_status = 'manual';
+    entry.matched_party = entry.account_assigned;
+
+    const diaryLink = diaryLinkFromSource(candidate.transaction.Source);
+    if (diaryLink) {
+      entry.matched_diary_uuid = diaryLink.diaryUuid;
+      entry.matched_diary_entry_uuid = diaryLink.entryUuid;
+    }
+
+    return { mode: 'linked', transaction: candidate.transaction, existing: true };
+  }
+
+  if (candidate.ambiguous) {
+    return {
+      mode: 'ambiguous',
+      matches: candidate.matches.map((txn) => ({
+        Transaction_uuid: txn.Transaction_uuid,
+        Transaction_id: txn.Transaction_id,
+      })),
+    };
+  }
+
+  const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
+  const common = {
+    amount,
+    paymentMode: 'Bank',
+    description: entry.description || entry.account_assigned,
+    transactionDate: entry.txn_date || new Date(),
+    createdBy: actor || 'bank_statement',
+    source,
+    reference: entry.ref_no || '',
+  };
+
+  const posting = entry.direction === 'in'
+    ? await upsertBalancedTransaction({
+        ...common,
+        debitAccount: bankLedger.uuid,
+        creditAccount: assignedAcct.uuid,
+      })
+    : await upsertBalancedTransaction({
+        ...common,
+        debitAccount: assignedAcct.uuid,
+        creditAccount: bankLedger.uuid,
+      });
+
+  entry.entry_status = 'confirmed';
+  entry.transaction_uuid = posting.transaction.Transaction_uuid;
+  return { mode: currentTxn ? 'reposted' : 'created', transaction: posting.transaction, existing: posting.existing };
+}
+
 // --------------- routes ---------------
 
 // POST /api/bank-statement/upload-pdf
@@ -600,10 +849,11 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
 
         const amount = Number(entry.credit > 0 ? entry.credit : entry.debit);
         const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
+        const bankLedger = await resolveStatementBankLedger(stmt);
         const posting = entry.direction === 'in'
           ? await upsertBalancedTransaction({
               amount,
-              debitAccount: SYSTEM_ACCOUNTS.BANK,
+              debitAccount: bankLedger.uuid,
               creditAccount: account_assigned,
               paymentMode: 'Bank',
               description: entry.description || account_assigned,
@@ -615,7 +865,7 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
           : await upsertBalancedTransaction({
               amount,
               debitAccount: account_assigned,
-              creditAccount: SYSTEM_ACCOUNTS.BANK,
+              creditAccount: bankLedger.uuid,
               paymentMode: 'Bank',
               description: entry.description || account_assigned,
               transactionDate: entry.txn_date || new Date(),
@@ -651,17 +901,9 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
     const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
     if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
 
-    if (entry.entry_status === 'confirmed' && entry.transaction_uuid) {
-      const existing = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean();
-      if (existing) {
-        return res.json({ success: true, message: 'Entry already confirmed', result: stmt });
-      }
-      entry.entry_status = 'pending';
-      entry.transaction_uuid = null;
-    }
-
-    // A bank row auto-matched to an already-confirmed Diary entry is the same
-    // real-world payment. Reuse that transaction instead of double-posting it.
+    // Prefer an already-confirmed Diary transaction when this row was matched to
+    // one. This path predates the generic transaction-level reconciliation below
+    // and keeps those explicit links authoritative.
     if (entry.matched_diary_uuid && entry.matched_diary_entry_uuid) {
       const diary = await DiaryDraft.findOne({ diary_uuid: entry.matched_diary_uuid }).lean();
       const diaryEntry = (diary?.entries || []).find(
@@ -670,8 +912,20 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
       if (diaryEntry?.transaction_uuid) {
         const diaryTxn = await Transaction.findOne({ Transaction_uuid: diaryEntry.transaction_uuid }).lean();
         if (diaryTxn) {
+          // Remove a stale bank-owned duplicate if an older confirmation created
+          // one before this Diary link was established.
+          if (entry.transaction_uuid && entry.transaction_uuid !== diaryTxn.Transaction_uuid) {
+            const oldTxn = await Transaction.findOne({ Transaction_uuid: entry.transaction_uuid }).lean();
+            const oldSource = String(oldTxn?.Source || '');
+            if (oldSource === BUSINESS_SOURCES.BANK_STATEMENT ||
+                oldSource.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+              await reverseAndDeleteTransaction({ Transaction_uuid: entry.transaction_uuid });
+            }
+          }
+
           entry.entry_status = 'confirmed';
           entry.transaction_uuid = diaryTxn.Transaction_uuid;
+          entry.match_status = entry.match_status === 'unmatched' ? 'manual' : entry.match_status;
           await stmt.save();
           return res.json({ success: true, message: 'Linked to matched Diary transaction', result: stmt });
         }
@@ -682,49 +936,70 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Assign an account before confirming' });
     }
 
-    const amount = Number(entry.credit > 0 ? entry.credit : entry.debit);
-    if (!(amount > 0)) {
-      return res.status(400).json({ success: false, message: 'Bank entry amount must be greater than zero' });
-    }
+    const ensured = await ensureBankEntryInLedger({
+      stmt,
+      entry,
+      actor: confirmed_by || req.user?.userName || 'bank_statement',
+    });
 
-    const assignedAcct = await resolveAccount(entry.account_assigned);
-    if (assignedAcct.name === assignedAcct.uuid) {
-      return res.status(400).json({
+    if (ensured.mode === 'ambiguous') {
+      return res.status(409).json({
         success: false,
-        message: `Assigned account '${entry.account_assigned}' could not be resolved. Check Accounts/Customers.`,
+        message: 'More than one matching ledger transaction was found. Review this row before confirming to avoid a duplicate.',
+        candidates: ensured.matches,
       });
     }
+    if (ensured.mode === 'skipped') {
+      return res.status(400).json({ success: false, message: 'Bank entry could not be posted to the ledger.' });
+    }
 
-    const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
-    const common = {
-      amount,
-      paymentMode: 'Bank',
-      description: entry.description || entry.account_assigned,
-      transactionDate: entry.txn_date || new Date(),
-      createdBy: confirmed_by || req.user?.userName || 'bank_statement',
-      source,
-      reference: entry.ref_no || '',
-    };
-
-    const posting = entry.direction === 'in'
-      ? await upsertBalancedTransaction({
-          ...common,
-          debitAccount: SYSTEM_ACCOUNTS.BANK,
-          creditAccount: assignedAcct.uuid,
-        })
-      : await upsertBalancedTransaction({
-          ...common,
-          debitAccount: assignedAcct.uuid,
-          creditAccount: SYSTEM_ACCOUNTS.BANK,
-        });
-
-    entry.entry_status = 'confirmed';
-    entry.transaction_uuid = posting.transaction.Transaction_uuid;
     await stmt.save();
+    const message = ensured.mode === 'linked'
+      ? 'Linked to existing ledger transaction'
+      : ensured.mode === 'reposted'
+      ? 'Confirmed entry repaired and posted to the bank ledger'
+      : 'Transaction created/linked';
 
-    return res.json({ success: true, message: 'Transaction created/linked', result: stmt });
+    return res.json({ success: true, message, result: stmt });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/:uuid/entry/:entryUuid/confirm');
+    return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
+  }
+});
+
+// POST /api/bank-statement/:uuid/sync-ledger
+// Idempotently repairs already-confirmed rows created before bank statements
+// were mapped to the real bank ledger. Existing Diary/manual transactions are
+// linked instead of duplicated; rows with no existing match are moved/created
+// in the configured bank ledger.
+router.post('/:uuid/sync-ledger', async (req, res) => {
+  try {
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const stats = { linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    for (const entry of stmt.entries || []) {
+      if (entry.entry_status !== 'confirmed') continue;
+
+      const result = await ensureBankEntryInLedger({
+        stmt,
+        entry,
+        actor: req.body?.synced_by || req.user?.userName || 'bank_statement_sync',
+      });
+
+      if (Object.prototype.hasOwnProperty.call(stats, result.mode)) stats[result.mode] += 1;
+      else stats.skipped += 1;
+    }
+
+    await stmt.save();
+    return res.json({
+      success: true,
+      message: 'Confirmed bank entries synchronized with the ledger',
+      result: stmt,
+      sync: stats,
+    });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/sync-ledger');
     return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
   }
 });
@@ -762,3 +1037,5 @@ module.exports.parseSbiCsv = parseSbiCsv;
 module.exports.parseSbiPdfText = parseSbiPdfText;
 module.exports.parseSbiTextFormat = parseSbiTextFormat;
 module.exports.autoMatchEntries = autoMatchEntries;
+module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
+module.exports.transactionMatchesBankEntry = transactionMatchesBankEntry;

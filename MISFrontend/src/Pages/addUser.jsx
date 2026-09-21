@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Chip, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import axios from '../apiClient.js';
 import { toast, ToastContainer } from '../Components';
 import { FullscreenAddFormLayout } from '../Components/ui';
@@ -18,6 +18,8 @@ export default function AddUser({ closeModal }) {
   const [User_group, setUser_Group] = useState('');
   const [Allowed_Task_Groups, setAllowed_Task_Groups] = useState([]);
   const [Capabilities, setCapabilities] = useState([]);
+  const [AccountID, setAccountID] = useState('');
+  const [accounts, setAccounts] = useState([]);
   const [groupOptions, setGroupOptions] = useState([]);
   const [taskGroupOptions, setTaskGroupOptions] = useState([]);
   const [passwordStrength, setPasswordStrength] = useState('');
@@ -37,6 +39,15 @@ export default function AddUser({ closeModal }) {
           const taskOptions = res.data.result.map((item) => item.Task_group);
           setTaskGroupOptions(taskOptions);
         }
+      });
+
+    axios.get('/api/accounts')
+      .then((res) => {
+        const rows = Array.isArray(res.data?.accounts) ? res.data.accounts : [];
+        setAccounts(rows.filter((account) => account?.Account_uuid && account?.Account_name));
+      })
+      .catch(() => {
+        setAccounts([]);
       });
   }, []);
 
@@ -83,6 +94,7 @@ export default function AddUser({ closeModal }) {
         Password,
         Mobile_number,
         User_group,
+        AccountID,
         Allowed_Task_Groups,
         Capabilities,
       });
@@ -142,6 +154,30 @@ export default function AddUser({ closeModal }) {
             placeholder="Mobile Number"
             size="small"
             sx={compactFieldSx}
+          />
+
+          <Autocomplete
+            options={accounts}
+            value={accounts.find((account) => account.Account_uuid === AccountID) || null}
+            onChange={(_event, account) => setAccountID(account?.Account_uuid || '')}
+            getOptionLabel={(account) =>
+              [account?.Account_name, account?.Account_group].filter(Boolean).join(' — ')
+            }
+            isOptionEqualToValue={(option, value) => option.Account_uuid === value.Account_uuid}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Linked Ledger Account"
+                placeholder="Search account name"
+                helperText={
+                  AccountID
+                    ? 'The account UUID is stored automatically; you do not need to copy it.'
+                    : 'Optional. Link the staff member to their ledger account.'
+                }
+                size="small"
+                sx={compactFieldSx}
+              />
+            )}
           />
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>

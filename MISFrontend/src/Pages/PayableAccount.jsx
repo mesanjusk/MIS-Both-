@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   Autocomplete,
   Box,
@@ -28,6 +29,8 @@ import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceW
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
@@ -71,13 +74,20 @@ export default function PayableAccount() {
   const [selectedDate, setSelectedDate] = useState(todayISO);
   const [parties, setParties] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [printingRows, setPrintingRows] = useState([]);
+  const [printingDates, setPrintingDates] = useState([]);
   const [partyFilter, setPartyFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [balanceFilter, setBalanceFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [printingLoading, setPrintingLoading] = useState(false);
   const [error, setError] = useState('');
+  const [printingError, setPrintingError] = useState('');
+  const [invoiceDrafts, setInvoiceDrafts] = useState({});
+  const [vendorDrafts, setVendorDrafts] = useState({});
+  const [savingFolderId, setSavingFolderId] = useState('');
 
-  const load = useCallback(async () => {
+  const loadCore = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -105,9 +115,52 @@ export default function PayableAccount() {
     }
   }, []);
 
+  const loadPrinting = useCallback(async (refresh = false) => {
+    setPrintingLoading(true);
+    setPrintingError('');
+    try {
+      const res = await axios.get('/api/vendors/printing-payables', {
+        params: {
+          ...(selectedDate ? { date: selectedDate } : {}),
+          ...(refresh ? { refresh: true } : {}),
+        },
+      });
+
+      const rows = res.data?.success && Array.isArray(res.data.result) ? res.data.result : [];
+      const dates = res.data?.success && Array.isArray(res.data.dates) ? res.data.dates : [];
+      setPrintingRows(rows);
+      setPrintingDates(dates);
+
+      const nextInvoiceDrafts = {};
+      const nextVendorDrafts = {};
+      rows.forEach((row) => {
+        nextInvoiceDrafts[row.folderId] = Number(row.invoiceValue || 0) > 0
+          ? String(Number(row.invoiceValue || 0))
+          : '';
+        nextVendorDrafts[row.folderId] = row.vendorUuid || '';
+      });
+      setInvoiceDrafts(nextInvoiceDrafts);
+      setVendorDrafts(nextVendorDrafts);
+    } catch (err) {
+      setPrintingRows([]);
+      setPrintingDates([]);
+      setPrintingError(
+        err?.response?.data?.message
+        || err.message
+        || 'Could not load Daily Work Printing folders'
+      );
+    } finally {
+      setPrintingLoading(false);
+    }
+  }, [selectedDate]);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    loadCore();
+  }, [loadCore]);
+
+  useEffect(() => {
+    loadPrinting(false);
+  }, [loadPrinting]);
 
   const partyById = useMemo(() => {
     const map = {};
@@ -189,36 +242,65 @@ export default function PayableAccount() {
     [allLedgerRows, filteredPartyIds]
   );
 
-  const selectedRows = useMemo(() => {
+  const selectedLedgerRows = useMemo(() => {
     if (!selectedDate) return relevantAllRows;
     return relevantAllRows.filter((row) => row.date === selectedDate);
   }, [relevantAllRows, selectedDate]);
 
-  const creditRows = useMemo(
-    () => selectedRows.filter((row) => row.type === 'Credit'),
-    [selectedRows]
-  );
-
   const debitRows = useMemo(
-    () => selectedRows.filter((row) => row.type === 'Debit'),
-    [selectedRows]
+    () => selectedLedgerRows.filter((row) => row.type === 'Debit'),
+    [selectedLedgerRows]
   );
 
-  const availableDates = useMemo(() => {
-    const dates = new Set(allLedgerRows.map((row) => row.date).filter(Boolean));
-    return Array.from(dates).sort((a, b) => b.localeCompare(a));
-  }, [allLedgerRows]);
+  const visiblePrintingRows = useMemo(() => {
+    return printingRows.filter((row) => {
+      const vendorId = vendorDrafts[row.folderId] || row.vendorUuid || '';
+      const party = vendorId ? partyById[vendorId] : null;
+
+      if (partyFilter && vendorId !== partyFilter) return false;
+      if (typeFilter !== 'all') {
+        if (!party || party.kind !== typeFilter) return false;
+      }
+      if (balanceFilter !== 'all') {
+        if (!vendorId) return false;
+        const bal = currentBalanceByParty[vendorId] || { debit: 0, credit: 0 };
+        const due = bal.credit - bal.debit;
+        if (balanceFilter === 'due' && !(due > 0)) return false;
+        if (balanceFilter === 'advance' && !(due < 0)) return false;
+        if (balanceFilter === 'settled' && !(Math.abs(due) < 0.005)) return false;
+      }
+      return true;
+    });
+  }, [
+    printingRows,
+    vendorDrafts,
+    partyById,
+    partyFilter,
+    typeFilter,
+    balanceFilter,
+    currentBalanceByParty,
+  ]);
+
+  const availableDates = useMemo(
+    () => printingDates.map((item) => item.date).filter(Boolean),
+    [printingDates]
+  );
 
   const dateCountMap = useMemo(() => {
     const map = {};
-    allLedgerRows.forEach((row) => {
-      if (row.date) map[row.date] = (map[row.date] || 0) + 1;
+    printingDates.forEach((item) => {
+      if (item?.date) map[item.date] = Number(item.count || 0);
     });
     return map;
-  }, [allLedgerRows]);
+  }, [printingDates]);
+
+  const totalPrintingFolders = useMemo(
+    () => printingDates.reduce((sum, item) => sum + Number(item.count || 0), 0),
+    [printingDates]
+  );
 
   const totals = useMemo(() => {
-    const added = creditRows.reduce((sum, row) => sum + row.amount, 0);
+    const added = visiblePrintingRows.reduce((sum, row) => sum + Number(row.invoiceValue || 0), 0);
     const paid = debitRows.reduce((sum, row) => sum + row.amount, 0);
     const currentDue = filteredParties.reduce((sum, party) => {
       const bal = currentBalanceByParty[party.Vendor_uuid] || { debit: 0, credit: 0 };
@@ -227,12 +309,12 @@ export default function PayableAccount() {
 
     return {
       parties: filteredParties.length,
+      printingJobs: visiblePrintingRows.length,
       added,
       paid,
-      movement: added - paid,
       currentDue,
     };
-  }, [creditRows, debitRows, filteredParties, currentBalanceByParty]);
+  }, [visiblePrintingRows, debitRows, filteredParties, currentBalanceByParty]);
 
   const selectedParty = useMemo(
     () => parties.find((party) => party.Vendor_uuid === partyFilter) || null,
@@ -254,19 +336,92 @@ export default function PayableAccount() {
     });
   };
 
-  const exportRows = useMemo(
-    () => selectedRows.map((row) => ({
+  const savePrintingInvoice = async (row) => {
+    const vendorUuid = vendorDrafts[row.folderId] || row.vendorUuid || '';
+    const amount = Number(invoiceDrafts[row.folderId] || 0);
+
+    if (!vendorUuid) {
+      toast.error('Select the vendor / freelancer first.');
+      return;
+    }
+    if (!(amount > 0)) {
+      toast.error('Enter an invoice value greater than zero.');
+      return;
+    }
+
+    setSavingFolderId(row.folderId);
+    try {
+      const res = await axios.post('/api/purchaseorder/printing-invoice', {
+        sourceDriveFolderId: row.folderId,
+        sourceDriveFolderName: row.folderName,
+        Vendor_uuid: vendorUuid,
+        amount,
+        orderNumber: row.orderNumber || null,
+        poDate: row.date || selectedDate || todayISO,
+      });
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'Could not save invoice value');
+      }
+
+      toast.success(row.poUuid ? 'Printing invoice updated.' : 'Printing invoice added to payable ledger.');
+
+      setPrintingRows((prev) => prev.map((item) => (
+        item.folderId === row.folderId
+          ? {
+              ...item,
+              vendorUuid,
+              vendorName: partyById[vendorUuid]?.Vendor_name || item.vendorName,
+              vendorMatched: true,
+              invoiceValue: amount,
+              poUuid: res.data?.result?.PO_uuid || item.poUuid,
+              poNumber: res.data?.result?.PO_Number || item.poNumber,
+              poStatus: res.data?.result?.status || item.poStatus,
+            }
+          : item
+      )));
+
+      await loadCore();
+      // Refresh Drive + PO enrichment so a page reload within the cache window
+      // still sees the newly saved invoice immediately.
+      await loadPrinting(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || 'Could not save printing invoice');
+    } finally {
+      setSavingFolderId('');
+    }
+  };
+
+  const refreshAll = () => {
+    loadCore();
+    loadPrinting(true);
+  };
+
+  const exportRows = useMemo(() => {
+    const printing = visiblePrintingRows.map((row) => ({
+      Date: fmtDate(row.date),
+      Party: partyById[vendorDrafts[row.folderId] || row.vendorUuid]?.Vendor_name || row.vendorName || row.parsedVendorName || 'Unmapped',
+      Type: kindLabel(partyKind(partyById[vendorDrafts[row.folderId] || row.vendorUuid] || {})),
+      Side: 'Payable Added / Printing',
+      Description: row.folderName,
+      'Order No': row.orderNumber || '',
+      Customer: row.customerName || '',
+      Amount: Number(row.invoiceValue || 0),
+    }));
+
+    const payments = debitRows.map((row) => ({
       Date: fmtDate(row.date),
       Party: row.partyName,
       Type: kindLabel(row.partyKind),
-      Side: row.type === 'Credit' ? 'Payable Added' : 'Paid / Adjusted',
+      Side: 'Paid / Adjusted',
       Description: row.description,
       'Order No': row.orderNumber || '',
-      Mode: row.paymentMode,
+      Customer: '',
       Amount: row.amount,
-    })),
-    [selectedRows]
-  );
+    }));
+
+    return [...printing, ...payments];
+  }, [visiblePrintingRows, debitRows, partyById, vendorDrafts]);
 
   const exportExcel = async () => {
     const XLSX = await import('xlsx');
@@ -288,7 +443,7 @@ export default function PayableAccount() {
     autoTable(doc, {
       startY: 20,
       styles: { fontSize: 8 },
-      head: [['Date', 'Party', 'Type', 'Side', 'Description', 'Order', 'Mode', 'Amount']],
+      head: [['Date', 'Party', 'Type', 'Side', 'Description', 'Order', 'Customer', 'Amount']],
       body: exportRows.map((row) => [
         row.Date,
         row.Party,
@@ -296,14 +451,14 @@ export default function PayableAccount() {
         row.Side,
         row.Description,
         row['Order No'],
-        row.Mode,
+        row.Customer,
         money(row.Amount),
       ]),
     });
     doc.save(`payable-account-${selectedDate || 'all'}.pdf`);
   };
 
-  const renderRows = (rows, emptyText) => (
+  const renderPaymentRows = (rows) => (
     <TableContainer sx={{ maxHeight: '58vh' }}>
       <Table size="small" stickyHeader>
         <TableHead>
@@ -319,7 +474,7 @@ export default function PayableAccount() {
           {!rows.length ? (
             <TableRow>
               <TableCell colSpan={selectedDate ? 4 : 5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                {emptyText}
+                No payment or adjustment entries found for this selection.
               </TableCell>
             </TableRow>
           ) : (
@@ -330,17 +485,12 @@ export default function PayableAccount() {
                   <Typography variant="body2" fontWeight={700} color="primary.main">
                     {row.partyName}
                   </Typography>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Chip
-                      size="small"
-                      label={kindLabel(row.partyKind)}
-                      variant="outlined"
-                      sx={{ height: 18, fontSize: 9.5 }}
-                    />
-                    {row.mobile ? (
-                      <Typography variant="caption" color="text.secondary">{row.mobile}</Typography>
-                    ) : null}
-                  </Stack>
+                  <Chip
+                    size="small"
+                    label={kindLabel(row.partyKind)}
+                    variant="outlined"
+                    sx={{ height: 18, fontSize: 9.5 }}
+                  />
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2" noWrap sx={{ maxWidth: 190 }}>{row.description}</Typography>
@@ -368,9 +518,9 @@ export default function PayableAccount() {
         onSelectDate={setSelectedDate}
         availableDates={availableDates}
         dateCountMap={dateCountMap}
-        allCount={allLedgerRows.length}
-        loading={loading}
-        countLabel="entries"
+        allCount={totalPrintingFolders}
+        loading={printingLoading}
+        countLabel="printing jobs"
         formatDate={fmtDate}
       />
 
@@ -384,7 +534,7 @@ export default function PayableAccount() {
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h5" fontWeight={900} noWrap>Payable Account</Typography>
             <Typography variant="body2" color="text.secondary">
-              {selectedLabel} · vendors, freelancers and contractors
+              {selectedLabel} · Daily Work / Printing folders + payable ledger
             </Typography>
           </Box>
 
@@ -424,24 +574,14 @@ export default function PayableAccount() {
             getOptionLabel={(option) => option?.Vendor_name || ''}
             isOptionEqualToValue={(option, value) => option.Vendor_uuid === value.Vendor_uuid}
             sx={{ width: { xs: '100%', lg: 190 } }}
-            renderOption={(props, option) => (
-              <li {...props} key={option.Vendor_uuid}>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="body2">{option.Vendor_name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {kindLabel(partyKind(option))}
-                  </Typography>
-                </Box>
-              </li>
-            )}
             renderInput={(params) => (
               <TextField {...params} label="Vendor / Freelancer" placeholder="All parties" />
             )}
           />
 
-          <Tooltip title="Refresh payable accounts">
-            <IconButton size="small" onClick={load} disabled={loading}>
-              {loading ? <CircularProgress size={17} /> : <RefreshRoundedIcon fontSize="small" />}
+          <Tooltip title="Refresh Drive Printing folders and ledger">
+            <IconButton size="small" onClick={refreshAll} disabled={loading || printingLoading}>
+              {loading || printingLoading ? <CircularProgress size={17} /> : <RefreshRoundedIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
 
@@ -453,7 +593,7 @@ export default function PayableAccount() {
                 size="small"
                 startIcon={<PictureAsPdfRoundedIcon />}
                 onClick={exportPdf}
-                disabled={!selectedRows.length}
+                disabled={!exportRows.length}
                 sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
               >
                 PDF
@@ -463,7 +603,7 @@ export default function PayableAccount() {
                 size="small"
                 startIcon={<FileDownloadRoundedIcon />}
                 onClick={exportExcel}
-                disabled={!selectedRows.length}
+                disabled={!exportRows.length}
                 sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
               >
                 Excel
@@ -483,7 +623,7 @@ export default function PayableAccount() {
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
           {[
-            { label: 'Parties', value: totals.parties, color: 'text.primary', Icon: GroupsRoundedIcon },
+            { label: 'Printing Jobs', value: totals.printingJobs, color: 'text.primary', Icon: GroupsRoundedIcon },
             { label: 'Payable Added', value: money(totals.added), color: 'error.dark', Icon: TrendingUpRoundedIcon },
             { label: 'Paid / Adjusted', value: money(totals.paid), color: 'success.dark', Icon: PaymentsRoundedIcon },
             { label: 'Current Due', value: money(totals.currentDue), color: 'warning.dark', Icon: AccountBalanceWalletRoundedIcon },
@@ -503,18 +643,26 @@ export default function PayableAccount() {
         </Stack>
 
         {error ? (
-          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, textAlign: 'center' }}>
+          <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, textAlign: 'center', mb: 1 }}>
             <Typography color="error.main">{error}</Typography>
           </Paper>
-        ) : (
-          <Stack direction={{ xs: 'column', xl: 'row' }} spacing={2} alignItems="flex-start">
-            <Paper variant="outlined" sx={{ borderRadius: 3, flex: 1, minWidth: 0, width: '100%', overflow: 'hidden' }}>
-              <Stack
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
-              >
+        ) : null}
+
+        {printingError ? (
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 1 }}>
+            <Typography color="error.main">{printingError}</Typography>
+          </Paper>
+        ) : null}
+
+        <Stack direction={{ xs: 'column', xl: 'row' }} spacing={2} alignItems="flex-start">
+          <Paper variant="outlined" sx={{ borderRadius: 3, flex: 1.15, minWidth: 0, width: '100%', overflow: 'hidden' }}>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
+            >
+              <Box>
                 <Typography
                   variant="subtitle2"
                   fontWeight={700}
@@ -523,20 +671,172 @@ export default function PayableAccount() {
                 >
                   Payable Added (IN)
                 </Typography>
-                <Typography variant="subtitle2" fontWeight={700} color="error.dark">
-                  {money(totals.added)}
+                <Typography variant="caption" color="text.secondary">
+                  Daily Work → date → Printing folders
                 </Typography>
-              </Stack>
-              {renderRows(creditRows, 'No payable entries found for this selection.')}
-            </Paper>
+              </Box>
+              <Typography variant="subtitle2" fontWeight={700} color="error.dark">
+                {money(totals.added)}
+              </Typography>
+            </Stack>
 
-            <Paper variant="outlined" sx={{ borderRadius: 3, flex: 1, minWidth: 0, width: '100%', overflow: 'hidden' }}>
-              <Stack
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
-              >
+            <TableContainer sx={{ maxHeight: '58vh' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    {!selectedDate && <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>}
+                    <TableCell sx={{ fontWeight: 700, width: 70 }}>Order</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Vendor / Freelancer</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 48 }}>Drive</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Invoice Value</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 70 }}>Save</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {printingLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={selectedDate ? 6 : 7} align="center" sx={{ py: 5 }}>
+                        <CircularProgress size={24} />
+                      </TableCell>
+                    </TableRow>
+                  ) : visiblePrintingRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={selectedDate ? 6 : 7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                        No Printing folders found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ''}.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    visiblePrintingRows.map((row) => {
+                      const selectedVendorId = vendorDrafts[row.folderId] || row.vendorUuid || '';
+                      const selectedVendor = parties.find((party) => party.Vendor_uuid === selectedVendorId) || null;
+                      const draftAmount = invoiceDrafts[row.folderId] ?? '';
+                      const changed = Number(draftAmount || 0) !== Number(row.invoiceValue || 0)
+                        || selectedVendorId !== (row.vendorUuid || '');
+
+                      return (
+                        <TableRow key={row.folderId} hover>
+                          {!selectedDate && <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</TableCell>}
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={800}>
+                              {row.orderNumber ? `#${row.orderNumber}` : '—'}
+                            </Typography>
+                            {!row.orderUuid ? (
+                              <Typography variant="caption" color="warning.dark">No MIS order</Typography>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <Autocomplete
+                              size="small"
+                              options={parties}
+                              value={selectedVendor}
+                              onChange={(_event, value) => {
+                                setVendorDrafts((prev) => ({
+                                  ...prev,
+                                  [row.folderId]: value?.Vendor_uuid || '',
+                                }));
+                              }}
+                              getOptionLabel={(option) => option?.Vendor_name || ''}
+                              isOptionEqualToValue={(option, value) => option.Vendor_uuid === value.Vendor_uuid}
+                              sx={{ minWidth: 155 }}
+                              renderInput={(params) => (
+                                <TextField
+                                  {...params}
+                                  placeholder={row.parsedVendorName || 'Select party'}
+                                  error={!selectedVendorId}
+                                  helperText={
+                                    !row.vendorMatched && row.parsedVendorName
+                                      ? `Folder: ${row.parsedVendorName}`
+                                      : ''
+                                  }
+                                />
+                              )}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title={row.folderName}>
+                              <Box>
+                                <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
+                                  {row.customerName || '—'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 150, display: 'block' }}>
+                                  {row.folderName}
+                                </Typography>
+                              </Box>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title="Open Printing job folder in Google Drive">
+                              <IconButton
+                                size="small"
+                                component="a"
+                                href={row.driveFolderUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <OpenInNewRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell align="right">
+                            <TextField
+                              size="small"
+                              type="number"
+                              value={draftAmount}
+                              onChange={(e) => {
+                                setInvoiceDrafts((prev) => ({
+                                  ...prev,
+                                  [row.folderId]: e.target.value,
+                                }));
+                              }}
+                              inputProps={{ min: 0, step: '0.01' }}
+                              placeholder="₹0"
+                              sx={{ width: 105 }}
+                            />
+                            {row.poNumber ? (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                PO #{row.poNumber}
+                              </Typography>
+                            ) : null}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title={row.poUuid ? 'Update invoice value' : 'Add invoice value to payable ledger'}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color={row.poUuid ? 'primary' : 'success'}
+                                  disabled={
+                                    savingFolderId === row.folderId
+                                    || !selectedVendorId
+                                    || !(Number(draftAmount || 0) > 0)
+                                    || (!changed && Boolean(row.poUuid))
+                                  }
+                                  onClick={() => savePrintingInvoice(row)}
+                                >
+                                  {savingFolderId === row.folderId
+                                    ? <CircularProgress size={18} />
+                                    : <SaveRoundedIcon fontSize="small" />}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ borderRadius: 3, flex: 0.85, minWidth: 0, width: '100%', overflow: 'hidden' }}>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}
+            >
+              <Box>
                 <Typography
                   variant="subtitle2"
                   fontWeight={700}
@@ -545,14 +845,17 @@ export default function PayableAccount() {
                 >
                   Payments / Adjustments (OUT)
                 </Typography>
-                <Typography variant="subtitle2" fontWeight={700} color="success.dark">
-                  {money(totals.paid)}
+                <Typography variant="caption" color="text.secondary">
+                  Actual payable-account ledger debits
                 </Typography>
-              </Stack>
-              {renderRows(debitRows, 'No payment or adjustment entries found for this selection.')}
-            </Paper>
-          </Stack>
-        )}
+              </Box>
+              <Typography variant="subtitle2" fontWeight={700} color="success.dark">
+                {money(totals.paid)}
+              </Typography>
+            </Stack>
+            {renderPaymentRows(debitRows)}
+          </Paper>
+        </Stack>
       </Box>
     </Box>
   );

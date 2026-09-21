@@ -196,6 +196,15 @@ export default function NetworkFileSettings() {
               <Button variant="outlined" startIcon={<FolderOpenRoundedIcon />} onClick={testOpen}>
                 Test Open Folder
               </Button>
+              <Button
+                variant="text"
+                component="a"
+                href="https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download Windows Opener
+              </Button>
             </Stack>
           </Stack>
         )}

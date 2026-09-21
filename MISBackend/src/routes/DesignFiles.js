@@ -1527,14 +1527,13 @@ router.post('/confirm-final', canManageDesignFiles, async (req, res) => {
   try {
     const {
       fileId, fileName, customerUuid, itemDetails, mobileNumber, orderMode, items,
-      fromArchive, stage, assigneeId, extraCharges,
+      fromArchive, assigneeId, extraCharges,
     } = req.body || {};
-    // Stage is picked in the confirm dialog; the old fromArchive default is
-    // still what applies when nothing was chosen.
-    const requestedStage = String(stage || '').trim();
-    const initialStage = ORDER_STAGES.includes(requestedStage)
-      ? requestedStage
-      : (fromArchive ? 'print' : 'new_design');
+    // Final confirmation is the single gate that creates the real MIS order.
+    // Before this point the Design Board only tracks a draft Drive file.
+    // A confirmed Final therefore enters MIS directly at Print; it must never
+    // re-enter the earlier design stages as a dashboard order.
+    const initialStage = 'print';
 
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });

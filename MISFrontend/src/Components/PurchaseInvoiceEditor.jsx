@@ -380,6 +380,7 @@ export default function PurchaseInvoiceEditor({
         items={previewItems}
         extraCharges={extraCharges}
         customerMobile={selectedVendor?.Mobile_number || ''}
+        docType="purchase_order"
         documentTitle="PURCHASE ORDER"
         partyLabel="Vendor / Freelancer"
         numberLabel="PO No"

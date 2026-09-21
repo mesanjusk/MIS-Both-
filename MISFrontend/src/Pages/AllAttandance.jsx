@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FaWhatsapp } from "react-icons/fa";
 import {
   Box,
   Card,
@@ -281,7 +280,6 @@ export default function AllAttandance() {
         </Table>
       </TableContainer>
 
-      <Box sx={{ display: "none" }}><FaWhatsapp /></Box>
     </Box>
   );
 }

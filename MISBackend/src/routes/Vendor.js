@@ -298,7 +298,17 @@ router.get('/payable-parties', async (_req, res) => {
   try {
     const parties = await Customers.find(
       { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP },
-      { Customer_uuid: 1, Customer_name: 1, Mobile_number: 1 }
+      {
+        Customer_uuid: 1,
+        Customer_name: 1,
+        Mobile_number: 1,
+        Customer_group: 1,
+        Tags: 1,
+        PartyRoles: 1,
+        Capabilities: 1,
+        Opening_balance: 1,
+        Opening_balance_type: 1,
+      }
     ).sort({ Customer_name: 1 }).lean();
 
     res.json({
@@ -307,6 +317,12 @@ router.get('/payable-parties', async (_req, res) => {
         Vendor_uuid: c.Customer_uuid,
         Vendor_name: c.Customer_name,
         Mobile_number: c.Mobile_number || '',
+        Customer_group: c.Customer_group || 'Account Payable',
+        Tags: Array.isArray(c.Tags) ? c.Tags : [],
+        PartyRoles: Array.isArray(c.PartyRoles) ? c.PartyRoles : [],
+        Capabilities: Array.isArray(c.Capabilities) ? c.Capabilities : [],
+        Opening_balance: Number(c.Opening_balance || 0),
+        Opening_balance_type: c.Opening_balance_type || 'debit',
       })),
     });
   } catch (error) {

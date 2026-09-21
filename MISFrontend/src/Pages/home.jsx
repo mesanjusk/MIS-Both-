@@ -9,6 +9,7 @@ import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
+import RequestQuoteRoundedIcon from '@mui/icons-material/RequestQuoteRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import { useAuth } from '../context/AuthContext';
@@ -20,6 +21,7 @@ const loadAllTransaction4D = () => import('../Reports/allTransaction4D');
 const loadAllDelivery = () => import('../Reports/allDelivery');
 const loadAllBills = () => import('../Reports/allBills');
 const loadAllAttandance = () => import('./AllAttandance');
+const loadPayableAccount = () => import('./PayableAccount');
 const loadRateCalculator = () => import('./RateCalculator');
 const loadDayBook = () => import('./DayBook');
 const loadOrderLedger = () => import('./OrderLedger');
@@ -30,6 +32,7 @@ const AllTransaction4D = lazy(loadAllTransaction4D);
 const AllDelivery = lazy(loadAllDelivery);
 const AllBills = lazy(loadAllBills);
 const AllAttandance = lazy(loadAllAttandance);
+const PayableAccount = lazy(loadPayableAccount);
 const RateCalculator = lazy(loadRateCalculator);
 const DayBook = lazy(loadDayBook);
 const OrderLedger = lazy(loadOrderLedger);
@@ -44,6 +47,7 @@ const HOME_TABS = [
   { id: 'delivery', label: 'Delivery', icon: LocalShippingRoundedIcon, Component: AllDelivery },
   { id: 'bills', label: 'Bills', icon: ReceiptLongRoundedIcon, Component: AllBills },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AllAttandance },
+  { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
@@ -56,6 +60,7 @@ const HOME_TAB_PRELOADERS = [
   loadAllDelivery,
   loadAllBills,
   loadAllAttandance,
+  loadPayableAccount,
   loadRateCalculator,
   loadDayBook,
 ];
@@ -90,12 +95,17 @@ export default function Home() {
   const [mountedTabs, setMountedTabs] = useState(() => new Set([storedHomeTab()]));
 
   const visibleTabs = useMemo(() => {
+    const accountVisibleTabs = HOME_TABS.filter(
+      (tab) => !tab.requiresAccounts || permissions?.canViewAccounts !== false
+    );
+
     const configured = permissions?.allowedWidgets || [];
-    if (!configured.length) return HOME_TABS;
+    if (!configured.length) return accountVisibleTabs;
+
     const allowed = new Set(configured.map((id) => LEGACY_HOME_TAB_IDS[id] || id));
-    const filtered = HOME_TABS.filter((tab) => allowed.has(tab.id));
-    return filtered.length ? filtered : HOME_TABS;
-  }, [permissions?.allowedWidgets]);
+    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id));
+    return filtered.length ? filtered : accountVisibleTabs;
+  }, [permissions?.allowedWidgets, permissions?.canViewAccounts]);
 
   /* Init user — no artificial loading delay. */
   useEffect(() => {

@@ -24,6 +24,11 @@ const bankStatementEntrySchema = new mongoose.Schema({
 const BankStatementSchema = new mongoose.Schema({
   statement_uuid: { type: String, required: true, unique: true },
   account_name:   { type: String, default: '' },
+  // The actual MIS ledger account represented by this imported bank statement.
+  // Older rows may not have this yet; BankStatement routes infer it from the
+  // configured "Bank and Account" ledgers and persist the choice on first use.
+  ledger_account_uuid: { type: String, default: '' },
+  ledger_account_name: { type: String, default: '' },
   uploaded_by:    { type: String, default: '' },
   period_start:   { type: Date },
   period_end:     { type: Date },

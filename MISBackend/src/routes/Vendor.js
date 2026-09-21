@@ -29,6 +29,7 @@ const {
   reverseAndDeleteTransaction,
 } = require('../services/accountingPostingService');
 const logger = require('../utils/logger');
+const { verifyPrintingWorkflowIdentity } = require('../services/workflowIdentityService');
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -1250,6 +1251,23 @@ router.get('/production-jobs', async (req, res) => {
 
 router.post('/production-jobs', async (req, res) => {
   try {
+    const requestedCategory = req.body.job_category || 'post_printing';
+    const workflowFolderId = String(req.body.driveFileId || req.body.drive_file_id || '').trim();
+
+    // Payable Account creates post-press jobs from a specific Printing folder.
+    // Before saving any cost, verify that folder belongs to the same confirmed
+    // Final file and MIS order. Post-press vendor may differ from printer, so
+    // this is a core order/folder check only — it never rewrites printer identity.
+    if (requestedCategory === 'post_printing' && workflowFolderId) {
+      await verifyPrintingWorkflowIdentity({
+        orderNumber: req.body.order_number,
+        orderUuid: req.body.order_uuid,
+        folderId: workflowFolderId,
+        canonicalizeVendor: false,
+        assignedBy: req.user?.userName || 'System',
+      });
+    }
+
     const linkedOrders = Array.isArray(req.body.linkedOrders)
       ? req.body.linkedOrders.map((entry) => ({
           orderUuid: entry.orderUuid || entry.order_uuid || '',
@@ -1263,7 +1281,7 @@ router.post('/production-jobs', async (req, res) => {
       : [];
 
     const { job: created } = await upsertVendorJob({
-      jobCategory: req.body.job_category || 'post_printing',
+      jobCategory: requestedCategory,
       jobUuid: req.body.job_uuid || req.body.jobUuid,
       jobType: req.body.job_type,
       jobMode: req.body.job_mode || 'jobwork_only',
@@ -1339,7 +1357,11 @@ router.post('/production-jobs', async (req, res) => {
     res.json({ success: true, result: created });
   } catch (error) {
     logger.error('Failed to create production job', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || undefined,
+      message: error.message,
+    });
   }
 });
 

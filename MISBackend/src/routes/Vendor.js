@@ -8,6 +8,7 @@ const VendorLedger = require('../repositories/vendorLedger');
 const Transaction = require('../repositories/transaction');
 const ProductionJob = require('../repositories/productionJob');
 const PurchaseOrder = require('../repositories/purchaseOrder');
+const PublicInvoice = require('../repositories/publicInvoice');
 const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
@@ -183,6 +184,55 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       ).sort({ createdAt: -1 }).lean()
     : [];
 
+  const postPressJobs = orderUuids.length
+    ? await ProductionJob.find({
+        job_category: 'post_printing',
+        status: { $ne: 'cancelled' },
+        $or: [
+          { order_uuid: { $in: orderUuids } },
+          { 'linkedOrders.orderUuid': { $in: orderUuids } },
+        ],
+      }).sort({ createdAt: 1 }).lean()
+    : [];
+
+  const postPressDocNumbers = postPressJobs
+    .map((job) => job.job_number ? `PPJ-${job.job_number}` : '')
+    .filter(Boolean);
+
+  const postPressDocs = postPressDocNumbers.length
+    ? await PublicInvoice.find(
+        { docType: 'purchase_order', orderNumber: { $in: postPressDocNumbers } },
+        { orderNumber: 1, shareToken: 1, cloudinaryUrl: 1 }
+      ).lean()
+    : [];
+  const postPressDocByNumber = new Map(
+    postPressDocs.map((doc) => [String(doc.orderNumber), doc])
+  );
+
+  const postPressJobsByOrder = new Map();
+  postPressJobs.forEach((job) => {
+    const jobOrders = new Set();
+    if (job.order_uuid) jobOrders.add(job.order_uuid);
+    (job.linkedOrders || []).forEach((link) => {
+      if (link?.orderUuid) jobOrders.add(link.orderUuid);
+    });
+
+    const doc = job.job_number
+      ? postPressDocByNumber.get(`PPJ-${job.job_number}`)
+      : null;
+    const enriched = {
+      ...job,
+      documentGenerated: Boolean(doc),
+      documentShareToken: doc?.shareToken || '',
+      documentPdfUrl: doc?.cloudinaryUrl || '',
+    };
+
+    jobOrders.forEach((orderUuid) => {
+      if (!postPressJobsByOrder.has(orderUuid)) postPressJobsByOrder.set(orderUuid, []);
+      postPressJobsByOrder.get(orderUuid).push(enriched);
+    });
+  });
+
   const orderByNumber = new Map(orders.map((order) => [Number(order.Order_Number), order]));
   const partyByUuid = new Map(payableParties.map((party) => [party.Customer_uuid, party]));
   const partyByName = new Map();
@@ -224,6 +274,16 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
     const party = savedParty || parsedParty || null;
     const extras = (savedPo?.extraCharges || []).reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
     const invoiceValue = Number(savedPo?.totalAmount || 0) + extras;
+    const postPressJobsForOrder = order?.Order_uuid
+      ? (postPressJobsByOrder.get(order.Order_uuid) || [])
+      : [];
+    const postPressTotal = postPressJobsForOrder.reduce(
+      (sum, job) => sum + Number(job.jobValue || 0),
+      0
+    );
+    const postPressCompleted = postPressJobsForOrder.filter(
+      (job) => job.status === 'completed'
+    ).length;
 
     return {
       ...row,
@@ -244,6 +304,10 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       extraCharges: Array.isArray(savedPo?.extraCharges) ? savedPo.extraCharges : [],
       notes: savedPo?.notes || '',
       invoiceValue,
+      postPressJobs: postPressJobsForOrder,
+      postPressTotal,
+      postPressCount: postPressJobsForOrder.length,
+      postPressCompleted,
       driveFolderUrl: `https://drive.google.com/drive/folders/${row.folderId}`,
     };
   });
@@ -813,7 +877,7 @@ router.get('/production-jobs/by-order/:orderUuid', async (req, res) => {
 
 router.put('/production-jobs/:jobUuid/status', async (req, res) => {
   try {
-    const valid = ['draft', 'in_progress', 'completed', 'cancelled'];
+    const valid = ['draft', 'sent', 'in_progress', 'completed', 'cancelled'];
     const status = String(req.body.status || '').toLowerCase();
     if (!valid.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
@@ -958,6 +1022,7 @@ router.post('/production-jobs', async (req, res) => {
 
     const { job: created } = await upsertVendorJob({
       jobCategory: req.body.job_category || 'post_printing',
+      jobUuid: req.body.job_uuid || req.body.jobUuid,
       jobType: req.body.job_type,
       jobMode: req.body.job_mode || 'jobwork_only',
       vendorUuid: req.body.vendor_uuid,
@@ -976,6 +1041,7 @@ router.post('/production-jobs', async (req, res) => {
       otherCharges: toNumber(req.body.otherCharges, 0),
       notes: String(req.body.notes || ''),
       createdBy: String(req.body.createdBy || ''),
+      driveFileId: String(req.body.driveFileId || req.body.drive_file_id || ''),
       postAccountingBill: false,
       referenceType: 'production_job',
     });

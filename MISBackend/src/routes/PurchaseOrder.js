@@ -10,6 +10,7 @@ const Accounts      = require('../repositories/accounts');
 const VendorMaster  = require('../repositories/vendorMaster');
 const VendorLedger  = require('../repositories/vendorLedger');
 const Customers     = require('../repositories/customer');
+const Orders        = require('../repositories/order');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const logger = require('../utils/logger');
 const {
@@ -21,6 +22,7 @@ const {
   BUSINESS_SOURCES,
 } = require('../services/accountingPostingService');
 const { updateBalancesForJournal, reverseBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
+const { verifyPrintingWorkflowIdentity } = require('../services/workflowIdentityService');
 
 /**
  * Resolve or auto-create a vendor-specific payable account (Liability / credit-normal).
@@ -364,13 +366,32 @@ router.post('/printing-invoice', async (req, res) => {
       });
     }
 
-    const order = orderNumber
-      ? await Orders.findOne({ Order_Number: orderNumber }, { Order_uuid: 1, Order_Number: 1 }).lean()
-      : null;
+    const identity = await verifyPrintingWorkflowIdentity({
+      orderNumber,
+      folderId,
+      vendorUuid: party.Customer_uuid,
+      canonicalizeVendor: true,
+      assignedBy: req.user?.userName || 'System',
+    });
+    const order = identity.order;
+    const canonicalFolderName = identity.printingFolderName;
 
     let po = requestedPoUuid
       ? await PurchaseOrder.findOne({ PO_uuid: requestedPoUuid })
       : await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+
+    if (po?.Order_uuid && po.Order_uuid !== order.Order_uuid) {
+      const err = new Error('This purchase order belongs to a different MIS order.');
+      err.code = 'PO_ORDER_MISMATCH';
+      err.statusCode = 409;
+      throw err;
+    }
+    if (po?.sourceDriveFolderId && po.sourceDriveFolderId !== folderId) {
+      const err = new Error('This purchase order belongs to a different Printing folder.');
+      err.code = 'PO_PRINTING_FOLDER_MISMATCH';
+      err.statusCode = 409;
+      throw err;
+    }
 
     // Older Delivery-created POs predate sourceDriveFolderId. Reuse one only
     // when the order+vendor match is unambiguous; otherwise create a new
@@ -409,10 +430,10 @@ router.post('/printing-invoice', async (req, res) => {
     }
     po.sourceType = 'drive_printing_folder';
     po.sourceDriveFolderId = folderId;
-    po.sourceDriveFolderName = folderName;
+    po.sourceDriveFolderName = canonicalFolderName || folderName;
     po.notes = typeof req.body.notes !== 'undefined'
       ? String(req.body.notes || '')
-      : (po.notes || `Drive Printing folder: ${folderName || folderId}`);
+      : (po.notes || `Drive Printing folder: ${canonicalFolderName || folderName || folderId}`);
     po.createdBy = po.createdBy || String(req.user?.userName || '');
 
     const saved = await po.save();
@@ -440,10 +461,22 @@ router.post('/printing-invoice', async (req, res) => {
       success: true,
       created: isNew,
       result: saved,
+      workflowIdentity: {
+        verified: true,
+        finalFileName: identity.finalFileName,
+        printingFolderName: canonicalFolderName,
+        orderNumber: order.Order_Number,
+        customerName: identity.customer?.Customer_name || '',
+        vendorName: party.Customer_name,
+      },
     });
   } catch (error) {
     logger.error('Printing invoice upsert failed', error);
-    return res.status(500).json({ success: false, message: error.message || 'Could not save printing invoice' });
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || undefined,
+      message: error.message || 'Could not save printing invoice',
+    });
   }
 });
 

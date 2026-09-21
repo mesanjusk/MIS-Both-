@@ -9,6 +9,7 @@ const Transaction = require('../repositories/transaction');
 const ProductionJob = require('../repositories/productionJob');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const PublicInvoice = require('../repositories/publicInvoice');
+const DesignFileLink = require('../repositories/DesignFileLink');
 const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
@@ -28,6 +29,7 @@ const {
   reverseAndDeleteTransaction,
 } = require('../services/accountingPostingService');
 const logger = require('../utils/logger');
+const { verifyPrintingWorkflowIdentity } = require('../services/workflowIdentityService');
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -67,6 +69,27 @@ function parsePrintingFolderName(name = '') {
   const vendorName = tail.slice(0, splitAt).trim();
   const customerName = tail.slice(splitAt + separator[0].length).trim();
   return { orderNumber, vendorName, customerName, raw };
+}
+
+function extractLeadingOrderNumber(name = '') {
+  const match = String(name || '').trim().match(/^(\d+)(?:\s|[-_])/);
+  return match ? Number(match[1]) : null;
+}
+
+function samePartyName(a, b) {
+  const left = normalizePartyName(a);
+  const right = normalizePartyName(b);
+  return Boolean(left && right && left === right);
+}
+
+function nameContainsParty(fullName, partyName) {
+  const full = normalizePartyName(fullName);
+  const party = normalizePartyName(partyName);
+  return Boolean(full && party && full.includes(party));
+}
+
+function auditCheck(key, label, ok, detail = '', severity = 'block') {
+  return { key, label, ok: Boolean(ok), detail: String(detail || ''), severity };
 }
 
 function dateKeyFromFolderName(name = '') {
@@ -136,6 +159,14 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
   });
 
   const rawRows = rowGroups.flat();
+  const printingFolderCountByOrder = new Map();
+  rawRows.forEach((row) => {
+    if (!row.orderNumber) return;
+    printingFolderCountByOrder.set(
+      Number(row.orderNumber),
+      (printingFolderCountByOrder.get(Number(row.orderNumber)) || 0) + 1
+    );
+  });
   const orderNumbers = [...new Set(rawRows.map((row) => row.orderNumber).filter(Boolean))];
   const folderIds = rawRows.map((row) => row.folderId).filter(Boolean);
 
@@ -170,6 +201,34 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
   });
 
   const orderUuids = [...new Set(orders.map((order) => order.Order_uuid).filter(Boolean))];
+
+  const finalLinks = orderUuids.length
+    ? await DesignFileLink.find(
+        { orderUuid: { $in: orderUuids }, linkStatus: 'confirmed' },
+        {
+          driveFileId: 1,
+          fileName: 1,
+          stageNumber: 1,
+          linkStatus: 1,
+          orderUuid: 1,
+          orderNumber: 1,
+          customerUuid: 1,
+          customerName: 1,
+          assignedTo: 1,
+          assignedToName: 1,
+          printFolderId: 1,
+          updatedAt: 1,
+        }
+      ).sort({ updatedAt: -1 }).lean()
+    : [];
+
+  const finalLinkByOrder = new Map();
+  finalLinks.forEach((link) => {
+    const current = finalLinkByOrder.get(link.orderUuid);
+    if (!current || (link.stageNumber === 5 && current.stageNumber !== 5)) {
+      finalLinkByOrder.set(link.orderUuid, link);
+    }
+  });
   const poLookupClauses = [];
   if (folderIds.length) poLookupClauses.push({ sourceDriveFolderId: { $in: folderIds } });
   if (orderUuids.length) poLookupClauses.push({ Order_uuid: { $in: orderUuids } });
@@ -302,6 +361,172 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       (job) => job.status === 'completed'
     ).length;
 
+    const finalLink = order?.Order_uuid ? finalLinkByOrder.get(order.Order_uuid) || null : null;
+    const dashboardCustomerName = order?.Customer_uuid
+      ? (customerNameByUuid.get(order.Customer_uuid) || '')
+      : '';
+    const finalFileOrderNumber = finalLink?.fileName
+      ? extractLeadingOrderNumber(finalLink.fileName)
+      : null;
+    const duplicatePrintingFolders = row.orderNumber
+      ? (printingFolderCountByOrder.get(Number(row.orderNumber)) || 0)
+      : 0;
+
+    const folderLinkMissing = Boolean(finalLink && !finalLink.printFolderId);
+    const folderLinkMismatch = Boolean(
+      finalLink?.printFolderId && finalLink.printFolderId !== row.folderId
+    );
+    const poOrderMismatch = Boolean(
+      savedPo?.Order_uuid && order?.Order_uuid && savedPo.Order_uuid !== order.Order_uuid
+    );
+    const poFolderMissing = Boolean(savedPo && !savedPo.sourceDriveFolderId);
+    const poFolderMismatch = Boolean(
+      savedPo?.sourceDriveFolderId && savedPo.sourceDriveFolderId !== row.folderId
+    );
+
+    const badPostPressOrder = postPressJobsForOrder.some((job) => {
+      const linked = new Set([
+        job.order_uuid,
+        ...(job.linkedOrders || []).map((link) => link?.orderUuid),
+      ].filter(Boolean));
+      return order?.Order_uuid && linked.size > 0 && !linked.has(order.Order_uuid);
+    });
+    const badPostPressFolder = postPressJobsForOrder.some(
+      (job) => job.driveFileId && job.driveFileId !== row.folderId
+    );
+    const legacyPostPressFolder = postPressJobsForOrder.some((job) => !job.driveFileId);
+
+    const checks = [
+      auditCheck(
+        'mis_order',
+        'MIS order',
+        Boolean(order?.Order_uuid && Number(order.Order_Number) === Number(row.orderNumber)),
+        order ? `Order #${order.Order_Number}` : 'No dashboard order matches this Printing folder.'
+      ),
+      auditCheck(
+        'confirmed_final',
+        'Final folder',
+        Boolean(finalLink && finalLink.stageNumber === 5 && finalLink.linkStatus === 'confirmed'),
+        finalLink
+          ? `Final: ${finalLink.fileName || 'linked file'}`
+          : 'No confirmed Final file is linked to this order.'
+      ),
+      auditCheck(
+        'final_order_number',
+        'Final order number',
+        Boolean(order && finalFileOrderNumber === Number(order.Order_Number)),
+        finalFileOrderNumber
+          ? `Final file starts with #${finalFileOrderNumber}`
+          : 'Final file is not carrying the MIS order number.'
+      ),
+      auditCheck(
+        'final_customer',
+        'Final customer',
+        Boolean(
+          order
+          && finalLink
+          && finalLink.customerUuid === order.Customer_uuid
+          && nameContainsParty(finalLink.fileName, dashboardCustomerName)
+        ),
+        dashboardCustomerName
+          ? `Customer: ${dashboardCustomerName}`
+          : 'Dashboard customer could not be resolved.'
+      ),
+      auditCheck(
+        'printing_order_number',
+        'Printing order number',
+        Boolean(order && Number(row.orderNumber) === Number(order.Order_Number)),
+        `Printing folder: ${row.folderName}`
+      ),
+      auditCheck(
+        'printing_customer',
+        'Printing customer',
+        Boolean(dashboardCustomerName && samePartyName(row.customerName, dashboardCustomerName)),
+        dashboardCustomerName
+          ? `Expected customer: ${dashboardCustomerName}`
+          : 'Customer is missing from the dashboard order.'
+      ),
+      auditCheck(
+        'printing_folder_link',
+        'Final ↔ Printing folder link',
+        Boolean(finalLink?.printFolderId === row.folderId),
+        folderLinkMismatch
+          ? 'The Final record points to a different Printing folder.'
+          : folderLinkMissing
+            ? 'Legacy link: Printing folder ID is not recorded yet.'
+            : 'Same Drive folder ID is recorded from Final to Printing.',
+        folderLinkMismatch ? 'block' : 'warn'
+      ),
+      auditCheck(
+        'single_printing_folder',
+        'One Printing folder per order',
+        duplicatePrintingFolders <= 1,
+        duplicatePrintingFolders > 1
+          ? `${duplicatePrintingFolders} Printing folders use Order #${row.orderNumber}.`
+          : 'No duplicate Printing folder detected.'
+      ),
+      auditCheck(
+        'printing_vendor',
+        'Printing vendor',
+        Boolean(party && samePartyName(row.vendorName, party.Customer_name)),
+        party
+          ? `Vendor: ${party.Customer_name}`
+          : 'Folder vendor does not match an active Account Payable party.',
+        'warn'
+      ),
+      auditCheck(
+        'po_order',
+        'Purchase order ↔ MIS order',
+        !poOrderMismatch,
+        savedPo
+          ? (poOrderMismatch ? 'PO is linked to a different MIS order.' : `PO #${savedPo.PO_Number}`)
+          : 'No PO yet — this check will apply when the invoice is created.'
+      ),
+      auditCheck(
+        'po_printing_folder',
+        'PO ↔ Printing folder',
+        !poFolderMismatch && (!savedPo || Boolean(savedPo.sourceDriveFolderId)),
+        poFolderMismatch
+          ? 'PO is linked to a different Printing folder.'
+          : poFolderMissing
+            ? 'Legacy PO: Printing folder ID will be attached on next save.'
+            : savedPo
+              ? 'PO uses this same Printing folder.'
+              : 'No PO yet.',
+        poFolderMismatch ? 'block' : 'warn'
+      ),
+      auditCheck(
+        'post_press_order',
+        'Post Press ↔ MIS order',
+        !badPostPressOrder,
+        badPostPressOrder
+          ? 'A post-press job points to a different order.'
+          : `${postPressJobsForOrder.length} post-press job(s) use this order.`
+      ),
+      auditCheck(
+        'post_press_folder',
+        'Post Press ↔ Printing folder',
+        !badPostPressFolder && !legacyPostPressFolder,
+        badPostPressFolder
+          ? 'A post-press job points to a different Printing folder.'
+          : legacyPostPressFolder
+            ? 'Legacy post-press job has no Printing folder ID.'
+            : 'All post-press jobs use this Printing folder.',
+        badPostPressFolder ? 'block' : 'warn'
+      ),
+    ];
+
+    const blockingIssues = checks.filter((check) => !check.ok && check.severity === 'block');
+    const warnings = checks.filter((check) => !check.ok && check.severity !== 'block');
+    const audit = {
+      status: blockingIssues.length ? 'blocked' : warnings.length ? 'warning' : 'verified',
+      verified: blockingIssues.length === 0 && warnings.length === 0,
+      canCreateFinancials: blockingIssues.length === 0,
+      checks,
+      blockingIssues: blockingIssues.map((check) => check.label),
+      warnings: warnings.map((check) => check.label),
+    };
+
     return {
       ...row,
       orderUuid: order?.Order_uuid || savedPo?.Order_uuid || '',
@@ -325,6 +550,7 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       postPressTotal,
       postPressCount: postPressJobsForOrder.length,
       postPressCompleted,
+      audit,
       driveFolderUrl: `https://drive.google.com/drive/folders/${row.folderId}`,
     };
   });
@@ -899,15 +1125,32 @@ router.put('/production-jobs/:jobUuid/status', async (req, res) => {
     if (!valid.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
+
+    const existing = await ProductionJob.findOne({ job_uuid: req.params.jobUuid }).lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'Job not found' });
+
+    if (existing.job_category === 'post_printing' && existing.driveFileId) {
+      await verifyPrintingWorkflowIdentity({
+        orderNumber: existing.order_number,
+        orderUuid: existing.order_uuid,
+        folderId: existing.driveFileId,
+        canonicalizeVendor: false,
+        assignedBy: req.user?.userName || 'System',
+      });
+    }
+
     const updated = await ProductionJob.findOneAndUpdate(
       { job_uuid: req.params.jobUuid },
       { $set: { status } },
       { new: true }
     );
-    if (!updated) return res.status(404).json({ success: false, message: 'Job not found' });
     res.json({ success: true, result: updated });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || undefined,
+      message: error.message,
+    });
   }
 });
 
@@ -1025,6 +1268,23 @@ router.get('/production-jobs', async (req, res) => {
 
 router.post('/production-jobs', async (req, res) => {
   try {
+    const requestedCategory = req.body.job_category || 'post_printing';
+    const workflowFolderId = String(req.body.driveFileId || req.body.drive_file_id || '').trim();
+
+    // Payable Account creates post-press jobs from a specific Printing folder.
+    // Before saving any cost, verify that folder belongs to the same confirmed
+    // Final file and MIS order. Post-press vendor may differ from printer, so
+    // this is a core order/folder check only — it never rewrites printer identity.
+    if (requestedCategory === 'post_printing' && workflowFolderId) {
+      await verifyPrintingWorkflowIdentity({
+        orderNumber: req.body.order_number,
+        orderUuid: req.body.order_uuid,
+        folderId: workflowFolderId,
+        canonicalizeVendor: false,
+        assignedBy: req.user?.userName || 'System',
+      });
+    }
+
     const linkedOrders = Array.isArray(req.body.linkedOrders)
       ? req.body.linkedOrders.map((entry) => ({
           orderUuid: entry.orderUuid || entry.order_uuid || '',
@@ -1038,7 +1298,7 @@ router.post('/production-jobs', async (req, res) => {
       : [];
 
     const { job: created } = await upsertVendorJob({
-      jobCategory: req.body.job_category || 'post_printing',
+      jobCategory: requestedCategory,
       jobUuid: req.body.job_uuid || req.body.jobUuid,
       jobType: req.body.job_type,
       jobMode: req.body.job_mode || 'jobwork_only',
@@ -1114,7 +1374,11 @@ router.post('/production-jobs', async (req, res) => {
     res.json({ success: true, result: created });
   } catch (error) {
     logger.error('Failed to create production job', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || undefined,
+      message: error.message,
+    });
   }
 });
 

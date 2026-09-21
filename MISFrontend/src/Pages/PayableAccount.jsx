@@ -36,12 +36,17 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import BuildRoundedIcon from '@mui/icons-material/BuildRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import ErrorRoundedIcon from '@mui/icons-material/ErrorRounded';
+import VerifiedUserRoundedIcon from '@mui/icons-material/VerifiedUserRounded';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 import ExportGuard from '../Components/ExportGuard';
 import PurchaseInvoiceEditor from '../Components/PurchaseInvoiceEditor';
 import PostPressJobsPanel from '../Components/PostPressJobsPanel';
+import WorkflowAuditDialog from '../Components/WorkflowAuditDialog';
 import {
   copyPathToClipboard,
   joinWindowsPath,
@@ -102,6 +107,7 @@ export default function PayableAccount() {
   const [localShareRoot, setLocalShareRoot] = useState('');
   const [invoiceEditorRow, setInvoiceEditorRow] = useState(null);
   const [expandedPostPress, setExpandedPostPress] = useState({});
+  const [auditRow, setAuditRow] = useState(null);
 
   const loadCore = useCallback(async () => {
     setLoading(true);
@@ -335,6 +341,18 @@ export default function PayableAccount() {
     balanceFilter,
     currentBalanceByParty,
   ]);
+
+  const auditSummary = useMemo(() => {
+    return visiblePrintingRows.reduce(
+      (acc, row) => {
+        if (row.audit?.status === 'verified') acc.verified += 1;
+        else if (row.audit?.status === 'warning') acc.warning += 1;
+        else if (row.audit?.status === 'blocked') acc.blocked += 1;
+        return acc;
+      },
+      { verified: 0, warning: 0, blocked: 0 }
+    );
+  }, [visiblePrintingRows]);
 
   const availableDates = useMemo(
     () => printingDates.map((item) => item.date).filter(Boolean),
@@ -709,6 +727,27 @@ export default function PayableAccount() {
             )}
           />
 
+          <Tooltip
+            title={`Workflow audit · ${auditSummary.verified} verified · ${auditSummary.warning} warning · ${auditSummary.blocked} blocked`}
+          >
+            <Badge
+              badgeContent={auditSummary.blocked || auditSummary.warning || 0}
+              color={auditSummary.blocked ? 'error' : 'warning'}
+              invisible={!auditSummary.blocked && !auditSummary.warning}
+            >
+              <VerifiedUserRoundedIcon
+                sx={{
+                  fontSize: 20,
+                  color: auditSummary.blocked
+                    ? 'error.main'
+                    : auditSummary.warning
+                      ? 'warning.main'
+                      : 'success.main',
+                }}
+              />
+            </Badge>
+          </Tooltip>
+
           <Tooltip title="Refresh Drive Printing folders and ledger">
             <IconButton size="small" onClick={refreshAll} disabled={loading || printingLoading}>
               {loading || printingLoading ? <CircularProgress size={17} /> : <RefreshRoundedIcon fontSize="small" />}
@@ -868,6 +907,7 @@ export default function PayableAccount() {
                       const postPressCount = Number(row.postPressCount || 0);
                       const postPressCompleted = Number(row.postPressCompleted || 0);
                       const postPressTotal = Number(row.postPressTotal || 0);
+                      const auditBlocked = row.audit?.canCreateFinancials === false;
 
                       return (
                         <Fragment key={row.folderId}>
@@ -878,9 +918,35 @@ export default function PayableAccount() {
                             </TableCell>
                           )}
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                            <Typography variant="body2" fontWeight={800} lineHeight={1.1}>
-                              {row.orderNumber ? `#${row.orderNumber}` : '—'}
-                            </Typography>
+                            <Stack direction="row" spacing={0.35} alignItems="center">
+                              <Typography variant="body2" fontWeight={800} lineHeight={1.1}>
+                                {row.orderNumber ? `#${row.orderNumber}` : '—'}
+                              </Typography>
+                              <Tooltip
+                                title={
+                                  row.audit?.status === 'verified'
+                                    ? '3-way workflow verified'
+                                    : row.audit?.status === 'warning'
+                                      ? 'Workflow verified with warnings — click to audit'
+                                      : 'Workflow mismatch — click to audit'
+                                }
+                              >
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setAuditRow(row)}
+                                  sx={{ width: 22, height: 22, p: 0 }}
+                                  aria-label="open workflow audit"
+                                >
+                                  {row.audit?.status === 'verified' ? (
+                                    <CheckCircleRoundedIcon sx={{ fontSize: 15, color: 'success.main' }} />
+                                  ) : row.audit?.status === 'warning' ? (
+                                    <WarningAmberRoundedIcon sx={{ fontSize: 15, color: 'warning.main' }} />
+                                  ) : (
+                                    <ErrorRoundedIcon sx={{ fontSize: 15, color: 'error.main' }} />
+                                  )}
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
                             {!row.orderUuid ? (
                               <Tooltip title="No MIS order matched">
                                 <Typography variant="caption" color="warning.dark">!</Typography>
@@ -932,9 +998,11 @@ export default function PayableAccount() {
                           <TableCell align="center" sx={{ p: 0.25 }}>
                             <Tooltip
                               title={
-                                postPressCount
-                                  ? `Post Press: ${postPressCompleted}/${postPressCount} complete · ${money(postPressTotal)}`
-                                  : 'Add post-press service'
+                                auditBlocked
+                                  ? 'Workflow audit blocked — fix Final / Printing / MIS identity first'
+                                  : postPressCount
+                                    ? `Post Press: ${postPressCompleted}/${postPressCount} complete · ${money(postPressTotal)}`
+                                    : 'Add post-press service'
                               }
                             >
                               <span>
@@ -944,7 +1012,7 @@ export default function PayableAccount() {
                                     ...prev,
                                     [row.folderId]: !prev[row.folderId],
                                   }))}
-                                  disabled={!row.orderUuid}
+                                  disabled={!row.orderUuid || auditBlocked}
                                   color={postPressCount && postPressCompleted === postPressCount ? 'success' : 'primary'}
                                   sx={{
                                     width: 30,
@@ -1019,6 +1087,7 @@ export default function PayableAccount() {
                                     sx={{ width: 28, height: 28 }}
                                     disabled={
                                       savingFolderId === row.folderId
+                                      || auditBlocked
                                       || !selectedVendorId
                                       || !(Number(draftAmount || 0) > 0)
                                       || (!changed && Boolean(row.poUuid))
@@ -1044,13 +1113,19 @@ export default function PayableAccount() {
                             ) : null}
                           </TableCell>
                           <TableCell align="center" sx={{ p: 0.25 }}>
-                            <Tooltip title={row.poUuid ? 'Edit printing invoice' : 'Create printing invoice'}>
+                            <Tooltip
+                              title={
+                                auditBlocked
+                                  ? 'Workflow audit blocked — fix Final / Printing / MIS identity first'
+                                  : row.poUuid ? 'Edit printing invoice' : 'Create printing invoice'
+                              }
+                            >
                               <span>
                                 <IconButton
                                   size="small"
                                   color={row.poUuid ? 'primary' : 'success'}
                                   onClick={() => openPurchaseInvoiceEditor(row)}
-                                  disabled={!selectedVendorId}
+                                  disabled={!selectedVendorId || auditBlocked}
                                   sx={{
                                     width: 30,
                                     height: 30,
@@ -1072,7 +1147,7 @@ export default function PayableAccount() {
                             colSpan={selectedDate ? 7 : 8}
                             sx={{ p: 0, borderBottom: isPostPressOpen ? undefined : 0 }}
                           >
-                            <Collapse in={isPostPressOpen} timeout="auto" unmountOnExit>
+                            <Collapse in={isPostPressOpen && !auditBlocked} timeout="auto" unmountOnExit>
                               <PostPressJobsPanel
                                 row={row}
                                 parties={parties}
@@ -1121,6 +1196,12 @@ export default function PayableAccount() {
           </Paper>
         </Stack>
       </Box>
+
+      <WorkflowAuditDialog
+        open={Boolean(auditRow)}
+        onClose={() => setAuditRow(null)}
+        row={auditRow}
+      />
 
       <PurchaseInvoiceEditor
         open={Boolean(invoiceEditorRow)}

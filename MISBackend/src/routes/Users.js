@@ -194,14 +194,16 @@ router.put("/updateUser/:id", requireAuth, requireAdminOrOwner, async (req, res)
   const { User_name, Password, Mobile_number, User_group, Allowed_Task_Groups, Capabilities, AccountID } = req.body;
 
   try {
-    const cleanAccountId = await validateUserAccountLink(AccountID, id);
+    const hasAccountIdUpdate = Object.prototype.hasOwnProperty.call(req.body, 'AccountID');
     const updatePayload = {
       User_name,
       Mobile_number,
       User_group,
       Allowed_Task_Groups,
-      AccountID: cleanAccountId,
     };
+    if (hasAccountIdUpdate) {
+      updatePayload.AccountID = await validateUserAccountLink(AccountID, id);
+    }
     if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
     if (Password) {
@@ -322,8 +324,11 @@ router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => 
   const { User_name, Mobile_number, User_group, Allowed_Task_Groups, Capabilities, AccountID } = req.body;
 
   try {
-    const cleanAccountId = await validateUserAccountLink(AccountID, id);
-    const updatePayload = { User_name, Mobile_number, User_group, Allowed_Task_Groups, AccountID: cleanAccountId };
+    const hasAccountIdUpdate = Object.prototype.hasOwnProperty.call(req.body, 'AccountID');
+    const updatePayload = { User_name, Mobile_number, User_group, Allowed_Task_Groups };
+    if (hasAccountIdUpdate) {
+      updatePayload.AccountID = await validateUserAccountLink(AccountID, id);
+    }
     if (Array.isArray(Capabilities)) updatePayload.Capabilities = Capabilities;
 
     // As in /updateUser/:id — a demotion has to take effect immediately.
@@ -362,7 +367,7 @@ router.put('/update/:id', requireAuth, requireAdminOrOwner, async (req, res) => 
 // Used by Attendance so an unmapped staff member can be linked without editing
 // unrelated profile fields.
 router.patch('/link-account/:userUuid', requireAuth, requireAdminOrOwner, validate({
-  body: z.object({ AccountID: z.string().optional() }),
+  body: z.object({ AccountID: z.string() }),
 }), async (req, res) => {
   const { userUuid } = req.params;
 

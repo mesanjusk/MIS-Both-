@@ -689,7 +689,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const grandTotal = itemsTotal + chargesTotal;
 
   const handleSubmit = async () => {
-    if (!customer) return;
+    if (!customer || !assigneeId) return;
     const isDetailed = orderMode === 'items';
     if (!isDetailed && !noteText.trim()) return;
     if (isDetailed && !items.some((r) => r.itemName.trim())) return;
@@ -741,7 +741,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
     return c.Customer_name?.toLowerCase().includes(q) || c.Mobile?.toLowerCase().includes(q);
   });
 
-  const canSubmit = customer && !submitting && (
+  const canSubmit = customer && assigneeId && !submitting && (
     orderMode === 'note' ? noteText.trim() : items.some((r) => r.itemName.trim())
   );
 
@@ -793,17 +793,16 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               sx={{ flex: 1 }}
             />
             <TextField
-              select label="Printer / Vendor" size="small" value={assigneeId}
+              select label="Printer / Vendor *" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
               disabled={submitting || loadingData}
               helperText={
                 stageAssignees.length
-                  ? `${CAPABILITY_LABELS[stageCapability] || 'Printing'} parties · goes on the Printing folder`
-                  : `Nobody tagged for ${CAPABILITY_LABELS[stageCapability] || 'this stage'} yet — showing everyone`
+                  ? 'Required · becomes part of the Printing folder name'
+                  : 'Required · no printer tagged yet, showing all Account Payable parties'
               }
               sx={{ flex: 1 }}
             >
-              <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
               {assigneeOptions.map((a) => (
                 <MenuItem key={a.id} value={a.id} sx={{ fontSize: 13 }}>{a.name}</MenuItem>
               ))}

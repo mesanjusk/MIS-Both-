@@ -1,4 +1,5 @@
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
 const router = express.Router();
 const { v4: uuid } = require('uuid');
@@ -6,6 +7,7 @@ const VendorMaster = require('../repositories/vendorMaster');
 const VendorLedger = require('../repositories/vendorLedger');
 const Transaction = require('../repositories/transaction');
 const ProductionJob = require('../repositories/productionJob');
+const PurchaseOrder = require('../repositories/purchaseOrder');
 const StockMovement = require('../repositories/stockMovement');
 const Orders = require('../repositories/order');
 const Customers = require('../repositories/customer');
@@ -13,6 +15,12 @@ const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whats
 const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
+const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
+const {
+  listSubfolders,
+  parseFolderDate,
+  ensurePrintingFolder,
+} = require('../services/driveArchiveFolderService');
 const {
   postVendorOpeningBalance,
   postVendorLedgerEntry,
@@ -23,6 +31,203 @@ const logger = require('../utils/logger');
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const PRINTING_PAYABLE_CACHE_MS = 60 * 1000;
+let printingPayableCache = { key: '', expiresAt: 0, rows: [] };
+
+function normalizePartyName(value = '') {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[()[\]{}]/g, ' ')
+    .replace(/[^a-z0-9\u0900-\u097f]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parsePrintingFolderName(name = '') {
+  const raw = String(name || '').trim();
+  const match = raw.match(/^(\d+)\s*(.*)$/);
+  if (!match) {
+    return { orderNumber: null, vendorName: '', customerName: '', raw };
+  }
+
+  const orderNumber = Number(match[1]);
+  const tail = String(match[2] || '').replace(/^[\s_-]+/, '').trim();
+  if (!tail) return { orderNumber, vendorName: '', customerName: '', raw };
+
+  const separator = tail.match(/\s+-\s+/);
+  if (!separator) {
+    return { orderNumber, vendorName: tail, customerName: '', raw };
+  }
+
+  const splitAt = separator.index;
+  const vendorName = tail.slice(0, splitAt).trim();
+  const customerName = tail.slice(splitAt + separator[0].length).trim();
+  return { orderNumber, vendorName, customerName, raw };
+}
+
+function dateKeyFromFolderName(name = '') {
+  const match = String(name || '').match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (!match) return '';
+  return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+}
+
+async function mapWithConcurrency(items, limit, fn) {
+  const output = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      output[index] = await fn(items[index], index);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length || 1) }, () => worker());
+  await Promise.all(workers);
+  return output;
+}
+
+async function scanPrintingPayableFolders({ refresh = false } = {}) {
+  const archiveFolderId = String(process.env.DRIVE_ARCHIVE_FOLDER_ID || '').trim();
+  if (!archiveFolderId) {
+    const err = new Error('DRIVE_ARCHIVE_FOLDER_ID not configured');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!refresh && printingPayableCache.key === archiveFolderId && printingPayableCache.expiresAt > Date.now()) {
+    return printingPayableCache.rows;
+  }
+
+  const drive = await getAuthorizedDriveClient();
+  const monthFolders = await listSubfolders(drive, archiveFolderId);
+
+  const dateFolderGroups = await mapWithConcurrency(monthFolders, 5, async (month) => {
+    const dateFolders = await listSubfolders(drive, month.id);
+    return dateFolders
+      .filter((folder) => parseFolderDate(folder.name))
+      .map((folder) => ({
+        ...folder,
+        monthFolderId: month.id,
+        monthFolderName: month.name,
+        dateKey: dateKeyFromFolderName(folder.name),
+      }));
+  });
+
+  const dateFolders = dateFolderGroups.flat().filter((folder) => folder.dateKey);
+  const rowGroups = await mapWithConcurrency(dateFolders, 6, async (dateFolder) => {
+    const printing = await ensurePrintingFolder(drive, dateFolder.id, { create: false });
+    if (!printing) return [];
+
+    const orderFolders = await listSubfolders(drive, printing.id);
+    return orderFolders.map((folder) => ({
+      folderId: folder.id,
+      folderName: folder.name,
+      date: dateFolder.dateKey,
+      dateFolderId: dateFolder.id,
+      dateFolderName: dateFolder.name,
+      monthFolderId: dateFolder.monthFolderId,
+      monthFolderName: dateFolder.monthFolderName,
+      printingFolderId: printing.id,
+      ...parsePrintingFolderName(folder.name),
+    }));
+  });
+
+  const rawRows = rowGroups.flat();
+  const orderNumbers = [...new Set(rawRows.map((row) => row.orderNumber).filter(Boolean))];
+  const folderIds = rawRows.map((row) => row.folderId).filter(Boolean);
+
+  const [orders, payableParties, sourcePos] = await Promise.all([
+    orderNumbers.length
+      ? Orders.find(
+          { Order_Number: { $in: orderNumbers } },
+          { Order_uuid: 1, Order_Number: 1, Customer_uuid: 1 }
+        ).lean()
+      : [],
+    Customers.find(
+      { Status: 'active', Customer_group: ACCOUNT_PAYABLE_GROUP },
+      {
+        Customer_uuid: 1,
+        Customer_name: 1,
+        Mobile_number: 1,
+        Tags: 1,
+        Capabilities: 1,
+      }
+    ).lean(),
+    folderIds.length
+      ? PurchaseOrder.find(
+          { sourceDriveFolderId: { $in: folderIds } },
+          {
+            PO_uuid: 1,
+            PO_Number: 1,
+            Order_uuid: 1,
+            Vendor_uuid: 1,
+            Vendor_name: 1,
+            totalAmount: 1,
+            extraCharges: 1,
+            status: 1,
+            poDate: 1,
+            sourceDriveFolderId: 1,
+          }
+        ).lean()
+      : [],
+  ]);
+
+  const orderByNumber = new Map(orders.map((order) => [Number(order.Order_Number), order]));
+  const partyByUuid = new Map(payableParties.map((party) => [party.Customer_uuid, party]));
+  const partyByName = new Map();
+  payableParties.forEach((party) => {
+    const key = normalizePartyName(party.Customer_name);
+    if (key && !partyByName.has(key)) partyByName.set(key, party);
+  });
+  const poByFolder = new Map(sourcePos.map((po) => [po.sourceDriveFolderId, po]));
+
+  const orderCustomerIds = [...new Set(orders.map((order) => order.Customer_uuid).filter(Boolean))];
+  const orderCustomers = orderCustomerIds.length
+    ? await Customers.find(
+        { Customer_uuid: { $in: orderCustomerIds } },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean()
+    : [];
+  const customerNameByUuid = new Map(orderCustomers.map((customer) => [customer.Customer_uuid, customer.Customer_name]));
+
+  const rows = rawRows.map((row) => {
+    const order = row.orderNumber ? orderByNumber.get(Number(row.orderNumber)) : null;
+    const savedPo = poByFolder.get(row.folderId) || null;
+    const parsedParty = row.vendorName ? partyByName.get(normalizePartyName(row.vendorName)) : null;
+    const savedParty = savedPo?.Vendor_uuid ? partyByUuid.get(savedPo.Vendor_uuid) : null;
+    const party = savedParty || parsedParty || null;
+    const extras = (savedPo?.extraCharges || []).reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
+    const invoiceValue = Number(savedPo?.totalAmount || 0) + extras;
+
+    return {
+      ...row,
+      orderUuid: order?.Order_uuid || savedPo?.Order_uuid || '',
+      vendorUuid: party?.Customer_uuid || savedPo?.Vendor_uuid || '',
+      vendorName: party?.Customer_name || savedPo?.Vendor_name || row.vendorName || '',
+      parsedVendorName: row.vendorName || '',
+      customerName: row.customerName || (order?.Customer_uuid ? customerNameByUuid.get(order.Customer_uuid) : '') || '',
+      vendorMatched: Boolean(party?.Customer_uuid || savedPo?.Vendor_uuid),
+      partyTags: party?.Tags || [],
+      partyCapabilities: party?.Capabilities || [],
+      poUuid: savedPo?.PO_uuid || '',
+      poNumber: savedPo?.PO_Number || null,
+      poStatus: savedPo?.status || '',
+      invoiceValue,
+      driveFolderUrl: `https://drive.google.com/drive/folders/${row.folderId}`,
+    };
+  });
+
+  rows.sort((a, b) => String(b.date).localeCompare(String(a.date))
+    || Number(b.orderNumber || 0) - Number(a.orderNumber || 0));
+
+  printingPayableCache = {
+    key: archiveFolderId,
+    expiresAt: Date.now() + PRINTING_PAYABLE_CACHE_MS,
+    rows,
+  };
+  return rows;
 }
 
 function buildLedgerSummary(entries = []) {
@@ -328,6 +533,51 @@ router.get('/payable-parties', async (_req, res) => {
   } catch (error) {
     logger.error('Failed to list payable parties', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/vendors/printing-payables
+// Reads the Drive archive tree:
+//   <archive>/04 April 2026/01.04.2026/Printing/793 Vendor - Customer
+// and enriches each folder with the matching MIS order, Account Payable party,
+// and any invoice/PO already saved for that Drive folder.
+router.get('/printing-payables', requirePermission('canViewAccounts'), async (req, res) => {
+  try {
+    const requestedDate = String(req.query.date || '').trim();
+    const refresh = String(req.query.refresh || '').toLowerCase() === 'true';
+    const allRows = await scanPrintingPayableFolders({ refresh });
+
+    const datesMap = {};
+    allRows.forEach((row) => {
+      if (row.date) datesMap[row.date] = (datesMap[row.date] || 0) + 1;
+    });
+    const dates = Object.entries(datesMap)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const rows = requestedDate
+      ? allRows.filter((row) => row.date === requestedDate)
+      : allRows;
+
+    return res.json({
+      success: true,
+      result: rows,
+      dates,
+      total: allRows.length,
+    });
+  } catch (error) {
+    logger.error('Failed to scan Drive Printing payables', error);
+    if (error?.reconnectRequired) {
+      return res.status(401).json({
+        success: false,
+        message: 'Google Drive disconnected. Please reconnect.',
+        reconnectRequired: true,
+      });
+    }
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Could not load Printing folders',
+    });
   }
 });
 

@@ -821,7 +821,7 @@ export default function PayableAccount() {
               >
                 <TableHead>
                   <TableRow>
-                    {!selectedDate && <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>}
+                    {!selectedDate && <TableCell sx={{ fontWeight: 700, width: 82 }}>Date</TableCell>}
                     <TableCell sx={{ fontWeight: 700, width: 54 }}>Order</TableCell>
                     <TableCell sx={{ fontWeight: 700, minWidth: 126 }}>Vendor</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 105 }}>Customer</TableCell>
@@ -872,7 +872,11 @@ export default function PayableAccount() {
                       return (
                         <Fragment key={row.folderId}>
                         <TableRow hover>
-                          {!selectedDate && <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</TableCell>}
+                          {!selectedDate && (
+                            <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 11 }}>
+                              {fmtDate(row.date)}
+                            </TableCell>
+                          )}
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>
                             <Typography variant="body2" fontWeight={800} lineHeight={1.1}>
                               {row.orderNumber ? `#${row.orderNumber}` : '—'}
@@ -969,7 +973,7 @@ export default function PayableAccount() {
                               </span>
                             </Tooltip>
                           </TableCell>
-                          <TableCell>
+                          <TableCell align="center" sx={{ p: 0.25 }}>
                             <Tooltip
                               title={
                                 localShareRoot

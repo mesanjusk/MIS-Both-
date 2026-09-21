@@ -243,12 +243,18 @@ async function verifyPrintingWorkflowIdentity({
       }
     );
 
-    await assignOrderToUser({
-      orderId: order.Order_uuid,
-      vendorId: party._id,
-      assignedBy,
-      via: 'workflow-audit',
-    });
+    const alreadyAssignedToSameVendor =
+      order.assignedToType === 'vendor'
+      && String(order.assignedTo || '') === String(party._id);
+
+    if (!alreadyAssignedToSameVendor) {
+      await assignOrderToUser({
+        orderId: order.Order_uuid,
+        vendorId: party._id,
+        assignedBy,
+        via: 'workflow-audit',
+      });
+    }
   }
 
   return {

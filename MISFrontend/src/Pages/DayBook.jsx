@@ -17,10 +17,6 @@ import {
   FormControl,
   IconButton,
   InputLabel,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
   MenuItem,
   Paper,
   Select,
@@ -44,6 +40,7 @@ import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import axios from '../apiClient';
 import { getVoucherInfo } from '../utils/voucher';
 import { ROUTES } from '../constants/routes';
+import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
@@ -701,6 +698,13 @@ export default function DayBook() {
   }, [selectedUuid, loadDiary]);
 
   useEffect(() => {
+    if (!selectedUuid && !ledgerDateParam) {
+      setDiary(null);
+      setLedgerTxns(null);
+    }
+  }, [selectedUuid, ledgerDateParam]);
+
+  useEffect(() => {
     if (!ledgerDateParam) {
       setLedgerTxns(null);
       setLedgerMeta({ cashAccounts: [], cashNames: [], bankAccounts: [], bankNames: [] });
@@ -895,6 +899,50 @@ export default function DayBook() {
   const unassigned     = entries.filter((e) => e.entry_status !== 'rejected' && !e.account_assigned).length;
   const isDraft        = diary?.status !== 'confirmed';
 
+  const toDateKey = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  };
+
+  const dayBookDates = Array.from(new Set([
+    ...diaryList.map((d) => toDateKey(d.diary_date || d.updatedAt || d.createdAt)).filter(Boolean),
+    ...ledgerDates.filter(Boolean),
+  ])).sort((a, b) => b.localeCompare(a));
+
+  const dayBookDateCountMap = dayBookDates.reduce((map, date) => {
+    const diaryCount = diaryList.filter((d) => toDateKey(d.diary_date || d.updatedAt || d.createdAt) === date).length;
+    map[date] = Math.max(diaryCount, 1);
+    return map;
+  }, {});
+
+  const selectedSidebarDate = diary?.diary_date
+    ? toDateKey(diary.diary_date)
+    : (ledgerDateParam || null);
+
+  const handleSidebarDateSelect = (date) => {
+    if (!date) {
+      navigate(ROUTES.DAY_BOOK);
+      return;
+    }
+    const matchingDiary = diaryList.find((d) => toDateKey(d.diary_date || d.updatedAt || d.createdAt) === date);
+    if (matchingDiary?.diary_uuid) handleSelectDiary(matchingDiary.diary_uuid);
+    else handleSelectLedgerDate(date);
+  };
+
+  const allDayBookRows = dayBookDates.map((date) => {
+    const matchingDiary = diaryList.find((d) => toDateKey(d.diary_date || d.updatedAt || d.createdAt) === date);
+    return {
+      date,
+      diary: matchingDiary || null,
+      status: matchingDiary?.status || 'Ledger',
+      entries: Array.isArray(matchingDiary?.entries) ? matchingDiary.entries.length : null,
+      opening: matchingDiary?.opening_balance,
+      closing: matchingDiary?.closing_balance,
+    };
+  });
+
   const summaryCards = [
     { label: 'Opening Balance',  value: diary?.opening_balance, color: 'text.primary' },
     { label: 'Cash Receipts (+)', value: totalIn,   color: 'success.dark' },
@@ -903,103 +951,19 @@ export default function DayBook() {
   ];
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
 
-      {/* ---- LEFT: diary list sidebar ---- */}
-      <Paper
-        variant="outlined"
-        sx={{
-          width: 188,
-          flexShrink: 0,
-          borderRadius: 2.5,
-          display: { xs: 'none', md: 'flex' },
-          flexDirection: 'column',
-          overflow: 'hidden',
-          height: 'calc(100vh - 94px)',
-          position: 'sticky',
-          top: 8,
-        }}
-      >
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 1.25, pb: 0.75 }}>
-          <Typography variant="subtitle2" fontWeight={700}>Day Books</Typography>
-          <Stack direction="row" spacing={0.5}>
-            <IconButton size="small" onClick={loadList}><RefreshRoundedIcon fontSize="small" /></IconButton>
-            <IconButton size="small" color="primary" onClick={() => navigate(ROUTES.DIARY_UPLOAD)}>
-              <AddRoundedIcon fontSize="small" />
-            </IconButton>
-          </Stack>
-        </Stack>
-        <Divider />
-        {listLoading ? (
-          <Box sx={{ p: 2, textAlign: 'center' }}><CircularProgress size={20} /></Box>
-        ) : (() => {
-          const draftDateSet = new Set(
-            diaryList
-              .filter((d) => d.diary_date)
-              .map((d) => new Date(d.diary_date).toISOString().slice(0, 10))
-          );
-          const extraLedgerDates = ledgerDates.filter((ld) => !draftDateSet.has(ld));
-
-          const sidebarItems = [
-            ...diaryList.map((d) => ({
-              key:      d.diary_uuid,
-              date:     d.diary_date ? new Date(d.diary_date) : new Date(d.updatedAt || d.createdAt || 0),
-              label:    d.diary_date ? fmtDate(d.diary_date) : 'No Date',
-              sub:      d.status === 'confirmed' ? '✓ Confirmed' : 'Draft',
-              subColor: d.status === 'confirmed' ? 'success.main' : 'warning.main',
-              onClick:  () => handleSelectDiary(d.diary_uuid),
-              selected: d.diary_uuid === selectedUuid,
-            })),
-            ...extraLedgerDates.map((ld) => ({
-              key:      `ledger-${ld}`,
-              date:     new Date(ld),
-              label:    fmtDate(ld),
-              sub:      'Bank/Cash entries',
-              subColor: 'info.main',
-              onClick:  () => handleSelectLedgerDate(ld),
-              selected: ledgerDateParam === ld,
-            })),
-          ].sort((a, b) => b.date - a.date);
-
-          return (
-            <List dense disablePadding sx={{ overflowY: 'auto', flex: 1 }}>
-              {sidebarItems.map((item) => (
-                <ListItem key={item.key} disablePadding>
-                  <ListItemButton
-                    selected={item.selected}
-                    onClick={item.onClick}
-                    sx={{
-                      borderRadius: 0,
-                      px: 1.5,
-                      py: 0.75,
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      '&.Mui-selected': { bgcolor: 'primary.main', color: 'primary.contrastText' },
-                      '&.Mui-selected:hover': { bgcolor: 'primary.dark' },
-                    }}
-                  >
-                    <ListItemText
-                      primary={item.label}
-                      secondary={item.sub}
-                      primaryTypographyProps={{ variant: 'body2', fontWeight: 700 }}
-                      secondaryTypographyProps={{ variant: 'caption', color: item.subColor }}
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-              {!sidebarItems.length && (
-                <ListItem>
-                  <ListItemText
-                    primary="No records yet"
-                    secondary="Upload a CSV to start"
-                    primaryTypographyProps={{ variant: 'caption', color: 'text.disabled' }}
-                  />
-                </ListItem>
-              )}
-            </List>
-          );
-        })()}
-      </Paper>
+      <DeliveryDateSidebar
+        title="Day Books"
+        selectedDate={selectedSidebarDate}
+        onSelectDate={handleSidebarDateSelect}
+        availableDates={dayBookDates}
+        dateCountMap={dayBookDateCountMap}
+        allCount={dayBookDates.length}
+        loading={listLoading}
+        countLabel="records"
+        formatDate={fmtDate}
+      />
 
       {/* ---- RIGHT: diary detail ---- */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1014,12 +978,14 @@ export default function DayBook() {
         >
           <Box>
             <Typography variant="h5" fontWeight={900}>
-              Day Book{diary
-                ? ` — ${diary.diary_date ? fmtDate(diary.diary_date) : 'No Date'}`
-                : ledgerDateParam ? ` — ${fmtDate(ledgerDateParam)}` : ''}
+              Day Book
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {ledgerDateParam ? 'Historical cash/bank transactions (read-only)' : 'Review diary entries, assign accounts, then confirm to post transactions'}
+              {selectedSidebarDate ? fmtDate(selectedSidebarDate) : 'All Dates'} · {
+                ledgerDateParam ? 'Historical cash/bank transactions' :
+                diary ? 'Review and post diary entries' :
+                `${dayBookDates.length} records`
+              }
             </Typography>
           </Box>
           <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center">
@@ -1081,15 +1047,43 @@ export default function DayBook() {
           </Stack>
         </Stack>
 
-        {/* No diary selected */}
+        {/* All Dates overview */}
         {!selectedUuid && !ledgerDateParam && !loading && (
-          <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
-            <Typography color="text.secondary" sx={{ mb: 2 }}>
-              Select a day from the list, or upload a new CSV.
-            </Typography>
-            <Button variant="contained" onClick={() => navigate(ROUTES.DIARY_UPLOAD)} startIcon={<AddRoundedIcon />}>
-              Upload Diary CSV
-            </Button>
+          <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <TableContainer sx={{ maxHeight: '68vh' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Entries</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Opening</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Closing</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {allDayBookRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                        No day book records yet.
+                      </TableCell>
+                    </TableRow>
+                  ) : allDayBookRows.map((row) => (
+                    <TableRow key={row.date} hover onClick={() => handleSidebarDateSelect(row.date)} sx={{ cursor: 'pointer' }}>
+                      <TableCell sx={{ fontWeight: 700 }}>{fmtDate(row.date)}</TableCell>
+                      <TableCell>
+                        {row.status === 'Ledger'
+                          ? <Chip label="Ledger" color="info" size="small" variant="outlined" />
+                          : statusChip(row.status)}
+                      </TableCell>
+                      <TableCell align="right">{row.entries ?? '—'}</TableCell>
+                      <TableCell align="right">{row.opening == null ? '—' : money(row.opening)}</TableCell>
+                      <TableCell align="right">{row.closing == null ? '—' : money(row.closing)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Paper>
         )}
 
@@ -1138,12 +1132,12 @@ export default function DayBook() {
             )}
 
             {/* Summary cards */}
-            <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
               {summaryCards.map(({ label, value, color }) => (
-                <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
-                  <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
+                <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+                  <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
                     <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{money(value)}</Typography>
+                    <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
                   </CardContent>
                 </Card>
               ))}

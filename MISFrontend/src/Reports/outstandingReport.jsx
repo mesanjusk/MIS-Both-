@@ -12,9 +12,9 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Paper,
+  MenuItem,
   Stack,
   Table,
   TableBody,
@@ -33,32 +33,19 @@ import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
 import ExportGuard from '../Components/ExportGuard';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
+import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 
-const todayISO = () => new Date().toLocaleDateString('en-CA');
-
-const addDaysISO = (isoDate, days) => {
-  const d = new Date(`${isoDate}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString('en-CA');
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const toISODate = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
-
-const dayStartUTC = (isoDate) => new Date(`${isoDate}T00:00:00`).toISOString();
-const dayEndUTC = (isoDate) => new Date(`${isoDate}T23:59:59.999`).toISOString();
-
-const DATE_PRESETS = [
-  { key: 'all', label: 'All Time' },
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'Last Week' },
-  { key: 'month', label: 'Last Month' },
-  { key: 'custom', label: 'Custom Range' },
-];
-
-const getPresetRange = (preset) => {
-  const today = todayISO();
-  if (preset === 'today') return { from: today, to: today };
-  if (preset === 'week') return { from: addDaysISO(today, -6), to: today };
-  if (preset === 'month') return { from: addDaysISO(today, -29), to: today };
-  return { from: '', to: '' };
+const fmtDate = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB');
 };
 
 const OutstandingReport = () => {
@@ -69,19 +56,12 @@ const OutstandingReport = () => {
   const [customerGroups, setCustomerGroups] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const [datePreset, setDatePreset] = useState('all');
-  const [customFrom, setCustomFrom] = useState(addDaysISO(todayISO(), -29));
-  const [customTo, setCustomTo] = useState(todayISO());
+  const [selectedDate, setSelectedDate] = useState(todayISO());
 
   const [partyFilter, setPartyFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [filterType, setFilterType] = useState('all'); // receivable | payable | all
   const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
-
-  const activeRange = useMemo(() => {
-    if (datePreset === 'custom') return { from: customFrom, to: customTo };
-    return getPresetRange(datePreset);
-  }, [datePreset, customFrom, customTo]);
 
   useEffect(() => {
     const fetchCustomers = async () => {
@@ -112,10 +92,7 @@ const OutstandingReport = () => {
     const fetchTransactions = async () => {
       setLoading(true);
       try {
-        const params = {};
-        if (activeRange.from) params.fromDate = dayStartUTC(activeRange.from);
-        if (activeRange.to) params.toDate = dayEndUTC(activeRange.to);
-        const res = await axios.get('/api/transaction', { params });
+        const res = await axios.get('/api/transaction');
         if (res.data?.success) setTransactions(res.data.result || []);
       } catch (error) {
         console.error('Error fetching transactions:', error);
@@ -125,7 +102,26 @@ const OutstandingReport = () => {
       }
     };
     fetchTransactions();
-  }, [activeRange.from, activeRange.to]);
+  }, []);
+
+  const availableDates = useMemo(() => {
+    const set = new Set((transactions || []).map((tx) => toISODate(tx?.Transaction_date)).filter(Boolean));
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [transactions]);
+
+  const dateCountMap = useMemo(() => {
+    const map = {};
+    (effectiveTransactions || []).forEach((tx) => {
+      const date = toISODate(tx?.Transaction_date);
+      if (date) map[date] = (map[date] || 0) + 1;
+    });
+    return map;
+  }, [transactions]);
+
+  const effectiveTransactions = useMemo(() => {
+    if (!selectedDate) return transactions || [];
+    return (transactions || []).filter((tx) => toISODate(tx?.Transaction_date) === selectedDate);
+  }, [transactions, selectedDate]);
 
   // Party-wise outstanding balance for the selected date range.
   const outstandingReport = useMemo(() => {
@@ -151,7 +147,7 @@ const OutstandingReport = () => {
         balance: debit - credit,
       };
     });
-  }, [transactions, customers]);
+  }, [effectiveTransactions, customers]);
 
   const partyOptions = useMemo(
     () => Array.from(new Set(customers.map((c) => c?.Customer_name).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -238,7 +234,7 @@ const OutstandingReport = () => {
     navigate('/accounts/ledger?tab=statement', { state: { customer } });
   };
 
-  const rangeLabel = activeRange.from && activeRange.to ? `${activeRange.from} to ${activeRange.to}` : 'All time';
+  const rangeLabel = selectedDate ? fmtDate(selectedDate) : 'All Dates';
 
   const exportToExcel = () => {
     const data = sortedReport.map((item) => ({
@@ -253,7 +249,7 @@ const OutstandingReport = () => {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Outstanding');
-    XLSX.writeFile(wb, `outstanding_${datePreset}_${todayISO()}.xlsx`);
+    XLSX.writeFile(wb, `outstanding_${selectedDate || 'all'}_${todayISO()}.xlsx`);
   };
 
   const exportToPDF = () => {
@@ -270,71 +266,29 @@ const OutstandingReport = () => {
       ]),
       startY: 20,
     });
-    doc.save(`outstanding_${datePreset}_${todayISO()}.pdf`);
+    doc.save(`outstanding_${selectedDate || 'all'}_${todayISO()}.pdf`);
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
-      {/* Delivery-style date sidebar */}
-      <Paper
-        variant="outlined"
-        sx={{
-          width: 188,
-          flexShrink: 0,
-          borderRadius: 2.5,
-          display: { xs: 'none', md: 'flex' },
-          flexDirection: 'column',
-          alignSelf: 'flex-start',
-          position: 'sticky',
-          top: 8,
-          overflow: 'hidden',
-        }}
-      >
-        <Box sx={{ p: 1.25 }}>
-          <Typography variant="subtitle2" fontWeight={800}>Outstanding</Typography>
-          <Typography variant="caption" color="text.secondary">Date range</Typography>
-        </Box>
-        <Box>
-          {DATE_PRESETS.map((preset) => (
-            <Box
-              key={preset.key}
-              onClick={() => setDatePreset(preset.key)}
-              sx={{
-                px: 1.5,
-                py: 1,
-                cursor: 'pointer',
-                borderTop: '1px solid',
-                borderColor: 'divider',
-                bgcolor: datePreset === preset.key ? 'primary.main' : 'transparent',
-                color: datePreset === preset.key ? 'primary.contrastText' : 'text.primary',
-                '&:hover': { bgcolor: datePreset === preset.key ? 'primary.dark' : 'action.hover' },
-              }}
-            >
-              <Typography variant="body2" fontWeight={800}>{preset.label}</Typography>
-              {preset.key === datePreset && preset.key !== 'all' && preset.key !== 'custom' && (
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>{rangeLabel}</Typography>
-              )}
-            </Box>
-          ))}
-        </Box>
-        {datePreset === 'custom' && (
-          <Stack spacing={1} sx={{ p: 1.25, borderTop: '1px solid', borderColor: 'divider' }}>
-            <TextField size="small" label="From" type="date" value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)} InputLabelProps={{ shrink: true }}
-              sx={{ '& input': { fontSize: 12, py: 0.7 } }} />
-            <TextField size="small" label="To" type="date" value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)} InputLabelProps={{ shrink: true }}
-              sx={{ '& input': { fontSize: 12, py: 0.7 } }} />
-          </Stack>
-        )}
-      </Paper>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
+      <DeliveryDateSidebar
+        title="Outstanding"
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+        availableDates={availableDates}
+        dateCountMap={dateCountMap}
+        allCount={transactions.length}
+        loading={loading}
+        countLabel="transactions"
+        formatDate={fmtDate}
+      />
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Stack
-          direction={{ xs: 'column', lg: 'row' }}
-          spacing={0.8}
-          alignItems={{ xs: 'stretch', lg: 'center' }}
-          sx={{ mb: 1 }}
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          sx={{ mb: 1.5 }}
         >
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h5" fontWeight={900} noWrap>Outstanding</Typography>
@@ -343,181 +297,164 @@ const OutstandingReport = () => {
             </Typography>
           </Box>
 
-          <Stack direction="row" spacing={0.5}>
-            <ExportGuard>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={<FileDownloadRoundedIcon />}
-                onClick={exportToExcel}
-                disabled={!sortedReport.length}
-                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
-              >
-                Excel
-              </Button>
-            </ExportGuard>
-            <ExportGuard>
-              <Button
-                size="small"
-                variant="contained"
-                color="error"
-                startIcon={<PictureAsPdfRoundedIcon />}
-                onClick={exportToPDF}
-                disabled={!sortedReport.length}
-                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
-              >
-                PDF
-              </Button>
-            </ExportGuard>
-          </Stack>
+          <TextField
+            select
+            size="small"
+            label="Type"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            sx={{ width: { xs: '100%', sm: 125 } }}
+          >
+            <MenuItem value="all">All</MenuItem>
+            <MenuItem value="receivable">Receivable</MenuItem>
+            <MenuItem value="payable">Payable</MenuItem>
+          </TextField>
+
+          <Autocomplete
+            size="small"
+            options={groupOptions}
+            value={groupFilter || null}
+            onChange={(_, value) => setGroupFilter(value || '')}
+            sx={{ width: { xs: '100%', sm: 170 } }}
+            renderInput={(params) => <TextField {...params} label="Group" placeholder="All groups" />}
+          />
+
+          <Autocomplete
+            size="small"
+            options={partyOptions}
+            value={partyFilter || null}
+            onChange={(_, value) => setPartyFilter(value || '')}
+            sx={{ width: { xs: '100%', sm: 180 } }}
+            renderInput={(params) => <TextField {...params} label="Party" placeholder="All parties" />}
+          />
+
+          <ExportGuard>
+            <Stack direction="row" spacing={1}>
+              <Tooltip title="Export as PDF">
+                <Button
+                  variant="contained"
+                  color="error"
+                  size="small"
+                  startIcon={<PictureAsPdfRoundedIcon />}
+                  onClick={exportToPDF}
+                  disabled={!sortedReport.length}
+                  sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+                >
+                  PDF
+                </Button>
+              </Tooltip>
+              <Tooltip title="Export as Excel">
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<FileDownloadRoundedIcon />}
+                  onClick={exportToExcel}
+                  disabled={!sortedReport.length}
+                  sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+                >
+                  Excel
+                </Button>
+              </Tooltip>
+            </Stack>
+          </ExportGuard>
         </Stack>
 
-        {/* Mobile date presets */}
-        <Stack direction="row" spacing={0.5} sx={{ display: { xs: 'flex', md: 'none' }, overflowX: 'auto', mb: 1, pb: 0.25 }}>
-          {DATE_PRESETS.map((preset) => (
-            <Chip
-              key={preset.key}
-              size="small"
-              label={preset.label}
-              color={datePreset === preset.key ? 'primary' : 'default'}
-              variant={datePreset === preset.key ? 'filled' : 'outlined'}
-              onClick={() => setDatePreset(preset.key)}
-            />
-          ))}
-        </Stack>
+        <TextField
+          type="date"
+          size="small"
+          value={selectedDate || ''}
+          onChange={(e) => setSelectedDate(e.target.value || null)}
+          sx={{ display: { xs: 'block', md: 'none' }, mb: 1, width: '100%' }}
+          InputLabelProps={{ shrink: true }}
+        />
 
-        {datePreset === 'custom' && (
-          <Stack direction="row" spacing={0.75} sx={{ display: { xs: 'flex', md: 'none' }, mb: 1 }}>
-            <TextField fullWidth size="small" label="From" type="date" value={customFrom}
-              onChange={(e) => setCustomFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <TextField fullWidth size="small" label="To" type="date" value={customTo}
-              onChange={(e) => setCustomTo(e.target.value)} InputLabelProps={{ shrink: true }} />
-          </Stack>
-        )}
-
-        <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
           {[
-            { label: 'Receivable', value: `₹${totals.totalReceivable.toLocaleString('en-IN')}`, color: 'success.dark', Icon: TrendingUpRoundedIcon },
-            { label: 'Payable', value: `₹${totals.totalPayable.toLocaleString('en-IN')}`, color: 'error.dark', Icon: TrendingDownRoundedIcon },
-            { label: 'Net', value: `₹${totals.netOutstanding.toLocaleString('en-IN')}`, color: 'primary.main', Icon: AccountBalanceWalletRoundedIcon },
+            { label: 'Total Receivable', value: `₹${totals.totalReceivable.toLocaleString('en-IN')}`, color: 'success.dark', Icon: TrendingUpRoundedIcon },
+            { label: 'Total Payable', value: `₹${totals.totalPayable.toLocaleString('en-IN')}`, color: 'error.dark', Icon: TrendingDownRoundedIcon },
+            { label: 'Net Outstanding', value: `₹${totals.netOutstanding.toLocaleString('en-IN')}`, color: 'primary.main', Icon: AccountBalanceWalletRoundedIcon },
             { label: 'Parties', value: totals.partyCount, color: 'warning.dark', Icon: GroupsRoundedIcon },
           ].map(({ label, value, color, Icon }) => (
-            <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
-              <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
+            <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+              <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
                     <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{value}</Typography>
+                    <Typography variant="h6" fontWeight={900} color={color}>{value}</Typography>
                   </Box>
-                  <Icon sx={{ fontSize: 19, color }} />
+                  <Icon sx={{ fontSize: 20, color }} />
                 </Stack>
               </CardContent>
             </Card>
           ))}
         </Stack>
 
-        <Paper variant="outlined" sx={{ p: 1, borderRadius: 2.5, mb: 1 }}>
-          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={0.75} alignItems={{ xs: 'stretch', lg: 'center' }}>
-            <Autocomplete
-              size="small"
-              options={partyOptions}
-              value={partyFilter || null}
-              onChange={(_, value) => setPartyFilter(value || '')}
-              sx={{ minWidth: { lg: 220 }, flex: 1 }}
-              renderInput={(params) => <TextField {...params} label="Party" placeholder="All parties" />}
-            />
-            <Autocomplete
-              size="small"
-              options={groupOptions}
-              value={groupFilter || null}
-              onChange={(_, value) => setGroupFilter(value || '')}
-              sx={{ minWidth: { lg: 210 }, flex: 1 }}
-              renderInput={(params) => <TextField {...params} label="Customer group" placeholder="All groups" />}
-            />
-            <Stack direction="row" spacing={0.5}>
-              {[
-                ['receivable', 'Receivable', 'success'],
-                ['payable', 'Payable', 'error'],
-                ['all', 'All', 'primary'],
-              ].map(([type, label, color]) => (
-                <Button
-                  key={type}
-                  size="small"
-                  color={color}
-                  variant={filterType === type ? 'contained' : 'outlined'}
-                  onClick={() => setFilterType(type)}
-                  sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}
-                >
-                  {label}
-                </Button>
-              ))}
-            </Stack>
-            {loading && <CircularProgress size={20} />}
-          </Stack>
-        </Paper>
-
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2.5, maxHeight: '68vh' }}>
-          <Table size="small" stickyHeader sx={{ '& .MuiTableCell-root': { py: 0.75 } }}>
-            <TableHead>
-              <TableRow>
-                <TableCell onClick={() => handleSort('name')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
-                  Customer {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-                </TableCell>
-                <TableCell onClick={() => handleSort('group')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
-                  Group {sortConfig.key === 'group' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-                </TableCell>
-                <TableCell onClick={() => handleSort('mobile')} sx={{ fontWeight: 800, cursor: 'pointer' }}>
-                  Mobile {sortConfig.key === 'mobile' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-                </TableCell>
-                <TableCell onClick={() => handleSort('balance')} align="right" sx={{ fontWeight: 800, cursor: 'pointer' }}>
-                  Outstanding {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
-                </TableCell>
-                <TableCell align="center" sx={{ fontWeight: 800, width: 80 }}>Action</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {!loading && sortedReport.length === 0 ? (
+        {loading ? (
+          <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+        ) : (
+          <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 3, maxHeight: '68vh' }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 5, color: 'text.secondary' }}>
-                    No outstanding balances found for this filter.
+                  <TableCell onClick={() => handleSort('name')} sx={{ fontWeight: 700, cursor: 'pointer' }}>
+                    Customer {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
                   </TableCell>
+                  <TableCell onClick={() => handleSort('group')} sx={{ fontWeight: 700, cursor: 'pointer' }}>
+                    Group {sortConfig.key === 'group' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                  </TableCell>
+                  <TableCell onClick={() => handleSort('mobile')} sx={{ fontWeight: 700, cursor: 'pointer' }}>
+                    Mobile {sortConfig.key === 'mobile' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                  </TableCell>
+                  <TableCell onClick={() => handleSort('balance')} align="right" sx={{ fontWeight: 700, cursor: 'pointer' }}>
+                    Outstanding {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
+                  </TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Action</TableCell>
                 </TableRow>
-              ) : (
-                sortedReport.map((item, index) => (
-                  <TableRow key={item.uuid || index} hover>
-                    <TableCell onClick={() => viewTransactions(item)} sx={{ cursor: 'pointer' }}>
-                      <Typography variant="body2" fontWeight={800} color="primary.main">{item.name}</Typography>
-                    </TableCell>
-                    <TableCell>{item.group}</TableCell>
-                    <TableCell>{item.mobile}</TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2" fontWeight={900} color={item.balance < 0 ? 'error.main' : 'success.dark'}>
-                        ₹{Math.abs(item.balance).toLocaleString('en-IN')}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      {item.mobile !== 'No phone number' ? (
-                        <Tooltip title="Send outstanding reminder">
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                            onClick={() => sendWhatsApp(item)}
-                            sx={{ minWidth: 32, px: 0.7, borderRadius: 1.5 }}
-                          >
-                            <FaWhatsapp />
-                          </Button>
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      )}
+              </TableHead>
+              <TableBody>
+                {sortedReport.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                      No outstanding balances found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ''}.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                ) : (
+                  sortedReport.map((item, index) => (
+                    <TableRow key={item.uuid || index} hover>
+                      <TableCell onClick={() => viewTransactions(item)} sx={{ cursor: 'pointer' }}>
+                        <Typography variant="body2" fontWeight={700} color="primary.main">{item.name}</Typography>
+                      </TableCell>
+                      <TableCell>{item.group}</TableCell>
+                      <TableCell>{item.mobile}</TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight={900} color={item.balance < 0 ? 'error.main' : 'success.dark'}>
+                          ₹{Math.abs(item.balance).toLocaleString('en-IN')}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {item.mobile !== 'No phone number' ? (
+                          <Tooltip title="Send outstanding reminder">
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="success"
+                              onClick={() => sendWhatsApp(item)}
+                              sx={{ minWidth: 32, px: 0.7, borderRadius: 1.5 }}
+                            >
+                              <FaWhatsapp />
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Box>
     </Box>
   );

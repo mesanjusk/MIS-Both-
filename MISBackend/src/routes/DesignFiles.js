@@ -937,6 +937,19 @@ router.post('/move-to-print', canManageDesignFiles, async (req, res) => {
     const party = await Customers.findById(assigneeId);
     if (!party) return res.status(404).json({ success: false, message: 'Account Payable party not found' });
 
+    const confirmedFinal = await DesignFileLink.findOne({
+      orderUuid,
+      linkStatus: 'confirmed',
+      stageNumber: 5,
+    }).lean();
+    if (!confirmedFinal) {
+      return res.status(422).json({
+        success: false,
+        code: 'NO_CONFIRMED_FINAL',
+        message: 'Move to Print is blocked until the same order has a confirmed Final file.',
+      });
+    }
+
     const assignedBy = req.user?.userName || 'System';
 
     await updateOrderStage({ orderId: orderUuid, stage: 'print' });
@@ -1003,7 +1016,14 @@ router.post('/move-to-print', canManageDesignFiles, async (req, res) => {
 router.post('/auto-temp-orders', canManageDesignFiles, async (req, res) => {
   try {
     const { files = [], fromArchive } = req.body || {};
-    const initialStage = fromArchive ? 'print' : 'new_design';
+    if (!fromArchive) {
+      return res.status(409).json({
+        success: false,
+        code: 'ORDER_BEFORE_FINAL_BLOCKED',
+        message: 'Design-board files stay as drafts. Create the MIS order only after the job reaches Final / Printing.',
+      });
+    }
+    const initialStage = 'print';
     if (!Array.isArray(files) || !files.length) {
       return res.status(400).json({ success: false, message: 'files array is required' });
     }
@@ -1432,6 +1452,55 @@ router.post('/proof-response', async (req, res) => {
   }
 });
 
+async function inspectDriveFinalLocation(fileId) {
+  const drive = await getAuthorizedDriveClient();
+  const file = await drive.files.get({
+    fileId,
+    fields: 'id,name,parents,trashed',
+    supportsAllDrives: true,
+  });
+  if (file.data.trashed) {
+    return { inFinal: false, fileName: file.data.name || '', reason: 'The design file is in Drive trash.' };
+  }
+
+  let parentId = file.data.parents?.[0] || null;
+  let sawFinal = false;
+  let finalFolderId = null;
+  let finalFolderName = '';
+  let dateFolderId = null;
+  let dateFolderName = '';
+
+  for (let depth = 0; parentId && depth < 8; depth += 1) {
+    const folder = await drive.files.get({
+      fileId: parentId,
+      fields: 'id,name,parents,trashed',
+      supportsAllDrives: true,
+    });
+    const name = String(folder.data.name || '');
+    if (String(name).toLowerCase().includes('final')) {
+      sawFinal = true;
+      finalFolderId = folder.data.id;
+      finalFolderName = name;
+    }
+    if (parseFolderDate(name)) {
+      dateFolderId = folder.data.id;
+      dateFolderName = name;
+      break;
+    }
+    parentId = folder.data.parents?.[0] || null;
+  }
+
+  return {
+    inFinal: sawFinal,
+    fileName: file.data.name || '',
+    finalFolderId,
+    finalFolderName,
+    dateFolderId,
+    dateFolderName,
+    reason: sawFinal ? '' : 'The file is not inside a Final folder.',
+  };
+}
+
 // ─── POST /api/design-files/confirm-final ────────────────────────────────────
 /**
  * Confirms a Final (stage 5) file as a real MIS order.
@@ -1458,6 +1527,39 @@ router.post('/confirm-final', canManageDesignFiles, async (req, res) => {
     if (!fileId) return res.status(400).json({ success: false, message: 'fileId required' });
     if (!fileName) return res.status(400).json({ success: false, message: 'fileName required' });
     if (!customerUuid) return res.status(400).json({ success: false, message: 'customerUuid required' });
+
+    const existingLink = await DesignFileLink.findOne(
+      { driveFileId: fileId },
+      { orderUuid: 1, orderNumber: 1, linkStatus: 1, stageNumber: 1 }
+    ).lean();
+    if (existingLink?.orderUuid || existingLink?.linkStatus === 'confirmed') {
+      return res.status(409).json({
+        success: false,
+        code: 'FINAL_ALREADY_CONFIRMED',
+        message: existingLink?.orderNumber
+          ? `This Final file is already linked to Order #${existingLink.orderNumber}.`
+          : 'This Final file is already linked to an MIS order.',
+      });
+    }
+
+    let finalLocation;
+    try {
+      finalLocation = await inspectDriveFinalLocation(fileId);
+    } catch (driveErr) {
+      if (driveErr?.reconnectRequired) throw driveErr;
+      return res.status(422).json({
+        success: false,
+        code: 'FINAL_LOCATION_UNVERIFIED',
+        message: `Could not verify the Final folder before creating the order: ${driveErr?.message || 'Drive lookup failed'}`,
+      });
+    }
+    if (!finalLocation?.inFinal) {
+      return res.status(422).json({
+        success: false,
+        code: 'NOT_IN_FINAL',
+        message: 'Order creation is blocked until this design is physically inside the Final folder.',
+      });
+    }
 
     const isDetailed = orderMode === 'items' && Array.isArray(items) && items.length > 0;
     if (!isDetailed && !itemDetails) {

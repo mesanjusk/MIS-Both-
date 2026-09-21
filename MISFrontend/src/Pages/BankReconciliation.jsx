@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -28,6 +29,8 @@ import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import LinkOffRoundedIcon from '@mui/icons-material/LinkOffRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import CancelRoundedIcon from '@mui/icons-material/CancelRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import axios from '../apiClient';
@@ -69,18 +72,60 @@ function MatchChip({ status, score }) {
 }
 
 // ---- Statement entry row ----
-function StmtRow({ entry, onUnmatch }) {
+// BankStatement already supports account assignment, confirmation/posting, skip/restore,
+// and unlink. Keep those controls available here as well as in Day Book.
+function StmtRow({
+  entry,
+  onUnmatch,
+  onAssign,
+  onConfirm,
+  onReject,
+  ledgerAccounts = [],
+}) {
+  const [editing, setEditing] = useState(false);
+  const [acct, setAcct] = useState(entry.account_assigned || '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setAcct(entry.account_assigned || '');
+  }, [entry.account_assigned, editing]);
+
   const amt = entry.credit > 0 ? entry.credit : entry.debit;
+  const isMatched = entry.match_status === 'matched' || entry.match_status === 'manual';
+  const isConfirmed = entry.entry_status === 'confirmed';
+  const isRejected = entry.entry_status === 'rejected';
+  const canConfirm = Boolean(
+    entry.account_assigned ||
+    (entry.matched_diary_uuid && entry.matched_diary_entry_uuid)
+  );
+
+  const saveAccount = async () => {
+    if (!acct || !onAssign) return;
+    setSaving(true);
+    try {
+      const saved = await onAssign(entry.entry_uuid, acct);
+      if (saved !== false) setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <TableRow
       hover
       sx={{
-        bgcolor: entry.match_status === 'matched' || entry.match_status === 'manual'
-          ? 'success.50' : 'warning.50',
+        bgcolor: isConfirmed
+          ? 'success.50'
+          : isRejected
+          ? 'error.50'
+          : isMatched
+          ? 'success.50'
+          : 'warning.50',
+        opacity: isRejected ? 0.55 : 1,
       }}
     >
       <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{fmtDate(entry.txn_date)}</TableCell>
-      <TableCell sx={{ maxWidth: 260 }}>
+      <TableCell sx={{ maxWidth: 320 }}>
         <Typography variant="body2" sx={{ fontSize: 12 }}>{entry.description}</Typography>
         {entry.ref_no && (
           <Typography variant="caption" color="text.disabled">{entry.ref_no}</Typography>
@@ -90,7 +135,8 @@ function StmtRow({ entry, onUnmatch }) {
       <TableCell align="right">
         <Typography variant="body2" fontWeight={700}>{money(amt)}</Typography>
       </TableCell>
-      <TableCell>
+
+      <TableCell sx={{ minWidth: 125 }}>
         <Stack spacing={0.25}>
           <MatchChip status={entry.match_status} score={entry.match_score} />
           {entry.matched_party && (
@@ -98,13 +144,114 @@ function StmtRow({ entry, onUnmatch }) {
           )}
         </Stack>
       </TableCell>
-      <TableCell align="center">
-        {(entry.match_status === 'matched' || entry.match_status === 'manual') && onUnmatch && (
-          <Tooltip title="Remove match">
-            <IconButton size="small" color="warning" onClick={() => onUnmatch(entry.entry_uuid)}>
-              <LinkOffRoundedIcon fontSize="small" />
+
+      <TableCell sx={{ minWidth: 220 }}>
+        {editing ? (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Autocomplete
+              freeSolo
+              size="small"
+              options={ledgerAccounts}
+              value={acct}
+              onInputChange={(_, v) => setAcct(v)}
+              onChange={(_, v) => setAcct(v || '')}
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Select or type account" sx={{ width: 190 }} />
+              )}
+            />
+            <IconButton
+              size="small"
+              color="success"
+              onClick={saveAccount}
+              disabled={saving || !acct}
+            >
+              <CheckCircleRoundedIcon fontSize="small" />
             </IconButton>
-          </Tooltip>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setEditing(false);
+                setAcct(entry.account_assigned || '');
+              }}
+            >
+              <CancelRoundedIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        ) : entry.account_assigned ? (
+          <Stack direction="row" alignItems="center" spacing={0.5}>
+            <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
+            {!isConfirmed && !isRejected && onAssign && (
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setAcct(entry.account_assigned);
+                  setEditing(true);
+                }}
+              >
+                <EditRoundedIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Stack>
+        ) : (
+          !isConfirmed && !isRejected && onAssign && (
+            <Button
+              size="small"
+              variant="outlined"
+              color={isMatched ? 'success' : 'warning'}
+              startIcon={<EditRoundedIcon sx={{ fontSize: 13 }} />}
+              onClick={() => setEditing(true)}
+              sx={{ fontSize: 11, py: 0.25, px: 1, whiteSpace: 'nowrap' }}
+            >
+              Assign Account
+            </Button>
+          )
+        )}
+      </TableCell>
+
+      <TableCell align="center" sx={{ minWidth: 130 }}>
+        {isConfirmed ? (
+          <Chip label="✓ Confirmed" color="success" size="small" />
+        ) : isRejected ? (
+          <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center">
+            <Chip label="Skipped" color="error" size="small" />
+            {onReject && (
+              <Tooltip title="Restore entry">
+                <IconButton size="small" color="warning" onClick={() => onReject(entry.entry_uuid, false)}>
+                  <CancelRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center">
+            {canConfirm && onConfirm && (
+              <Tooltip title={isMatched ? 'Link matched Diary transaction / post to ledger' : 'Confirm & post to ledger'}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color={isMatched ? 'success' : 'primary'}
+                  onClick={() => onConfirm(entry.entry_uuid)}
+                  sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: 11, height: 24 }}
+                >
+                  {isMatched ? '✓ Link' : '✓ Post'}
+                </Button>
+              </Tooltip>
+            )}
+            {onReject && (
+              <Tooltip title="Skip this bank entry">
+                <IconButton size="small" color="error" onClick={() => onReject(entry.entry_uuid, true)}>
+                  <CancelRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {isMatched && onUnmatch && (
+              <Tooltip title="Remove Diary match">
+                <IconButton size="small" color="warning" onClick={() => onUnmatch(entry.entry_uuid)}>
+                  <LinkOffRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
         )}
       </TableCell>
     </TableRow>
@@ -125,6 +272,8 @@ export default function BankReconciliation() {
   const [stmt, setStmt]               = useState(null);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
+  const [successMsg, setSuccessMsg]   = useState('');
+  const [ledgerAccounts, setLedgerAccounts] = useState([]);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -141,6 +290,7 @@ export default function BankReconciliation() {
     if (!uid) return;
     setLoading(true);
     setError('');
+    setSuccessMsg('');
     try {
       const res = await axios.get(`/api/bank-statement/${uid}`);
       setStmt(res.data?.result || null);
@@ -150,6 +300,15 @@ export default function BankReconciliation() {
 
   useEffect(() => { loadList(); }, [loadList]);
   useEffect(() => { if (selectedUuid) loadStmt(selectedUuid); }, [selectedUuid, loadStmt]);
+
+  useEffect(() => {
+    axios.get('/api/customers/GetCustomersList')
+      .then((res) => {
+        const all = Array.isArray(res.data?.result) ? res.data.result : [];
+        setLedgerAccounts(all.map((row) => row.Customer_name).filter(Boolean).sort());
+      })
+      .catch(() => setLedgerAccounts([]));
+  }, []);
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
@@ -208,6 +367,54 @@ export default function BankReconciliation() {
       setStmt(res.data?.result || stmt);
     } catch { setError('Could not update entry.'); }
   };
+
+  const handleAssign = useCallback(async (entryUuid, account) => {
+    if (!stmt) return;
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.put(`/api/bank-statement/${stmt.statement_uuid}/entry/${entryUuid}`, {
+        account_assigned: account,
+      });
+      setStmt(res.data?.result || stmt);
+      setSuccessMsg('Account assigned.');
+      return true;
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not assign account.');
+      return false;
+    }
+  }, [stmt]);
+
+  const handleConfirm = useCallback(async (entryUuid) => {
+    if (!stmt) return;
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.post(
+        `/api/bank-statement/${stmt.statement_uuid}/entry/${entryUuid}/confirm`,
+        { confirmed_by: loggedInUser },
+      );
+      setStmt(res.data?.result || stmt);
+      setSuccessMsg(res.data?.message || 'Bank entry confirmed.');
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not confirm bank entry.');
+    }
+  }, [stmt, loggedInUser]);
+
+  const handleReject = useCallback(async (entryUuid, reject) => {
+    if (!stmt) return;
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.put(`/api/bank-statement/${stmt.statement_uuid}/entry/${entryUuid}`, {
+        entry_status: reject ? 'rejected' : 'pending',
+      });
+      setStmt(res.data?.result || stmt);
+      setSuccessMsg(reject ? 'Bank entry skipped.' : 'Bank entry restored.');
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not update bank entry.');
+    }
+  }, [stmt]);
 
   // Derived
   const entries    = stmt?.entries || [];
@@ -357,6 +564,7 @@ export default function BankReconciliation() {
         )}
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {successMsg && <Alert severity="success" sx={{ mb: 2 }}>{successMsg}</Alert>}
 
         {stmt && !loading && (
           <>
@@ -397,8 +605,8 @@ export default function BankReconciliation() {
 
             {unmatched.length > 0 && (
               <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
-                <strong>{unmatched.length} unmatched entries</strong> — these bank transactions have no matching diary entry.
-                Open the <strong>Day Book</strong> and add any missing entries for these transactions.
+                <strong>{unmatched.length} unmatched entries</strong> — assign the correct account below and click <strong>Post</strong>,
+                or skip the row if it should not be posted. Auto-matched rows can be linked to the existing Diary transaction.
               </Alert>
             )}
 
@@ -417,12 +625,21 @@ export default function BankReconciliation() {
                         <TableCell align="center">Dir</TableCell>
                         <TableCell align="right">Amount</TableCell>
                         <TableCell>Match</TableCell>
-                        <TableCell />
+                        <TableCell>Account</TableCell>
+                        <TableCell align="center">Action</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {matched.map((e) => (
-                        <StmtRow key={e.entry_uuid} entry={e} onUnmatch={handleUnmatch} />
+                        <StmtRow
+                          key={e.entry_uuid}
+                          entry={e}
+                          onUnmatch={handleUnmatch}
+                          onAssign={handleAssign}
+                          onConfirm={handleConfirm}
+                          onReject={handleReject}
+                          ledgerAccounts={ledgerAccounts}
+                        />
                       ))}
                     </TableBody>
                   </Table>
@@ -445,12 +662,21 @@ export default function BankReconciliation() {
                         <TableCell align="center">Dir</TableCell>
                         <TableCell align="right">Amount</TableCell>
                         <TableCell>Status</TableCell>
-                        <TableCell />
+                        <TableCell>Account</TableCell>
+                        <TableCell align="center">Action</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {unmatched.map((e) => (
-                        <StmtRow key={e.entry_uuid} entry={e} onUnmatch={null} />
+                        <StmtRow
+                          key={e.entry_uuid}
+                          entry={e}
+                          onUnmatch={null}
+                          onAssign={handleAssign}
+                          onConfirm={handleConfirm}
+                          onReject={handleReject}
+                          ledgerAccounts={ledgerAccounts}
+                        />
                       ))}
                     </TableBody>
                   </Table>

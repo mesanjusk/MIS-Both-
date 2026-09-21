@@ -4,6 +4,8 @@ import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
   Checkbox,
   Chip,
   CircularProgress,
@@ -31,6 +33,7 @@ import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 import ExportGuard from '../Components/ExportGuard';
 import ClearRoundedIcon from '@mui/icons-material/ClearRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import axios from '../apiClient';
 import { STAGE_LABELS, LEGACY_STAGE_LABELS } from '../constants/orderStages';
 import { VENDOR_SECTIONS } from '../Components/orders/orderControlSections';
@@ -193,173 +196,224 @@ export default function OrderLedger() {
   }
 
   return (
-    <Box>
-      <LedgerTabs value={ledgerTab} onChange={setLedgerTab} showVendor={canSeeVendorPayable} />
-
-      {/* Filters */}
-      <Paper variant="outlined" sx={{ borderRadius: 2, p: 1.25, mb: 1.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
+      {/* Delivery-style filter sidebar */}
+      <Paper
+        variant="outlined"
+        sx={{
+          width: 190,
+          flexShrink: 0,
+          borderRadius: 2.5,
+          display: { xs: 'none', md: 'flex' },
+          flexDirection: 'column',
+          alignSelf: 'flex-start',
+          position: 'sticky',
+          top: 8,
+          overflow: 'hidden',
+        }}
+      >
+        <Box sx={{ p: 1.25 }}>
+          <Typography variant="subtitle2" fontWeight={800}>Order Filters</Typography>
+          <Typography variant="caption" color="text.secondary">Choose date range and status</Typography>
+        </Box>
+        <Divider />
+        <Stack spacing={1} sx={{ p: 1.25 }}>
           <TextField
             type="date" label="From" size="small" value={from}
             onChange={(e) => setFrom(e.target.value)}
-            InputLabelProps={{ shrink: true }} sx={{ width: 150 }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ '& input': { fontSize: 12, py: 0.7 } }}
           />
           <TextField
             type="date" label="To" size="small" value={to}
             onChange={(e) => setTo(e.target.value)}
-            InputLabelProps={{ shrink: true }} sx={{ width: 150 }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ '& input': { fontSize: 12, py: 0.7 } }}
           />
           <TextField
             select label="Type" size="small" value={kind}
-            onChange={(e) => setKind(e.target.value)} sx={{ width: 150 }}
+            onChange={(e) => setKind(e.target.value)}
           >
-            <MenuItem value="all"><em>All orders</em></MenuItem>
+            <MenuItem value="all">All orders</MenuItem>
             <MenuItem value="real">Real orders</MenuItem>
             <MenuItem value="temp">Temp (from a file)</MenuItem>
           </TextField>
           <TextField
             select label="Status" size="small" value={stage}
-            onChange={(e) => setStage(e.target.value)} sx={{ width: 160 }}
+            onChange={(e) => setStage(e.target.value)}
           >
-            <MenuItem value=""><em>All stages</em></MenuItem>
+            <MenuItem value="">All stages</MenuItem>
             {Object.entries(STAGE_LABELS).map(([value, label]) => (
               <MenuItem key={value} value={value}>{label}</MenuItem>
             ))}
           </TextField>
-          <TextField
-            label="Search" size="small" placeholder="Order no or customer…"
-            value={search} onChange={(e) => setSearch(e.target.value)} sx={{ width: 200 }}
-          />
-
+          <Divider />
           <FormControlLabel
+            sx={{ m: 0 }}
             control={<Checkbox size="small" checked={showPaid} onChange={(e) => setShowPaid(e.target.checked)} color="success" />}
             label={<Typography variant="body2">Paid</Typography>}
           />
           <FormControlLabel
+            sx={{ m: 0 }}
             control={<Checkbox size="small" checked={showBalance} onChange={(e) => setShowBalance(e.target.checked)} color="warning" />}
             label={<Typography variant="body2">Balance</Typography>}
           />
-
-          <Box sx={{ flex: 1 }} />
-
-          <Tooltip title="Reset filters">
-            <IconButton size="small" onClick={resetFilters}><ClearRoundedIcon fontSize="small" /></IconButton>
-          </Tooltip>
-          <Tooltip title="Refresh">
-            <IconButton size="small" onClick={load} disabled={loading}>
-              {loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
-          <ExportGuard>
-            <Button
-              size="small" variant="outlined" onClick={exportExcel} disabled={!visible.length}
-              startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '16px !important' }} />}
-            >
-              Excel
-            </Button>
-          </ExportGuard>
-          <ExportGuard>
-            <Button
-              size="small" variant="outlined" color="error" onClick={exportPdf} disabled={!visible.length}
-              startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: '16px !important' }} />}
-            >
-              PDF
-            </Button>
-          </ExportGuard>
+          <Button size="small" variant="outlined" startIcon={<ClearRoundedIcon />} onClick={resetFilters}
+            sx={{ textTransform: 'none', borderRadius: 1.5 }}>
+            Reset
+          </Button>
         </Stack>
       </Paper>
 
-      {/* Totals */}
-      {totals && (
-        <Stack direction="row" spacing={0.75} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-          <Chip size="small" label={`${visible.length} orders`} />
-          <Chip size="small" variant="outlined" label={`Amount ${money(totals.amount)}`} />
-          <Chip size="small" color="success" variant="outlined" label={`Paid ${money(totals.paid)}`} />
-          <Chip size="small" color="warning" label={`Balance ${money(totals.balance)}`} />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <LedgerTabs value={ledgerTab} onChange={setLedgerTab} showVendor={canSeeVendorPayable} />
+
+        {/* Delivery-style header toolbar */}
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={0.8}
+          alignItems={{ xs: 'stretch', lg: 'center' }}
+          sx={{ mb: 1 }}
+        >
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={900} noWrap>Orders</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {fmtDate(from)} – {fmtDate(to)} · {visible.length} order{visible.length === 1 ? '' : 's'}
+            </Typography>
+          </Box>
+
+          <TextField
+            size="small"
+            placeholder="Search order / customer"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ width: { xs: '100%', lg: 215 } }}
+            InputProps={{
+              startAdornment: <SearchRoundedIcon sx={{ mr: 0.75, fontSize: 18, color: 'text.secondary' }} />,
+            }}
+          />
+
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Tooltip title="Refresh">
+              <IconButton size="small" onClick={load} disabled={loading} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                {loading ? <CircularProgress size={16} /> : <RefreshRoundedIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            <ExportGuard>
+              <Button size="small" variant="contained" onClick={exportExcel} disabled={!visible.length}
+                startIcon={<FileDownloadRoundedIcon sx={{ fontSize: '16px !important' }} />}
+                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}>
+                Excel
+              </Button>
+            </ExportGuard>
+            <ExportGuard>
+              <Button size="small" variant="contained" color="error" onClick={exportPdf} disabled={!visible.length}
+                startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: '16px !important' }} />}
+                sx={{ textTransform: 'none', borderRadius: 1.5, fontWeight: 800 }}>
+                PDF
+              </Button>
+            </ExportGuard>
+          </Stack>
+
+          {/* Mobile filters kept inline */}
+          <Stack direction="row" spacing={0.5} sx={{ display: { xs: 'flex', md: 'none' }, overflowX: 'auto' }}>
+            <TextField type="date" size="small" value={from} onChange={(e) => setFrom(e.target.value)}
+              InputLabelProps={{ shrink: true }} sx={{ minWidth: 140 }} />
+            <TextField type="date" size="small" value={to} onChange={(e) => setTo(e.target.value)}
+              InputLabelProps={{ shrink: true }} sx={{ minWidth: 140 }} />
+          </Stack>
         </Stack>
-      )}
 
-      {loading && <LinearProgress sx={{ mb: 1, height: 2 }} />}
-      {error && <Alert severity="error" sx={{ mb: 1 }} action={<Button size="small" onClick={load}>Retry</Button>}>{error}</Alert>}
+        {totals && (
+          <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
+            {[
+              { label: 'Orders', value: visible.length, color: 'text.primary' },
+              { label: 'Amount', value: money(totals.amount), color: 'text.primary' },
+              { label: 'Paid', value: money(totals.paid), color: 'success.dark' },
+              { label: 'Balance', value: money(totals.balance), color: 'warning.dark' },
+            ].map((item) => (
+              <Card key={item.label} variant="outlined" sx={{ minWidth: 125, flex: 1, borderRadius: 2 }}>
+                <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
+                  <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                  <Typography variant="subtitle1" fontWeight={900} color={item.color} lineHeight={1.15}>{item.value}</Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        )}
 
-      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: '65vh' }}>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Order No</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Customer Name</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>Order Status</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Amount</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Paid</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Balance</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="center">Payment</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {!loading && visible.length === 0 && (
+        {loading && <LinearProgress sx={{ mb: 1, height: 2, borderRadius: 1 }} />}
+        {error && <Alert severity="error" sx={{ mb: 1, borderRadius: 2 }} action={<Button size="small" onClick={load}>Retry</Button>}>{error}</Alert>}
+
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2.5, maxHeight: '68vh' }}>
+          <Table size="small" stickyHeader sx={{ '& .MuiTableCell-root': { py: 0.75 } }}>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                  No orders for these filters.
-                </TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Date</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Order</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Customer</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 800 }} align="right">Amount</TableCell>
+                <TableCell sx={{ fontWeight: 800 }} align="right">Paid</TableCell>
+                <TableCell sx={{ fontWeight: 800 }} align="right">Balance</TableCell>
+                <TableCell sx={{ fontWeight: 800 }} align="center">Payment</TableCell>
               </TableRow>
-            )}
-            {visible.map((r) => (
-              <TableRow key={r.orderId} hover>
-                <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(r.orderDate)}</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>#{r.orderNumber}</TableCell>
-                <TableCell>
-                  <Stack spacing={0} sx={{ minWidth: 0 }}>
-                    <Stack direction="row" spacing={0.5} alignItems="center">
-                      <Typography variant="body2" noWrap>
-                        {r.customerName || <Typography component="span" variant="caption" color="text.disabled">No customer</Typography>}
-                      </Typography>
-                      {r.isTemporary && (
-                        <Chip size="small" color="warning" variant="outlined" label="temp"
-                          sx={{ height: 16, fontSize: 9.5, '& .MuiChip-label': { px: 0.5 } }} />
+            </TableHead>
+            <TableBody>
+              {!loading && visible.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 5, color: 'text.secondary' }}>
+                    No orders for these filters.
+                  </TableCell>
+                </TableRow>
+              )}
+              {visible.map((r) => (
+                <TableRow key={r.orderId} hover>
+                  <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDate(r.orderDate)}</TableCell>
+                  <TableCell sx={{ fontWeight: 800 }}>#{r.orderNumber}</TableCell>
+                  <TableCell>
+                    <Stack spacing={0} sx={{ minWidth: 0 }}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography variant="body2" noWrap>
+                          {r.customerName || <Typography component="span" variant="caption" color="text.disabled">No customer</Typography>}
+                        </Typography>
+                        {r.isTemporary && (
+                          <Chip size="small" color="warning" variant="outlined" label="temp"
+                            sx={{ height: 16, fontSize: 9.5, '& .MuiChip-label': { px: 0.5 } }} />
+                        )}
+                      </Stack>
+                      {r.sourceFile && (
+                        <Tooltip title={r.sourceFile}>
+                          <Typography variant="caption" color="text.disabled" noWrap sx={{ fontSize: 10.5, maxWidth: 280 }}>
+                            {r.sourceFile}
+                          </Typography>
+                        </Tooltip>
                       )}
                     </Stack>
-                    {/* Which design file produced this order. */}
-                    {r.sourceFile && (
-                      <Tooltip title={r.sourceFile}>
-                        <Typography variant="caption" color="text.disabled" noWrap sx={{ fontSize: 10.5, maxWidth: 320 }}>
-                          {r.sourceFile}
-                        </Typography>
-                      </Tooltip>
-                    )}
-                  </Stack>
-                </TableCell>
-                <TableCell>
-                  <Chip size="small" variant="outlined" label={stageLabel(r.stage)} sx={{ height: 20, fontSize: 11 }} />
-                </TableCell>
-                <TableCell align="right">{money(r.amount)}</TableCell>
-                <TableCell align="right" sx={{ color: r.paid ? 'success.dark' : 'text.disabled' }}>{money(r.paid)}</TableCell>
-                <TableCell align="right" sx={{ color: r.balance ? 'warning.dark' : 'text.disabled', fontWeight: r.balance ? 700 : 400 }}>
-                  {money(r.balance)}
-                </TableCell>
-                <TableCell align="center">
-                  <Checkbox
-                    size="small" checked={r.isPaid} readOnly disableRipple color="success"
-                    inputProps={{ 'aria-label': r.isPaid ? 'Paid' : 'Balance' }}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {totals && visible.length > 0 && (
-        <>
-          <Divider sx={{ my: 1 }} />
-          <Stack direction="row" justifyContent="flex-end" spacing={2} sx={{ pr: 1 }}>
-            <Typography variant="body2" color="text.secondary">Total</Typography>
-            <Typography variant="body2" fontWeight={700}>{money(totals.amount)}</Typography>
-            <Typography variant="body2" color="success.dark" fontWeight={700}>{money(totals.paid)}</Typography>
-            <Typography variant="body2" color="warning.dark" fontWeight={800}>{money(totals.balance)}</Typography>
-          </Stack>
-        </>
-      )}
+                  </TableCell>
+                  <TableCell>
+                    <Chip size="small" variant="outlined" label={stageLabel(r.stage)} sx={{ height: 20, fontSize: 11 }} />
+                  </TableCell>
+                  <TableCell align="right">{money(r.amount)}</TableCell>
+                  <TableCell align="right" sx={{ color: r.paid ? 'success.dark' : 'text.disabled' }}>{money(r.paid)}</TableCell>
+                  <TableCell align="right" sx={{ color: r.balance ? 'warning.dark' : 'text.disabled', fontWeight: r.balance ? 800 : 400 }}>
+                    {money(r.balance)}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      size="small"
+                      color={r.isPaid ? 'success' : 'warning'}
+                      variant={r.isPaid ? 'filled' : 'outlined'}
+                      label={r.isPaid ? 'Paid' : 'Balance'}
+                      sx={{ height: 20, fontSize: 10.5, fontWeight: 800 }}
+                    />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
     </Box>
   );
 }

@@ -457,6 +457,56 @@ function chooseBankLedgerDoc(statementAccountName, docs = [], { allowFallback = 
   return allowFallback ? bankDocs[0] : null;
 }
 
+async function inferStatementBankLedgerFromLinkedTransactions(stmt, docs = []) {
+  const bankById = new Map();
+  const bankByName = new Map();
+  for (const doc of docs || []) {
+    if (!doc?.Customer_uuid || !doc?.Customer_name || /cash/i.test(doc.Customer_name)) continue;
+    bankById.set(String(doc.Customer_uuid), doc);
+    bankByName.set(normalizeLedgerName(doc.Customer_name), doc);
+  }
+  if (!bankById.size) return null;
+
+  const linkedEntries = (stmt?.entries || []).filter((entry) => entry?.transaction_uuid);
+  if (!linkedEntries.length) return null;
+
+  const txnIds = [...new Set(linkedEntries.map((entry) => entry.transaction_uuid).filter(Boolean))];
+  const transactions = await Transaction.find({
+    Transaction_uuid: { $in: txnIds },
+  }).lean();
+  const txnMap = new Map(transactions.map((txn) => [String(txn.Transaction_uuid), txn]));
+  const counts = new Map();
+
+  for (const entry of linkedEntries) {
+    const txn = txnMap.get(String(entry.transaction_uuid));
+    if (!txn) continue;
+
+    const source = String(txn.Source || '');
+    if (source === BUSINESS_SOURCES.BANK_STATEMENT ||
+        source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+      continue;
+    }
+
+    const amount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
+    if (!(amount > 0)) continue;
+
+    const expectedType = entry.direction === 'in' ? 'Debit' : 'Credit';
+    for (const line of txn.Journal_entry || []) {
+      if (String(line?.Type || '') !== expectedType || roundMoney(line?.Amount) !== amount) continue;
+      const doc = bankById.get(String(line?.Account_id || '')) ||
+        bankByName.get(normalizeLedgerName(line?.Account_name));
+      if (!doc) continue;
+      const key = String(doc.Customer_uuid);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+
+  if (!counts.size) return null;
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) return null;
+  return bankById.get(ranked[0][0]) || null;
+}
+
 async function resolveStatementBankLedger(stmt) {
   const docs = await Customer.find(
     { Customer_group: 'Bank and Account' },
@@ -474,9 +524,20 @@ async function resolveStatementBankLedger(stmt) {
     }
   }
 
-  // For auto mappings, always retry confident name matching. This repairs
-  // statements that were previously persisted to the first bank ledger merely
-  // because the parser account name did not exactly equal the MIS ledger name.
+  // Existing confirmed Diary/manual links are the strongest automatic signal:
+  // inspect their bank-side journal leg and use the bank ledger that already
+  // appears there. This works even when the imported statement header is
+  // generic (for example "SBI Bank Account").
+  const inferredFromLinks = await inferStatementBankLedgerFromLinkedTransactions(stmt, docs);
+  if (inferredFromLinks) {
+    stmt.ledger_account_uuid = inferredFromLinks.Customer_uuid;
+    stmt.ledger_account_name = inferredFromLinks.Customer_name;
+    return { uuid: inferredFromLinks.Customer_uuid, name: inferredFromLinks.Customer_name };
+  }
+
+  // Otherwise retry confident name matching. This repairs statements that were
+  // previously persisted to the first bank ledger merely because the parser
+  // account name did not exactly equal the MIS ledger name.
   const confident = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: false });
   if (confident) {
     stmt.ledger_account_uuid = confident.Customer_uuid;
@@ -696,6 +757,71 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
   entry.entry_status = 'confirmed';
   entry.transaction_uuid = posting.transaction.Transaction_uuid;
   return { mode: currentTxn ? 'reposted' : 'created', transaction: posting.transaction, existing: posting.existing };
+}
+
+async function repairConfirmedBankStatementsWithEvidence() {
+  const statements = await BankStatement.find({
+    'entries.entry_status': 'confirmed',
+  });
+
+  const summary = {
+    statementsScanned: statements.length,
+    statementsRepaired: 0,
+    linked: 0,
+    created: 0,
+    reposted: 0,
+    ambiguous: 0,
+    skipped: 0,
+  };
+
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1, Customer_uuid: 1 }
+  ).lean();
+
+  for (const stmt of statements) {
+    let evidence = null;
+    if (stmt.ledger_account_locked && stmt.ledger_account_uuid) {
+      evidence = docs.find(
+        (doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid)
+      ) || null;
+    }
+    if (!evidence) {
+      evidence = await inferStatementBankLedgerFromLinkedTransactions(stmt, docs);
+    }
+    if (!evidence) {
+      evidence = chooseBankLedgerDoc(stmt.account_name, docs, { allowFallback: false });
+    }
+
+    // Never mutate a statement at startup without positive account evidence.
+    if (!evidence) continue;
+
+    stmt.ledger_account_uuid = evidence.Customer_uuid;
+    stmt.ledger_account_name = evidence.Customer_name;
+
+    let changed = false;
+    for (const entry of stmt.entries || []) {
+      if (entry.entry_status !== 'confirmed') continue;
+      const result = await ensureBankEntryInLedger({
+        stmt,
+        entry,
+        actor: 'bank_statement_startup_repair',
+      });
+      if (Object.prototype.hasOwnProperty.call(summary, result.mode)) {
+        summary[result.mode] += 1;
+      }
+      if (result.mode === 'linked' || result.mode === 'created' || result.mode === 'reposted') {
+        changed = true;
+      }
+    }
+
+    if (changed || stmt.isModified()) {
+      await stmt.save();
+      summary.statementsRepaired += 1;
+    }
+  }
+
+  return summary;
 }
 
 // --------------- routes ---------------
@@ -1162,4 +1288,6 @@ module.exports.parseSbiTextFormat = parseSbiTextFormat;
 module.exports.autoMatchEntries = autoMatchEntries;
 module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
 module.exports.scoreBankLedgerName = scoreBankLedgerName;
+module.exports.inferStatementBankLedgerFromLinkedTransactions = inferStatementBankLedgerFromLinkedTransactions;
+module.exports.repairConfirmedBankStatementsWithEvidence = repairConfirmedBankStatementsWithEvidence;
 module.exports.transactionMatchesBankEntry = transactionMatchesBankEntry;

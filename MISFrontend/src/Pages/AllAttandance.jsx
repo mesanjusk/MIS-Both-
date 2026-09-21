@@ -2,41 +2,72 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { FaWhatsapp } from "react-icons/fa";
 import {
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
+import LoginRoundedIcon from "@mui/icons-material/LoginRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import {
   fetchUserNames,
   fetchAttendanceList,
   processAttendanceDataForDate,
 } from "../utils/attendanceUtils";
 
+function TimeBadge({ value }) {
+  const marked = value && value !== "—";
+  return (
+    <Chip
+      size="small"
+      label={marked ? value : "—"}
+      color={marked ? "success" : "default"}
+      variant="outlined"
+      sx={{ height: 20, fontSize: 10.5, fontWeight: 700 }}
+    />
+  );
+}
+
+function SourceBadge({ source }) {
+  const isWhatsApp = source === "WhatsApp";
+  return (
+    <Chip
+      size="small"
+      icon={isWhatsApp ? <WhatsAppIcon sx={{ fontSize: "13px !important" }} /> : undefined}
+      label={isWhatsApp ? "WhatsApp" : "Dashboard"}
+      color={isWhatsApp ? "success" : "default"}
+      variant="outlined"
+      sx={{ height: 20, fontSize: 10.5, fontWeight: 700 }}
+    />
+  );
+}
+
 export default function AllAttandance() {
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const [userName, setUserName] = useState("");
   const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
 
   const navigate = useNavigate();
   const location = useLocation();
-
-  useEffect(() => {
-    const userNameFromState = location.state?.id;
-    const user = userNameFromState || localStorage.getItem("User_name");
-    setLoggedInUser(user);
-    if (user) {
-      setUserName(user);
-      loadToday();
-    } else {
-      navigate("/");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigate]);
-
-  useEffect(() => {
-    if (!loggedInUser) return undefined;
-    const intervalId = setInterval(() => {
-      loadToday();
-    }, 30000);
-    return () => clearInterval(intervalId);
-  }, [loggedInUser]);
 
   const loadToday = async () => {
     try {
@@ -56,159 +87,201 @@ export default function AllAttandance() {
     }
   };
 
+  useEffect(() => {
+    const userNameFromState = location.state?.id;
+    const user = userNameFromState || localStorage.getItem("User_name");
+    setLoggedInUser(user);
+    if (user) {
+      loadToday();
+    } else {
+      navigate("/");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!loggedInUser) return undefined;
+    const intervalId = setInterval(loadToday, 30000);
+    return () => clearInterval(intervalId);
+  }, [loggedInUser]);
+
   const todayLabel = useMemo(() => {
     const d = new Date();
-    return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    return d.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return attendance;
-    return attendance.filter((r) => String(r.User_name || "").toLowerCase().includes(q));
+    return attendance.filter((r) =>
+      String(r.User_name || "").toLowerCase().includes(q)
+    );
   }, [attendance, search]);
 
-  const Badge = ({ value }) => {
-    const has = value && value !== "—";
-    return (
-      <span
-        className={[
-          "inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium",
-          has ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-50 text-slate-500 border border-slate-200",
-        ].join(" ")}
-        title={has ? "Marked" : "Not marked"}
-      >
-        {has ? value : "—"}
-      </span>
-    );
-  };
-
-  const SourceBadge = ({ source }) => {
-    const isWhatsApp = source === "WhatsApp";
-    return (
-      <span
-        className={[
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border",
-          isWhatsApp
-            ? "bg-green-50 text-green-700 border-green-200"
-            : "bg-slate-50 text-slate-700 border-slate-200",
-        ].join(" ")}
-        title={isWhatsApp ? "Marked via WhatsApp message" : "Marked from dashboard"}
-      >
-        {isWhatsApp ? <FaWhatsapp className="h-3 w-3" /> : null}
-        {isWhatsApp ? "WhatsApp" : "Dashboard"}
-      </span>
-    );
-  };
+  const stats = useMemo(() => ({
+    members: attendance.length,
+    checkedIn: attendance.filter((r) => r.In && r.In !== "—").length,
+    checkedOut: attendance.filter((r) => r.Out && r.Out !== "—").length,
+    whatsapp: attendance.filter((r) => r.Source === "WhatsApp").length,
+  }), [attendance]);
 
   return (
-    <div className="w-full">
-      {/* Card */}
-      <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-100">
-        {/* Header */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-slate-100">
-          <div>
-            
-            <div className="mt-1 flex items-center gap-2">
-              
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 border border-slate-200">
-                {todayLabel}
-              </span>
-              {!!filtered.length && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  {filtered.length} Members
-                </span>
-              )}
-            </div>
-          </div>
+    <Box sx={{ minHeight: "80vh", p: { xs: 0.5, md: 1 } }}>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={0.75}
+        alignItems={{ xs: "stretch", sm: "center" }}
+        sx={{ mb: 1 }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h5" fontWeight={900} noWrap>
+            Attendance
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {todayLabel} · today&apos;s team attendance
+          </Typography>
+        </Box>
 
-         
-        </div>
+        <TextField
+          size="small"
+          placeholder="Search member"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          sx={{ width: { xs: "100%", sm: 200 } }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon sx={{ fontSize: 18 }} />
+              </InputAdornment>
+            ),
+          }}
+        />
 
-        {/* Content */}
-        <div className="px-4 py-4">
-          {/* Mobile cards */}
-          <div className="grid gap-3 sm:hidden">
-            {loading ? (
-              <div className="text-center text-slate-500 py-6">Loading…</div>
+        <Tooltip title="Refresh attendance">
+          <IconButton
+            size="small"
+            onClick={loadToday}
+            disabled={loading}
+            sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}
+          >
+            {loading ? <CircularProgress size={17} /> : <RefreshRoundedIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+      </Stack>
+
+      <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: "auto", pb: 0.25 }}>
+        {[
+          { label: "Members", value: stats.members, color: "text.primary", Icon: GroupsRoundedIcon },
+          { label: "Checked In", value: stats.checkedIn, color: "success.dark", Icon: LoginRoundedIcon },
+          { label: "Checked Out", value: stats.checkedOut, color: "primary.main", Icon: LogoutRoundedIcon },
+          { label: "WhatsApp", value: stats.whatsapp, color: "success.main", Icon: WhatsAppIcon },
+        ].map(({ label, value, color, Icon }) => (
+          <Card key={label} variant="outlined" sx={{ minWidth: 125, flex: 1, borderRadius: 2 }}>
+            <CardContent sx={{ px: 1.1, py: 0.7, "&:last-child": { pb: 0.7 } }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>
+                    {value}
+                  </Typography>
+                </Box>
+                <Icon sx={{ fontSize: 19, color }} />
+              </Stack>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+
+      {/* Compact mobile cards */}
+      <Box sx={{ display: { xs: "grid", sm: "none" }, gap: 0.75 }}>
+        {loading && !attendance.length ? (
+          <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 2.5 }}>
+            <CircularProgress size={24} />
+          </Paper>
+        ) : filtered.length === 0 ? (
+          <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 2.5 }}>
+            <Typography color="text.secondary">No attendance records found for today.</Typography>
+          </Paper>
+        ) : (
+          filtered.map((r, i) => (
+            <Paper key={`${r.User_name}-${i}`} variant="outlined" sx={{ p: 1, borderRadius: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.75 }}>
+                <Typography variant="body2" fontWeight={900}>{r.User_name}</Typography>
+                <SourceBadge source={r.Source} />
+              </Stack>
+              <Stack direction="row" spacing={0.5} justifyContent="space-between">
+                {[
+                  ["In", r.In],
+                  ["Break", r.Break],
+                  ["Start", r.Start],
+                  ["Out", r.Out],
+                ].map(([label, value]) => (
+                  <Box key={label} sx={{ minWidth: 0, textAlign: "center" }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: 10 }}>
+                      {label}
+                    </Typography>
+                    <TimeBadge value={value} />
+                  </Box>
+                ))}
+              </Stack>
+            </Paper>
+          ))
+        )}
+      </Box>
+
+      {/* Delivery-style compact desktop table */}
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        sx={{ display: { xs: "none", sm: "block" }, borderRadius: 2.5, maxHeight: "68vh" }}
+      >
+        <Table size="small" stickyHeader sx={{ "& .MuiTableCell-root": { py: 0.75 } }}>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>In</TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>Break</TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>Start</TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>Out</TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>Source</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading && !attendance.length ? (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 5 }}>
+                  <CircularProgress size={24} />
+                </TableCell>
+              </TableRow>
             ) : filtered.length === 0 ? (
-              <div className="text-center text-slate-500 py-6">No attendance records found for today.</div>
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 5, color: "text.secondary" }}>
+                  No attendance records found for today.
+                </TableCell>
+              </TableRow>
             ) : (
               filtered.map((r, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl border border-slate-200 p-3 bg-white"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium text-slate-900">{r.User_name}</div>
-                  </div>
-                  <div className="mt-3 grid grid-cols-4 gap-2">
-                    <div className="text-[11px] text-slate-500">In</div>
-                    <div className="text-[11px] text-slate-500">Break</div>
-                    <div className="text-[11px] text-slate-500">Start</div>
-                    <div className="text-[11px] text-slate-500">Out</div>
-                    <Badge value={r.In} />
-                    <Badge value={r.Break} />
-                    <Badge value={r.Start} />
-                    <Badge value={r.Out} />
-                  </div>
-                  <div className="mt-3">
-                    <div className="text-[11px] text-slate-500 mb-1">Source</div>
-                    <SourceBadge source={r.Source} />
-                  </div>
-                </div>
+                <TableRow key={`${r.User_name}-${i}`} hover>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={800}>{r.User_name}</Typography>
+                  </TableCell>
+                  <TableCell><TimeBadge value={r.In} /></TableCell>
+                  <TableCell><TimeBadge value={r.Break} /></TableCell>
+                  <TableCell><TimeBadge value={r.Start} /></TableCell>
+                  <TableCell><TimeBadge value={r.Out} /></TableCell>
+                  <TableCell><SourceBadge source={r.Source} /></TableCell>
+                </TableRow>
               ))
             )}
-          </div>
+          </TableBody>
+        </Table>
+      </TableContainer>
 
-          {/* Desktop table */}
-          <div className="hidden sm:block">
-            <div className="overflow-auto rounded-xl border border-slate-200">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr className="text-left text-slate-600">
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">Name</th>
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">In</th>
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">Break</th>
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">Start</th>
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">Out</th>
-                    <th className="px-3 py-2 font-medium border-b border-slate-200">Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan="6" className="px-3 py-6 text-center text-slate-500">
-                        Loading…
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="px-3 py-6 text-center text-slate-500">
-                        No attendance records found for today.
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((r, i) => (
-                      <tr
-                        key={i}
-                        className="border-t border-slate-100 hover:bg-slate-50"
-                      >
-                        <td className="px-3 py-2 text-slate-900">{r.User_name}</td>
-                        <td className="px-3 py-2"><Badge value={r.In} /></td>
-                        <td className="px-3 py-2"><Badge value={r.Break} /></td>
-                        <td className="px-3 py-2"><Badge value={r.Start} /></td>
-                        <td className="px-3 py-2"><Badge value={r.Out} /></td>
-                        <td className="px-3 py-2"><SourceBadge source={r.Source} /></td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      </div>
-    </div>
+      <Box sx={{ display: "none" }}><FaWhatsapp /></Box>
+    </Box>
   );
 }

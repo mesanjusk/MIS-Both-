@@ -29,6 +29,10 @@ const BankStatementSchema = new mongoose.Schema({
   // configured "Bank and Account" ledgers and persist the choice on first use.
   ledger_account_uuid: { type: String, default: '' },
   ledger_account_name: { type: String, default: '' },
+  // True only after a user explicitly chooses the statement's bank ledger.
+  // Auto-detected mappings remain unlocked so improved matching can safely
+  // correct an earlier fallback mapping.
+  ledger_account_locked: { type: Boolean, default: false },
   uploaded_by:    { type: String, default: '' },
   period_start:   { type: Date },
   period_end:     { type: Date },

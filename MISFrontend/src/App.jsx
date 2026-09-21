@@ -93,6 +93,7 @@ const EmailHistory  = lazy(() => import('./Pages/EmailHistory'));
 const OpeningBalance = lazy(() => import('./Pages/OpeningBalance'));
 const OpeningBalanceUpload = lazy(() => import('./Pages/OpeningBalanceUpload'));
 const BusinessProfileSettings = lazy(() => import('./Pages/BusinessProfileSettings'));
+const NetworkFileSettings = lazy(() => import('./Pages/NetworkFileSettings'));
 const AdminUserPermissions = lazy(() => import('./Pages/AdminUserPermissions'));
 const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions'));
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
@@ -288,6 +289,7 @@ export default function App() {
             <Route path={ROUTES.CALL_LOGS} element={rolesOnly(OFFICE_ROLES, <CallLogs />)} />
             <Route path={ROUTES.FLOW_BUILDER} element={adminOnly(<FlowBuilderPage />)} />
             <Route path={ROUTES.ADMIN_BUSINESS_PROFILE} element={adminOnly(<BusinessProfileSettings />)} />
+            <Route path={ROUTES.ADMIN_NETWORK_FILES} element={adminOnly(<NetworkFileSettings />)} />
             <Route path={ROUTES.ADMIN_USER_PERMISSIONS} element={adminOnly(<AdminUserPermissions />)} />
             <Route path={ROUTES.ADMIN_GROUP_PERMISSIONS} element={adminOnly(<AdminGroupPermissions />)} />
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={adminOnly(<WhatsAppActionLogPage />)} />

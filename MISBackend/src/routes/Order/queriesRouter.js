@@ -240,6 +240,11 @@ router.get("/GetBillListPaged", async (req, res) => {
     const paid = String(req.query.paid || "").trim().toLowerCase();
     const date = String(req.query.date || "").trim();
     const rx = search ? new RegExp(escapeRegex(search), "i") : null;
+    // Bill cards use Order_Number as the visible bill number. Accept both
+    // "2524" and "#2524", and support partial bill-number lookup so older
+    // bills outside the currently loaded page can still be found server-side.
+    const billNumberNeedle = search.replace(/^#\s*/, "");
+    const hasBillNumberNeedle = /^\d+$/.test(billNumberNeedle);
 
     let dateMatch = null;
     if (date) {
@@ -294,7 +299,20 @@ router.get("/GetBillListPaged", async (req, res) => {
           { Customer_uuid: rx },
           ...(matchingCustomerUuids.length ? [{ Customer_uuid: { $in: matchingCustomerUuids } }] : []),
           { "Items.Remark": rx },
-          ...(Number.isFinite(Number(search)) ? [{ Order_Number: Number(search) }] : []),
+          ...(hasBillNumberNeedle
+            ? [
+                { Order_Number: Number(billNumberNeedle) },
+                {
+                  $expr: {
+                    $regexMatch: {
+                      input: { $toString: { $ifNull: ["$Order_Number", ""] } },
+                      regex: escapeRegex(billNumberNeedle),
+                      options: "i",
+                    },
+                  },
+                },
+              ]
+            : []),
         ]
       : [];
 

@@ -2,6 +2,7 @@ import toast from 'react-hot-toast';
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { fetchBillListPaged, updateBillStatus } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
+import axios from "../apiClient";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -10,7 +11,6 @@ import UpdateDelivery from "../Pages/updateDelivery";
 import { LoadingSpinner } from "../Components";
 import InvoiceModal from "../Components/InvoiceModal";
 import {
-  BILLS_LOCAL_SHARE_STORAGE_KEY,
   copyPathToClipboard,
   getBillLocalPaths,
   launchMisFileUrl,
@@ -39,8 +39,6 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
-  Alert,
   IconButton,
   Card,
   CardActionArea,
@@ -82,7 +80,6 @@ const BillCard = React.memo(function BillCard({
   onEdit,
   onOpenInvoice,
   onOpenLocalPath,
-  onConfigureLocalShare,
   localShareRoot,
   statusChip,
   formatDateDDMMYYYY,
@@ -209,8 +206,7 @@ const BillCard = React.memo(function BillCard({
               size="small"
               onClick={(e) => {
                 e.stopPropagation();
-                if (!localShareRoot) onConfigureLocalShare();
-                else onOpenLocalPath(order, false);
+                onOpenLocalPath(order, false);
               }}
               sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
               aria-label="open local network file"
@@ -226,8 +222,7 @@ const BillCard = React.memo(function BillCard({
               size="small"
               onClick={(e) => {
                 e.stopPropagation();
-                if (!localShareRoot) onConfigureLocalShare();
-                else onOpenLocalPath(order, true);
+                onOpenLocalPath(order, true);
               }}
               sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
               aria-label="open local network folder"
@@ -252,19 +247,7 @@ export default function AllBills() {
   const [paidFilter, setPaidFilter] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [dateSummary, setDateSummary] = useState([]);
-  const [localShareRoot, setLocalShareRoot] = useState(() => {
-    try {
-      return normalizeWindowsPath(
-        localStorage.getItem(BILLS_LOCAL_SHARE_STORAGE_KEY) ||
-          import.meta.env.VITE_BILLS_LOCAL_SHARE_ROOT ||
-          ""
-      );
-    } catch {
-      return normalizeWindowsPath(import.meta.env.VITE_BILLS_LOCAL_SHARE_ROOT || "");
-    }
-  });
-  const [localShareDialogOpen, setLocalShareDialogOpen] = useState(false);
-  const [localShareDraft, setLocalShareDraft] = useState("");
+  const [localShareRoot, setLocalShareRoot] = useState("");
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
@@ -505,33 +488,54 @@ export default function AllBills() {
     [getOrderKey, isPaid, upsertOrderPatch]
   );
 
-  const openLocalShareSetup = useCallback(() => {
-    setLocalShareDraft(localShareRoot);
-    setLocalShareDialogOpen(true);
-  }, [localShareRoot]);
+  const loadNetworkFileSettings = useCallback(async () => {
+    const res = await axios.get("/api/network-files/settings");
+    const root = normalizeWindowsPath(res?.data?.result?.networkShareRoot || "");
+    setLocalShareRoot(root);
+    return root;
+  }, []);
 
-  const saveLocalShareRoot = useCallback(() => {
-    const normalized = normalizeWindowsPath(localShareDraft);
-    if (!normalized) {
-      toast.error("Enter the local or network shared folder path.");
-      return;
-    }
+  useEffect(() => {
+    let alive = true;
+    loadNetworkFileSettings().catch(() => {
+      if (alive) setLocalShareRoot("");
+    });
 
-    try {
-      localStorage.setItem(BILLS_LOCAL_SHARE_STORAGE_KEY, normalized);
-    } catch {}
-    setLocalShareRoot(normalized);
-    setLocalShareDraft(normalized);
-    setLocalShareDialogOpen(false);
-    toast.success("Local/network folder saved.");
-  }, [localShareDraft]);
+    const handleSettingsUpdate = (event) => {
+      if (!alive) return;
+      setLocalShareRoot(normalizeWindowsPath(event?.detail?.networkShareRoot || ""));
+    };
+    window.addEventListener("network-file-settings-updated", handleSettingsUpdate);
+
+    return () => {
+      alive = false;
+      window.removeEventListener("network-file-settings-updated", handleSettingsUpdate);
+    };
+  }, [loadNetworkFileSettings]);
 
   const openBillLocalPath = useCallback(
     async (order, folderOnly = false) => {
-      const { folderPath, filePath } = getBillLocalPaths(order, localShareRoot);
+      let shareRoot = localShareRoot;
+
+      // Re-read the central Admin setting at click time so LAN clients pick up
+      // path changes without waiting for a browser refresh.
+      try {
+        const res = await axios.get("/api/network-files/settings");
+        shareRoot = normalizeWindowsPath(res?.data?.result?.networkShareRoot || "");
+        setLocalShareRoot(shareRoot);
+      } catch {
+        // A temporary API failure should not stop a previously loaded path.
+      }
+
+      if (!shareRoot) {
+        toast.error("Network folder is not configured. Ask Admin to set Admin → Network Files.");
+        return;
+      }
+
+      const { folderPath, filePath } = getBillLocalPaths(order, shareRoot);
       const target = folderOnly ? folderPath : filePath || folderPath;
       if (!target) {
-        openLocalShareSetup();
+        toast.error("No local/network file path is available for this bill.");
         return;
       }
 
@@ -539,7 +543,7 @@ export default function AllBills() {
       toast.success(folderOnly ? "Opening shared folder…" : "Opening local file…");
       launchMisFileUrl(target, { select: !folderOnly && Boolean(filePath) });
     },
-    [localShareRoot, openLocalShareSetup]
+    [localShareRoot]
   );
 
   /* ----------------------- load customers once ----------------------- */
@@ -982,7 +986,7 @@ export default function AllBills() {
             <Tooltip title={localShareRoot ? `Local folder: ${localShareRoot}` : "Set local/network folder"}>
               <IconButton
                 size="small"
-                onClick={openLocalShareSetup}
+                onClick={() => openBillLocalPath({}, true)}
                 sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}
                 aria-label="configure local network folder"
               >
@@ -1069,7 +1073,6 @@ export default function AllBills() {
                         onEdit={handleEditClick}
                         onOpenInvoice={openInvoice}
                         onOpenLocalPath={openBillLocalPath}
-                        onConfigureLocalShare={openLocalShareSetup}
                         localShareRoot={localShareRoot}
                         statusChip={statusChip}
                         formatDateDDMMYYYY={formatDateDDMMYYYY}
@@ -1095,49 +1098,6 @@ export default function AllBills() {
           </Paper>
         </Box>
       </Box>
-
-      <Dialog
-        open={localShareDialogOpen}
-        onClose={() => setLocalShareDialogOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Local / network folder setup</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={1.5}>
-            <Alert severity="info">
-              Use the Windows shared-folder path that contains the Google Drive-synced order files.
-              For other PCs on your local network, use a UNC path such as \\OFFICE-SERVER\SharedOrders.
-            </Alert>
-            <TextField
-              autoFocus
-              fullWidth
-              label="Shared folder root"
-              value={localShareDraft}
-              onChange={(e) => setLocalShareDraft(e.target.value)}
-              placeholder="\\OFFICE-SERVER\SharedOrders"
-              helperText="The bill file name already comes from the order Drive metadata; this root replaces the Google Drive link."
-            />
-            <Alert severity="warning">
-              Install the Windows opener once on every PC that uses this button. Chrome/Edge cannot directly open local file:// links from the HTTPS dashboard.
-            </Alert>
-            <Button
-              variant="outlined"
-              component="a"
-              href="https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1"
-              target="_blank"
-              rel="noopener noreferrer"
-              sx={{ alignSelf: "flex-start", textTransform: "none" }}
-            >
-              Download Windows opener
-            </Button>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLocalShareDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={saveLocalShareRoot}>Save folder</Button>
-        </DialogActions>
-      </Dialog>
 
       {/* ✅ UpdateDelivery Modal */}
       <Dialog

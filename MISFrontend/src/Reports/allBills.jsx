@@ -9,6 +9,13 @@ import * as XLSX from "xlsx";
 import UpdateDelivery from "../Pages/updateDelivery";
 import { LoadingSpinner } from "../Components";
 import InvoiceModal from "../Components/InvoiceModal";
+import {
+  BILLS_LOCAL_SHARE_STORAGE_KEY,
+  copyPathToClipboard,
+  getBillLocalPaths,
+  launchMisFileUrl,
+  normalizeWindowsPath,
+} from "../utils/localFileLauncher";
 
 /* ✅ MUI (UI only) */
 import {
@@ -32,6 +39,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
+  Alert,
   IconButton,
   Card,
   CardActionArea,
@@ -52,6 +61,7 @@ import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import EventIcon from "@mui/icons-material/Event";
+import ComputerRoundedIcon from "@mui/icons-material/ComputerRounded";
 import ExportGuard from "../Components/ExportGuard";
 
 /* ----------------------- small hooks ----------------------- */
@@ -71,20 +81,16 @@ const BillCard = React.memo(function BillCard({
   onTogglePaid,
   onEdit,
   onOpenInvoice,
+  onOpenLocalPath,
+  onConfigureLocalShare,
+  localShareRoot,
   statusChip,
   formatDateDDMMYYYY,
   formatINR,
 }) {
   const deliveryDate = formatDateDDMMYYYY(order?.highestStatusTask?.Delivery_Date);
   const orderDate = formatDateDDMMYYYY(order?.createdAt);
-  const driveFileLink =
-    order?.driveFile?.webViewLink ||
-    (order?.driveFile?.fileId
-      ? `https://drive.google.com/open?id=${encodeURIComponent(order.driveFile.fileId)}`
-      : "");
-  const driveFolderLink = order?.driveFile?.folderId
-    ? `https://drive.google.com/drive/folders/${encodeURIComponent(order.driveFile.folderId)}`
-    : "";
+  const hasLocalFile = Boolean(String(order?.driveFile?.name || "").trim());
 
   return (
     <Card
@@ -191,34 +197,40 @@ const BillCard = React.memo(function BillCard({
           Bill
         </Button>
 
-        {driveFileLink && (
-          <Tooltip title={order?.driveFile?.name ? `Open ${order.driveFile.name} in Google Drive` : "Open linked file in Google Drive"}>
+        {hasLocalFile && (
+          <Tooltip
+            title={
+              localShareRoot
+                ? `Open ${order.driveFile.name} from local/network folder`
+                : "Set the local/network folder first"
+            }
+          >
             <IconButton
               size="small"
-              component="a"
-              href={driveFileLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!localShareRoot) onConfigureLocalShare();
+                else onOpenLocalPath(order, false);
+              }}
               sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
-              aria-label="open linked Google Drive file"
+              aria-label="open local network file"
             >
               <InsertDriveFileIcon sx={{ fontSize: 17 }} />
             </IconButton>
           </Tooltip>
         )}
 
-        {driveFolderLink && (
-          <Tooltip title="Open containing Google Drive folder">
+        {hasLocalFile && (
+          <Tooltip title={localShareRoot ? "Open shared local/network folder" : "Set the local/network folder first"}>
             <IconButton
               size="small"
-              component="a"
-              href={driveFolderLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!localShareRoot) onConfigureLocalShare();
+                else onOpenLocalPath(order, true);
+              }}
               sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
-              aria-label="open Google Drive folder"
+              aria-label="open local network folder"
             >
               <FolderOpenIcon sx={{ fontSize: 17 }} />
             </IconButton>
@@ -240,6 +252,19 @@ export default function AllBills() {
   const [paidFilter, setPaidFilter] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [dateSummary, setDateSummary] = useState([]);
+  const [localShareRoot, setLocalShareRoot] = useState(() => {
+    try {
+      return normalizeWindowsPath(
+        localStorage.getItem(BILLS_LOCAL_SHARE_STORAGE_KEY) ||
+          import.meta.env.VITE_BILLS_LOCAL_SHARE_ROOT ||
+          ""
+      );
+    } catch {
+      return normalizeWindowsPath(import.meta.env.VITE_BILLS_LOCAL_SHARE_ROOT || "");
+    }
+  });
+  const [localShareDialogOpen, setLocalShareDialogOpen] = useState(false);
+  const [localShareDraft, setLocalShareDraft] = useState("");
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
@@ -478,6 +503,43 @@ export default function AllBills() {
       }
     },
     [getOrderKey, isPaid, upsertOrderPatch]
+  );
+
+  const openLocalShareSetup = useCallback(() => {
+    setLocalShareDraft(localShareRoot);
+    setLocalShareDialogOpen(true);
+  }, [localShareRoot]);
+
+  const saveLocalShareRoot = useCallback(() => {
+    const normalized = normalizeWindowsPath(localShareDraft);
+    if (!normalized) {
+      toast.error("Enter the local or network shared folder path.");
+      return;
+    }
+
+    try {
+      localStorage.setItem(BILLS_LOCAL_SHARE_STORAGE_KEY, normalized);
+    } catch {}
+    setLocalShareRoot(normalized);
+    setLocalShareDraft(normalized);
+    setLocalShareDialogOpen(false);
+    toast.success("Local/network folder saved.");
+  }, [localShareDraft]);
+
+  const openBillLocalPath = useCallback(
+    async (order, folderOnly = false) => {
+      const { folderPath, filePath } = getBillLocalPaths(order, localShareRoot);
+      const target = folderOnly ? folderPath : filePath || folderPath;
+      if (!target) {
+        openLocalShareSetup();
+        return;
+      }
+
+      await copyPathToClipboard(target);
+      toast.success(folderOnly ? "Opening shared folder…" : "Opening local file…");
+      launchMisFileUrl(target, { select: !folderOnly && Boolean(filePath) });
+    },
+    [localShareRoot, openLocalShareSetup]
   );
 
   /* ----------------------- load customers once ----------------------- */
@@ -917,6 +979,17 @@ export default function AllBills() {
               </Select>
             </FormControl>
 
+            <Tooltip title={localShareRoot ? `Local folder: ${localShareRoot}` : "Set local/network folder"}>
+              <IconButton
+                size="small"
+                onClick={openLocalShareSetup}
+                sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1.5 }}
+                aria-label="configure local network folder"
+              >
+                <ComputerRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
             <ExportGuard>
               <Stack direction="row" spacing={0.6}>
                 <Tooltip title="Export loaded bills as PDF">
@@ -995,6 +1068,9 @@ export default function AllBills() {
                         onTogglePaid={togglePaid}
                         onEdit={handleEditClick}
                         onOpenInvoice={openInvoice}
+                        onOpenLocalPath={openBillLocalPath}
+                        onConfigureLocalShare={openLocalShareSetup}
+                        localShareRoot={localShareRoot}
                         statusChip={statusChip}
                         formatDateDDMMYYYY={formatDateDDMMYYYY}
                         formatINR={formatINR}
@@ -1019,6 +1095,49 @@ export default function AllBills() {
           </Paper>
         </Box>
       </Box>
+
+      <Dialog
+        open={localShareDialogOpen}
+        onClose={() => setLocalShareDialogOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Local / network folder setup</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5}>
+            <Alert severity="info">
+              Use the Windows shared-folder path that contains the Google Drive-synced order files.
+              For other PCs on your local network, use a UNC path such as \\OFFICE-SERVER\SharedOrders.
+            </Alert>
+            <TextField
+              autoFocus
+              fullWidth
+              label="Shared folder root"
+              value={localShareDraft}
+              onChange={(e) => setLocalShareDraft(e.target.value)}
+              placeholder="\\OFFICE-SERVER\SharedOrders"
+              helperText="The bill file name already comes from the order Drive metadata; this root replaces the Google Drive link."
+            />
+            <Alert severity="warning">
+              Install the Windows opener once on every PC that uses this button. Chrome/Edge cannot directly open local file:// links from the HTTPS dashboard.
+            </Alert>
+            <Button
+              variant="outlined"
+              component="a"
+              href="https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ alignSelf: "flex-start", textTransform: "none" }}
+            >
+              Download Windows opener
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLocalShareDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveLocalShareRoot}>Save folder</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* ✅ UpdateDelivery Modal */}
       <Dialog

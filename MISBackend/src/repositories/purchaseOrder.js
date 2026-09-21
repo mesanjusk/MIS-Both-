@@ -28,8 +28,16 @@ const purchaseOrderSchema = new mongoose.Schema(
     receivedDate: { type: Date, default: null },
     notes: { type: String, default: '' },
     createdBy: { type: String, default: '' },
+    sourceType: { type: String, default: '', index: true },
+    sourceDriveFolderId: { type: String, default: '', index: true },
+    sourceDriveFolderName: { type: String, default: '' },
   },
   { timestamps: true }
+);
+
+purchaseOrderSchema.index(
+  { sourceDriveFolderId: 1 },
+  { unique: true, partialFilterExpression: { sourceDriveFolderId: { $type: 'string', $ne: '' } } }
 );
 
 purchaseOrderSchema.pre('validate', function(next) {

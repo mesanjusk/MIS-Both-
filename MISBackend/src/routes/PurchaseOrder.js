@@ -21,6 +21,7 @@ const {
   BUSINESS_SOURCES,
 } = require('../services/accountingPostingService');
 const { updateBalancesForJournal, reverseBalancesForJournal, invalidateCache } = require('../services/accountRegistry');
+const { validateProductionChain } = require('../services/workflowReconciliationService');
 
 /**
  * Resolve or auto-create a vendor-specific payable account (Liability / credit-normal).
@@ -367,6 +368,28 @@ router.post('/printing-invoice', async (req, res) => {
     const order = orderNumber
       ? await Orders.findOne({ Order_Number: orderNumber }, { Order_uuid: 1, Order_Number: 1 }).lean()
       : null;
+
+    const workflowAudit = await validateProductionChain({
+      orderUuid: order?.Order_uuid || '',
+      orderNumber,
+      printingFolderId: folderId,
+      printingFolderName: folderName,
+      printingVendorUuid: party.Customer_uuid,
+    });
+    if (!workflowAudit.ok) {
+      return res.status(422).json({
+        success: false,
+        code: workflowAudit.code,
+        message: 'Purchase Order blocked because Final, Printing and MIS order do not reconcile.',
+        audit: {
+          failed: workflowAudit.failed,
+          checks: workflowAudit.checks,
+          expectedCustomer: workflowAudit.customerName,
+          expectedVendor: workflowAudit.selectedVendorName,
+          printing: workflowAudit.parsedPrinting,
+        },
+      });
+    }
 
     let po = requestedPoUuid
       ? await PurchaseOrder.findOne({ PO_uuid: requestedPoUuid })

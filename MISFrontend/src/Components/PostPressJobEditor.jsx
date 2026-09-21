@@ -184,6 +184,7 @@ export default function PostPressJobEditor({
         otherCharges: 0,
         notes,
         driveFileId: row.folderId,
+        sourceDriveFolderName: row.folderName,
         createdBy: localStorage.getItem('User_name') || 'System',
       });
 

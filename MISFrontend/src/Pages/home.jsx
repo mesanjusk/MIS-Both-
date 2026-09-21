@@ -10,6 +10,7 @@ import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import RequestQuoteRoundedIcon from '@mui/icons-material/RequestQuoteRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +23,7 @@ const loadAllDelivery = () => import('../Reports/allDelivery');
 const loadAllBills = () => import('../Reports/allBills');
 const loadAllAttandance = () => import('./AllAttandance');
 const loadPayableAccount = () => import('./PayableAccount');
+const loadWorkflowAudit = () => import('./WorkflowAudit');
 const loadRateCalculator = () => import('./RateCalculator');
 const loadDayBook = () => import('./DayBook');
 const loadOrderLedger = () => import('./OrderLedger');
@@ -33,6 +35,7 @@ const AllDelivery = lazy(loadAllDelivery);
 const AllBills = lazy(loadAllBills);
 const AllAttandance = lazy(loadAllAttandance);
 const PayableAccount = lazy(loadPayableAccount);
+const WorkflowAudit = lazy(loadWorkflowAudit);
 const RateCalculator = lazy(loadRateCalculator);
 const DayBook = lazy(loadDayBook);
 const OrderLedger = lazy(loadOrderLedger);
@@ -48,6 +51,7 @@ const HOME_TABS = [
   { id: 'bills', label: 'Bills', icon: ReceiptLongRoundedIcon, Component: AllBills },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AllAttandance },
   { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
+  { id: 'workflowAudit', label: 'Workflow Audit', icon: FactCheckRoundedIcon, Component: WorkflowAudit, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
@@ -61,6 +65,7 @@ const HOME_TAB_PRELOADERS = [
   loadAllBills,
   loadAllAttandance,
   loadPayableAccount,
+  loadWorkflowAudit,
   loadRateCalculator,
   loadDayBook,
 ];

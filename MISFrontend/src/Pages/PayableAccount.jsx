@@ -298,7 +298,7 @@ export default function PayableAccount() {
       const participantIds = [
         printingVendorId,
         ...(Array.isArray(row.postPressJobs)
-          ? row.postPressJobs.map((job) => job.vendor_uuid).filter(Boolean)
+          ? row.postPressJobs.map((job) => job.payableVendorUuid || job.vendor_uuid).filter(Boolean)
           : []),
       ].filter(Boolean);
       const uniqueParticipantIds = [...new Set(participantIds)];

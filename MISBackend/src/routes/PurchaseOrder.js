@@ -380,6 +380,19 @@ router.post('/printing-invoice', async (req, res) => {
       ? await PurchaseOrder.findOne({ PO_uuid: requestedPoUuid })
       : await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
 
+    if (po?.Order_uuid && po.Order_uuid !== order.Order_uuid) {
+      const err = new Error('This purchase order belongs to a different MIS order.');
+      err.code = 'PO_ORDER_MISMATCH';
+      err.statusCode = 409;
+      throw err;
+    }
+    if (po?.sourceDriveFolderId && po.sourceDriveFolderId !== folderId) {
+      const err = new Error('This purchase order belongs to a different Printing folder.');
+      err.code = 'PO_PRINTING_FOLDER_MISMATCH';
+      err.statusCode = 409;
+      throw err;
+    }
+
     // Older Delivery-created POs predate sourceDriveFolderId. Reuse one only
     // when the order+vendor match is unambiguous; otherwise create a new
     // source-specific PO rather than guessing.

@@ -96,6 +96,7 @@ const OfficeAiRouter = require("./routes/OfficeAI");
 const { seedUserGroups } = require("./services/sopService");
 const { ensureDefaultFeatureToggles } = require("./services/defaultFeatureToggleService");
 const BusinessProfile = require("./routes/BusinessProfile");
+const NetworkFileSettings = require("./routes/NetworkFileSettings");
 const SanjuskApi = require("./routes/SanjuskApi");
 const PublicInvoiceRouter = require("./routes/PublicInvoice");
 const SocialAccountsRouter = require("./routes/SocialAccounts");
@@ -221,6 +222,7 @@ app.use("/api/calllogs", CallLogs);
 app.use("/api/upi", UpiPayments);
 app.use("/api/business-control", BusinessOps);
 app.use("/api/business-profile", BusinessProfile);
+app.use("/api/network-files", NetworkFileSettings);
 // Admin → API: the SanjuSK WhatsApp integration. The inbound half is not here
 // — SanjuSK pushes to /webhook/metabsp, which authenticates by HMAC.
 app.use("/api/sanjusk", SanjuskApi);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   Autocomplete,
@@ -8,6 +8,7 @@ import {
   CardContent,
   Chip,
   CircularProgress,
+  Collapse,
   IconButton,
   MenuItem,
   Paper,
@@ -33,11 +34,14 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 import ExportGuard from '../Components/ExportGuard';
 import PurchaseInvoiceEditor from '../Components/PurchaseInvoiceEditor';
+import PostPressJobsPanel from '../Components/PostPressJobsPanel';
 import {
   copyPathToClipboard,
   joinWindowsPath,
@@ -97,6 +101,7 @@ export default function PayableAccount() {
   const [savingFolderId, setSavingFolderId] = useState('');
   const [localShareRoot, setLocalShareRoot] = useState('');
   const [invoiceEditorRow, setInvoiceEditorRow] = useState(null);
+  const [expandedPostPress, setExpandedPostPress] = useState({});
 
   const loadCore = useCallback(async () => {
     setLoading(true);
@@ -289,21 +294,36 @@ export default function PayableAccount() {
 
   const visiblePrintingRows = useMemo(() => {
     return printingRows.filter((row) => {
-      const vendorId = vendorDrafts[row.folderId] || row.vendorUuid || '';
-      const party = vendorId ? partyById[vendorId] : null;
+      const printingVendorId = vendorDrafts[row.folderId] || row.vendorUuid || '';
+      const participantIds = [
+        printingVendorId,
+        ...(Array.isArray(row.postPressJobs)
+          ? row.postPressJobs.map((job) => job.vendor_uuid).filter(Boolean)
+          : []),
+      ].filter(Boolean);
+      const uniqueParticipantIds = [...new Set(participantIds)];
 
-      if (partyFilter && vendorId !== partyFilter) return false;
+      if (partyFilter && !uniqueParticipantIds.includes(partyFilter)) return false;
+
       if (typeFilter !== 'all') {
-        if (!party || party.kind !== typeFilter) return false;
+        const hasType = uniqueParticipantIds.some(
+          (id) => partyById[id]?.kind === typeFilter
+        );
+        if (!hasType) return false;
       }
+
       if (balanceFilter !== 'all') {
-        if (!vendorId) return false;
-        const bal = currentBalanceByParty[vendorId] || { debit: 0, credit: 0 };
-        const due = bal.credit - bal.debit;
-        if (balanceFilter === 'due' && !(due > 0)) return false;
-        if (balanceFilter === 'advance' && !(due < 0)) return false;
-        if (balanceFilter === 'settled' && !(Math.abs(due) < 0.005)) return false;
+        const hasBalanceMatch = uniqueParticipantIds.some((id) => {
+          const bal = currentBalanceByParty[id] || { debit: 0, credit: 0 };
+          const due = bal.credit - bal.debit;
+          if (balanceFilter === 'due') return due > 0;
+          if (balanceFilter === 'advance') return due < 0;
+          if (balanceFilter === 'settled') return Math.abs(due) < 0.005;
+          return true;
+        });
+        if (!hasBalanceMatch) return false;
       }
+
       return true;
     });
   }, [
@@ -335,7 +355,10 @@ export default function PayableAccount() {
   );
 
   const totals = useMemo(() => {
-    const added = visiblePrintingRows.reduce((sum, row) => sum + Number(row.invoiceValue || 0), 0);
+    const added = visiblePrintingRows.reduce(
+      (sum, row) => sum + Number(row.invoiceValue || 0) + Number(row.postPressTotal || 0),
+      0
+    );
     const paid = debitRows.reduce((sum, row) => sum + row.amount, 0);
     const currentDue = filteredParties.reduce((sum, party) => {
       const bal = currentBalanceByParty[party.Vendor_uuid] || { debit: 0, credit: 0 };
@@ -503,6 +526,19 @@ export default function PayableAccount() {
       Amount: Number(row.invoiceValue || 0),
     }));
 
+    const postPress = visiblePrintingRows.flatMap((row) =>
+      (Array.isArray(row.postPressJobs) ? row.postPressJobs : []).map((job) => ({
+        Date: fmtDate(row.date),
+        Party: job.vendor_name || 'Unmapped',
+        Type: 'Post Press',
+        Side: 'Payable Added / Post Press',
+        Description: job.job_type || 'post_printing',
+        'Order No': row.orderNumber || '',
+        Customer: row.customerName || '',
+        Amount: Number(job.jobValue || 0),
+      }))
+    );
+
     const payments = debitRows.map((row) => ({
       Date: fmtDate(row.date),
       Party: row.partyName,
@@ -514,7 +550,7 @@ export default function PayableAccount() {
       Amount: row.amount,
     }));
 
-    return [...printing, ...payments];
+    return [...printing, ...postPress, ...payments];
   }, [visiblePrintingRows, debitRows, partyById, vendorDrafts]);
 
   const exportExcel = async () => {
@@ -782,6 +818,7 @@ export default function PayableAccount() {
                     <TableCell sx={{ fontWeight: 700, width: 70 }}>Order</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Vendor / Freelancer</TableCell>
                     <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 135 }}>Post Press</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 58 }}>Folder</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700, width: 135 }}>Invoice Value</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, width: 112 }}>Invoice</TableCell>
@@ -790,13 +827,13 @@ export default function PayableAccount() {
                 <TableBody>
                   {printingLoading ? (
                     <TableRow>
-                      <TableCell colSpan={selectedDate ? 6 : 7} align="center" sx={{ py: 5 }}>
+                      <TableCell colSpan={selectedDate ? 7 : 8} align="center" sx={{ py: 5 }}>
                         <CircularProgress size={24} />
                       </TableCell>
                     </TableRow>
                   ) : visiblePrintingRows.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={selectedDate ? 6 : 7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                      <TableCell colSpan={selectedDate ? 7 : 8} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                         No Printing folders found{selectedDate ? ` for ${fmtDate(selectedDate)}` : ''}.
                       </TableCell>
                     </TableRow>
@@ -808,8 +845,14 @@ export default function PayableAccount() {
                       const changed = Number(draftAmount || 0) !== Number(row.invoiceValue || 0)
                         || selectedVendorId !== (row.vendorUuid || '');
 
+                      const isPostPressOpen = Boolean(expandedPostPress[row.folderId]);
+                      const postPressCount = Number(row.postPressCount || 0);
+                      const postPressCompleted = Number(row.postPressCompleted || 0);
+                      const postPressTotal = Number(row.postPressTotal || 0);
+
                       return (
-                        <TableRow key={row.folderId} hover>
+                        <Fragment key={row.folderId}>
+                        <TableRow hover>
                           {!selectedDate && <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</TableCell>}
                           <TableCell>
                             <Typography variant="body2" fontWeight={800}>
@@ -858,6 +901,32 @@ export default function PayableAccount() {
                                 </Typography>
                               </Box>
                             </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="small"
+                              variant={postPressCount ? 'outlined' : 'text'}
+                              onClick={() => setExpandedPostPress((prev) => ({
+                                ...prev,
+                                [row.folderId]: !prev[row.folderId],
+                              }))}
+                              disabled={!row.orderUuid}
+                              endIcon={
+                                isPostPressOpen
+                                  ? <KeyboardArrowUpRoundedIcon />
+                                  : <KeyboardArrowDownRoundedIcon />
+                              }
+                              sx={{ textTransform: 'none', fontWeight: 800, whiteSpace: 'nowrap' }}
+                            >
+                              {postPressCount
+                                ? `Post Press ${postPressCompleted}/${postPressCount}`
+                                : '+ Post Press'}
+                            </Button>
+                            {postPressTotal > 0 ? (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {money(postPressTotal)}
+                              </Typography>
+                            ) : null}
                           </TableCell>
                           <TableCell>
                             <Tooltip
@@ -918,6 +987,11 @@ export default function PayableAccount() {
                                 PO #{row.poNumber}
                               </Typography>
                             ) : null}
+                            {postPressTotal > 0 ? (
+                              <Typography variant="caption" color="secondary.main" display="block">
+                                + Post Press {money(postPressTotal)}
+                              </Typography>
+                            ) : null}
                           </TableCell>
                           <TableCell align="center">
                             <Button
@@ -933,6 +1007,24 @@ export default function PayableAccount() {
                             </Button>
                           </TableCell>
                         </TableRow>
+                        <TableRow>
+                          <TableCell
+                            colSpan={selectedDate ? 7 : 8}
+                            sx={{ p: 0, borderBottom: isPostPressOpen ? undefined : 0 }}
+                          >
+                            <Collapse in={isPostPressOpen} timeout="auto" unmountOnExit>
+                              <PostPressJobsPanel
+                                row={row}
+                                parties={parties}
+                                onOpenFolder={openPrintingLocalFolder}
+                                onRefresh={async () => {
+                                  await Promise.all([loadCore(), loadPrinting(true)]);
+                                }}
+                              />
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                        </Fragment>
                       );
                     })
                   )}

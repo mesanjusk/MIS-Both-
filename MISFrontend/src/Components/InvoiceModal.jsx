@@ -59,6 +59,7 @@ export default function InvoiceModal({
   customerMobile = "",
   onWhatsApp,
   onReady,
+  docType = "invoice",
   documentTitle = "INVOICE",
   partyLabel = "Bill To",
   numberLabel = "Invoice No",
@@ -150,6 +151,11 @@ export default function InvoiceModal({
             items: normalizedItems,
             extraCharges,
             grandTotal,
+            docType,
+            documentTitle,
+            partyLabel,
+            numberLabel,
+            hidePaymentSection,
           });
           if (saveRes.data?.success) {
             token = saveRes.data.result.shareToken;
@@ -168,7 +174,7 @@ export default function InvoiceModal({
         pdf.addImage(imgData, "JPEG", 0, 0, w, Math.min(h, 210));
         const pdfBlob = pdf.output("blob");
         const form = new FormData();
-        form.append("file", pdfBlob, `invoice-${orderNumber || "inv"}.pdf`);
+        form.append("file", pdfBlob, `${docType === "purchase_order" ? "purchase-order" : "invoice"}-${orderNumber || "inv"}.pdf`);
         form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
         const res = await axios.post(CLOUDINARY_UPLOAD_URL, form);
         const url = res.data?.secure_url || "";
@@ -199,7 +205,7 @@ export default function InvoiceModal({
 
   const handlePrint = () => {
     const win = window.open("", "", "height=800,width=600");
-    win.document.write(`<html><head><title>Invoice #${orderNumber}</title><style>body{margin:0;padding:16px;font-family:sans-serif;background:#f5f5f5}</style></head><body>`);
+    win.document.write(`<html><head><title>${documentTitle} #${orderNumber}</title><style>body{margin:0;padding:16px;font-family:sans-serif;background:#f5f5f5}</style></head><body>`);
     win.document.write(previewRef.current?.outerHTML || "");
     win.document.write("</body></html>");
     win.document.close();
@@ -213,7 +219,7 @@ export default function InvoiceModal({
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
     const w = 148, h = Math.round((canvas.height / canvas.width) * w);
     pdf.addImage(imgData, "JPEG", 0, 0, w, Math.min(h, 210));
-    pdf.save(`invoice-${orderNumber || "inv"}.pdf`);
+    pdf.save(`${docType === "purchase_order" ? "purchase-order" : "invoice"}-${orderNumber || "inv"}.pdf`);
   };
 
   const handleCopyLink = () => {

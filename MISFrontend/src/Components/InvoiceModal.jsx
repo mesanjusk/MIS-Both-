@@ -237,7 +237,7 @@ export default function InvoiceModal({
       extraCharges,
       grandTotal,
       shareUrl: link,
-      upiId: profile.upiId,
+      upiId: hidePaymentSection ? "" : profile.upiId,
       documentTitle,
       partyLabel,
     });
@@ -307,15 +307,13 @@ export default function InvoiceModal({
         {/* Action buttons — kept in view so download / share are never scrolled off */}
         <div className="sticky bottom-0 px-4 pb-4 pt-2 grid grid-cols-2 gap-2 bg-white border-t">
           {/* Row 1 */}
-          {!hidePaymentSection && (
-            <button
-              onClick={handleWhatsAppPDF}
-              disabled={uploading}
-              className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-white ${uploading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
-            >
-              📎 WhatsApp PDF
-            </button>
-          )}
+          <button
+            onClick={handleWhatsAppPDF}
+            disabled={uploading}
+            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-white ${uploading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
+          >
+            📎 WhatsApp PDF
+          </button>
 
           <button
             onClick={handleShareLink}

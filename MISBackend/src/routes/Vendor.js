@@ -164,10 +164,13 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
             Order_uuid: 1,
             Vendor_uuid: 1,
             Vendor_name: 1,
+            Items: 1,
             totalAmount: 1,
             extraCharges: 1,
+            notes: 1,
             status: 1,
             poDate: 1,
+            expectedDelivery: 1,
             sourceDriveFolderId: 1,
           }
         ).lean()
@@ -214,6 +217,11 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
       poUuid: savedPo?.PO_uuid || '',
       poNumber: savedPo?.PO_Number || null,
       poStatus: savedPo?.status || '',
+      poDate: savedPo?.poDate || null,
+      expectedDelivery: savedPo?.expectedDelivery || null,
+      poItems: Array.isArray(savedPo?.Items) ? savedPo.Items : [],
+      extraCharges: Array.isArray(savedPo?.extraCharges) ? savedPo.extraCharges : [],
+      notes: savedPo?.notes || '',
       invoiceValue,
       driveFolderUrl: `https://drive.google.com/drive/folders/${row.folderId}`,
     };

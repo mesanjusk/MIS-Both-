@@ -146,6 +146,7 @@ router.post('/', requireAuth, requirePermission('canPostTransactions'), async (r
     const {
       orderNumber, partyName, dateStr,
       items, extraCharges, grandTotal, cloudinaryUrl,
+      docType, documentTitle, partyLabel, numberLabel, hidePaymentSection,
     } = req.body;
 
     // Store identity and — critically — the UPI payee come from the business
@@ -154,25 +155,49 @@ router.post('/', requireAuth, requirePermission('canPostTransactions'), async (r
     const { storeName, addressLines, phone, email, gst, upiId, upiName } =
       await loadProfileSnapshot();
 
-    // Upsert: if same order number re-saved, update rather than duplicate.
-    // docType is $ne-matched so legacy docs (saved before docType existed) still match.
-    const filter = orderNumber ? { orderNumber: String(orderNumber), docType: { $ne: 'receipt' } } : null;
+    const safeDocType = docType === 'purchase_order' ? 'purchase_order' : 'invoice';
+    const presentation = {
+      documentTitle: String(documentTitle || (safeDocType === 'purchase_order' ? 'PURCHASE ORDER' : 'INVOICE')),
+      partyLabel: String(partyLabel || (safeDocType === 'purchase_order' ? 'Vendor / Freelancer' : 'Bill To')),
+      numberLabel: String(numberLabel || (safeDocType === 'purchase_order' ? 'PO No' : 'Invoice No')),
+      hidePaymentSection: Boolean(hidePaymentSection || safeDocType === 'purchase_order'),
+    };
+
+    // Customer invoices and purchase-order documents must never collide even
+    // when they happen to use the same numeric number.
+    const filter = orderNumber
+      ? (
+          safeDocType === 'purchase_order'
+            ? { orderNumber: String(orderNumber), docType: 'purchase_order' }
+            : {
+                orderNumber: String(orderNumber),
+                $or: [
+                  { docType: 'invoice' },
+                  { docType: { $exists: false } },
+                ],
+              }
+        )
+      : null;
+
     let doc;
     if (filter) {
       doc = await PublicInvoice.findOneAndUpdate(
         filter,
-        { docType: 'invoice',
+        {
+          docType: safeDocType,
           orderNumber, partyName, dateStr, storeName, addressLines, phone, email, gst, upiId, upiName,
           items: items || [], extraCharges: extraCharges || [], grandTotal: grandTotal || 0,
+          ...presentation,
           ...(cloudinaryUrl ? { cloudinaryUrl } : {}),
         },
         { new: true, upsert: true, setDefaultsOnInsert: true }
       );
     } else {
       doc = await PublicInvoice.create({
-        docType: 'invoice',
+        docType: safeDocType,
         orderNumber, partyName, dateStr, storeName, addressLines, phone, email, gst, upiId, upiName,
         items: items || [], extraCharges: extraCharges || [], grandTotal: grandTotal || 0,
+        ...presentation,
         cloudinaryUrl: cloudinaryUrl || '',
       });
     }
@@ -202,7 +227,10 @@ router.get('/by-order/:orderNumber', requireAuth, async (req, res) => {
   try {
     const doc = await PublicInvoice.findOne({
       orderNumber: String(req.params.orderNumber),
-      docType: { $ne: 'receipt' },
+      $or: [
+        { docType: 'invoice' },
+        { docType: { $exists: false } },
+      ],
     })
       .sort({ createdAt: -1 })
       .lean();

@@ -409,44 +409,94 @@ const normalizeLedgerName = (value) => String(value || '')
   .replace(/\s+/g, ' ')
   .trim();
 
-function chooseBankLedgerDoc(statementAccountName, docs = []) {
+const BANK_NAME_NOISE = new Set([
+  'upi', 'bank', 'account', 'acct', 'a/c', 'current', 'saving', 'savings',
+  'sbi', 'state', 'india', 'branch', 'business', 'digital'
+]);
+
+const meaningfulBankTokens = (value) => normalizeLedgerName(value)
+  .split(' ')
+  .filter((token) => token && token.length > 1 && !BANK_NAME_NOISE.has(token));
+
+function scoreBankLedgerName(statementAccountName, ledgerName) {
+  const target = normalizeLedgerName(statementAccountName);
+  const candidate = normalizeLedgerName(ledgerName);
+  if (!target || !candidate) return 0;
+  if (target === candidate) return 100;
+  if (target.includes(candidate) || candidate.includes(target)) return 90;
+
+  const targetTokens = meaningfulBankTokens(target);
+  const candidateTokens = meaningfulBankTokens(candidate);
+  if (!targetTokens.length || !candidateTokens.length) return 0;
+
+  const candidateSet = new Set(candidateTokens);
+  const overlap = targetTokens.filter((token) => candidateSet.has(token)).length;
+  if (!overlap) return 0;
+
+  const targetCoverage = overlap / targetTokens.length;
+  const candidateCoverage = overlap / candidateTokens.length;
+
+  // Full coverage of the shorter real name is a strong signal. This handles
+  // statement names like "SANJU SK" vs ledger names like "UPI Sanju Sk".
+  if (targetCoverage === 1 || candidateCoverage === 1) return 80 + overlap;
+  if (overlap >= 2 && targetCoverage >= 0.6 && candidateCoverage >= 0.6) return 70 + overlap;
+  return overlap * 10;
+}
+
+function chooseBankLedgerDoc(statementAccountName, docs = [], { allowFallback = true } = {}) {
   const bankDocs = (docs || []).filter(
     (doc) => doc?.Customer_uuid && doc?.Customer_name && !/cash/i.test(doc.Customer_name)
   );
   if (!bankDocs.length) return null;
 
-  const target = normalizeLedgerName(statementAccountName);
-  if (target) {
-    const exact = bankDocs.find((doc) => normalizeLedgerName(doc.Customer_name) === target);
-    if (exact) return exact;
+  const ranked = bankDocs
+    .map((doc) => ({ doc, score: scoreBankLedgerName(statementAccountName, doc.Customer_name) }))
+    .sort((a, b) => b.score - a.score);
 
-    const contains = bankDocs.find((doc) => {
-      const name = normalizeLedgerName(doc.Customer_name);
-      return name && target && (target.includes(name) || name.includes(target));
-    });
-    if (contains) return contains;
-  }
-
-  // Keep this fallback identical to DiaryDraft's behaviour: the first
-  // non-cash "Bank and Account" ledger is the default bank book.
-  return bankDocs[0];
+  if (ranked[0]?.score >= 70) return ranked[0].doc;
+  return allowFallback ? bankDocs[0] : null;
 }
 
 async function resolveStatementBankLedger(stmt) {
-  if (stmt?.ledger_account_uuid) {
-    const resolved = await resolveAccount(stmt.ledger_account_uuid);
-    if (resolved.name && resolved.name !== resolved.uuid) {
-      if (!stmt.ledger_account_name) stmt.ledger_account_name = resolved.name;
-      return resolved;
-    }
-  }
-
   const docs = await Customer.find(
     { Customer_group: 'Bank and Account' },
     { Customer_name: 1, Customer_uuid: 1 }
   ).lean();
 
-  const chosen = chooseBankLedgerDoc(stmt?.account_name, docs);
+  // Explicit user selection is authoritative.
+  if (stmt?.ledger_account_locked && stmt?.ledger_account_uuid) {
+    const locked = docs.find(
+      (doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid)
+    );
+    if (locked) {
+      stmt.ledger_account_name = locked.Customer_name;
+      return { uuid: locked.Customer_uuid, name: locked.Customer_name };
+    }
+  }
+
+  // For auto mappings, always retry confident name matching. This repairs
+  // statements that were previously persisted to the first bank ledger merely
+  // because the parser account name did not exactly equal the MIS ledger name.
+  const confident = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: false });
+  if (confident) {
+    stmt.ledger_account_uuid = confident.Customer_uuid;
+    stmt.ledger_account_name = confident.Customer_name;
+    return { uuid: confident.Customer_uuid, name: confident.Customer_name };
+  }
+
+  // If an earlier auto mapping exists and still resolves, keep it rather than
+  // switching accounts again without evidence.
+  if (stmt?.ledger_account_uuid) {
+    const existing = docs.find(
+      (doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid)
+    );
+    if (existing) {
+      stmt.ledger_account_name = existing.Customer_name;
+      return { uuid: existing.Customer_uuid, name: existing.Customer_name };
+    }
+  }
+
+  const chosen = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: true });
   if (chosen) {
     stmt.ledger_account_uuid = chosen.Customer_uuid;
     stmt.ledger_account_name = chosen.Customer_name;
@@ -1038,4 +1088,5 @@ module.exports.parseSbiPdfText = parseSbiPdfText;
 module.exports.parseSbiTextFormat = parseSbiTextFormat;
 module.exports.autoMatchEntries = autoMatchEntries;
 module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
+module.exports.scoreBankLedgerName = scoreBankLedgerName;
 module.exports.transactionMatchesBankEntry = transactionMatchesBankEntry;

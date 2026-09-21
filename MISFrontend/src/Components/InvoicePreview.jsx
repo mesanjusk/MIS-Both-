@@ -17,7 +17,11 @@ const InvoicePreview = forwardRef(function InvoicePreview(
     partyName,
     items = [],
     extraCharges = [],
+    documentTitle = "INVOICE",
+    partyLabel = "Bill To",
+    numberLabel = "Invoice No",
     hidePayButton = false,
+    hidePaymentSection = false,
   },
   ref
 ) {
@@ -26,7 +30,7 @@ const InvoicePreview = forwardRef(function InvoicePreview(
   const grandTotal = itemsTotal + extrasTotal;
 
   const upiLink = upiId
-    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName || store)}&am=${grandTotal}&cu=INR&tn=Invoice%20${orderNumber || ""}`
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(upiName || store)}&am=${grandTotal}&cu=INR&tn=${encodeURIComponent(`${documentTitle} ${orderNumber || ""}`)}`
     : null;
 
   const fullAddress = [...addressLines].filter(Boolean).join(", ");
@@ -38,7 +42,7 @@ const InvoicePreview = forwardRef(function InvoicePreview(
     >
       {/* ── Red top banner ── */}
       <div style={{ background: "#d32f2f", padding: "14px 18px 10px", textAlign: "center" }}>
-        <div style={{ color: "#fff", fontSize: 22, fontWeight: 900, letterSpacing: 4 }}>INVOICE</div>
+        <div style={{ color: "#fff", fontSize: 22, fontWeight: 900, letterSpacing: 4 }}>{documentTitle}</div>
       </div>
 
       {/* ── Business header ── */}
@@ -58,11 +62,11 @@ const InvoicePreview = forwardRef(function InvoicePreview(
       {/* ── Bill To + Invoice No ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 18px", borderBottom: "1px solid #f3f4f6", background: "#fafafa" }}>
         <div>
-          <div style={{ color: "#888", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Bill To</div>
+          <div style={{ color: "#888", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>{partyLabel}</div>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111", marginTop: 2 }}>{partyName || "—"}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ color: "#888", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>Invoice No</div>
+          <div style={{ color: "#888", fontSize: 10, textTransform: "uppercase", letterSpacing: 1 }}>{numberLabel}</div>
           <div style={{ fontWeight: 700, color: "#d32f2f", fontSize: 13 }}>{orderNumber || "—"}</div>
           <div style={{ color: "#888", fontSize: 10, marginTop: 4 }}>Date: <span style={{ color: "#111", fontWeight: 600 }}>{dateStr}</span></div>
         </div>
@@ -126,7 +130,7 @@ const InvoicePreview = forwardRef(function InvoicePreview(
       </div>
 
       {/* ── QR + Pay ── */}
-      {upiId && (
+      {upiId && !hidePaymentSection && (
         <div style={{ borderTop: "1px solid #f3f4f6", padding: "12px 18px", textAlign: "center" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8 }}>📲 Scan to Pay via UPI</div>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>

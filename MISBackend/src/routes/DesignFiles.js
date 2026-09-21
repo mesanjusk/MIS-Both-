@@ -650,6 +650,18 @@ router.post('/link-order', canManageDesignFiles, async (req, res) => {
       return res.status(400).json({ success: false, message: 'orderUuid required' });
     }
 
+    const explicitStages = filesMeta
+      .map((file) => Number(file?.stageNumber || 0))
+      .filter(Boolean);
+    const beforeFinal = explicitStages.some((stageNumber) => ![5, 6].includes(stageNumber));
+    if (beforeFinal) {
+      return res.status(409).json({
+        success: false,
+        code: 'LINK_BEFORE_FINAL_BLOCKED',
+        message: 'Design-board files cannot be linked to an MIS order before Final. Keep them as drafts until the Final/Printing step.',
+      });
+    }
+
     const order = await Orders.findOne({ Order_uuid: orderUuid }, {
       Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, orderNote: 1,
     }).lean();

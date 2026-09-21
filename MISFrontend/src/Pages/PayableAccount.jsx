@@ -447,6 +447,7 @@ export default function PayableAccount() {
       const res = await axios.post('/api/purchaseorder/printing-invoice', {
         sourceDriveFolderId: row.folderId,
         sourceDriveFolderName: row.folderName,
+        poUuid: row.poUuid || '',
         Vendor_uuid: vendorUuid,
         amount,
         orderNumber: row.orderNumber || null,

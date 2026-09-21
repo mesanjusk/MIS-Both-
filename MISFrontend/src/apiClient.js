@@ -5,10 +5,12 @@ let redirectingToLogin = false;
 
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
-// Production is controlled by VITE_API_SERVER. dash.sanjusk.in is currently
-// configured to use the long-running MIS backend below, so do not silently
-// rewrite it to another Render service in application code.
-const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
+//
+// IMPORTANT: dash.sanjusk.in must use the backend that is deployed from this
+// repository's main branch. The previous long-running backend
+// (misbackend-e078.onrender.com) was no longer receiving current backend fixes,
+// so the UI could deploy successfully while live accounting routes remained old.
+const PRODUCTION_SERVER = "https://mis-both.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "").replace(/\/$/, "") : url);
 
@@ -17,8 +19,16 @@ const SERVER_API = stripApiSuffix(import.meta.env.VITE_API_SERVER) || PRODUCTION
 
 const hostname    = window.location.hostname;
 const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+const isLiveDashboard = hostname === "dash.sanjusk.in";
 
-const currentBaseURL = isLocalhost ? LOCAL_API : SERVER_API;
+// Force the production dashboard onto the repository-backed live backend even
+// when an old VITE_API_SERVER value remains configured in Vercel. Other hosts
+// (preview deployments, alternate environments) may still use VITE_API_SERVER.
+const currentBaseURL = isLocalhost
+  ? LOCAL_API
+  : isLiveDashboard
+    ? PRODUCTION_SERVER
+    : SERVER_API;
 
 const client = axios.create({
   baseURL: currentBaseURL,

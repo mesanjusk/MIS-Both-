@@ -516,15 +516,35 @@ export default function AllBills() {
   const openBillLocalPath = useCallback(
     async (order, folderOnly = false) => {
       let shareRoot = localShareRoot;
+      let resolvedRelativePath = "";
 
-      // Re-read the central Admin setting at click time so LAN clients pick up
-      // path changes without waiting for a browser refresh.
-      try {
-        const res = await axios.get("/api/network-files/settings");
-        shareRoot = normalizeWindowsPath(res?.data?.result?.networkShareRoot || "");
-        setLocalShareRoot(shareRoot);
-      } catch {
-        // A temporary API failure should not stop a previously loaded path.
+      // Resolve the Drive file's parent hierarchy against the Admin-configured
+      // anchor folder (for example "1 Month"), so files in dated/sub folders
+      // open at the matching location on the LAN share.
+      const fileId = String(order?.driveFile?.fileId || "").trim();
+      if (fileId) {
+        try {
+          const resolved = await axios.get("/api/network-files/resolve", {
+            params: { fileId },
+          });
+          shareRoot = normalizeWindowsPath(
+            resolved?.data?.result?.networkShareRoot || shareRoot
+          );
+          resolvedRelativePath = String(
+            resolved?.data?.result?.relativePath || ""
+          ).trim();
+          setLocalShareRoot(shareRoot);
+        } catch {
+          // Fall through to the saved settings + stored Drive file name.
+        }
+      }
+
+      if (!shareRoot) {
+        try {
+          shareRoot = await loadNetworkFileSettings();
+        } catch {
+          // The error message below is clearer for the user than the API error.
+        }
       }
 
       if (!shareRoot) {
@@ -532,8 +552,27 @@ export default function AllBills() {
         return;
       }
 
-      const { folderPath, filePath } = getBillLocalPaths(order, shareRoot);
-      const target = folderOnly ? folderPath : filePath || folderPath;
+      const orderForPath = resolvedRelativePath
+        ? {
+            ...order,
+            driveFile: {
+              ...(order?.driveFile || {}),
+              localRelativePath: resolvedRelativePath,
+            },
+          }
+        : order;
+
+      const { folderPath, filePath } = getBillLocalPaths(orderForPath, shareRoot);
+      let target = filePath || folderPath;
+
+      if (folderOnly) {
+        if (filePath && filePath.includes("\\")) {
+          target = filePath.slice(0, filePath.lastIndexOf("\\"));
+        } else {
+          target = folderPath;
+        }
+      }
+
       if (!target) {
         toast.error("No local/network file path is available for this bill.");
         return;
@@ -543,7 +582,7 @@ export default function AllBills() {
       toast.success(folderOnly ? "Opening shared folder…" : "Opening local file…");
       launchMisFileUrl(target, { select: !folderOnly && Boolean(filePath) });
     },
-    [localShareRoot]
+    [localShareRoot, loadNetworkFileSettings]
   );
 
   /* ----------------------- load customers once ----------------------- */

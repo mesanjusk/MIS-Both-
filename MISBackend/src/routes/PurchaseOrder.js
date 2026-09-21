@@ -311,6 +311,102 @@ const buildPoLookup = (id) => {
   return { $or: clauses };
 };
 
+// POST /api/purchaseorder/printing-invoice
+// Upserts one payable invoice against a Drive Printing folder. The Drive
+// folder ID is the idempotency key: editing the invoice value updates the same
+// PO and the same accounting posting instead of stacking duplicates.
+router.post('/printing-invoice', async (req, res) => {
+  try {
+    const folderId = String(req.body.sourceDriveFolderId || '').trim();
+    const folderName = String(req.body.sourceDriveFolderName || '').trim();
+    const vendorUuid = String(req.body.Vendor_uuid || req.body.vendorUuid || '').trim();
+    const amount = toNumber(req.body.amount, 0);
+    const orderNumber = toNumber(req.body.orderNumber, 0);
+    const poDate = req.body.poDate ? new Date(req.body.poDate) : new Date();
+
+    if (!folderId) {
+      return res.status(400).json({ success: false, message: 'Printing folder ID is required' });
+    }
+    if (!vendorUuid) {
+      return res.status(400).json({ success: false, message: 'Vendor / freelancer is required' });
+    }
+    if (!(amount > 0)) {
+      return res.status(400).json({ success: false, message: 'Invoice value must be greater than zero' });
+    }
+
+    const party = await resolvePayableParty(vendorUuid);
+    if (!party) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected party is not an active Account Payable vendor/freelancer',
+      });
+    }
+
+    const order = orderNumber
+      ? await Orders.findOne({ Order_Number: orderNumber }, { Order_uuid: 1, Order_Number: 1 }).lean()
+      : null;
+
+    let po = await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+    const isNew = !po;
+
+    if (!po) {
+      po = new PurchaseOrder({
+        PO_Number: await nextPoNumber(),
+        sourceType: 'drive_printing_folder',
+        sourceDriveFolderId: folderId,
+      });
+    }
+
+    po.Order_uuid = order?.Order_uuid || po.Order_uuid || '';
+    po.Vendor_uuid = party.Customer_uuid;
+    po.Vendor_name = party.Customer_name;
+    po.Items = [{
+      itemName: `Printing Invoice${orderNumber ? ` - Order #${orderNumber}` : ''}`,
+      qty: 1,
+      unit: 'Job',
+      rate: amount,
+      amount,
+    }];
+    po.status = po.status === 'cancelled' ? 'draft' : (po.status || 'draft');
+    po.poDate = Number.isNaN(poDate.getTime()) ? new Date() : poDate;
+    po.sourceType = 'drive_printing_folder';
+    po.sourceDriveFolderId = folderId;
+    po.sourceDriveFolderName = folderName;
+    po.notes = `Drive Printing folder: ${folderName || folderId}`;
+    po.createdBy = po.createdBy || String(req.user?.userName || '');
+
+    const saved = await po.save();
+
+    try {
+      await syncPurchasePosting(saved, {
+        txnDate: saved.poDate || null,
+        createdBy: req.user?.userName || 'system',
+      });
+    } catch (postingError) {
+      if (isNew) {
+        await PurchaseOrder.deleteOne({ _id: saved._id }).catch(() => {});
+        await VendorLedger.deleteMany({
+          reference_type: 'purchase_order',
+          reference_id: String(saved.PO_uuid),
+        }).catch(() => {});
+        await reverseAndDeleteTransaction({
+          Source: `${BUSINESS_SOURCES.PURCHASE}:${saved.PO_uuid}`,
+        }).catch(() => {});
+      }
+      throw postingError;
+    }
+
+    return res.json({
+      success: true,
+      created: isNew,
+      result: saved,
+    });
+  } catch (error) {
+    logger.error('Printing invoice upsert failed', error);
+    return res.status(500).json({ success: false, message: error.message || 'Could not save printing invoice' });
+  }
+});
+
 // GET /api/purchase-order/:id
 // POST /api/purchaseorder/backfill-postings
 // PO creation used to leave the ledger untouched until the PO's first edit, so

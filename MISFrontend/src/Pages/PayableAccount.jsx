@@ -1147,7 +1147,7 @@ export default function PayableAccount() {
                             colSpan={selectedDate ? 7 : 8}
                             sx={{ p: 0, borderBottom: isPostPressOpen ? undefined : 0 }}
                           >
-                            <Collapse in={isPostPressOpen} timeout="auto" unmountOnExit>
+                            <Collapse in={isPostPressOpen && !auditBlocked} timeout="auto" unmountOnExit>
                               <PostPressJobsPanel
                                 row={row}
                                 parties={parties}

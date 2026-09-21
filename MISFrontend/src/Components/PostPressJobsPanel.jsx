@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
   Box,
-  Button,
   Chip,
   IconButton,
   MenuItem,
@@ -66,27 +65,27 @@ export default function PostPressJobsPanel({
   };
 
   return (
-    <Box sx={{ p: 1.25, bgcolor: 'action.hover' }}>
-      <Paper variant="outlined" sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
+    <Box sx={{ p: 0.55, bgcolor: 'action.hover' }}>
+      <Paper variant="outlined" sx={{ borderRadius: 1.75, overflow: 'hidden' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
+          spacing={0.5}
           justifyContent="space-between"
           alignItems={{ xs: 'stretch', sm: 'center' }}
-          sx={{ px: 1.25, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}
+          sx={{ px: 0.85, py: 0.55, borderBottom: '1px solid', borderColor: 'divider' }}
         >
           <Box>
-            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
-              <Typography variant="subtitle2" fontWeight={900}>Post Press</Typography>
+            <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+              <Typography variant="caption" fontWeight={900}>Post Press</Typography>
               {jobs.length ? (
                 <Chip
                   size="small"
                   color={completed === jobs.length ? 'success' : 'warning'}
                   label={`${completed}/${jobs.length} complete`}
-                  sx={{ height: 20, fontSize: 10 }}
+                  sx={{ height: 18, fontSize: 9 }}
                 />
               ) : (
-                <Chip size="small" label="No services added" sx={{ height: 20, fontSize: 10 }} />
+                <Chip size="small" label="0" sx={{ height: 18, minWidth: 24, fontSize: 9 }} />
               )}
               {total > 0 ? (
                 <Typography variant="caption" color="text.secondary" fontWeight={700}>
@@ -94,34 +93,40 @@ export default function PostPressJobsPanel({
                 </Typography>
               ) : null}
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              Same Printing order/folder · each service posts to its own vendor payable account
-            </Typography>
           </Box>
 
-          <Stack direction="row" spacing={0.75}>
-            <Tooltip title="Open the same synced/local Printing folder">
-              <IconButton size="small" onClick={() => onOpenFolder?.(row)} sx={{ border: '1px solid', borderColor: 'divider' }}>
-                <FolderOpenRoundedIcon fontSize="small" />
+          <Stack direction="row" spacing={0.4}>
+            <Tooltip title="Open Printing folder">
+              <IconButton
+                size="small"
+                onClick={() => onOpenFolder?.(row)}
+                sx={{ width: 28, height: 28, border: '1px solid', borderColor: 'divider' }}
+                aria-label="open Printing folder"
+              >
+                <FolderOpenRoundedIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddRoundedIcon />}
-              onClick={() => setEditorJob(null)}
-              disabled={!row?.orderUuid}
-              sx={{ textTransform: 'none', fontWeight: 800 }}
-            >
-              Add Service
-            </Button>
+            <Tooltip title="Add post-press service">
+              <span>
+                <IconButton
+                  size="small"
+                  color="primary"
+                  onClick={() => setEditorJob(null)}
+                  disabled={!row?.orderUuid}
+                  sx={{ width: 28, height: 28, border: '1px solid', borderColor: 'primary.light' }}
+                  aria-label="add post-press service"
+                >
+                  <AddRoundedIcon sx={{ fontSize: 17 }} />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Stack>
         </Stack>
 
         {!jobs.length ? (
-          <Box sx={{ px: 1.5, py: 2.5, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              Add lamination, cutting, binding, foiling, UV, packing or another post-press service.
+          <Box sx={{ px: 1, py: 1.1, textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary">
+              No post-press service. Use + to add.
             </Typography>
           </Box>
         ) : (
@@ -130,13 +135,13 @@ export default function PostPressJobsPanel({
               <Stack
                 key={job.job_uuid}
                 direction={{ xs: 'column', md: 'row' }}
-                spacing={1}
+                spacing={0.6}
                 alignItems={{ xs: 'stretch', md: 'center' }}
-                sx={{ px: 1.25, py: 1 }}
+                sx={{ px: 0.8, py: 0.55 }}
               >
-                <Box sx={{ minWidth: { md: 150 }, flex: 1 }}>
+                <Box sx={{ minWidth: { md: 120 }, flex: 1 }}>
                   <Stack direction="row" spacing={0.6} alignItems="center" flexWrap="wrap">
-                    <Typography variant="body2" fontWeight={900}>
+                    <Typography variant="caption" fontWeight={900}>
                       {typeLabel(job.job_type)}
                     </Typography>
                     <Chip
@@ -144,49 +149,65 @@ export default function PostPressJobsPanel({
                       color={statusColor(job.status)}
                       label={statusLabel(job.status)}
                       variant={job.status === 'completed' ? 'filled' : 'outlined'}
-                      sx={{ height: 19, fontSize: 9.5 }}
+                      sx={{ height: 17, fontSize: 8.5 }}
                     />
                   </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    {job.payableVendorName || job.vendor_name || 'Vendor not set'} · Job #{job.job_number || '—'}
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 175, fontSize: 10 }}>
+                    {job.payableVendorName || job.vendor_name || 'Vendor not set'} · #{job.job_number || '—'}
                   </Typography>
                 </Box>
 
-                <Box sx={{ minWidth: { md: 105 } }}>
-                  <Typography variant="caption" color="text.secondary">Vendor Cost</Typography>
-                  <Typography variant="body2" fontWeight={900}>{money(job.jobValue)}</Typography>
-                </Box>
+                <Typography variant="caption" fontWeight={900} sx={{ minWidth: { md: 74 }, whiteSpace: 'nowrap' }}>
+                  {money(job.jobValue)}
+                </Typography>
 
                 <TextField
                   select
                   size="small"
-                  label="Status"
                   value={job.status || 'draft'}
                   onChange={(e) => updateStatus(job, e.target.value)}
                   disabled={savingStatus === job.job_uuid}
-                  sx={{ minWidth: 130 }}
+                  sx={{
+                    width: 108,
+                    '& .MuiInputBase-root': { height: 30, fontSize: 11 },
+                    '& .MuiSelect-select': { py: 0.45 },
+                  }}
                 >
                   {POST_PRESS_STATUS.map((item) => (
                     <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
                   ))}
                 </TextField>
 
-                <Stack direction="row" spacing={0.6}>
+                <Stack direction="row" spacing={0.35}>
                   <Tooltip title="Open Printing folder">
-                    <IconButton size="small" onClick={() => onOpenFolder?.(row)} sx={{ border: '1px solid', borderColor: 'divider' }}>
-                      <FolderOpenRoundedIcon fontSize="small" />
+                    <IconButton
+                      size="small"
+                      onClick={() => onOpenFolder?.(row)}
+                      sx={{ width: 28, height: 28, border: '1px solid', borderColor: 'divider' }}
+                      aria-label="open Printing folder"
+                    >
+                      <FolderOpenRoundedIcon sx={{ fontSize: 16 }} />
                     </IconButton>
                   </Tooltip>
 
-                  <Button
-                    size="small"
-                    variant={job.documentGenerated ? 'outlined' : 'contained'}
-                    startIcon={job.documentGenerated ? <EditRoundedIcon /> : <ReceiptLongRoundedIcon />}
-                    onClick={() => setEditorJob(job)}
-                    sx={{ textTransform: 'none', whiteSpace: 'nowrap', fontWeight: 800 }}
-                  >
-                    {job.documentGenerated ? 'Edit Invoice' : 'Create Invoice'}
-                  </Button>
+                  <Tooltip title={job.documentGenerated ? 'Edit job-work invoice' : 'Create job-work invoice'}>
+                    <IconButton
+                      size="small"
+                      color={job.documentGenerated ? 'primary' : 'success'}
+                      onClick={() => setEditorJob(job)}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        border: '1px solid',
+                        borderColor: job.documentGenerated ? 'primary.light' : 'success.light',
+                      }}
+                      aria-label={job.documentGenerated ? 'edit job-work invoice' : 'create job-work invoice'}
+                    >
+                      {job.documentGenerated
+                        ? <EditRoundedIcon sx={{ fontSize: 16 }} />
+                        : <ReceiptLongRoundedIcon sx={{ fontSize: 16 }} />}
+                    </IconButton>
+                  </Tooltip>
                 </Stack>
               </Stack>
             ))}

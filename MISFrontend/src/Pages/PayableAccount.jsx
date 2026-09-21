@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   Autocomplete,
+  Badge,
   Box,
   Button,
   Card,
@@ -34,8 +35,7 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
-import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
-import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
+import BuildRoundedIcon from '@mui/icons-material/BuildRounded';
 import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
@@ -810,18 +810,37 @@ export default function PayableAccount() {
               </Typography>
             </Stack>
 
-            <TableContainer sx={{ maxHeight: '58vh' }}>
-              <Table size="small" stickyHeader>
+            <TableContainer sx={{ maxHeight: '62vh' }}>
+              <Table
+                size="small"
+                stickyHeader
+                sx={{
+                  tableLayout: 'auto',
+                  '& .MuiTableCell-root': { px: 0.65, py: 0.45, verticalAlign: 'middle' },
+                }}
+              >
                 <TableHead>
                   <TableRow>
-                    {!selectedDate && <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>}
-                    <TableCell sx={{ fontWeight: 700, width: 70 }}>Order</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Vendor / Freelancer</TableCell>
-                    <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 135 }}>Post Press</TableCell>
-                    <TableCell sx={{ fontWeight: 700, width: 58 }}>Folder</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 135 }}>Printing Invoice</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 700, width: 112 }}>Invoice</TableCell>
+                    {!selectedDate && <TableCell sx={{ fontWeight: 700, width: 82 }}>Date</TableCell>}
+                    <TableCell sx={{ fontWeight: 700, width: 54 }}>Order</TableCell>
+                    <TableCell sx={{ fontWeight: 700, minWidth: 126 }}>Vendor</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 105 }}>Customer</TableCell>
+                    <TableCell align="center" sx={{ width: 48, p: 0.25 }}>
+                      <Tooltip title="Post Press">
+                        <BuildRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 42, p: 0.25 }}>
+                      <Tooltip title="Local folder">
+                        <FolderOpenRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 112 }}>Print ₹</TableCell>
+                    <TableCell align="center" sx={{ width: 42, p: 0.25 }}>
+                      <Tooltip title="Create / edit printing invoice">
+                        <ReceiptLongRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      </Tooltip>
+                    </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -853,13 +872,19 @@ export default function PayableAccount() {
                       return (
                         <Fragment key={row.folderId}>
                         <TableRow hover>
-                          {!selectedDate && <TableCell sx={{ whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</TableCell>}
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={800}>
+                          {!selectedDate && (
+                            <TableCell sx={{ whiteSpace: 'nowrap', fontSize: 11 }}>
+                              {fmtDate(row.date)}
+                            </TableCell>
+                          )}
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            <Typography variant="body2" fontWeight={800} lineHeight={1.1}>
                               {row.orderNumber ? `#${row.orderNumber}` : '—'}
                             </Typography>
                             {!row.orderUuid ? (
-                              <Typography variant="caption" color="warning.dark">No MIS order</Typography>
+                              <Tooltip title="No MIS order matched">
+                                <Typography variant="caption" color="warning.dark">!</Typography>
+                              </Tooltip>
                             ) : null}
                           </TableCell>
                           <TableCell>
@@ -875,60 +900,80 @@ export default function PayableAccount() {
                               }}
                               getOptionLabel={(option) => option?.Vendor_name || ''}
                               isOptionEqualToValue={(option, value) => option.Vendor_uuid === value.Vendor_uuid}
-                              sx={{ minWidth: 155 }}
+                              sx={{
+                                minWidth: 126,
+                                '& .MuiInputBase-root': { minHeight: 30, py: '0 !important' },
+                                '& .MuiAutocomplete-input': { py: '4px !important', fontSize: 12 },
+                              }}
                               renderInput={(params) => (
-                                <TextField
-                                  {...params}
-                                  placeholder={row.parsedVendorName || 'Select party'}
-                                  error={!selectedVendorId}
-                                  helperText={
+                                <Tooltip
+                                  title={
                                     !row.vendorMatched && row.parsedVendorName
-                                      ? `Folder: ${row.parsedVendorName}`
+                                      ? `Folder vendor: ${row.parsedVendorName}`
                                       : ''
                                   }
-                                />
+                                >
+                                  <TextField
+                                    {...params}
+                                    placeholder={row.parsedVendorName || 'Select'}
+                                    error={!selectedVendorId}
+                                  />
+                                </Tooltip>
                               )}
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell align="center" sx={{ p: 0.25 }}>
                             <Tooltip title={row.folderName}>
-                              <Box>
-                                <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
-                                  {row.customerName || '—'}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 150, display: 'block' }}>
-                                  {row.folderName}
-                                </Typography>
-                              </Box>
+                              <Typography variant="body2" noWrap sx={{ maxWidth: 105, fontSize: 12 }}>
+                                {row.customerName || '—'}
+                              </Typography>
                             </Tooltip>
                           </TableCell>
-                          <TableCell>
-                            <Button
-                              size="small"
-                              variant={postPressCount ? 'outlined' : 'text'}
-                              onClick={() => setExpandedPostPress((prev) => ({
-                                ...prev,
-                                [row.folderId]: !prev[row.folderId],
-                              }))}
-                              disabled={!row.orderUuid}
-                              endIcon={
-                                isPostPressOpen
-                                  ? <KeyboardArrowUpRoundedIcon />
-                                  : <KeyboardArrowDownRoundedIcon />
+                          <TableCell align="center" sx={{ p: 0.25 }}>
+                            <Tooltip
+                              title={
+                                postPressCount
+                                  ? `Post Press: ${postPressCompleted}/${postPressCount} complete · ${money(postPressTotal)}`
+                                  : 'Add post-press service'
                               }
-                              sx={{ textTransform: 'none', fontWeight: 800, whiteSpace: 'nowrap' }}
                             >
-                              {postPressCount
-                                ? `Post Press ${postPressCompleted}/${postPressCount}`
-                                : '+ Post Press'}
-                            </Button>
-                            {postPressTotal > 0 ? (
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                {money(postPressTotal)}
-                              </Typography>
-                            ) : null}
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setExpandedPostPress((prev) => ({
+                                    ...prev,
+                                    [row.folderId]: !prev[row.folderId],
+                                  }))}
+                                  disabled={!row.orderUuid}
+                                  color={postPressCount && postPressCompleted === postPressCount ? 'success' : 'primary'}
+                                  sx={{
+                                    width: 30,
+                                    height: 30,
+                                    border: '1px solid',
+                                    borderColor: isPostPressOpen ? 'primary.main' : 'divider',
+                                    bgcolor: isPostPressOpen ? 'action.selected' : 'transparent',
+                                  }}
+                                  aria-label={postPressCount ? 'view post-press services' : 'add post-press service'}
+                                >
+                                  <Badge
+                                    badgeContent={postPressCount ? `${postPressCompleted}/${postPressCount}` : '+'}
+                                    color={postPressCount && postPressCompleted === postPressCount ? 'success' : 'warning'}
+                                    sx={{
+                                      '& .MuiBadge-badge': {
+                                        fontSize: 8,
+                                        height: 15,
+                                        minWidth: 15,
+                                        px: 0.25,
+                                      },
+                                    }}
+                                  >
+                                    <BuildRoundedIcon sx={{ fontSize: 17 }} />
+                                  </Badge>
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                           </TableCell>
-                          <TableCell>
+                          <TableCell align="center" sx={{ p: 0.25 }}>
                             <Tooltip
                               title={
                                 localShareRoot
@@ -939,7 +984,7 @@ export default function PayableAccount() {
                               <IconButton
                                 size="small"
                                 onClick={() => openPrintingLocalFolder(row)}
-                                sx={{ border: '1px solid', borderColor: 'divider' }}
+                                sx={{ width: 30, height: 30, border: '1px solid', borderColor: 'divider' }}
                                 aria-label="open local Printing folder"
                               >
                                 <FolderOpenRoundedIcon fontSize="small" />
@@ -960,13 +1005,18 @@ export default function PayableAccount() {
                                 }}
                                 inputProps={{ min: 0, step: '0.01' }}
                                 placeholder="₹0"
-                                sx={{ width: 95 }}
+                                sx={{
+                                  width: 74,
+                                  '& .MuiInputBase-root': { height: 30, fontSize: 12 },
+                                  '& input': { px: 0.7, py: 0.4 },
+                                }}
                               />
                               <Tooltip title={row.poUuid ? 'Quick update invoice value' : 'Quick add invoice value'}>
                                 <span>
                                   <IconButton
                                     size="small"
                                     color={row.poUuid ? 'primary' : 'success'}
+                                    sx={{ width: 28, height: 28 }}
                                     disabled={
                                       savingFolderId === row.folderId
                                       || !selectedVendorId
@@ -984,27 +1034,37 @@ export default function PayableAccount() {
                             </Stack>
                             {row.poNumber ? (
                               <Typography variant="caption" color="text.secondary" display="block">
-                                PO #{row.poNumber}
+                                #{row.poNumber}
                               </Typography>
                             ) : null}
                             {postPressTotal > 0 ? (
                               <Typography variant="caption" color="secondary.main" display="block">
-                                + Post Press {money(postPressTotal)}
+                                +PP {money(postPressTotal)}
                               </Typography>
                             ) : null}
                           </TableCell>
-                          <TableCell align="center">
-                            <Button
-                              size="small"
-                              variant={row.poUuid ? 'outlined' : 'contained'}
-                              color={row.poUuid ? 'primary' : 'success'}
-                              startIcon={row.poUuid ? <EditRoundedIcon /> : <ReceiptLongRoundedIcon />}
-                              onClick={() => openPurchaseInvoiceEditor(row)}
-                              disabled={!selectedVendorId}
-                              sx={{ textTransform: 'none', whiteSpace: 'nowrap', fontWeight: 800 }}
-                            >
-                              {row.poUuid ? 'Edit Invoice' : 'Create Invoice'}
-                            </Button>
+                          <TableCell align="center" sx={{ p: 0.25 }}>
+                            <Tooltip title={row.poUuid ? 'Edit printing invoice' : 'Create printing invoice'}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color={row.poUuid ? 'primary' : 'success'}
+                                  onClick={() => openPurchaseInvoiceEditor(row)}
+                                  disabled={!selectedVendorId}
+                                  sx={{
+                                    width: 30,
+                                    height: 30,
+                                    border: '1px solid',
+                                    borderColor: row.poUuid ? 'primary.light' : 'success.light',
+                                  }}
+                                  aria-label={row.poUuid ? 'edit printing invoice' : 'create printing invoice'}
+                                >
+                                  {row.poUuid
+                                    ? <EditRoundedIcon sx={{ fontSize: 17 }} />
+                                    : <ReceiptLongRoundedIcon sx={{ fontSize: 17 }} />}
+                                </IconButton>
+                              </span>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                         <TableRow>

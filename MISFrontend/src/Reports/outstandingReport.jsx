@@ -111,7 +111,7 @@ const OutstandingReport = () => {
 
   const dateCountMap = useMemo(() => {
     const map = {};
-    (effectiveTransactions || []).forEach((tx) => {
+    (transactions || []).forEach((tx) => {
       const date = toISODate(tx?.Transaction_date);
       if (date) map[date] = (map[date] || 0) + 1;
     });
@@ -128,7 +128,7 @@ const OutstandingReport = () => {
     return customers.map((cust) => {
       let debit = 0;
       let credit = 0;
-      (transactions || []).forEach((tx) => {
+      (effectiveTransactions || []).forEach((tx) => {
         (tx?.Journal_entry || []).forEach((entry) => {
           if (entry?.Account_id === cust?.Customer_uuid) {
             if (entry?.Type === 'Debit') debit += Number(entry?.Amount || 0);

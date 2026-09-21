@@ -22,7 +22,6 @@ import {
   InputAdornment,
   LinearProgress,
   ListItemIcon,
-  ListSubheader,
   Menu,
   MenuItem,
   Paper,
@@ -81,8 +80,6 @@ import { fetchAssignees } from '../../services/assigneeService';
 import {
   STAGE_TO_CAPABILITY,
   CAPABILITY_LABELS,
-  WORKFLOW_SECTIONS,
-  WORKFLOW_GROUPS,
 } from '../../constants/orderStages';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -2366,29 +2363,6 @@ function TempOrdersDialog({ open, onClose, onSuccess }) {
     </Dialog>
   );
 }
-
-// ─── Stage picker ─────────────────────────────────────────────────────────────
-// The confirm dialog offers exactly the columns the home Workflow board
-// shows, under the same four group headings. The Design group holds no
-// sectionKeys on the board (it renders this widget instead), so its stage
-// columns are named here.
-const DESIGN_SECTION_KEYS = ['todaysNew', 'oldPending', 'designApproval', 'hold', 'readyToPrint'];
-const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((sec) => [sec.key, sec]));
-
-// A column can cover several stages ("Today's New" is enquiry → new_design).
-// The stage an order actually lands on is the working one of that column.
-const SECTION_PRIMARY_STAGE = { todaysNew: 'new_design' };
-
-function sectionStage(section) {
-  return SECTION_PRIMARY_STAGE[section.key] || section.stages[0];
-}
-
-const STAGE_GROUPS = WORKFLOW_GROUPS.map((group) => ({
-  label: group.label,
-  sections: (group.sectionKeys.length ? group.sectionKeys : DESIGN_SECTION_KEYS)
-    .map((key) => SECTION_BY_KEY.get(key))
-    .filter(Boolean),
-}));
 
 // ─── Renumber design files ────────────────────────────────────────────────────
 /**

@@ -35,9 +35,10 @@ export const fetchBillListPaged = ({
   search = "",
   task = "",
   paid = "", // "", "paid", "unpaid"
+  date = "", // YYYY-MM-DD (order/bill date)
 } = {}) => {
   return axios.get("/api/orders/GetBillListPaged", {
-    params: { page, limit, search, task, paid },
+    params: { page, limit, search, task, paid, date },
   });
 };
 

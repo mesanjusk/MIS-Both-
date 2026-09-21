@@ -320,6 +320,7 @@ router.post('/printing-invoice', async (req, res) => {
     const folderId = String(req.body.sourceDriveFolderId || '').trim();
     const folderName = String(req.body.sourceDriveFolderName || '').trim();
     const vendorUuid = String(req.body.Vendor_uuid || req.body.vendorUuid || '').trim();
+    const requestedPoUuid = String(req.body.poUuid || '').trim();
     const amount = toNumber(req.body.amount, 0);
     const orderNumber = toNumber(req.body.orderNumber, 0);
     const poDate = req.body.poDate ? new Date(req.body.poDate) : new Date();
@@ -367,7 +368,22 @@ router.post('/printing-invoice', async (req, res) => {
       ? await Orders.findOne({ Order_Number: orderNumber }, { Order_uuid: 1, Order_Number: 1 }).lean()
       : null;
 
-    let po = await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+    let po = requestedPoUuid
+      ? await PurchaseOrder.findOne({ PO_uuid: requestedPoUuid })
+      : await PurchaseOrder.findOne({ sourceDriveFolderId: folderId });
+
+    // Older Delivery-created POs predate sourceDriveFolderId. Reuse one only
+    // when the order+vendor match is unambiguous; otherwise create a new
+    // source-specific PO rather than guessing.
+    if (!po && order?.Order_uuid) {
+      const candidates = await PurchaseOrder.find({
+        Order_uuid: order.Order_uuid,
+        Vendor_uuid: party.Customer_uuid,
+        status: { $ne: 'cancelled' },
+      }).sort({ createdAt: -1 }).limit(2);
+      if (candidates.length === 1) po = candidates[0];
+    }
+
     const isNew = !po;
 
     if (!po) {

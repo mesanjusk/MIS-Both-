@@ -43,7 +43,7 @@ import {
   processAttendanceDataRange,
 } from "../utils/attendanceUtils";
 
-const todayISO = new Date().toISOString().slice(0, 10);
+const todayISO = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
@@ -63,6 +63,60 @@ const toIndiaISO = (value) => {
 };
 
 const isMarked = (value) => Boolean(value && value !== "—" && value !== "N/A");
+
+const isoParts = (iso) => {
+  const [year, month, day] = String(iso || "").split("-").map(Number);
+  return { year, month, day };
+};
+
+const financialYearRange = (iso) => {
+  const { year, month } = isoParts(iso || todayISO);
+  const startYear = month >= 4 ? year : year - 1;
+  return {
+    start: `${startYear}-04-01`,
+    end: `${startYear + 1}-03-31`,
+    label: `${startYear}-${String(startYear + 1).slice(-2)}`,
+  };
+};
+
+const isSundayISO = (iso) => {
+  const { year, month, day } = isoParts(iso);
+  if (!year || !month || !day) return false;
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+};
+
+const countWorkingDays = (startISO, endISO) => {
+  const start = isoParts(startISO);
+  const end = isoParts(endISO);
+  if (!start.year || !end.year || endISO < startISO) return 0;
+
+  let count = 0;
+  const cursor = new Date(Date.UTC(start.year, start.month - 1, start.day));
+  const last = new Date(Date.UTC(end.year, end.month - 1, end.day));
+  while (cursor <= last) {
+    if (cursor.getUTCDay() !== 0) count += 1;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return count;
+};
+
+const accountBalanceMeta = (account) => {
+  if (!account) return { label: "—", side: "", amount: 0 };
+  const balance = Number(account.Balance || 0);
+  const normalSide = String(account.Normal_balance_side || "debit").toLowerCase() === "credit"
+    ? "credit"
+    : "debit";
+  const side = balance >= 0
+    ? normalSide
+    : (normalSide === "debit" ? "credit" : "debit");
+  const amount = Math.abs(balance);
+  if (amount < 0.005) return { label: money(0), side: "", amount: 0 };
+  return {
+    label: `${money(amount)} ${side === "debit" ? "Dr" : "Cr"}`,
+    side,
+    amount,
+  };
+};
 
 function TimeBadge({ value }) {
   const marked = isMarked(value);
@@ -170,12 +224,10 @@ export default function AllAttandance() {
     setLedgerLoading(true);
     setLedgerError("");
     try {
-      const params = {};
-      if (selectedDate) {
-        params.fromDate = new Date(`${selectedDate}T00:00:00+05:30`).toISOString();
-        params.toDate = new Date(`${selectedDate}T23:59:59.999+05:30`).toISOString();
-      }
-      const res = await axios.get("/api/transaction", { params });
+      // Load the complete journal once. The selected date is applied client-side
+      // so the same data can also verify every mapped staff account's current
+      // balance against the journal for the financial-year attendance summary.
+      const res = await axios.get("/api/transaction");
       setLedgerTransactions(res.data?.success && Array.isArray(res.data.result) ? res.data.result : []);
     } catch (e) {
       console.error("Error loading staff ledger:", e?.message || e);
@@ -188,7 +240,7 @@ export default function AllAttandance() {
     } finally {
       setLedgerLoading(false);
     }
-  }, [selectedDate]);
+  }, []);
 
   useEffect(() => {
     const userNameFromState = location.state?.id;
@@ -279,6 +331,9 @@ export default function AllAttandance() {
   const ledgerRows = useMemo(() => {
     const rows = [];
     ledgerTransactions.forEach((tx) => {
+      const txDate = toIndiaISO(tx.Transaction_date);
+      if (selectedDate && txDate !== selectedDate) return;
+
       (tx?.Journal_entry || []).forEach((entry, index) => {
         const member = userByAccountId[entry?.Account_id];
         if (!member) return;
@@ -287,7 +342,7 @@ export default function AllAttandance() {
         const account = accountById[entry.Account_id];
         rows.push({
           key: `${tx.Transaction_uuid || tx._id || tx.Transaction_id}-${entry.Account_id}-${index}`,
-          date: toIndiaISO(tx.Transaction_date),
+          date: txDate,
           member,
           accountName: account?.Account_name || entry.Account_name || entry.Account_id,
           accountBalance: Number(account?.Balance || 0),
@@ -300,7 +355,28 @@ export default function AllAttandance() {
     });
 
     return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  }, [ledgerTransactions, userByAccountId, accountById, memberFilter]);
+  }, [ledgerTransactions, userByAccountId, accountById, memberFilter, selectedDate]);
+
+  const journalBalanceByAccount = useMemo(() => {
+    const totals = {};
+    ledgerTransactions.forEach((tx) => {
+      (tx?.Journal_entry || []).forEach((entry) => {
+        const accountId = entry?.Account_id;
+        if (!accountId || !userByAccountId[accountId]) return;
+
+        const account = accountById[accountId];
+        const normalSide = String(account?.Normal_balance_side || "debit").toLowerCase() === "credit"
+          ? "credit"
+          : "debit";
+        const amount = Number(entry.Amount || 0);
+        const onNormalSide =
+          (entry.Type === "Debit" && normalSide === "debit") ||
+          (entry.Type === "Credit" && normalSide === "credit");
+        totals[accountId] = (totals[accountId] || 0) + (onNormalSide ? amount : -amount);
+      });
+    });
+    return totals;
+  }, [ledgerTransactions, userByAccountId, accountById]);
 
   const ledgerSummary = useMemo(() => {
     return ledgerRows.reduce(
@@ -332,6 +408,101 @@ export default function AllAttandance() {
     }),
     [filteredAttendance]
   );
+
+  const financialYear = useMemo(
+    () => financialYearRange(selectedDate || todayISO),
+    [selectedDate]
+  );
+
+  const fyAsOfDate = useMemo(() => {
+    const requested = selectedDate || todayISO;
+    const currentFy = financialYearRange(todayISO);
+    const cappedForToday =
+      financialYear.start === currentFy.start && requested > todayISO
+        ? todayISO
+        : requested;
+
+    if (cappedForToday < financialYear.start) return financialYear.start;
+    if (cappedForToday > financialYear.end) return financialYear.end;
+    return cappedForToday;
+  }, [selectedDate, financialYear]);
+
+  const fyWorkingDays = useMemo(
+    () => countWorkingDays(financialYear.start, financialYear.end),
+    [financialYear]
+  );
+
+  const fyElapsedWorkingDays = useMemo(
+    () => countWorkingDays(financialYear.start, fyAsOfDate),
+    [financialYear, fyAsOfDate]
+  );
+
+  const fySummaryRows = useMemo(() => {
+    const presentDays = new Map();
+
+    allAttendance.forEach((row) => {
+      if (!row?.User_uuid || !row?.DateISO) return;
+      if (row.DateISO < financialYear.start || row.DateISO > fyAsOfDate) return;
+      if (isSundayISO(row.DateISO) || !isMarked(row.In)) return;
+
+      if (!presentDays.has(row.User_uuid)) presentDays.set(row.User_uuid, new Set());
+      presentDays.get(row.User_uuid).add(row.DateISO);
+    });
+
+    return memberOptions
+      .filter((member) => !memberFilter || member.uuid === memberFilter)
+      .map((member) => {
+        const present = presentDays.get(member.uuid)?.size || 0;
+        const absent = Math.max(0, fyElapsedWorkingDays - present);
+        const attendancePercent = fyElapsedWorkingDays
+          ? (present / fyElapsedWorkingDays) * 100
+          : 0;
+        const account = member.accountId ? accountById[member.accountId] : null;
+        const storedBalance = account ? Number(account.Balance || 0) : null;
+        const derivedBalance = account
+          ? Number(journalBalanceByAccount[member.accountId] || 0)
+          : null;
+        const balanceDifference =
+          storedBalance === null || derivedBalance === null
+            ? null
+            : Number((storedBalance - derivedBalance).toFixed(2));
+
+        return {
+          ...member,
+          present,
+          absent,
+          attendancePercent,
+          account,
+          storedBalance,
+          derivedBalance,
+          balanceDifference,
+          ledgerMatched:
+            balanceDifference !== null && Math.abs(balanceDifference) < 0.01,
+        };
+      });
+  }, [
+    allAttendance,
+    financialYear,
+    fyAsOfDate,
+    memberOptions,
+    memberFilter,
+    fyElapsedWorkingDays,
+    accountById,
+    journalBalanceByAccount,
+  ]);
+
+  const ledgerAuditStats = useMemo(() => {
+    return fySummaryRows.reduce(
+      (acc, row) => {
+        if (!row.accountId) acc.unmapped += 1;
+        else if (!row.account) acc.missing += 1;
+        else if (row.ledgerMatched) acc.matched += 1;
+        else acc.mismatched += 1;
+        return acc;
+      },
+      { matched: 0, mismatched: 0, unmapped: 0, missing: 0 }
+    );
+  }, [fySummaryRows]);
 
   const selectedLabel = selectedDate ? fmtDate(selectedDate) : "All Dates";
 
@@ -465,6 +636,148 @@ export default function AllAttandance() {
             </Card>
           ))}
         </Stack>
+
+        <Paper variant="outlined" sx={{ borderRadius: 3, mb: 2, overflow: "hidden" }}>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", md: "center" }}
+            spacing={1}
+            sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}
+          >
+            <Box>
+              <Typography variant="subtitle2" fontWeight={800}>
+                Financial Year {financialYear.label} · Attendance & Ledger Check
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {fmtDate(financialYear.start)} – {fmtDate(financialYear.end)} · Sunday is official holiday ·
+                {" "}{fyWorkingDays} total working days · {fyElapsedWorkingDays} working days through {fmtDate(fyAsOfDate)}
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <Chip
+                size="small"
+                color={ledgerAuditStats.mismatched ? "error" : "success"}
+                variant="outlined"
+                label={`Ledger matched ${ledgerAuditStats.matched}`}
+              />
+              {ledgerAuditStats.mismatched ? (
+                <Chip
+                  size="small"
+                  color="error"
+                  label={`Mismatch ${ledgerAuditStats.mismatched}`}
+                />
+              ) : null}
+              {ledgerAuditStats.unmapped || ledgerAuditStats.missing ? (
+                <Chip
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  label={`Unmapped / missing ${ledgerAuditStats.unmapped + ledgerAuditStats.missing}`}
+                />
+              ) : null}
+            </Stack>
+          </Stack>
+
+          <TableContainer sx={{ maxHeight: 300 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>Member</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Present</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Absent</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Attendance</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Ledger Account</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Current Balance</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Ledger Check</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {fySummaryRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 3, color: "text.secondary" }}>
+                      No staff found for this selection.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  fySummaryRows.map((row) => {
+                    const balanceMeta = accountBalanceMeta(row.account);
+                    return (
+                      <TableRow key={row.uuid} hover>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={700}>{row.name}</Typography>
+                          <Typography variant="caption" color="text.secondary">{row.group || "—"}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: "success.dark" }}>
+                          {row.present}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: "error.dark" }}>
+                          {row.absent}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`${row.attendancePercent.toFixed(1)}%`}
+                            color={row.attendancePercent >= 90 ? "success" : row.attendancePercent >= 75 ? "warning" : "error"}
+                            sx={{ height: 20, fontSize: 10.5 }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {row.account ? (
+                            <>
+                              <Typography variant="body2" fontWeight={700}>{row.account.Account_name}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {row.account.Account_group || row.account.Account_type || "Account"}
+                              </Typography>
+                            </>
+                          ) : row.accountId ? (
+                            <Typography variant="caption" color="error.main">
+                              Mapped account not found
+                            </Typography>
+                          ) : canManageMappings ? (
+                            <Button
+                              size="small"
+                              color="warning"
+                              variant="text"
+                              onClick={() => openMapDialog(row)}
+                              sx={{ p: 0, minWidth: 0, textTransform: "none", fontSize: 10.5 }}
+                            >
+                              Account not mapped · Map
+                            </Button>
+                          ) : (
+                            <Typography variant="caption" color="warning.dark">Account not mapped</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 800 }}>
+                          {row.account ? balanceMeta.label : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {!row.accountId ? (
+                            <Chip size="small" label="Unmapped" color="warning" variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
+                          ) : !row.account ? (
+                            <Chip size="small" label="Account missing" color="error" variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
+                          ) : row.ledgerMatched ? (
+                            <Chip size="small" label="Matched" color="success" variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
+                          ) : (
+                            <Tooltip title={`Stored ${money(row.storedBalance)} · Journal ${money(row.derivedBalance)}`}>
+                              <Chip
+                                size="small"
+                                label={`Mismatch ${money(Math.abs(row.balanceDifference || 0))}`}
+                                color="error"
+                                sx={{ height: 20, fontSize: 10.5 }}
+                              />
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
 
         <Stack direction={{ xs: "column", xl: "row" }} spacing={2} alignItems="flex-start">
           {/* Delivery-style left section: attendance */}
@@ -638,7 +951,7 @@ export default function AllAttandance() {
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(row.date)}</TableCell>
                           <TableCell>
                             <Typography variant="body2" fontWeight={700}>{row.member.name}</Typography>
-                            <Tooltip title={`Current account balance: ${money(row.accountBalance)}`}>
+                            <Tooltip title={`Current account balance: ${accountBalanceMeta(accountById[row.member.accountId]).label}`}>
                               <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 155, display: "block" }}>
                                 {row.accountName}
                               </Typography>

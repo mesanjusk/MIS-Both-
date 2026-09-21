@@ -292,11 +292,30 @@ export default function BankReconciliation() {
     setError('');
     setSuccessMsg('');
     try {
-      const res = await axios.get(`/api/bank-statement/${uid}`);
-      setStmt(res.data?.result || null);
-    } catch { setError('Could not load statement.'); }
-    finally { setLoading(false); }
-  }, []);
+      // Synchronize legacy confirmed rows before rendering. This endpoint is
+      // idempotent: it links an existing Diary/manual transaction when one
+      // already represents the bank movement, otherwise it repairs/posts the
+      // bank-owned transaction into the configured bank ledger.
+      const syncRes = await axios.post(`/api/bank-statement/${uid}/sync-ledger`, {
+        synced_by: loggedInUser,
+      });
+      setStmt(syncRes.data?.result || null);
+    } catch (syncErr) {
+      // Reconciliation should still be viewable even if a legacy row needs
+      // manual review, so fall back to the normal read endpoint.
+      try {
+        const res = await axios.get(`/api/bank-statement/${uid}`);
+        setStmt(res.data?.result || null);
+        if (syncErr?.response?.status && syncErr.response.status !== 409) {
+          setError(syncErr?.response?.data?.message || 'Could not synchronize confirmed entries with the ledger.');
+        }
+      } catch {
+        setError('Could not load statement.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [loggedInUser]);
 
   useEffect(() => { loadList(); }, [loadList]);
   useEffect(() => { if (selectedUuid) loadStmt(selectedUuid); }, [selectedUuid, loadStmt]);

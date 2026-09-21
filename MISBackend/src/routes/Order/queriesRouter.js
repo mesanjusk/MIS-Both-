@@ -333,7 +333,7 @@ router.get("/GetBillListPaged", async (req, res) => {
                     as: "s",
                     in: {
                       $regexMatch: {
-                        input: { $ifNull: ["$s.Task", ""] },
+                        input: { $ifNull: ["$$s.Task", ""] },
                         regex: "delivered",
                         options: "i",
                       },
@@ -348,7 +348,7 @@ router.get("/GetBillListPaged", async (req, res) => {
               $map: {
                 input: { $ifNull: ["$Items", []] },
                 as: "it",
-                in: { $gt: [amountToDouble("$it.Amount"), 0] },
+                in: { $gt: [amountToDouble("$$it.Amount"), 0] },
               },
             },
           },

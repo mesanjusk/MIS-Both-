@@ -710,6 +710,7 @@ export default function AllBills() {
         billTotal,
         _billable: billable,
         _customerLower: String(customerName).toLowerCase(),
+        _billNumberLower: String(order?.Order_Number ?? "").toLowerCase(),
         _displayTask: displayTask,
         _taskLower: taskLower,
         _paid: paid,
@@ -726,7 +727,12 @@ export default function AllBills() {
 
     return normalizedOrders.filter((o) => {
       if (!o._billable) return false;
-      if (s && !o._customerLower.includes(s)) return false;
+      if (s) {
+        const billNeedle = s.replace(/^#\s*/, "");
+        const customerMatch = o._customerLower.includes(s);
+        const billNumberMatch = Boolean(billNeedle) && o._billNumberLower.includes(billNeedle);
+        if (!customerMatch && !billNumberMatch) return false;
+      }
       // Match by substring: the stage-based workflow writes task labels like
       // "delivered - Delivered", so an exact equality check would hide them.
       if (fTask && !o._taskLower.includes(fTask)) return false;
@@ -967,8 +973,9 @@ export default function AllBills() {
               size="small"
               value={searchOrder}
               onChange={(e) => setSearchOrder(e.target.value)}
-              placeholder="Search customer"
-              sx={{ width: { xs: "100%", lg: 185 } }}
+              placeholder="Customer / Bill No."
+              inputProps={{ "aria-label": "Search bills by customer name or bill number" }}
+              sx={{ width: { xs: "100%", lg: 205 } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">

@@ -103,8 +103,8 @@ function StmtRow({
     if (!acct || !onAssign) return;
     setSaving(true);
     try {
-      await onAssign(entry.entry_uuid, acct);
-      setEditing(false);
+      const saved = await onAssign(entry.entry_uuid, acct);
+      if (saved !== false) setEditing(false);
     } finally {
       setSaving(false);
     }
@@ -378,9 +378,10 @@ export default function BankReconciliation() {
       });
       setStmt(res.data?.result || stmt);
       setSuccessMsg('Account assigned.');
+      return true;
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not assign account.');
-      throw err;
+      return false;
     }
   }, [stmt]);
 

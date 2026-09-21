@@ -944,7 +944,7 @@ export default function DayBook() {
   ];
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 1.5, p: { xs: 0.5, md: 1 } }}>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
 
       <DeliveryDateSidebar
         title="Day Books"
@@ -1121,12 +1121,12 @@ export default function DayBook() {
             )}
 
             {/* Summary cards */}
-            <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: 'auto', pb: 0.25 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
               {summaryCards.map(({ label, value, color }) => (
-                <Card key={label} variant="outlined" sx={{ minWidth: 130, flex: 1, borderRadius: 2 }}>
-                  <CardContent sx={{ px: 1.1, py: 0.7, '&:last-child': { pb: 0.7 } }}>
+                <Card key={label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+                  <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
                     <Typography variant="caption" color="text.secondary">{label}</Typography>
-                    <Typography variant="subtitle1" fontWeight={900} color={color} lineHeight={1.15}>{money(value)}</Typography>
+                    <Typography variant="h6" fontWeight={900} color={color}>{money(value)}</Typography>
                   </CardContent>
                 </Card>
               ))}

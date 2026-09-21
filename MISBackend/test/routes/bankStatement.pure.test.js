@@ -1,4 +1,11 @@
-const { toAmt, parseDateStr, normHeader, parseSbiCsv } = require('../../src/routes/BankStatement');
+const {
+  toAmt,
+  parseDateStr,
+  normHeader,
+  parseSbiCsv,
+  chooseBankLedgerDoc,
+  transactionMatchesBankEntry,
+} = require('../../src/routes/BankStatement');
 
 describe('BankStatement.toAmt', () => {
   test('strips currency symbol, commas and whitespace', () => {
@@ -94,5 +101,72 @@ describe('BankStatement.parseSbiCsv', () => {
     const { entries, error } = parseSbiCsv(csv);
     expect(entries).toEqual([]);
     expect(error).toMatch(/header row not found/i);
+  });
+});
+
+
+describe('BankStatement bank-ledger reconciliation helpers', () => {
+  test('chooses the configured non-cash bank ledger and ignores cash ledgers', () => {
+    const docs = [
+      { Customer_uuid: 'cash-uuid', Customer_name: 'Office Cash' },
+      { Customer_uuid: 'bank-uuid', Customer_name: 'UPI Sanju Sk' },
+    ];
+
+    expect(chooseBankLedgerDoc('SBI Bank Account', docs)).toEqual(docs[1]);
+  });
+
+  test('prefers an exact statement account-name match when multiple bank ledgers exist', () => {
+    const docs = [
+      { Customer_uuid: 'one', Customer_name: 'UPI Sanju Sk' },
+      { Customer_uuid: 'two', Customer_name: 'SBI Current Account' },
+    ];
+
+    expect(chooseBankLedgerDoc('SBI Current Account', docs)).toEqual(docs[1]);
+  });
+
+  test('matches an existing ledger transaction by date-side account and amount shape', () => {
+    const transaction = {
+      Source: 'diary:day-1:entry-1',
+      Journal_entry: [
+        { Account_id: 'bank-uuid', Account_name: 'UPI Sanju Sk', Type: 'Debit', Amount: 4500 },
+        { Account_id: 'party-uuid', Account_name: 'Sk Sai', Type: 'Credit', Amount: 4500 },
+      ],
+    };
+    const entry = {
+      direction: 'in',
+      credit: 4500,
+      debit: 0,
+      account_assigned: 'Sk Sai',
+    };
+
+    expect(transactionMatchesBankEntry(
+      transaction,
+      entry,
+      { uuid: 'bank-uuid', name: 'UPI Sanju Sk' },
+      { uuid: 'party-uuid', name: 'Sk Sai' }
+    )).toBe(true);
+  });
+
+  test('does not match a bank-statement-owned posting as an existing business entry', () => {
+    const transaction = {
+      Source: 'business:bank_statement:stmt:entry',
+      Journal_entry: [
+        { Account_id: 'bank-uuid', Account_name: 'UPI Sanju Sk', Type: 'Debit', Amount: 100 },
+        { Account_id: 'party-uuid', Account_name: 'Gpay Cash', Type: 'Credit', Amount: 100 },
+      ],
+    };
+    const entry = {
+      direction: 'in',
+      credit: 100,
+      debit: 0,
+      account_assigned: 'Gpay Cash',
+    };
+
+    expect(transactionMatchesBankEntry(
+      transaction,
+      entry,
+      { uuid: 'bank-uuid', name: 'UPI Sanju Sk' },
+      { uuid: 'party-uuid', name: 'Gpay Cash' }
+    )).toBe(false);
   });
 });

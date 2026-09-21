@@ -318,6 +318,22 @@ async function runLedgerIntegrityStartupTask() {
 
 (async () => {
   await connectDB();
+
+  // Repair confirmed bank-statement rows only when the target bank ledger can
+  // be proven from an explicit mapping, existing linked transaction, or a
+  // confident statement/account-name match. This is idempotent and avoids the
+  // old failure mode where confirmed rows existed but were posted to a hidden
+  // generic Bank ledger instead of the visible bank account.
+  try {
+    const summary = await BankStatement.repairConfirmedBankStatementsWithEvidence?.();
+    if (summary) logger.info({ summary }, '[bank-statement-startup-repair] RESULT');
+  } catch (bankRepairError) {
+    logger.error(
+      { err: bankRepairError?.message || bankRepairError },
+      '[bank-statement-startup-repair] failed'
+    );
+  }
+
   await runLedgerIntegrityStartupTask();
   try {
     const result = await ensureDefaultFeatureToggles();

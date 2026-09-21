@@ -1025,6 +1025,7 @@ router.post('/production-jobs', async (req, res) => {
       jobUuid: req.body.job_uuid || req.body.jobUuid,
       jobType: req.body.job_type,
       jobMode: req.body.job_mode || 'jobwork_only',
+      payableAccount: req.body.payable_account || req.body.payableAccount || '',
       vendorUuid: req.body.vendor_uuid,
       vendorName: req.body.vendor_name,
       orderUuid: !linkedOrders.length ? String(req.body.order_uuid || '') : undefined,

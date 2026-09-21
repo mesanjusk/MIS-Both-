@@ -802,7 +802,7 @@ export default function PayableAccount() {
                   Payable Added (IN)
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Daily Work → date → Printing folders
+                  Printing + linked Post Press vendor costs
                 </Typography>
               </Box>
               <Typography variant="subtitle2" fontWeight={700} color="error.dark">
@@ -820,7 +820,7 @@ export default function PayableAccount() {
                     <TableCell sx={{ fontWeight: 700 }}>Customer</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 135 }}>Post Press</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 58 }}>Folder</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 135 }}>Invoice Value</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 135 }}>Printing Invoice</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, width: 112 }}>Invoice</TableCell>
                   </TableRow>
                 </TableHead>

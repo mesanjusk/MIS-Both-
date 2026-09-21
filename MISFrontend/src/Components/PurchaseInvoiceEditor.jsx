@@ -149,6 +149,7 @@ export default function PurchaseInvoiceEditor({
       const res = await axios.post('/api/purchaseorder/printing-invoice', {
         sourceDriveFolderId: row.folderId,
         sourceDriveFolderName: row.folderName,
+        poUuid: row.poUuid || savedPo?.PO_uuid || '',
         Vendor_uuid: vendorId,
         orderNumber: row.orderNumber || null,
         poDate: row.date,
@@ -166,7 +167,7 @@ export default function PurchaseInvoiceEditor({
       setSavedPo(po);
       setItems(validItems);
       setExtraCharges(validCharges);
-      toast.success(row.poUuid ? 'Purchase invoice updated.' : 'Purchase invoice created.');
+      toast.success((row.poUuid || savedPo?.PO_uuid) ? 'Purchase invoice updated.' : 'Purchase invoice created.');
       onSaved?.(po, {
         vendorId,
         items: validItems,

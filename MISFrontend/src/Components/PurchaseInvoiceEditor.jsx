@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  Paper,
   Stack,
   TextField,
   Typography,

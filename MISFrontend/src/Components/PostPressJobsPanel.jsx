@@ -148,7 +148,7 @@ export default function PostPressJobsPanel({
                     />
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
-                    {job.vendor_name || 'Vendor not set'} · Job #{job.job_number || '—'}
+                    {job.payableVendorName || job.vendor_name || 'Vendor not set'} · Job #{job.job_number || '—'}
                   </Typography>
                 </Box>
 

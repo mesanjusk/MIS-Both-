@@ -14,6 +14,8 @@ import ComputerRoundedIcon from '@mui/icons-material/ComputerRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded';
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import toast from 'react-hot-toast';
 
 import axios from '../apiClient';
@@ -22,6 +24,32 @@ import {
   launchMisFileUrl,
   normalizeWindowsPath,
 } from '../utils/localFileLauncher';
+
+const WINDOWS_OPENER_URL =
+  'https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1';
+
+const INSTALL_COMMANDS = [
+  {
+    title: '1. Download the opener',
+    command:
+      'Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1" -OutFile "$HOME\\Downloads\\Install-MISLocalFileOpener.ps1"',
+  },
+  {
+    title: '2. Confirm the file exists',
+    command: 'Test-Path "$HOME\\Downloads\\Install-MISLocalFileOpener.ps1"',
+    hint: 'This should return True.',
+  },
+  {
+    title: '3. Unblock the downloaded script',
+    command: 'Unblock-File "$HOME\\Downloads\\Install-MISLocalFileOpener.ps1"',
+  },
+  {
+    title: '4. Install it',
+    command:
+      'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$HOME\\Downloads\\Install-MISLocalFileOpener.ps1"',
+    hint: 'Install this once on every Windows PC that will use the Bills file/folder buttons.',
+  },
+];
 
 const EMPTY = {
   serverLocalPath: '',
@@ -92,6 +120,35 @@ export default function NetworkFileSettings() {
     }
     const copied = await copyPathToClipboard(normalizedShare);
     toast[copied ? 'success' : 'error'](copied ? 'Network path copied.' : 'Could not copy the path.');
+  };
+
+  const copyCommand = async (command) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      toast.success('Command copied.');
+    } catch {
+      toast.error('Could not copy command.');
+    }
+  };
+
+  const downloadWindowsOpener = async () => {
+    try {
+      const response = await fetch(WINDOWS_OPENER_URL, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const scriptText = await response.text();
+      const blob = new Blob([scriptText], { type: 'text/plain;charset=utf-8' });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = 'Install-MISLocalFileOpener.ps1';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success('Windows opener downloaded to your browser downloads.');
+    } catch (err) {
+      toast.error('Automatic download failed. Use the PowerShell download command shown below.');
+    }
   };
 
   const testOpen = async () => {
@@ -198,14 +255,74 @@ export default function NetworkFileSettings() {
               </Button>
               <Button
                 variant="text"
-                component="a"
-                href="https://raw.githubusercontent.com/mesanjusk/MIS-Both-/main/tools/windows/Install-MISLocalFileOpener.ps1"
-                target="_blank"
-                rel="noopener noreferrer"
+                startIcon={<DownloadRoundedIcon />}
+                onClick={downloadWindowsOpener}
               >
-                Download Windows Opener
+                Download Windows Opener (.ps1)
               </Button>
             </Stack>
+
+            <Paper variant="outlined" sx={{ p: { xs: 1.25, md: 1.75 }, borderRadius: 2.5 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <TerminalRoundedIcon color="primary" fontSize="small" />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={900}>Windows Opener — one-time installation</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Do this once on each Windows PC that will open Bills files. Open Windows PowerShell and run these commands one by one.
+                  </Typography>
+                </Box>
+              </Stack>
+
+              <Stack spacing={1}>
+                {INSTALL_COMMANDS.map((step) => (
+                  <Box key={step.title}>
+                    <Typography variant="body2" fontWeight={800} sx={{ mb: 0.45 }}>{step.title}</Typography>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={0.75}
+                      alignItems={{ xs: 'stretch', sm: 'center' }}
+                    >
+                      <Box
+                        component="code"
+                        sx={{
+                          flex: 1,
+                          minWidth: 0,
+                          p: 1,
+                          borderRadius: 1.5,
+                          bgcolor: 'action.hover',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          fontSize: '0.76rem',
+                          overflowX: 'auto',
+                          whiteSpace: 'pre',
+                        }}
+                      >
+                        {step.command}
+                      </Box>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ContentCopyRoundedIcon />}
+                        onClick={() => copyCommand(step.command)}
+                        sx={{ flexShrink: 0 }}
+                      >
+                        Copy
+                      </Button>
+                    </Stack>
+                    {step.hint ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
+                        {step.hint}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                ))}
+              </Stack>
+
+              <Alert severity="success" sx={{ mt: 1.5 }}>
+                After installation, click <strong>Test Open Folder</strong>. Chrome/Edge may ask whether to open
+                <strong> MIS Local File Opener</strong>; choose <strong>Open</strong>. Then test a file/folder button in Bills Report.
+              </Alert>
+            </Paper>
           </Stack>
         )}
       </Paper>

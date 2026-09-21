@@ -197,7 +197,7 @@ async function scanPrintingPayableFolders({ refresh = false } = {}) {
   );
   const poByOrderVendor = new Map();
   sourcePos.forEach((po) => {
-    if (!po.Order_uuid || !po.Vendor_uuid || po.status === 'cancelled') return;
+    if (po.sourceDriveFolderId || !po.Order_uuid || !po.Vendor_uuid || po.status === 'cancelled') return;
     const key = `${po.Order_uuid}|${po.Vendor_uuid}`;
     if (!poByOrderVendor.has(key)) poByOrderVendor.set(key, []);
     poByOrderVendor.get(key).push(po);

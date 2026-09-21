@@ -99,6 +99,7 @@ const BusinessProfile = require("./routes/BusinessProfile");
 const NetworkFileSettings = require("./routes/NetworkFileSettings");
 const SanjuskApi = require("./routes/SanjuskApi");
 const PublicInvoiceRouter = require("./routes/PublicInvoice");
+const WorkflowAudit = require("./routes/WorkflowAudit");
 const SocialAccountsRouter = require("./routes/SocialAccounts");
 const SocialPostsRouter = require("./routes/SocialPosts");
 const SocialCalendarRouter = require("./routes/SocialCalendar");
@@ -227,6 +228,7 @@ app.use("/api/network-files", NetworkFileSettings);
 // — SanjuSK pushes to /webhook/metabsp, which authenticates by HMAC.
 app.use("/api/sanjusk", SanjuskApi);
 app.use("/api/public-invoices", PublicInvoiceRouter);
+app.use("/api/workflow-audit", WorkflowAudit);
 app.use("/api/workflow-templates", WorkflowTemplate);
 app.use("/api/purchaseorder", PurchaseOrder);
 app.use("/api/scheduler", Scheduler);

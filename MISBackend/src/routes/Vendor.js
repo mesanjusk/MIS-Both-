@@ -16,6 +16,7 @@ const { getAttendanceConfig, saveAttendanceConfig } = require('../services/whats
 const { getTemplates, saveTemplates } = require('../services/whatsappTemplateService');
 const { upsertVendorJob } = require('../services/vendorJobService');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
+const { validateProductionChain } = require('../services/workflowReconciliationService');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
 const {
   listSubfolders,
@@ -1036,6 +1037,35 @@ router.post('/production-jobs', async (req, res) => {
           allocationBasis: entry.allocationBasis || 'manual',
         }))
       : [];
+
+    const requestedJobCategory = req.body.job_category || 'post_printing';
+    const requestedDriveFolderId = String(req.body.driveFileId || req.body.drive_file_id || '');
+    const requestedOrderUuid = !linkedOrders.length ? String(req.body.order_uuid || '') : String(linkedOrders[0]?.orderUuid || '');
+    const requestedOrderNumber = !linkedOrders.length
+      ? (toNumber(req.body.order_number, 0) || null)
+      : (toNumber(linkedOrders[0]?.orderNumber, 0) || null);
+
+    if (requestedJobCategory === 'post_printing' && requestedDriveFolderId) {
+      const workflowAudit = await validateProductionChain({
+        orderUuid: requestedOrderUuid,
+        orderNumber: requestedOrderNumber,
+        printingFolderId: requestedDriveFolderId,
+        printingFolderName: String(req.body.sourceDriveFolderName || req.body.printingFolderName || ''),
+      });
+      if (!workflowAudit.ok) {
+        return res.status(422).json({
+          success: false,
+          code: workflowAudit.code,
+          message: 'Post Press blocked because Final, Printing and MIS order do not reconcile.',
+          audit: {
+            failed: workflowAudit.failed,
+            checks: workflowAudit.checks,
+            expectedCustomer: workflowAudit.customerName,
+            printing: workflowAudit.parsedPrinting,
+          },
+        });
+      }
+    }
 
     const { job: created } = await upsertVendorJob({
       jobCategory: req.body.job_category || 'post_printing',

@@ -49,6 +49,9 @@ import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TodayIcon from "@mui/icons-material/Today";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import EventIcon from "@mui/icons-material/Event";
 import ExportGuard from "../Components/ExportGuard";
 
 /* ----------------------- small hooks ----------------------- */
@@ -73,6 +76,15 @@ const BillCard = React.memo(function BillCard({
   formatINR,
 }) {
   const deliveryDate = formatDateDDMMYYYY(order?.highestStatusTask?.Delivery_Date);
+  const orderDate = formatDateDDMMYYYY(order?.createdAt);
+  const driveFileLink =
+    order?.driveFile?.webViewLink ||
+    (order?.driveFile?.fileId
+      ? `https://drive.google.com/open?id=${encodeURIComponent(order.driveFile.fileId)}`
+      : "");
+  const driveFolderLink = order?.driveFile?.folderId
+    ? `https://drive.google.com/drive/folders/${encodeURIComponent(order.driveFile.folderId)}`
+    : "";
 
   return (
     <Card
@@ -80,9 +92,11 @@ const BillCard = React.memo(function BillCard({
       sx={{
         borderRadius: 2,
         height: "100%",
+        minWidth: 0,
         display: "flex",
         flexDirection: "column",
         position: "relative",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
       }}
     >
       <Tooltip title={paid ? "Mark as unpaid" : "Mark bill as paid"}>
@@ -94,29 +108,30 @@ const BillCard = React.memo(function BillCard({
           }}
           sx={{
             position: "absolute",
-            top: 6,
-            right: 6,
+            top: 4,
+            right: 4,
             zIndex: 2,
+            width: 28,
+            height: 28,
             bgcolor: "background.paper",
             border: "1px solid",
             borderColor: "divider",
-            "&:hover": { bgcolor: "background.default" },
           }}
           aria-label="toggle paid"
         >
           {paid ? (
-            <DoneAllIcon fontSize="small" color="success" />
+            <DoneAllIcon sx={{ fontSize: 16 }} color="success" />
           ) : (
-            <PendingActionsIcon fontSize="small" color="warning" />
+            <PendingActionsIcon sx={{ fontSize: 16 }} color="warning" />
           )}
         </IconButton>
       </Tooltip>
 
-      <CardActionArea onClick={() => onEdit(order)} sx={{ flex: 1 }}>
-        <CardContent>
-          <Stack spacing={0.8}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+      <CardActionArea onClick={() => onEdit(order)} sx={{ flex: 1, minWidth: 0 }}>
+        <CardContent sx={{ p: 1, pr: 4, "&:last-child": { pb: 1 } }}>
+          <Stack spacing={0.55}>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900, lineHeight: 1.1 }}>
                 #{order?.Order_Number || "—"}
               </Typography>
               {statusChip(order?._displayTask || order?.highestStatusTask?.Task)}
@@ -124,38 +139,27 @@ const BillCard = React.memo(function BillCard({
 
             <Typography
               variant="body2"
-              sx={{ fontWeight: 800 }}
+              sx={{ fontWeight: 800, lineHeight: 1.2 }}
               noWrap
               title={order?.Customer_name || ""}
             >
               {order?.Customer_name || "Unknown"}
             </Typography>
 
-            <Stack direction="row" spacing={1} alignItems="center">
-              <TodayIcon fontSize="small" />
-              <Typography variant="caption" color="text.secondary">
-                {deliveryDate || "—"}
-              </Typography>
-            </Stack>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {orderDate || deliveryDate || "—"}
+            </Typography>
 
-            <Divider sx={{ my: 0.5 }} />
-
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography variant="caption" color="text.secondary">
-                Total
-              </Typography>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.5}>
               <Typography variant="body2" sx={{ fontWeight: 900 }}>
                 ₹{formatINR(order?.billTotal)}
               </Typography>
-            </Stack>
-
-            <Stack direction="row" justifyContent="flex-end">
               <Chip
                 size="small"
                 label={paid ? "Paid" : "Unpaid"}
                 color={paid ? "success" : "warning"}
                 variant={paid ? "filled" : "outlined"}
-                sx={{ borderRadius: 2, fontWeight: 800 }}
+                sx={{ height: 20, fontSize: "0.67rem", fontWeight: 800 }}
               />
             </Stack>
           </Stack>
@@ -163,26 +167,67 @@ const BillCard = React.memo(function BillCard({
       </CardActionArea>
 
       <Divider />
-
-      <Box sx={{ p: 1.25 }}>
+      <Box sx={{ p: 0.65, display: "flex", gap: 0.4, alignItems: "center" }}>
         <Button
-          fullWidth
+          size="small"
           variant="contained"
           color={paid ? "success" : "warning"}
-          startIcon={<ReceiptLongIcon />}
+          startIcon={<ReceiptLongIcon sx={{ fontSize: 15 }} />}
           onClick={(e) => {
             e.stopPropagation();
             onOpenInvoice(order);
           }}
-          sx={{ borderRadius: 2, textTransform: "none", fontWeight: 900 }}
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            px: 0.8,
+            py: 0.35,
+            borderRadius: 1.5,
+            textTransform: "none",
+            fontSize: "0.72rem",
+            fontWeight: 900,
+          }}
         >
           Bill
         </Button>
+
+        {driveFileLink && (
+          <Tooltip title={order?.driveFile?.name ? `Open ${order.driveFile.name} in Google Drive` : "Open linked file in Google Drive"}>
+            <IconButton
+              size="small"
+              component="a"
+              href={driveFileLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
+              aria-label="open linked Google Drive file"
+            >
+              <InsertDriveFileIcon sx={{ fontSize: 17 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+
+        {driveFolderLink && (
+          <Tooltip title="Open containing Google Drive folder">
+            <IconButton
+              size="small"
+              component="a"
+              href={driveFolderLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              sx={{ width: 30, height: 30, border: "1px solid", borderColor: "divider" }}
+              aria-label="open Google Drive folder"
+            >
+              <FolderOpenIcon sx={{ fontSize: 17 }} />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
     </Card>
   );
 });
-
 export default function AllBills() {
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState({});
@@ -193,6 +238,8 @@ export default function AllBills() {
 
   const [taskFilter, setTaskFilter] = useState("");
   const [paidFilter, setPaidFilter] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [dateSummary, setDateSummary] = useState([]);
 
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
@@ -229,6 +276,22 @@ export default function AllBills() {
     const mm = String(date.getMonth() + 1).padStart(2, "0");
     const yyyy = date.getFullYear();
     return `${dd}-${mm}-${yyyy}`;
+  };
+
+  const toIndiaISODate = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "";
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(date);
+    } catch {
+      return date.toISOString().slice(0, 10);
+    }
   };
 
   const formatINR = (value) => {
@@ -454,12 +517,15 @@ export default function AllBills() {
           search: debouncedSearch,
           task: taskFilter,
           paid: paidFilter,
+          date: selectedDate,
         });
 
         const rows = res?.data?.success ? res.data.result ?? [] : [];
         const t = Number(res?.data?.total ?? 0);
+        const dates = Array.isArray(res?.data?.dates) ? res.data.dates : [];
 
         setTotal(t);
+        setDateSummary(dates);
         setPage(nextPage);
 
         setOrders((prev) => {
@@ -498,7 +564,7 @@ export default function AllBills() {
         setLoading(false);
       }
     },
-    [PAGE_SIZE, debouncedSearch, taskFilter, paidFilter, getOrderKey]
+    [PAGE_SIZE, debouncedSearch, taskFilter, paidFilter, selectedDate, getOrderKey]
   );
 
   // initial load
@@ -511,7 +577,7 @@ export default function AllBills() {
   useEffect(() => {
     loadBillsPage(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, taskFilter, paidFilter]);
+  }, [debouncedSearch, taskFilter, paidFilter, selectedDate]);
 
   /* ----------------------- derived lists ----------------------- */
   const normalizedOrders = useMemo(() => {
@@ -542,6 +608,7 @@ export default function AllBills() {
         _displayTask: displayTask,
         _taskLower: taskLower,
         _paid: paid,
+        _orderDate: toIndiaISODate(order?.createdAt),
       };
     });
   }, [orders, customers, hasBillableAmount, isPaid]);
@@ -561,10 +628,11 @@ export default function AllBills() {
 
       if (fPaid === "paid" && !o._paid) return false;
       if (fPaid === "unpaid" && o._paid) return false;
+      if (selectedDate && o._orderDate !== selectedDate) return false;
 
       return true;
     });
-  }, [normalizedOrders, debouncedSearch, taskFilter, paidFilter]);
+  }, [normalizedOrders, debouncedSearch, taskFilter, paidFilter, selectedDate]);
 
   const totals = useMemo(() => {
     const count = filteredOrders.length;
@@ -700,170 +768,256 @@ export default function AllBills() {
 
   return (
     <>
-      <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-        <AppBar position="sticky" elevation={0}>
-          <Toolbar>
-            <ReceiptLongIcon sx={{ mr: 1 }} />
-            <Typography variant="h6" sx={{ flex: 1 }}>
-              Bills Report
-            </Typography>
-
-            <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              {showingText ? `${showingText} • ` : ""}
-              Loaded: {orders.length} • ₹{formatINR(totals.sum)}
-            </Typography>
-          </Toolbar>
-          {loading && <LinearProgress />}
-        </AppBar>
-
-        <Container maxWidth={false} sx={{ maxWidth: 2200, py: 2 }}>
-          {/* Filters + Exports */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: 2, mb: 2 }}>
-            <Stack
-              direction={{ xs: "column", md: "row" }}
-              spacing={1.5}
-              alignItems={{ xs: "stretch", md: "center" }}
+      <Box sx={{ display: "flex", minHeight: "80vh", gap: 1.5, p: { xs: 0.5, md: 1 } }}>
+        {/* Delivery-style date sidebar */}
+        <Paper
+          variant="outlined"
+          sx={{
+            width: 188,
+            flexShrink: 0,
+            borderRadius: 2.5,
+            display: { xs: "none", md: "flex" },
+            flexDirection: "column",
+            overflow: "hidden",
+            height: "calc(100vh - 94px)",
+            position: "sticky",
+            top: 8,
+          }}
+        >
+          <Box sx={{ p: 1.25, pb: 1 }}>
+            <Typography variant="subtitle2" fontWeight={800}>Bills</Typography>
+            <TextField
+              type="date"
+              size="small"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              sx={{ mt: 1, width: "100%", "& input": { fontSize: 12, py: 0.65 } }}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+          <Divider />
+          <Box sx={{ overflowY: "auto", flex: 1 }}>
+            <Box
+              onClick={() => setSelectedDate("")}
+              sx={{
+                px: 1.5,
+                py: 1,
+                cursor: "pointer",
+                bgcolor: !selectedDate ? "primary.main" : "transparent",
+                color: !selectedDate ? "primary.contrastText" : "text.primary",
+                "&:hover": { bgcolor: !selectedDate ? "primary.dark" : "action.hover" },
+              }}
             >
-              <TextField
-                value={searchOrder}
-                onChange={(e) => setSearchOrder(e.target.value)}
-                placeholder="Search by customer name"
-                fullWidth
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              <FormControl sx={{ minWidth: { xs: "100%", md: 220 } }}>
-                <InputLabel id="task-filter-label">Filter by task</InputLabel>
-                <Select
-                  labelId="task-filter-label"
-                  value={taskFilter}
-                  label="Filter by task"
-                  onChange={(e) => setTaskFilter(e.target.value)}
+              <Typography variant="body2" fontWeight={800}>All Dates</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.78 }}>
+                {dateSummary.reduce((sum, row) => sum + Number(row?.count || 0), 0)} bills
+              </Typography>
+            </Box>
+            <Divider />
+            {dateSummary.map((row) => (
+              <Box key={row.date}>
+                <Box
+                  onClick={() => setSelectedDate(row.date)}
+                  sx={{
+                    px: 1.5,
+                    py: 0.9,
+                    cursor: "pointer",
+                    bgcolor: selectedDate === row.date ? "primary.main" : "transparent",
+                    color: selectedDate === row.date ? "primary.contrastText" : "text.primary",
+                    "&:hover": { bgcolor: selectedDate === row.date ? "primary.dark" : "action.hover" },
+                  }}
                 >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="delivered">Delivered</MenuItem>
-                  <MenuItem value="design">Design</MenuItem>
-                  <MenuItem value="print">Print</MenuItem>
-                </Select>
-              </FormControl>
-
-              <FormControl sx={{ minWidth: { xs: "100%", md: 220 } }}>
-                <InputLabel id="paid-filter-label">Payment</InputLabel>
-                <Select
-                  labelId="paid-filter-label"
-                  value={paidFilter}
-                  label="Payment"
-                  onChange={(e) => setPaidFilter(e.target.value)}
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="paid">Paid</MenuItem>
-                  <MenuItem value="unpaid">Unpaid</MenuItem>
-                </Select>
-              </FormControl>
-
-              <ExportGuard>
-                <Stack direction="row" spacing={1} justifyContent="flex-end">
-                  <Tooltip title="Export as PDF (loaded rows only)">
-                    <Button
-                      variant="contained"
-                      color="error"
-                      startIcon={<PictureAsPdfIcon />}
-                      onClick={exportPDF}
-                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                    >
-                      PDF
-                    </Button>
-                  </Tooltip>
-
-                  <Tooltip title="Export as Excel (loaded rows only)">
-                    <Button
-                      variant="contained"
-                      startIcon={<GridOnIcon />}
-                      onClick={exportExcel}
-                      sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
-                    >
-                      Excel
-                    </Button>
-                  </Tooltip>
-                </Stack>
-              </ExportGuard>
-            </Stack>
-          </Paper>
-
-          {/* Content */}
-          <Paper variant="outlined" sx={{ borderRadius: 3, p: { xs: 1.5, sm: 2 } }}>
-            {loading && orders.length === 0 ? (
-              <Grid container spacing={1.5}>
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <Grid key={i} item xs={12} sm={6} md={4} lg={3} xl={2}>
-                    <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                      <CardContent>
-                        <Skeleton width="55%" />
-                        <Skeleton width="85%" />
-                        <Skeleton width="45%" />
-                        <Skeleton width="35%" />
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-                <Box sx={{ width: "100%", display: "flex", justifyContent: "center", py: 2 }}>
-                  <LoadingSpinner size={40} />
+                  <Typography variant="body2" fontWeight={700}>
+                    {formatDateDDMMYYYY(`${row.date}T00:00:00`)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.78 }}>
+                    {row.count} bill{Number(row.count) === 1 ? "" : "s"}
+                  </Typography>
                 </Box>
-              </Grid>
+                <Divider />
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Stack
+            direction={{ xs: "column", lg: "row" }}
+            spacing={0.8}
+            alignItems={{ xs: "stretch", lg: "center" }}
+            sx={{ mb: 1 }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="h5" fontWeight={900} noWrap>
+                Bills
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {selectedDate ? formatDateDDMMYYYY(`${selectedDate}T00:00:00`) : "All Dates"}
+                {" · "}
+                {total || filteredOrders.length} bill{(total || filteredOrders.length) === 1 ? "" : "s"}
+              </Typography>
+            </Box>
+
+            <TextField
+              size="small"
+              value={searchOrder}
+              onChange={(e) => setSearchOrder(e.target.value)}
+              placeholder="Search customer"
+              sx={{ width: { xs: "100%", lg: 185 } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <TextField
+              type="date"
+              size="small"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EventIcon sx={{ fontSize: 17 }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{ display: { xs: "block", md: "none" }, width: "100%" }}
+            />
+
+            <FormControl size="small" sx={{ width: { xs: "100%", lg: 125 } }}>
+              <InputLabel id="task-filter-label">Status</InputLabel>
+              <Select
+                labelId="task-filter-label"
+                value={taskFilter}
+                label="Status"
+                onChange={(e) => setTaskFilter(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="delivered">Delivered</MenuItem>
+                <MenuItem value="design">Design</MenuItem>
+                <MenuItem value="print">Print</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ width: { xs: "100%", lg: 120 } }}>
+              <InputLabel id="paid-filter-label">Payment</InputLabel>
+              <Select
+                labelId="paid-filter-label"
+                value={paidFilter}
+                label="Payment"
+                onChange={(e) => setPaidFilter(e.target.value)}
+              >
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="paid">Paid</MenuItem>
+                <MenuItem value="unpaid">Unpaid</MenuItem>
+              </Select>
+            </FormControl>
+
+            <ExportGuard>
+              <Stack direction="row" spacing={0.6}>
+                <Tooltip title="Export loaded bills as PDF">
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="error"
+                    startIcon={<PictureAsPdfIcon />}
+                    onClick={exportPDF}
+                    sx={{ borderRadius: 1.5, textTransform: "none", fontWeight: 800 }}
+                  >
+                    PDF
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Export loaded bills as Excel">
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<GridOnIcon />}
+                    onClick={exportExcel}
+                    sx={{ borderRadius: 1.5, textTransform: "none", fontWeight: 800 }}
+                  >
+                    Excel
+                  </Button>
+                </Tooltip>
+              </Stack>
+            </ExportGuard>
+          </Stack>
+
+          {loading && <LinearProgress sx={{ mb: 1, borderRadius: 1 }} />}
+
+          <Stack direction="row" spacing={0.75} sx={{ mb: 1, overflowX: "auto", pb: 0.25 }}>
+            {[
+              { label: "Showing", value: total > 0 ? `${Math.min(orders.length, total)}/${total}` : filteredOrders.length },
+              { label: "Loaded Value", value: `₹${formatINR(totals.sum)}` },
+              { label: "Paid", value: filteredOrders.filter((o) => o._paid).length },
+              { label: "Unpaid", value: filteredOrders.filter((o) => !o._paid).length },
+            ].map((item) => (
+              <Card key={item.label} variant="outlined" sx={{ minWidth: 118, borderRadius: 2 }}>
+                <CardContent sx={{ px: 1.1, py: 0.7, "&:last-child": { pb: 0.7 } }}>
+                  <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                  <Typography variant="subtitle1" fontWeight={900} lineHeight={1.15}>{item.value}</Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+
+          <Paper variant="outlined" sx={{ borderRadius: 2.5, p: 0.9 }}>
+            {loading && orders.length === 0 ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
+                <LoadingSpinner size={40} />
+              </Box>
             ) : filteredOrders.length === 0 ? (
-              <Typography color="text.secondary" sx={{ py: 4, textAlign: "center", width: "100%" }}>
-                No billed orders found.
+              <Typography color="text.secondary" sx={{ py: 5, textAlign: "center" }}>
+                No billed orders found for this filter.
               </Typography>
             ) : (
               <>
-                <Grid container spacing={1.5}>
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: {
+                      xs: "1fr",
+                      sm: "repeat(auto-fill, minmax(175px, 1fr))",
+                    },
+                    gap: 0.8,
+                  }}
+                >
                   {filteredOrders.map((order) => {
-                    const key = getOrderKey(order) || `o-${order?.Order_Number || Math.random()}`;
-                    const paid = Boolean(order?._paid);
-
+                    const key = getOrderKey(order) || `o-${order?.Order_Number || "unknown"}`;
                     return (
-                      <Grid key={key} item xs={12} sm={6} md={4} lg={3} xl={2}>
-                        <BillCard
-                          order={order}
-                          paid={paid}
-                          onTogglePaid={togglePaid}
-                          onEdit={handleEditClick}
-                          onOpenInvoice={openInvoice}
-                          statusChip={statusChip}
-                          formatDateDDMMYYYY={formatDateDDMMYYYY}
-                          formatINR={formatINR}
-                        />
-                      </Grid>
+                      <BillCard
+                        key={key}
+                        order={order}
+                        paid={Boolean(order?._paid)}
+                        onTogglePaid={togglePaid}
+                        onEdit={handleEditClick}
+                        onOpenInvoice={openInvoice}
+                        statusChip={statusChip}
+                        formatDateDDMMYYYY={formatDateDDMMYYYY}
+                        formatINR={formatINR}
+                      />
                     );
                   })}
-                </Grid>
+                </Box>
 
-                <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "center", mt: 1.25 }}>
                   <Button
+                    size="small"
                     variant="outlined"
                     disabled={!hasMore || loading}
                     onClick={() => loadBillsPage(page + 1, false)}
-                    sx={{ borderRadius: 2, textTransform: "none", fontWeight: 900 }}
+                    sx={{ borderRadius: 1.5, textTransform: "none", fontWeight: 900 }}
                   >
                     {hasMore ? `Load more (+${PAGE_SIZE})` : "No more bills"}
                   </Button>
                 </Box>
-
-                {loading && orders.length > 0 && (
-                  <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
-                    <LoadingSpinner size={34} />
-                  </Box>
-                )}
               </>
             )}
           </Paper>
-        </Container>
+        </Box>
       </Box>
 
       {/* ✅ UpdateDelivery Modal */}

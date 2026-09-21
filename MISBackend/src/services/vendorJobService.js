@@ -115,6 +115,7 @@ async function upsertVendorJob(input = {}) {
     vendorUuid, vendorName,
     workType, jobType,
     jobMode,
+    payableAccount,
     qty = 0, amount, advanceAmount, materialValue,
     otherCharges,
     inputItem, outputItem, inputItems, outputItems,
@@ -226,6 +227,7 @@ async function upsertVendorJob(input = {}) {
       description: notes || `${workType || resolvedJobType} vendor job`,
       transactionDate: dueDate || job.job_date || new Date(),
       sourceSuffix: ledgerKey,
+      ...(payableAccount ? { payableAccount } : {}),
     });
 
     const transactionUuid = accountingPosting?.transaction?.Transaction_uuid || "";

@@ -4,6 +4,7 @@ const {
   normHeader,
   parseSbiCsv,
   chooseBankLedgerDoc,
+  scoreBankLedgerName,
   transactionMatchesBankEntry,
 } = require('../../src/routes/BankStatement');
 
@@ -104,6 +105,24 @@ describe('BankStatement.parseSbiCsv', () => {
   });
 });
 
+
+describe('BankStatement bank ledger name matching', () => {
+  test('matches a statement holder name to a ledger with UPI prefix', () => {
+    expect(scoreBankLedgerName('SANJU SK', 'UPI Sanju Sk')).toBeGreaterThanOrEqual(70);
+  });
+
+  test('does not confuse unrelated bank ledgers', () => {
+    expect(scoreBankLedgerName('SANJU SK', 'HDFC Card')).toBeLessThan(70);
+  });
+
+  test('prefers UPI Sanju Sk over another bank ledger for SANJU SK', () => {
+    const docs = [
+      { Customer_uuid: 'hdfc', Customer_name: 'HDFC Card' },
+      { Customer_uuid: 'upi', Customer_name: 'UPI Sanju Sk' },
+    ];
+    expect(chooseBankLedgerDoc('SANJU SK', docs, { allowFallback: false })).toEqual(docs[1]);
+  });
+});
 
 describe('BankStatement bank-ledger reconciliation helpers', () => {
   test('chooses the configured non-cash bank ledger and ignores cash ledgers', () => {

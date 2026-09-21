@@ -274,6 +274,8 @@ export default function BankReconciliation() {
   const [error, setError]             = useState('');
   const [successMsg, setSuccessMsg]   = useState('');
   const [ledgerAccounts, setLedgerAccounts] = useState([]);
+  const [bankLedgerOptions, setBankLedgerOptions] = useState([]);
+  const [bankLedgerSaving, setBankLedgerSaving] = useState(false);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -321,12 +323,19 @@ export default function BankReconciliation() {
   useEffect(() => { if (selectedUuid) loadStmt(selectedUuid); }, [selectedUuid, loadStmt]);
 
   useEffect(() => {
-    axios.get('/api/customers/GetCustomersList')
-      .then((res) => {
-        const all = Array.isArray(res.data?.result) ? res.data.result : [];
+    Promise.all([
+      axios.get('/api/customers/GetCustomersList'),
+      axios.get('/api/bank-statement/ledger-accounts'),
+    ])
+      .then(([customerRes, bankRes]) => {
+        const all = Array.isArray(customerRes.data?.result) ? customerRes.data.result : [];
         setLedgerAccounts(all.map((row) => row.Customer_name).filter(Boolean).sort());
+        setBankLedgerOptions(Array.isArray(bankRes.data?.result) ? bankRes.data.result : []);
       })
-      .catch(() => setLedgerAccounts([]));
+      .catch(() => {
+        setLedgerAccounts([]);
+        setBankLedgerOptions([]);
+      });
   }, []);
 
   const handleFileChange = (e) => {
@@ -419,6 +428,31 @@ export default function BankReconciliation() {
       setError(err?.response?.data?.message || 'Could not confirm bank entry.');
     }
   }, [stmt, loggedInUser]);
+
+  const handleBankLedgerChange = useCallback(async (option) => {
+    if (!stmt || !option?.uuid) return;
+    setBankLedgerSaving(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.put(
+        `/api/bank-statement/${stmt.statement_uuid}/ledger-account`,
+        { ledger_account_uuid: option.uuid },
+      );
+      setStmt(res.data?.result || stmt);
+      const stats = res.data?.sync || {};
+      const repaired = Number(stats.reposted || 0) + Number(stats.created || 0);
+      const linked = Number(stats.linked || 0);
+      setSuccessMsg(
+        `${res.data?.message || 'Bank ledger updated.'} ` +
+        `(${repaired} posted/repaired, ${linked} linked to existing ledger transactions)`
+      );
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not set the bank ledger.');
+    } finally {
+      setBankLedgerSaving(false);
+    }
+  }, [stmt]);
 
   const handleReject = useCallback(async (entryUuid, reject) => {
     if (!stmt) return;
@@ -595,6 +629,37 @@ export default function BankReconciliation() {
                   <Typography variant="body2" color="text.secondary">
                     {fmtDate(stmt.period_start)} – {fmtDate(stmt.period_end)}
                   </Typography>
+                </Box>
+                <Divider orientation="vertical" flexItem />
+                <Box sx={{ minWidth: 230 }}>
+                  <Typography variant="caption" color="text.secondary">Statement posts to bank ledger</Typography>
+                  <Autocomplete
+                    size="small"
+                    options={bankLedgerOptions}
+                    getOptionLabel={(option) => option?.name || ''}
+                    value={
+                      bankLedgerOptions.find(
+                        (option) => String(option.uuid) === String(stmt.ledger_account_uuid || '')
+                      ) || null
+                    }
+                    onChange={(_, option) => {
+                      if (option) handleBankLedgerChange(option);
+                    }}
+                    loading={bankLedgerSaving}
+                    disableClearable
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        placeholder={stmt.ledger_account_name || 'Select bank ledger'}
+                        helperText={
+                          stmt.ledger_account_locked
+                            ? 'Locked to this MIS ledger'
+                            : 'Auto-detected — choose here if it is wrong'
+                        }
+                      />
+                    )}
+                    sx={{ mt: 0.5 }}
+                  />
                 </Box>
                 <Divider orientation="vertical" flexItem />
                 <Stack direction="row" spacing={2} flexWrap="wrap">

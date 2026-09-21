@@ -19,20 +19,20 @@ const DEFAULT_PROFILE = {
   upiName: "",
 };
 
-function buildWhatsAppText({ store, addressLines, phone, orderNumber, dateStr, partyName, items, extraCharges, grandTotal, shareUrl, upiId }) {
+function buildWhatsAppText({ store, addressLines, phone, orderNumber, dateStr, partyName, items, extraCharges, grandTotal, shareUrl, upiId, documentTitle = "INVOICE", partyLabel = "Bill To" }) {
   const itemsTotal = items.reduce((s, i) => s + (Number(i.Amount) || 0), 0);
   const extrasTotal = extraCharges.reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const fmt = (n) => Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 });
 
   const lines = [
-    `🧾 *INVOICE #${orderNumber || "—"}*`,
+    `🧾 *${documentTitle} #${orderNumber || "—"}*`,
     `📅 Date: ${dateStr}`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
     `🏪 *${store}*`,
     addressLines.filter(Boolean).length ? `📍 ${addressLines.filter(Boolean).join(", ")}` : "",
     phone ? `📞 ${phone}` : "",
     `━━━━━━━━━━━━━━━━━━━━━━`,
-    `👤 *Bill To:* ${partyName}`,
+    `👤 *${partyLabel}:* ${partyName}`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
     `📦 *Items:*`,
     ...items.map((i) => `  • ${i.Item}${i.Remark ? ` (${i.Remark})` : ""} × ${i.Quantity} @ ₹${fmt(i.Rate)} = *₹${fmt(i.Amount)}*`),
@@ -59,6 +59,10 @@ export default function InvoiceModal({
   customerMobile = "",
   onWhatsApp,
   onReady,
+  documentTitle = "INVOICE",
+  partyLabel = "Bill To",
+  numberLabel = "Invoice No",
+  hidePaymentSection = false,
   // Re-issuing an existing invoice keeps its original date; a new one is dated today.
   dateStr: dateStrProp = "",
 }) {
@@ -234,6 +238,8 @@ export default function InvoiceModal({
       grandTotal,
       shareUrl: link,
       upiId: profile.upiId,
+      documentTitle,
+      partyLabel,
     });
     const number = String(customerMobile || "").replace(/\D/g, "");
     window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`, "_blank");
@@ -257,7 +263,7 @@ export default function InvoiceModal({
       <div className="bg-white w-full max-w-md rounded-xl shadow-2xl relative overflow-y-auto" style={{ maxHeight: "95vh" }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b bg-red-700 rounded-t-xl">
-          <span className="text-white font-bold text-base">Invoice #{orderNumber}</span>
+          <span className="text-white font-bold text-base">{documentTitle} #{orderNumber}</span>
           <button onClick={onClose} className="text-white hover:text-red-200 text-xl font-bold leading-none">✕</button>
         </div>
 
@@ -277,6 +283,10 @@ export default function InvoiceModal({
             partyName={partyName}
             items={normalizedItems}
             extraCharges={extraCharges}
+            documentTitle={documentTitle}
+            partyLabel={partyLabel}
+            numberLabel={numberLabel}
+            hidePaymentSection={hidePaymentSection}
           />
         </div>
 
@@ -297,13 +307,15 @@ export default function InvoiceModal({
         {/* Action buttons — kept in view so download / share are never scrolled off */}
         <div className="sticky bottom-0 px-4 pb-4 pt-2 grid grid-cols-2 gap-2 bg-white border-t">
           {/* Row 1 */}
-          <button
-            onClick={handleWhatsAppPDF}
-            disabled={uploading}
-            className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-white ${uploading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
-          >
-            📎 WhatsApp PDF
-          </button>
+          {!hidePaymentSection && (
+            <button
+              onClick={handleWhatsAppPDF}
+              disabled={uploading}
+              className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-semibold text-white ${uploading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"}`}
+            >
+              📎 WhatsApp PDF
+            </button>
+          )}
 
           <button
             onClick={handleShareLink}

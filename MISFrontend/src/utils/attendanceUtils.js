@@ -13,8 +13,11 @@ export const fetchUserNames = async () => {
     const map = {};
     data.result.forEach((u) => {
       map[(u.User_uuid || "").trim()] = {
+        uuid: (u.User_uuid || "").trim(),
         name: (u.User_name || "").trim(),
         group: (u.User_group || "").trim(),
+        amount: Number(u.Amount || 0),
+        accountId: String(u.AccountID || "").trim(),
       };
     });
 
@@ -104,7 +107,11 @@ export const processAttendanceDataRange = (
       grouped.set(key, {
         DateISO: dateISO,
         Date: formatDateDMY(dateISO),
+        User_uuid: user.uuid || (Employee_uuid || "").trim(),
         User_name: name,
+        User_group: user.group || "",
+        Amount: Number(user.amount || 0),
+        AccountID: user.accountId || "",
         In: "N/A",
         Break: "N/A",
         Start: "N/A",

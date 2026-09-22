@@ -32,7 +32,7 @@ const AllTransaction1 = () => {
   const isAdmin = role === 'admin';
 
   const groupOf = (cust) =>
-    cust?.Account_group || cust?.Group || cust?.group || 'Others';
+    cust?.Customer_group || cust?.Account_group || cust?.Group || cust?.group || 'Others';
 
   useEffect(() => {
     const fetchData = async () => {

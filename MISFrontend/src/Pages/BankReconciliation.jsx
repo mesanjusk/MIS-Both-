@@ -64,8 +64,8 @@ function MatchChip({ status, score }) {
   if (status === 'manual') return (
     <Chip
       icon={<LinkRoundedIcon sx={{ fontSize: '14px !important' }} />}
-      label="Manual"
-      size="small" color="primary" variant="filled"
+      label="Reconciled"
+      size="small" color="success" variant="filled"
     />
   );
   return <Chip label="Unmatched" size="small" color="warning" variant="outlined" />;
@@ -276,6 +276,7 @@ export default function BankReconciliation() {
   const [ledgerAccounts, setLedgerAccounts] = useState([]);
   const [bankLedgerOptions, setBankLedgerOptions] = useState([]);
   const [bankLedgerSaving, setBankLedgerSaving] = useState(false);
+  const [ledgerSyncing, setLedgerSyncing] = useState(false);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -429,6 +430,31 @@ export default function BankReconciliation() {
     }
   }, [stmt, loggedInUser]);
 
+  const handleSyncLedger = useCallback(async () => {
+    if (!stmt) return;
+    setLedgerSyncing(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      const res = await axios.post(
+        `/api/bank-statement/${stmt.statement_uuid}/sync-ledger`,
+        { synced_by: loggedInUser },
+      );
+      setStmt(res.data?.result || stmt);
+      const stats = res.data?.sync || {};
+      setSuccessMsg(
+        `Ledger verification complete: ${Number(stats.verified || 0)} verified, ` +
+        `${Number(stats.linked || 0)} linked, ` +
+        `${Number(stats.created || 0) + Number(stats.reposted || 0)} repaired/posted, ` +
+        `${Number(stats.ambiguous || 0)} need review.`
+      );
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not verify bank entries against the ledger.');
+    } finally {
+      setLedgerSyncing(false);
+    }
+  }, [stmt, loggedInUser]);
+
   const handleBankLedgerChange = useCallback(async (option) => {
     if (!stmt || !option?.uuid) return;
     setBankLedgerSaving(true);
@@ -470,11 +496,26 @@ export default function BankReconciliation() {
   }, [stmt]);
 
   // Derived
-  const entries    = stmt?.entries || [];
-  const matched    = entries.filter((e) => e.match_status === 'matched' || e.match_status === 'manual');
-  const unmatched  = entries.filter((e) => e.match_status === 'unmatched');
-  const totalIn    = entries.filter((e) => e.direction === 'in').reduce((s, e) => s + e.credit, 0);
-  const totalOut   = entries.filter((e) => e.direction === 'out').reduce((s, e) => s + e.debit, 0);
+  const entries = stmt?.entries || [];
+  // "Unmatched" must mean action is still required. Confirmed rows with a real
+  // ledger transaction are reconciled even when no Diary row existed.
+  const reconciled = entries.filter(
+    (e) => e.entry_status === 'confirmed' && Boolean(e.transaction_uuid)
+  );
+  const matchedPending = entries.filter(
+    (e) =>
+      e.entry_status === 'pending' &&
+      (e.match_status === 'matched' || e.match_status === 'manual')
+  );
+  const matched = [...reconciled, ...matchedPending.filter(
+    (e) => !reconciled.some((r) => r.entry_uuid === e.entry_uuid)
+  )];
+  const unmatched = entries.filter(
+    (e) => e.entry_status === 'pending' && e.match_status === 'unmatched'
+  );
+  const skipped = entries.filter((e) => e.entry_status === 'rejected');
+  const totalIn = entries.filter((e) => e.direction === 'in').reduce((s, e) => s + e.credit, 0);
+  const totalOut = entries.filter((e) => e.direction === 'out').reduce((s, e) => s + e.debit, 0);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
@@ -660,6 +701,16 @@ export default function BankReconciliation() {
                     )}
                     sx={{ mt: 0.5 }}
                   />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={ledgerSyncing ? <CircularProgress size={14} /> : <RefreshRoundedIcon />}
+                    onClick={handleSyncLedger}
+                    disabled={ledgerSyncing}
+                    sx={{ mt: 1, textTransform: 'none' }}
+                  >
+                    {ledgerSyncing ? 'Verifying…' : 'Verify & Repair Ledger'}
+                  </Button>
                 </Box>
                 <Divider orientation="vertical" flexItem />
                 <Stack direction="row" spacing={2} flexWrap="wrap">
@@ -676,12 +727,16 @@ export default function BankReconciliation() {
                     <Typography variant="body1" fontWeight={700}>{entries.length}</Typography>
                   </Box>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Matched</Typography>
-                    <Typography variant="body1" fontWeight={700} color="success.main">{matched.length}</Typography>
+                    <Typography variant="caption" color="text.secondary">Reconciled</Typography>
+                    <Typography variant="body1" fontWeight={700} color="success.main">{reconciled.length}</Typography>
                   </Box>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Unmatched</Typography>
+                    <Typography variant="caption" color="text.secondary">Needs Action</Typography>
                     <Typography variant="body1" fontWeight={700} color="warning.main">{unmatched.length}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Skipped</Typography>
+                    <Typography variant="body1" fontWeight={700} color="text.secondary">{skipped.length}</Typography>
                   </Box>
                 </Stack>
               </Stack>
@@ -689,8 +744,8 @@ export default function BankReconciliation() {
 
             {unmatched.length > 0 && (
               <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
-                <strong>{unmatched.length} unmatched entries</strong> — assign the correct account below and click <strong>Post</strong>,
-                or skip the row if it should not be posted. Auto-matched rows can be linked to the existing Diary transaction.
+                <strong>{unmatched.length} entries still need action</strong> — assign the correct account and click <strong>Post</strong>,
+                or skip the row if it should not be posted. Confirmed rows are not counted here once a valid ledger transaction exists.
               </Alert>
             )}
 
@@ -698,7 +753,7 @@ export default function BankReconciliation() {
             {matched.length > 0 && (
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" fontWeight={700} color="success.dark" sx={{ mb: 1 }}>
-                  ✓ Matched ({matched.length})
+                  ✓ Reconciled / Matched ({matched.length})
                 </Typography>
                 <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
                   <Table size="small">
@@ -735,7 +790,7 @@ export default function BankReconciliation() {
             {unmatched.length > 0 && (
               <Box>
                 <Typography variant="subtitle2" fontWeight={700} color="warning.dark" sx={{ mb: 1 }}>
-                  ⚠ Unmatched ({unmatched.length}) — No diary entry found
+                  ⚠ Needs Action ({unmatched.length}) — not yet reconciled
                 </Typography>
                 <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, borderColor: 'warning.main' }}>
                   <Table size="small">
@@ -752,6 +807,42 @@ export default function BankReconciliation() {
                     </TableHead>
                     <TableBody>
                       {unmatched.map((e) => (
+                        <StmtRow
+                          key={e.entry_uuid}
+                          entry={e}
+                          onUnmatch={null}
+                          onAssign={handleAssign}
+                          onConfirm={handleConfirm}
+                          onReject={handleReject}
+                          ledgerAccounts={ledgerAccounts}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            )}
+
+            {skipped.length > 0 && (
+              <Box sx={{ mt: 3 }}>
+                <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ mb: 1 }}>
+                  Skipped ({skipped.length})
+                </Typography>
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Description</TableCell>
+                        <TableCell align="center">Dir</TableCell>
+                        <TableCell align="right">Amount</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Account</TableCell>
+                        <TableCell align="center">Action</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {skipped.map((e) => (
                         <StmtRow
                           key={e.entry_uuid}
                           entry={e}

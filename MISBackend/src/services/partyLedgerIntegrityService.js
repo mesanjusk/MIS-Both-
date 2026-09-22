@@ -87,8 +87,20 @@ async function repairShadowPartyJournalLines() {
 
     if (!changed) continue;
 
-    transaction.Journal_entry = nextJournal;
-    await transaction.save();
+    // Use a conditional atomic update instead of document.save(). During a
+    // zero-downtime deploy, another worker/user can touch the same transaction.
+    // The shadow-id predicate makes this idempotent: once another process has
+    // repaired the row, this update matches nothing and we do not reverse the
+    // old cached balance a second time.
+    const updateResult = await Transaction.updateOne(
+      {
+        _id: transaction._id,
+        'Journal_entry.Account_id': { $in: shadowIds },
+      },
+      { $set: { Journal_entry: nextJournal } }
+    );
+
+    if (!updateResult.modifiedCount) continue;
 
     // Remove the cached movement from the obsolete shadow Accounts row.
     // Customer ledgers are derived from Transaction journal lines, so the new

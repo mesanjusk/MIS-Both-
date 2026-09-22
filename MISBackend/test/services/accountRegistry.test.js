@@ -1,10 +1,12 @@
 require('../helpers/mongoSetup');
 const { v4: uuid } = require('uuid');
 const Accounts = require('../../src/repositories/accounts');
+const Customer = require('../../src/repositories/customer');
 const {
   getUuid,
   getName,
   resolve,
+  resolveLedgerEntity,
   isUuid,
   invalidateCache,
   updateBalance,
@@ -75,6 +77,30 @@ describe('accountRegistry.getName / resolve', () => {
   test('getName() falls back to the uuid itself when nothing matches', async () => {
     const unknownUuid = uuid();
     expect(await getName(unknownUuid)).toBe(unknownUuid);
+  });
+});
+
+describe('accountRegistry.resolveLedgerEntity', () => {
+  test('prefers the real customer ledger for an assigned party name', async () => {
+    const customerUuid = uuid();
+    await Customer.create({
+      Customer_uuid: customerUuid,
+      Customer_name: 'SK Priyanka',
+      Customer_group: 'Customer',
+    });
+
+    const resolved = await resolveLedgerEntity('SK Priyanka', { preferCustomer: true });
+
+    expect(resolved.uuid).toBe(customerUuid);
+    expect(resolved.name).toBe('SK Priyanka');
+    expect(resolved.kind).toBe('customer');
+    expect(await Accounts.countDocuments({ Account_name: 'SK Priyanka' })).toBe(0);
+  });
+
+  test('falls back to a normal chart account when no customer has that name', async () => {
+    const resolved = await resolveLedgerEntity('Courier Charges', { preferCustomer: true });
+    expect(resolved.kind).toBe('account');
+    expect(await Accounts.findOne({ Account_uuid: resolved.uuid }).lean()).toBeTruthy();
   });
 });
 

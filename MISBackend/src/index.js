@@ -112,6 +112,7 @@ const { initSocialPublishingScheduler } = require("./services/social/socialPubli
 const { repairShadowPartyJournalLines } = require('./services/partyLedgerIntegrityService');
 const { repairDuplicateCustomerOpeningBalances } = require('./services/openingBalanceIntegrityService');
 const { auditStaffOutstandingMappings } = require('./services/staffLedgerAuditService');
+const { repairStaffAccountMappings } = require('./services/staffAccountMappingRepairService');
 
 /**
  * Re-run inbound WhatsApp deliveries that were recorded but never processed.
@@ -346,6 +347,20 @@ async function runLedgerIntegrityStartupTask() {
     logger.error(
       { err: openingBalanceRepairError?.message || openingBalanceRepairError },
       '[opening-balance-startup-repair] failed'
+    );
+  }
+
+  // Unify legacy staff mappings that point to a non-system General account
+  // while an exact, unique customer/payable ledger with the same name exists.
+  // This migrates the historical journal lines and then updates User.AccountID
+  // so Attendance, Outstanding and Statement all reference one ledger UUID.
+  try {
+    const staffMappingRepair = await repairStaffAccountMappings();
+    logger.info({ staffMappingRepair }, '[staff-account-mapping-repair] RESULT');
+  } catch (staffMappingRepairError) {
+    logger.error(
+      { err: staffMappingRepairError?.message || staffMappingRepairError },
+      '[staff-account-mapping-repair] failed'
     );
   }
 

@@ -111,6 +111,7 @@ const SocialProvidersRouter = require("./routes/SocialProviders");
 const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
 const { repairShadowPartyJournalLines } = require('./services/partyLedgerIntegrityService');
 const { repairDuplicateCustomerOpeningBalances } = require('./services/openingBalanceIntegrityService');
+const { auditStaffOutstandingMappings } = require('./services/staffLedgerAuditService');
 
 /**
  * Re-run inbound WhatsApp deliveries that were recorded but never processed.
@@ -345,6 +346,19 @@ async function runLedgerIntegrityStartupTask() {
     logger.error(
       { err: openingBalanceRepairError?.message || openingBalanceRepairError },
       '[opening-balance-startup-repair] failed'
+    );
+  }
+
+  // Read-only staff/outstanding audit. This verifies that every active
+  // user's Attendance AccountID points at the same ledger entity used by the
+  // Outstanding report, without changing any financial transaction.
+  try {
+    const staffLedgerAudit = await auditStaffOutstandingMappings();
+    logger.info({ staffLedgerAudit }, '[staff-ledger-audit] RESULT');
+  } catch (staffLedgerAuditError) {
+    logger.error(
+      { err: staffLedgerAuditError?.message || staffLedgerAuditError },
+      '[staff-ledger-audit] failed'
     );
   }
 

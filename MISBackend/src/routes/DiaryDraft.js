@@ -8,7 +8,7 @@ const Transaction = require('../repositories/transaction');
 const Customer = require('../repositories/customer');
 const BankStatement = require('../repositories/bankStatement');
 const logger = require('../utils/logger');
-const { resolve: resolveAccount, getName: getAccountName } = require('../services/accountRegistry');
+const { resolve: resolveAccount, resolveLedgerEntity, getName: getAccountName } = require('../services/accountRegistry');
 const {
   upsertBalancedTransaction,
   reverseAndDeleteTransaction,
@@ -506,7 +506,7 @@ router.post('/:uuid/confirm', async (req, res) => {
       if (!entry.account_assigned) continue;
 
       const ledgerAccountUuid = entry.book === 'bank' ? bankUuid : cashUuid;
-      const assignedAcct = await resolveAccount(entry.account_assigned);
+      const assignedAcct = await resolveLedgerEntity(entry.account_assigned, { preferCustomer: true });
       if (assignedAcct.name === assignedAcct.uuid) {
         logger.error(`Diary confirm: cannot resolve name for account_assigned '${entry.account_assigned}' — skipping entry`);
         continue;

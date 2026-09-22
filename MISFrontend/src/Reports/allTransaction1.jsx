@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import ExportGuard from "../Components/ExportGuard";
+import { getCustomerLedgerLegs } from "../utils/voucher";
 
 const OFFICE_VENDOR_GROUP_NAME = 'Office & Vendor';
 
@@ -50,11 +51,9 @@ const AllTransaction1 = () => {
     const report = customers.map((cust) => {
       let debit = 0, credit = 0;
       (transactions || []).forEach((tx) => {
-        (tx?.Journal_entry || []).forEach((entry) => {
-          if (entry?.Account_id === cust?.Customer_uuid) {
-            if (entry?.Type === 'Debit') debit += Number(entry?.Amount || 0);
-            if (entry?.Type === 'Credit') credit += Number(entry?.Amount || 0);
-          }
+        getCustomerLedgerLegs(tx, cust?.Customer_uuid).forEach((entry) => {
+          if (entry?.Type === 'Debit') debit += Number(entry?.Amount || 0);
+          if (entry?.Type === 'Credit') credit += Number(entry?.Amount || 0);
         });
       });
 

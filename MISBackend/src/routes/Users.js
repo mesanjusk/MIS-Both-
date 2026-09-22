@@ -11,6 +11,7 @@ const { hashPassword, isHashedPassword, verifyPassword } = require("../utils/pas
 const Transaction = require("../repositories/transaction");
 const Order = require("../repositories/order");
 const Accounts = require("../repositories/accounts");
+const Customer = require("../repositories/customer");
 const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
@@ -20,10 +21,15 @@ async function validateUserAccountLink(accountId, excludeUserId = null) {
   const cleanAccountId = String(accountId || '').trim();
   if (!cleanAccountId) return '';
 
-  const account = await Accounts.findOne({ Account_uuid: cleanAccountId })
-    .select('Account_uuid Account_name')
-    .lean();
-  if (!account) {
+  const [account, customer] = await Promise.all([
+    Accounts.findOne({ Account_uuid: cleanAccountId })
+      .select('Account_uuid Account_name')
+      .lean(),
+    Customer.findOne({ Customer_uuid: cleanAccountId })
+      .select('Customer_uuid Customer_name Customer_group')
+      .lean(),
+  ]);
+  if (!account && !customer) {
     const err = new Error('Selected ledger account was not found.');
     err.statusCode = 400;
     throw err;

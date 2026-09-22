@@ -473,7 +473,7 @@ function rowColors(file, checked) {
 // repeating it on every card added noise without adding information.
 function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
-  const { bg, bgHover, border } = rowColors(file, checked);
+  const { bg, bgHover } = rowColors(file, checked);
   const subText = file.isDraft
     ? (file.assignedToName ? `Assigned: ${file.assignedToName}` : '')
     : isUnmatched
@@ -486,12 +486,12 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
     <Box
       onClick={() => onToggle && onToggle(file.fileId)}
       sx={{
-        py: 0.5, px: 0.6, borderRadius: 1.5,
-        border: '1px solid',
-        borderColor: border,
-        bgcolor: bg,
-        '&:hover': { bgcolor: bgHover },
-        transition: 'background 0.12s',
+        py: 0.5, px: 0.65, borderRadius: 1.5,
+        border: 'none',
+        bgcolor: bg === 'transparent' ? 'background.paper' : bg,
+        boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
+        '&:hover': { bgcolor: bgHover, boxShadow: '0 2px 6px rgba(15,23,42,0.07)' },
+        transition: 'background 0.12s, box-shadow 0.12s',
         cursor: onToggle ? 'pointer' : 'default',
       }}
     >
@@ -544,7 +544,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
 // ─── Card view ────────────────────────────────────────────────────────────────
 function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
-  const { bg, border } = rowColors(file, checked);
+  const { bg } = rowColors(file, checked);
   const subText = file.isDraft
     ? (file.assignedToName ? `Assigned: ${file.assignedToName}` : '')
     : isUnmatched
@@ -555,14 +555,16 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
 
   return (
     <Card
-      variant="outlined"
+      elevation={0}
       onClick={() => onToggle && onToggle(file.fileId)}
       sx={{
         height: '100%', display: 'flex', flexDirection: 'column',
-        borderColor: border,
+        border: 'none',
+        borderRadius: 1.5,
         bgcolor: bg === 'transparent' ? 'background.paper' : bg,
-        '&:hover': { boxShadow: 1 },
-        transition: 'box-shadow 0.15s, border-color 0.12s',
+        boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+        '&:hover': { boxShadow: '0 2px 8px rgba(15,23,42,0.08)' },
+        transition: 'box-shadow 0.15s, background 0.12s',
         cursor: onToggle ? 'pointer' : 'default',
       }}
     >
@@ -2655,10 +2657,10 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
               minWidth: 0,
               display: 'flex',
               flexDirection: 'column',
-              border: '1px solid',
-              borderColor: 'divider',
+              border: 'none',
               borderRadius: 2,
-              bgcolor: 'background.paper',
+              bgcolor: 'grey.50',
+              boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
               maxHeight: 420,
               overflow: 'hidden',
             }}
@@ -2667,10 +2669,17 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
               direction="row"
               alignItems="center"
               spacing={1}
-              sx={{ px: 1, py: 0.65, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'rgba(240,253,244,0.6)', flexShrink: 0 }}
+              sx={{ px: 1, py: 0.65, bgcolor: 'transparent', flexShrink: 0 }}
             >
               <Typography variant="caption" fontWeight={800} sx={{ flex: 1, whiteSpace: 'normal' }}>{col.label}</Typography>
-              <Chip size="small" label={colFiles.length} />
+              <Typography
+                variant="caption"
+                fontWeight={800}
+                color="text.secondary"
+                sx={{ minWidth: 18, textAlign: 'center' }}
+              >
+                {colFiles.length}
+              </Typography>
             </Stack>
             <Stack spacing={0.4} sx={{ p: 0.75, overflowY: 'auto', flex: 1, minHeight: 0 }}>
               {colFiles.length === 0 ? (
@@ -2886,12 +2895,12 @@ export default function DesignFilesWidget() {
   const handlePrint = () => openPrintWindow(filteredFiles, activeTabDef.label);
 
   return (
-    <Box sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', md: 480 } }}>
+    <Box sx={{ borderRadius: 2, border: 'none', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', md: 480 } }}>
 
       {/* ── Toolbar: tabs + actions + refresh, single row ── */}
       <Stack
         direction="row" alignItems="center" spacing={0.75}
-        sx={{ px: 1.5, py: 0.65, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5, bgcolor: 'grey.50' }}
+        sx={{ px: 1.5, py: 0.65, flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5, bgcolor: 'grey.50' }}
       >
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;

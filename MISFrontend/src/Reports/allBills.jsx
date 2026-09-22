@@ -87,7 +87,16 @@ const BillCard = React.memo(function BillCard({
 }) {
   const deliveryDate = formatDateDDMMYYYY(order?.highestStatusTask?.Delivery_Date);
   const orderDate = formatDateDDMMYYYY(order?.createdAt);
-  const hasLocalFile = Boolean(String(order?.driveFile?.name || "").trim());
+  // Older billed orders sometimes have Drive fileId/relative-path metadata but
+  // no stored file name. The local-folder buttons must still be visible for
+  // those rows, otherwise the feature appears to have disappeared.
+  const hasLocalTarget = Boolean(
+    String(order?.driveFile?.name || "").trim() ||
+    String(order?.driveFile?.fileId || "").trim() ||
+    String(order?.driveFile?.localRelativePath || "").trim() ||
+    String(order?.driveFile?.relativePath || "").trim()
+  );
+  const localTargetName = String(order?.driveFile?.name || "").trim() || `Bill #${order?.Order_Number || ""}`;
 
   return (
     <Card
@@ -194,11 +203,11 @@ const BillCard = React.memo(function BillCard({
           Bill
         </Button>
 
-        {hasLocalFile && (
+        {hasLocalTarget && (
           <Tooltip
             title={
               localShareRoot
-                ? `Open ${order.driveFile.name} from local/network folder`
+                ? `Open ${localTargetName} from local/network folder`
                 : "Set the local/network folder first"
             }
           >
@@ -216,7 +225,7 @@ const BillCard = React.memo(function BillCard({
           </Tooltip>
         )}
 
-        {hasLocalFile && (
+        {hasLocalTarget && (
           <Tooltip title={localShareRoot ? "Open shared local/network folder" : "Set the local/network folder first"}>
             <IconButton
               size="small"

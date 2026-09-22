@@ -583,14 +583,8 @@ function lineMatchesAccount(line, identifiers = []) {
   return candidates.includes(id) || candidates.includes(name);
 }
 
-function transactionMatchesBankEntry(transaction, entry, bankLedger, assignedAcct) {
+function transactionJournalMatchesBankEntry(transaction, entry, bankLedger, assignedAcct) {
   if (!transaction || !entry || !bankLedger || !assignedAcct) return false;
-
-  const source = String(transaction.Source || '');
-  if (source === BUSINESS_SOURCES.BANK_STATEMENT ||
-      source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
-    return false;
-  }
 
   const amount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
   if (!(amount > 0)) return false;
@@ -613,6 +607,20 @@ function transactionMatchesBankEntry(transaction, entry, bankLedger, assignedAcc
   );
 
   return bankLeg && counterLeg;
+}
+
+function transactionMatchesBankEntry(transaction, entry, bankLedger, assignedAcct) {
+  if (!transactionJournalMatchesBankEntry(transaction, entry, bankLedger, assignedAcct)) {
+    return false;
+  }
+
+  const source = String(transaction.Source || '');
+  if (source === BUSINESS_SOURCES.BANK_STATEMENT ||
+      source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) {
+    return false;
+  }
+
+  return true;
 }
 
 async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, excludeTransactionUuid }) {
@@ -685,10 +693,19 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
     currentSource === BUSINESS_SOURCES.BANK_STATEMENT ||
     currentSource.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`);
 
-  // If this statement row already points at a real Diary/manual transaction,
-  // trust that link. It is the same real-world payment, so do not post it twice.
-  if (currentTxn && !currentIsBankOwned) {
-    return { mode: 'linked', transaction: currentTxn, existing: true };
+  // A stored transaction_uuid is only authoritative when its journal actually
+  // matches this bank row: same bank ledger, counter-account, direction and amount.
+  // Older repair code trusted any non-bank-owned transaction_uuid and could mark
+  // a row "confirmed" even when that transaction belonged to another ledger.
+  if (currentTxn && transactionJournalMatchesBankEntry(currentTxn, entry, bankLedger, assignedAcct)) {
+    entry.entry_status = 'confirmed';
+    if (entry.match_status === 'unmatched') entry.match_status = 'manual';
+    entry.matched_party = entry.account_assigned || entry.matched_party;
+    return {
+      mode: currentIsBankOwned ? 'verified' : 'linked',
+      transaction: currentTxn,
+      existing: true,
+    };
   }
 
   // Before creating or moving a bank-statement-owned posting, look for the
@@ -710,7 +727,7 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
     entry.entry_status = 'confirmed';
     entry.transaction_uuid = candidate.transaction.Transaction_uuid;
     entry.match_status = 'manual';
-    entry.matched_party = entry.account_assigned;
+    entry.matched_party = entry.account_assigned || entry.matched_party;
 
     const diaryLink = diaryLinkFromSource(candidate.transaction.Source);
     if (diaryLink) {
@@ -756,6 +773,8 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
 
   entry.entry_status = 'confirmed';
   entry.transaction_uuid = posting.transaction.Transaction_uuid;
+  if (entry.match_status === 'unmatched') entry.match_status = 'manual';
+  entry.matched_party = entry.account_assigned || entry.matched_party;
   return { mode: currentTxn ? 'reposted' : 'created', transaction: posting.transaction, existing: posting.existing };
 }
 
@@ -767,6 +786,7 @@ async function repairConfirmedBankStatementsWithEvidence() {
   const summary = {
     statementsScanned: statements.length,
     statementsRepaired: 0,
+    verified: 0,
     linked: 0,
     created: 0,
     reposted: 0,
@@ -971,7 +991,7 @@ router.put('/:uuid/ledger-account', async (req, res) => {
     stmt.ledger_account_name = bankDoc.Customer_name;
     stmt.ledger_account_locked = true;
 
-    const stats = { linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    const stats = { verified: 0, linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
     for (const entry of stmt.entries || []) {
       if (entry.entry_status !== 'confirmed') continue;
 
@@ -1226,7 +1246,7 @@ router.post('/:uuid/sync-ledger', async (req, res) => {
     const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
     if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
 
-    const stats = { linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    const stats = { verified: 0, linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
     for (const entry of stmt.entries || []) {
       if (entry.entry_status !== 'confirmed') continue;
 
@@ -1290,4 +1310,5 @@ module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
 module.exports.scoreBankLedgerName = scoreBankLedgerName;
 module.exports.inferStatementBankLedgerFromLinkedTransactions = inferStatementBankLedgerFromLinkedTransactions;
 module.exports.repairConfirmedBankStatementsWithEvidence = repairConfirmedBankStatementsWithEvidence;
+module.exports.transactionJournalMatchesBankEntry = transactionJournalMatchesBankEntry;
 module.exports.transactionMatchesBankEntry = transactionMatchesBankEntry;

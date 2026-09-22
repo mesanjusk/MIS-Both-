@@ -203,6 +203,47 @@ async function resolve(value) {
   return { uuid: resolvedUuid, name: raw };
 }
 
+const escapeRegexLiteral = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Resolve a ledger entity that may be either a chart-of-accounts item or a
+ * customer/vendor sub-ledger. Assignment UIs use customer names, so resolving
+ * those names through getUuid() would otherwise auto-create a shadow Accounts
+ * record with the same label and hide the posting from the real party ledger.
+ */
+async function resolveLedgerEntity(value, { preferCustomer = false } = {}) {
+  const raw = String(value || '').trim();
+  if (!raw) throw Object.assign(new Error('Ledger identifier must not be empty'), { statusCode: 400 });
+
+  if (isUuid(raw)) return resolve(raw);
+
+  if (preferCustomer) {
+    const customers = await Customer.find(
+      { Customer_name: { $regex: new RegExp('^' + escapeRegexLiteral(raw) + '$', 'i') } },
+      { Customer_uuid: 1, Customer_name: 1 }
+    ).limit(5).lean();
+
+    const valid = customers.filter((customer) => customer?.Customer_uuid && customer?.Customer_name);
+    if (valid.length === 1) {
+      return { uuid: valid[0].Customer_uuid, name: valid[0].Customer_name, kind: 'customer' };
+    }
+
+    if (valid.length > 1) {
+      const exactCase = valid.filter((customer) => String(customer.Customer_name).trim() === raw);
+      if (exactCase.length === 1) {
+        return { uuid: exactCase[0].Customer_uuid, name: exactCase[0].Customer_name, kind: 'customer' };
+      }
+      throw Object.assign(
+        new Error("More than one customer named '" + raw + "' exists. Use a unique customer before posting."),
+        { statusCode: 409 }
+      );
+    }
+  }
+
+  const account = await resolve(raw);
+  return { ...account, kind: 'account' };
+}
+
 /**
  * Warm-up the cache (called at server startup).
  */
@@ -326,6 +367,7 @@ module.exports = {
   getUuid,
   getName,
   resolve,
+  resolveLedgerEntity,
   isUuid,
   initialize,
   invalidateCache,

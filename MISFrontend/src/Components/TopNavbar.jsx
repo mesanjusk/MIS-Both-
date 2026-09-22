@@ -1,20 +1,23 @@
 import PropTypes from 'prop-types';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Avatar,
   Box,
   Button,
   Divider,
+  IconButton,
   Menu,
   MenuItem,
   Stack,
   Toolbar,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
@@ -163,6 +166,7 @@ NavDropdown.propTypes = {
 
 export default function TopNavbar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { userName, userGroup, clearAuth } = useAuth();
   const [menuAnchor, setMenuAnchor] = useState(null);
   const roleKey = normalizeRoleKey(userGroup || localStorage.getItem('User_group') || '');
@@ -184,12 +188,25 @@ export default function TopNavbar() {
     if (!userName) navigate(ROUTES.LOGIN);
   }, [navigate, userName]);
 
+  const handleBack = () => {
+    // React Router stores the current browser-history index in history.state.
+    // When the page was opened directly there may be no previous in-app entry;
+    // in that case Home is a safe fallback instead of navigating outside the MIS.
+    const historyIndex = Number(window.history.state?.idx);
+    if (Number.isFinite(historyIndex) && historyIndex > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate(ROUTES.HOME, { replace: true });
+  };
+
   const handleLogout = () => {
     clearAuth();
     navigate(ROUTES.ROOT);
   };
 
   const handleCustomize = () => dashCtx?.openCustomize?.();
+  const showBackButton = ![ROUTES.HOME, ROUTES.DASHBOARD].includes(location.pathname);
 
   return (
     <AppBar
@@ -203,6 +220,30 @@ export default function TopNavbar() {
       })}
     >
       <Toolbar sx={{ minHeight: { xs: 52, md: 52 }, px: { xs: 1, md: 1.5 }, gap: 0.5 }}>
+
+        {/* Global back navigation — available on every authenticated screen
+            except Home, so detail/report screens can always go one step back. */}
+        {showBackButton && (
+          <Tooltip title="Back">
+            <IconButton
+              size="small"
+              aria-label="Go back"
+              onClick={handleBack}
+              sx={(t) => ({
+                mr: 0.25,
+                flexShrink: 0,
+                color: 'text.secondary',
+                border: `1px solid ${t.palette.divider}`,
+                '&:hover': {
+                  color: t.palette.primary.main,
+                  bgcolor: alpha(t.palette.primary.main, 0.06),
+                },
+              })}
+            >
+              <ArrowBackRoundedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
 
         {/* Brand name */}
         <Typography

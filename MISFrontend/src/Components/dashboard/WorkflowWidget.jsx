@@ -252,22 +252,36 @@ export default function WorkflowWidget() {
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>Workflow</Typography>
         {stageBreakdown.length > 0 && (
-          <Stack
-            direction="row"
-            spacing={0.75}
-            flexWrap="nowrap"
-            sx={{ flex: 1, minWidth: 0, overflowX: 'auto', py: 0.25, '&::-webkit-scrollbar': { height: 6 } }}
+          <Box
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              overflowX: 'auto',
+              bgcolor: 'action.hover',
+              borderRadius: 2,
+              px: 1,
+              py: 0.45,
+              '&::-webkit-scrollbar': { height: 5 },
+            }}
           >
-            {stageBreakdown.map(({ label, count }) => (
-              <Chip
-                key={label}
-                size="small"
-                label={`${label} · ${count}`}
-                variant="outlined"
-                sx={{ flexShrink: 0, fontWeight: 600, bgcolor: 'background.paper' }}
-              />
-            ))}
-          </Stack>
+            <Stack
+              direction="row"
+              divider={<Divider orientation="vertical" flexItem />}
+              spacing={1.25}
+              sx={{ width: 'max-content', minWidth: '100%' }}
+            >
+              {stageBreakdown.map(({ label, count }) => (
+                <Stack key={label} direction="row" spacing={0.5} alignItems="baseline" sx={{ flexShrink: 0 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
+                    {label}
+                  </Typography>
+                  <Typography variant="caption" fontWeight={800} sx={{ fontSize: 12 }}>
+                    {count}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+          </Box>
         )}
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0, ml: 'auto' }}>
           {overview?.unassignedCount > 0 && (
@@ -459,10 +473,9 @@ export default function WorkflowWidget() {
                   minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
-                  border: '1px solid',
-                  borderColor: 'divider',
+                  border: 'none',
                   borderRadius: 2,
-                  bgcolor: isDesignGroup ? 'background.paper' : 'action.hover',
+                  bgcolor: isDesignGroup ? 'transparent' : 'grey.50',
                   p: isDesignGroup ? 0 : 0.5,
                   overflow: isDesignGroup ? 'hidden' : 'visible',
                 }}
@@ -481,7 +494,14 @@ export default function WorkflowWidget() {
                   <Typography variant="caption" fontWeight={800} sx={{ flex: 1, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                     {group.label}
                   </Typography>
-                  <Chip size="small" label={groupCount} />
+                  <Typography
+                    variant="caption"
+                    fontWeight={800}
+                    color="text.secondary"
+                    sx={{ minWidth: 18, textAlign: 'center' }}
+                  >
+                    {groupCount}
+                  </Typography>
                 </Stack>
 
                 {/* Narrow columns on purpose: the cards inside render in
@@ -499,10 +519,10 @@ export default function WorkflowWidget() {
                           minWidth: 116,
                           display: 'flex',
                           flexDirection: 'column',
-                          border: '1px solid',
-                          borderColor: 'divider',
+                          border: 'none',
                           borderRadius: 1.5,
                           bgcolor: 'background.paper',
+                          boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
                           maxHeight: { xs: 320, md: 560 },
                           overflow: 'hidden',
                         }}
@@ -514,14 +534,19 @@ export default function WorkflowWidget() {
                           sx={{
                             px: 0.75,
                             py: 0.4,
-                            borderBottom: '1px solid',
-                            borderColor: 'divider',
-                            bgcolor: 'rgba(240,253,244,0.6)',
+                            bgcolor: 'grey.50',
                             flexShrink: 0,
                           }}
                         >
                           <Typography variant="caption" fontWeight={800} sx={{ flex: 1, minWidth: 0, fontSize: 11, lineHeight: 1.2 }}>{section.label}</Typography>
-                          <Chip size="small" label={tasks.length} sx={{ height: 18, fontSize: 10, '& .MuiChip-label': { px: 0.6 } }} />
+                          <Typography
+                            variant="caption"
+                            fontWeight={800}
+                            color="text.secondary"
+                            sx={{ fontSize: 10, minWidth: 16, textAlign: 'center' }}
+                          >
+                            {tasks.length}
+                          </Typography>
                         </Stack>
 
                         <Box sx={{ overflowY: 'auto', p: 0.5, flex: 1, minHeight: 0 }}>

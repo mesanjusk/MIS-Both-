@@ -364,7 +364,7 @@ export default function OrderTaskList({
     const stageChars = compact ? 10 : 18;
     const assigneeChars = compact ? 8 : 14;
     const gridSx = compact
-      ? { display: 'flex', flexDirection: 'column', gap: 0.5 }
+      ? { display: 'flex', flexDirection: 'column', gap: 0.4 }
       : {
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
@@ -388,20 +388,26 @@ export default function OrderTaskList({
               .join(' — ');
             return (
               <Card
-                variant="outlined"
+                elevation={0}
                 key={task.orderId}
                 sx={{
                   borderRadius: 1.5,
-                  borderLeft: '3px solid',
+                  border: 'none',
+                  borderLeft: '2px solid',
                   borderLeftColor: age.accent,
-                  transition: 'box-shadow 0.15s ease',
-                  '&:hover': { boxShadow: 2 },
+                  bgcolor: 'background.paper',
+                  boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+                  transition: 'background 0.15s ease, box-shadow 0.15s ease',
+                  '&:hover': {
+                    bgcolor: 'action.hover',
+                    boxShadow: '0 2px 8px rgba(15,23,42,0.08)',
+                  },
                 }}
               >
                 <CardContent
                   sx={{
-                    p: compact ? 0.75 : 1,
-                    '&:last-child': { pb: compact ? 0.75 : 1 },
+                    p: compact ? 0.65 : 0.9,
+                    '&:last-child': { pb: compact ? 0.65 : 0.9 },
                   }}
                 >
                   <Stack direction="row" alignItems="flex-start" spacing={0.25}>
@@ -428,7 +434,7 @@ export default function OrderTaskList({
                       </Typography>
                       {/* Which file this order came from — shown whenever it
                           is not already the title above. */}
-                      {task.sourceFile && task.customerName && (
+                      {!compact && task.sourceFile && task.customerName && (
                         <Tooltip title={task.sourceFile}>
                           <Typography
                             variant="caption" color="text.disabled" noWrap display="block"
@@ -488,8 +494,7 @@ export default function OrderTaskList({
                           fontWeight: 700,
                           bgcolor: age.bg,
                           color: age.fg,
-                          border: '1px solid',
-                          borderColor: age.border,
+                          border: 'none',
                           '& .MuiChip-label': { px: 0.75 },
                         }}
                       />

@@ -128,10 +128,12 @@ async function auditStaffOutstandingMappings() {
         : null;
 
       const attendanceLedgerBalance = mappedEntity
-        ? journalBalanceFor(mappedEntity, transactions)
+        ? mappedEntity.kind === 'customer'
+          ? statementBalanceForCustomer(mappedEntity.uuid, transactions)
+          : journalBalanceFor(mappedEntity, transactions)
         : null;
       const outstandingLedgerBalance = customerEntity
-        ? journalBalanceFor(customerEntity, transactions)
+        ? statementBalanceForCustomer(customerEntity.uuid, transactions)
         : null;
       const statementLedgerBalance = uniqueCustomer
         ? statementBalanceForCustomer(uniqueCustomer.Customer_uuid, transactions)

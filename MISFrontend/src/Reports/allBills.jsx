@@ -242,6 +242,8 @@ export default function AllBills() {
 
   const [searchOrder, setSearchOrder] = useState("");
   const debouncedSearch = useDebouncedValue(searchOrder, 250);
+  const [searchBillNumber, setSearchBillNumber] = useState("");
+  const debouncedBillNumber = useDebouncedValue(searchBillNumber, 200);
 
   const [taskFilter, setTaskFilter] = useState("");
   const [paidFilter, setPaidFilter] = useState("");
@@ -620,6 +622,7 @@ export default function AllBills() {
           page: nextPage,
           limit: PAGE_SIZE,
           search: debouncedSearch,
+          billNumber: debouncedBillNumber,
           task: taskFilter,
           paid: paidFilter,
           date: selectedDate,
@@ -669,7 +672,7 @@ export default function AllBills() {
         setLoading(false);
       }
     },
-    [PAGE_SIZE, debouncedSearch, taskFilter, paidFilter, selectedDate, getOrderKey]
+    [PAGE_SIZE, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate, getOrderKey]
   );
 
   // initial load
@@ -682,7 +685,7 @@ export default function AllBills() {
   useEffect(() => {
     loadBillsPage(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, taskFilter, paidFilter, selectedDate]);
+  }, [debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate]);
 
   /* ----------------------- derived lists ----------------------- */
   const normalizedOrders = useMemo(() => {
@@ -722,17 +725,18 @@ export default function AllBills() {
   // since backend already filters, this is mostly safety
   const filteredOrders = useMemo(() => {
     const s = String(debouncedSearch || "").toLowerCase().trim();
+    const billNeedle = String(debouncedBillNumber || "").replace(/^#\s*/, "").toLowerCase().trim();
     const fTask = String(taskFilter || "").toLowerCase().trim();
     const fPaid = String(paidFilter || "").toLowerCase().trim();
 
     return normalizedOrders.filter((o) => {
       if (!o._billable) return false;
       if (s) {
-        const billNeedle = s.replace(/^#\s*/, "");
         const customerMatch = o._customerLower.includes(s);
-        const billNumberMatch = Boolean(billNeedle) && o._billNumberLower.includes(billNeedle);
-        if (!customerMatch && !billNumberMatch) return false;
+        const legacyBillMatch = o._billNumberLower.includes(s.replace(/^#\s*/, ""));
+        if (!customerMatch && !legacyBillMatch) return false;
       }
+      if (billNeedle && !o._billNumberLower.includes(billNeedle)) return false;
       // Match by substring: the stage-based workflow writes task labels like
       // "delivered - Delivered", so an exact equality check would hide them.
       if (fTask && !o._taskLower.includes(fTask)) return false;
@@ -743,7 +747,7 @@ export default function AllBills() {
 
       return true;
     });
-  }, [normalizedOrders, debouncedSearch, taskFilter, paidFilter, selectedDate]);
+  }, [normalizedOrders, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate]);
 
   const totals = useMemo(() => {
     const count = filteredOrders.length;
@@ -973,13 +977,29 @@ export default function AllBills() {
               size="small"
               value={searchOrder}
               onChange={(e) => setSearchOrder(e.target.value)}
-              placeholder="Customer / Bill No."
-              inputProps={{ "aria-label": "Search bills by customer name or bill number" }}
-              sx={{ width: { xs: "100%", lg: 205 } }}
+              placeholder="Search customer"
+              inputProps={{ "aria-label": "Search bills by customer name" }}
+              sx={{ width: { xs: "100%", lg: 175 } }}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
                     <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <TextField
+              size="small"
+              value={searchBillNumber}
+              onChange={(e) => setSearchBillNumber(e.target.value)}
+              placeholder="Bill No."
+              inputProps={{ "aria-label": "Find bill by bill number" }}
+              sx={{ width: { xs: "100%", lg: 120 } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <ReceiptLongIcon sx={{ fontSize: 17 }} />
                   </InputAdornment>
                 ),
               }}

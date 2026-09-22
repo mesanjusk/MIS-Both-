@@ -5,6 +5,7 @@ const {
   parseSbiCsv,
   chooseBankLedgerDoc,
   scoreBankLedgerName,
+  transactionJournalMatchesBankEntry,
   transactionMatchesBankEntry,
 } = require('../../src/routes/BankStatement');
 
@@ -164,6 +165,52 @@ describe('BankStatement bank-ledger reconciliation helpers', () => {
       { uuid: 'bank-uuid', name: 'UPI Sanju Sk' },
       { uuid: 'party-uuid', name: 'Sk Sai' }
     )).toBe(true);
+  });
+
+  test('validates a bank-statement-owned posting when its journal really matches the bank row', () => {
+    const transaction = {
+      Source: 'business:bank_statement:stmt:entry',
+      Journal_entry: [
+        { Account_id: 'bank-uuid', Account_name: 'UPI Sanju Sk', Type: 'Credit', Amount: 1500 },
+        { Account_id: 'party-uuid', Account_name: 'Fitting', Type: 'Debit', Amount: 1500 },
+      ],
+    };
+    const entry = {
+      direction: 'out',
+      credit: 0,
+      debit: 1500,
+      account_assigned: 'Fitting',
+    };
+
+    expect(transactionJournalMatchesBankEntry(
+      transaction,
+      entry,
+      { uuid: 'bank-uuid', name: 'UPI Sanju Sk' },
+      { uuid: 'party-uuid', name: 'Fitting' }
+    )).toBe(true);
+  });
+
+  test('rejects a stale transaction_uuid whose journal belongs to the wrong bank ledger', () => {
+    const transaction = {
+      Source: 'diary:day-1:entry-1',
+      Journal_entry: [
+        { Account_id: 'wrong-bank', Account_name: 'Bank', Type: 'Credit', Amount: 1500 },
+        { Account_id: 'party-uuid', Account_name: 'Fitting', Type: 'Debit', Amount: 1500 },
+      ],
+    };
+    const entry = {
+      direction: 'out',
+      credit: 0,
+      debit: 1500,
+      account_assigned: 'Fitting',
+    };
+
+    expect(transactionJournalMatchesBankEntry(
+      transaction,
+      entry,
+      { uuid: 'bank-uuid', name: 'UPI Sanju Sk' },
+      { uuid: 'party-uuid', name: 'Fitting' }
+    )).toBe(false);
   });
 
   test('does not match a bank-statement-owned posting as an existing business entry', () => {

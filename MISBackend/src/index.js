@@ -110,6 +110,7 @@ const SocialOverviewRouter = require("./routes/SocialOverview");
 const SocialProvidersRouter = require("./routes/SocialProviders");
 const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
 const { repairShadowPartyJournalLines } = require('./services/partyLedgerIntegrityService');
+const { repairDuplicateCustomerOpeningBalances } = require('./services/openingBalanceIntegrityService');
 
 /**
  * Re-run inbound WhatsApp deliveries that were recorded but never processed.
@@ -331,6 +332,19 @@ async function runLedgerIntegrityStartupTask() {
     logger.error(
       { err: partyRepairError?.message || partyRepairError },
       '[party-ledger-startup-repair] failed'
+    );
+  }
+
+  // A customer must have only one opening-balance posting. Legacy data can
+  // contain duplicate rows for the same party/date/amount/side; remove only
+  // those exact duplicates before the normal ledger-integrity audit runs.
+  try {
+    const openingBalanceRepair = await repairDuplicateCustomerOpeningBalances();
+    logger.info({ openingBalanceRepair }, '[opening-balance-startup-repair] RESULT');
+  } catch (openingBalanceRepairError) {
+    logger.error(
+      { err: openingBalanceRepairError?.message || openingBalanceRepairError },
+      '[opening-balance-startup-repair] failed'
     );
   }
 

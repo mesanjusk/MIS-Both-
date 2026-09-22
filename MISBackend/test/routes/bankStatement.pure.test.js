@@ -3,6 +3,7 @@ const {
   parseDateStr,
   normHeader,
   parseSbiCsv,
+  chooseCustomerCounterparty,
   chooseBankLedgerDoc,
   scoreBankLedgerName,
   transactionJournalMatchesBankEntry,
@@ -106,6 +107,40 @@ describe('BankStatement.parseSbiCsv', () => {
   });
 });
 
+
+describe('BankStatement counterparty resolution', () => {
+  test('prefers the real customer UUID for an assigned customer name', () => {
+    const customers = [
+      { Customer_uuid: 'cust-priyanka', Customer_name: 'SK Priyanka' },
+    ];
+
+    expect(chooseCustomerCounterparty('SK Priyanka', customers)).toEqual({
+      customer: customers[0],
+      ambiguous: false,
+    });
+  });
+
+  test('matches customer names case-insensitively', () => {
+    const customers = [
+      { Customer_uuid: 'cust-priyanka', Customer_name: 'SK Priyanka' },
+    ];
+
+    expect(chooseCustomerCounterparty('sk priyanka', customers).customer?.Customer_uuid)
+      .toBe('cust-priyanka');
+  });
+
+  test('flags duplicate customer names instead of silently choosing the wrong ledger', () => {
+    const customers = [
+      { Customer_uuid: 'one', Customer_name: 'Same Party' },
+      { Customer_uuid: 'two', Customer_name: 'Same Party' },
+    ];
+
+    expect(chooseCustomerCounterparty('Same Party', customers)).toEqual({
+      customer: null,
+      ambiguous: true,
+    });
+  });
+});
 
 describe('BankStatement bank ledger name matching', () => {
   test('matches a statement holder name to a ledger with UPI prefix', () => {

@@ -574,6 +574,65 @@ async function resolveStatementBankLedger(stmt) {
 
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 
+const escapeRegexLiteral = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function chooseCustomerCounterparty(value, customers = []) {
+  const raw = String(value || '').trim();
+  if (!raw) return { customer: null, ambiguous: false };
+
+  const lower = raw.toLowerCase();
+  const matches = (customers || []).filter(
+    (customer) =>
+      customer?.Customer_uuid &&
+      String(customer?.Customer_name || '').trim().toLowerCase() === lower
+  );
+
+  if (matches.length === 1) {
+    return { customer: matches[0], ambiguous: false };
+  }
+
+  const exactCase = matches.filter(
+    (customer) => String(customer?.Customer_name || '').trim() === raw
+  );
+  if (exactCase.length === 1) {
+    return { customer: exactCase[0], ambiguous: false };
+  }
+
+  return { customer: null, ambiguous: matches.length > 1 };
+}
+
+async function resolveAssignedCounterparty(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    throw Object.assign(new Error('Assigned account is required'), { statusCode: 400 });
+  }
+
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return resolveAccount(raw);
+  }
+
+  const customers = await Customer.find(
+    { Customer_name: { $regex: new RegExp('^' + escapeRegexLiteral(raw) + '$', 'i') } },
+    { Customer_uuid: 1, Customer_name: 1 }
+  ).limit(5).lean();
+
+  const picked = chooseCustomerCounterparty(raw, customers);
+  if (picked.customer) {
+    return {
+      uuid: picked.customer.Customer_uuid,
+      name: picked.customer.Customer_name,
+    };
+  }
+  if (picked.ambiguous) {
+    throw Object.assign(
+      new Error("More than one customer named '" + raw + "' exists. Select a unique customer before posting."),
+      { statusCode: 409 }
+    );
+  }
+
+  return resolveAccount(raw);
+}
+
 function lineMatchesAccount(line, identifiers = []) {
   const candidates = identifiers
     .filter(Boolean)
@@ -675,7 +734,7 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
 
   const [bankLedger, assignedAcct] = await Promise.all([
     resolveStatementBankLedger(stmt),
-    resolveAccount(entry.account_assigned),
+    resolveAssignedCounterparty(entry.account_assigned),
   ]);
 
   if (assignedAcct.name === assignedAcct.uuid) {
@@ -1118,12 +1177,15 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
 
         const amount = Number(entry.credit > 0 ? entry.credit : entry.debit);
         const source = `${BUSINESS_SOURCES.BANK_STATEMENT}:${stmt.statement_uuid}:${entry.entry_uuid}`;
-        const bankLedger = await resolveStatementBankLedger(stmt);
+        const [bankLedger, assignedAcct] = await Promise.all([
+          resolveStatementBankLedger(stmt),
+          resolveAssignedCounterparty(account_assigned),
+        ]);
         const posting = entry.direction === 'in'
           ? await upsertBalancedTransaction({
               amount,
               debitAccount: bankLedger.uuid,
-              creditAccount: account_assigned,
+              creditAccount: assignedAcct.uuid,
               paymentMode: 'Bank',
               description: entry.description || account_assigned,
               transactionDate: entry.txn_date || new Date(),
@@ -1133,7 +1195,7 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
             })
           : await upsertBalancedTransaction({
               amount,
-              debitAccount: account_assigned,
+              debitAccount: assignedAcct.uuid,
               creditAccount: bankLedger.uuid,
               paymentMode: 'Bank',
               description: entry.description || account_assigned,
@@ -1306,6 +1368,7 @@ module.exports.parseSbiCsv = parseSbiCsv;
 module.exports.parseSbiPdfText = parseSbiPdfText;
 module.exports.parseSbiTextFormat = parseSbiTextFormat;
 module.exports.autoMatchEntries = autoMatchEntries;
+module.exports.chooseCustomerCounterparty = chooseCustomerCounterparty;
 module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
 module.exports.scoreBankLedgerName = scoreBankLedgerName;
 module.exports.inferStatementBankLedgerFromLinkedTransactions = inferStatementBankLedgerFromLinkedTransactions;

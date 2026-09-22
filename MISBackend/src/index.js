@@ -109,6 +109,7 @@ const SocialCampaignsRouter = require("./routes/SocialCampaigns");
 const SocialOverviewRouter = require("./routes/SocialOverview");
 const SocialProvidersRouter = require("./routes/SocialProviders");
 const { initSocialPublishingScheduler } = require("./services/social/socialPublishingScheduler");
+const { repairShadowPartyJournalLines } = require('./services/partyLedgerIntegrityService');
 
 /**
  * Re-run inbound WhatsApp deliveries that were recorded but never processed.
@@ -318,6 +319,20 @@ async function runLedgerIntegrityStartupTask() {
 
 (async () => {
   await connectDB();
+
+  // Historical Diary/Bank Statement assignments could create a shadow chart-
+  // of-accounts row with the same name as a customer (for example "SK Priyanka").
+  // Repair those journal foreign keys before any reconciliation verification so
+  // both sides of every posting appear in the correct party ledger.
+  try {
+    const partyRepair = await repairShadowPartyJournalLines();
+    logger.info({ partyRepair }, '[party-ledger-startup-repair] RESULT');
+  } catch (partyRepairError) {
+    logger.error(
+      { err: partyRepairError?.message || partyRepairError },
+      '[party-ledger-startup-repair] failed'
+    );
+  }
 
   // Repair confirmed bank-statement rows only when the target bank ledger can
   // be proven from an explicit mapping, existing linked transaction, or a

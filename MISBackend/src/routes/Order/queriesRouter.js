@@ -237,14 +237,18 @@ router.get("/GetBillListPaged", async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit || "50", 10), 1), 200);
     const skip = (page - 1) * limit;
     const search = String(req.query.search || "").trim();
+    const billNumber = String(req.query.billNumber || "").trim();
     const paid = String(req.query.paid || "").trim().toLowerCase();
     const date = String(req.query.date || "").trim();
     const rx = search ? new RegExp(escapeRegex(search), "i") : null;
-    // Bill cards use Order_Number as the visible bill number. Accept both
-    // "2524" and "#2524", and support partial bill-number lookup so older
-    // bills outside the currently loaded page can still be found server-side.
+    // Bill cards use Order_Number as the visible bill number. Keep legacy
+    // combined-search support, and also support a dedicated Bill No. field.
     const billNumberNeedle = search.replace(/^#\s*/, "");
     const hasBillNumberNeedle = /^\d+$/.test(billNumberNeedle);
+    const dedicatedBillNumberNeedle = billNumber.replace(/^#\s*/, "");
+    const dedicatedBillNumberRegex = dedicatedBillNumberNeedle
+      ? escapeRegex(dedicatedBillNumberNeedle)
+      : "";
 
     let dateMatch = null;
     if (date) {
@@ -375,6 +379,19 @@ router.get("/GetBillListPaged", async (req, res) => {
       { $match: { wasDelivered: true, hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: searchClauses } }] : []),
+      ...(dedicatedBillNumberRegex
+        ? [{
+            $match: {
+              $expr: {
+                $regexMatch: {
+                  input: { $toString: { $ifNull: ["$Order_Number", ""] } },
+                  regex: dedicatedBillNumberRegex,
+                  options: "i",
+                },
+              },
+            },
+          }]
+        : []),
       {
         $facet: {
           data: [

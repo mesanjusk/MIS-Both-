@@ -34,6 +34,10 @@ import { visibleSectionItems } from '../constants/navVisibility';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
 
+export function shouldShowGlobalBack(pathname) {
+  return ![ROUTES.HOME, ROUTES.DASHBOARD].includes(pathname);
+}
+
 /** A heading with one destination — no menu to open. */
 function NavLink({ label, onClick }) {
   return (
@@ -206,7 +210,7 @@ export default function TopNavbar() {
   };
 
   const handleCustomize = () => dashCtx?.openCustomize?.();
-  const showBackButton = ![ROUTES.HOME, ROUTES.DASHBOARD].includes(location.pathname);
+  const showBackButton = shouldShowGlobalBack(location.pathname);
 
   return (
     <AppBar

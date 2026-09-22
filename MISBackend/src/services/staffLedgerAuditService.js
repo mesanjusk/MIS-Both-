@@ -26,12 +26,58 @@ function journalBalanceFor(entity, transactions) {
   return money2(total);
 }
 
+const CUSTOMER_CONTROL_NAMES = new Set(['customer receivable', 'customer advance']);
+
+function statementBalanceForCustomer(customerUuid, transactions) {
+  const customerId = String(customerUuid || '').trim();
+  if (!customerId) return 0;
+
+  let total = 0;
+  for (const tx of transactions || []) {
+    const legs = Array.isArray(tx?.Journal_entry) ? tx.Journal_entry : [];
+    const direct = legs.filter((line) => String(line?.Account_id || '').trim() === customerId);
+
+    let customerLegs = direct;
+    if (!customerLegs.length && String(tx?.Customer_uuid || '').trim() === customerId) {
+      const control = legs.filter((line) => {
+        const name = norm(line?.Account_name);
+        const id = norm(line?.Account_id);
+        return CUSTOMER_CONTROL_NAMES.has(name) || CUSTOMER_CONTROL_NAMES.has(id);
+      });
+      if (control.length) {
+        customerLegs = control;
+      } else {
+        const amount = Number(tx?.Total_Debit || tx?.Total_Credit || 0);
+        const source = norm(tx?.Source);
+        if (Number.isFinite(amount) && amount > 0) {
+          if (source === 'invoice' || source.startsWith('business:customer_invoice')) {
+            customerLegs = [{ Type: 'Debit', Amount: amount }];
+          } else if (
+            source.startsWith('business:customer_receipt') ||
+            source.startsWith('business:customer_advance')
+          ) {
+            customerLegs = [{ Type: 'Credit', Amount: amount }];
+          }
+        }
+      }
+    }
+
+    for (const line of customerLegs) {
+      const amount = Number(line?.Amount || 0);
+      if (line?.Type === 'Debit') total += amount;
+      else if (line?.Type === 'Credit') total -= amount;
+    }
+  }
+
+  return money2(total);
+}
+
 async function auditStaffOutstandingMappings() {
   const [users, accounts, customers, transactions] = await Promise.all([
     Users.find({}).select('User_uuid User_name User_group AccountID operations.active').lean(),
     Accounts.find({}).select('Account_uuid Account_name Account_group Account_type Normal_balance_side Balance').lean(),
     Customers.find({}).select('Customer_uuid Customer_name Customer_group').lean(),
-    Transaction.find({}).select('Transaction_uuid Journal_entry').lean(),
+    Transaction.find({}).select('Transaction_uuid Customer_uuid Total_Debit Total_Credit Source Journal_entry').lean(),
   ]);
 
   const accountById = new Map(
@@ -87,6 +133,9 @@ async function auditStaffOutstandingMappings() {
       const outstandingLedgerBalance = customerEntity
         ? journalBalanceFor(customerEntity, transactions)
         : null;
+      const statementLedgerBalance = uniqueCustomer
+        ? statementBalanceForCustomer(uniqueCustomer.Customer_uuid, transactions)
+        : null;
 
       return {
         user: user.User_name,
@@ -102,10 +151,19 @@ async function auditStaffOutstandingMappings() {
         matchingCustomerName: uniqueCustomer?.Customer_name || null,
         matchingCustomerGroup: uniqueCustomer?.Customer_group || null,
         outstandingLedgerBalance,
-        difference:
+        statementLedgerBalance,
+        attendanceVsOutstanding:
           attendanceLedgerBalance === null || outstandingLedgerBalance === null
             ? null
             : money2(attendanceLedgerBalance - outstandingLedgerBalance),
+        attendanceVsStatement:
+          attendanceLedgerBalance === null || statementLedgerBalance === null
+            ? null
+            : money2(attendanceLedgerBalance - statementLedgerBalance),
+        outstandingVsStatement:
+          outstandingLedgerBalance === null || statementLedgerBalance === null
+            ? null
+            : money2(outstandingLedgerBalance - statementLedgerBalance),
         status,
       };
     });
@@ -114,10 +172,15 @@ async function auditStaffOutstandingMappings() {
     (acc, row) => {
       acc.total += 1;
       acc[row.status] = (acc[row.status] || 0) + 1;
-      if (row.difference !== null && Math.abs(row.difference) >= 0.01) acc.balanceDifferences += 1;
+      if (row.attendanceVsStatement !== null && Math.abs(row.attendanceVsStatement) >= 0.01) {
+        acc.attendanceStatementDifferences += 1;
+      }
+      if (row.outstandingVsStatement !== null && Math.abs(row.outstandingVsStatement) >= 0.01) {
+        acc.outstandingStatementDifferences += 1;
+      }
       return acc;
     },
-    { total: 0, balanceDifferences: 0 }
+    { total: 0, attendanceStatementDifferences: 0, outstandingStatementDifferences: 0 }
   );
 
   return { summary, rows };
@@ -126,4 +189,5 @@ async function auditStaffOutstandingMappings() {
 module.exports = {
   auditStaffOutstandingMappings,
   journalBalanceFor,
+  statementBalanceForCustomer,
 };

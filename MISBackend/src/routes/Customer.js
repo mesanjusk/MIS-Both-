@@ -25,8 +25,20 @@ function fyStartDate() {
 
 // Helper: post (or replace) the opening balance transaction for a customer
 async function postCustomerOpeningBalance({ customerUuid, customerName, amount, side, date, createdBy }) {
-  // Delete any existing opening balance transaction for this customer
-  const existing = await Transaction.find({ Source: OPENING_BALANCE_SOURCE, Customer_uuid: customerUuid }).lean();
+  // Delete any existing opening-balance posting for this customer before
+  // re-posting. Older rows did not always store Transaction.Customer_uuid, so
+  // journal ownership is also checked. This prevents a customer edit from
+  // creating a second opening balance beside a legacy row.
+  const existing = await Transaction.find({
+    $or: [
+      { Source: OPENING_BALANCE_SOURCE, Customer_uuid: customerUuid },
+      { Source: OPENING_BALANCE_SOURCE, 'Journal_entry.Account_id': customerUuid },
+      {
+        Description: `Opening balance — ${customerName}`,
+        'Journal_entry.Account_id': customerUuid,
+      },
+    ],
+  }).lean();
   for (const txn of existing) {
     await reverseBalancesForJournal(txn.Journal_entry || []);
     await Transaction.deleteOne({ _id: txn._id });

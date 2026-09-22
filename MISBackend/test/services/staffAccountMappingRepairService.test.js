@@ -46,6 +46,7 @@ describe('staffAccountMappingRepairService', () => {
       Password: 'test-password',
       Mobile_number: '9999999999',
       User_group: 'Office Design',
+      Amount: 0,
       AccountID: oldAccountUuid,
     });
 
@@ -110,6 +111,7 @@ describe('staffAccountMappingRepairService', () => {
       Password: 'test-password',
       Mobile_number: '8888888888',
       User_group: 'Office User',
+      Amount: 0,
       AccountID: oldAccountUuid,
     });
 

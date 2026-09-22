@@ -42,6 +42,7 @@ import {
   fetchAttendanceList,
   processAttendanceDataRange,
 } from "../utils/attendanceUtils";
+import { getCustomerLedgerLegs } from "../utils/voucher";
 
 const todayISO = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 const money = (value) =>
@@ -100,9 +101,11 @@ const countWorkingDays = (startISO, endISO) => {
   return count;
 };
 
-const accountBalanceMeta = (account) => {
+const accountBalanceMeta = (account, balanceOverride = null) => {
   if (!account) return { label: "—", side: "", amount: 0 };
-  const balance = Number(account.Balance || 0);
+  const balance = balanceOverride === null
+    ? Number(account.Balance || 0)
+    : Number(balanceOverride || 0);
   const normalSide = String(account.Normal_balance_side || "debit").toLowerCase() === "credit"
     ? "credit"
     : "debit";
@@ -212,8 +215,29 @@ export default function AllAttandance() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await axios.get("/api/accounts");
-      setAccounts(Array.isArray(res.data?.accounts) ? res.data.accounts : []);
+      const [accountRes, customerRes] = await Promise.all([
+        axios.get("/api/accounts"),
+        axios.get("/api/customers/GetCustomersList"),
+      ]);
+
+      const chartAccounts = Array.isArray(accountRes.data?.accounts)
+        ? accountRes.data.accounts
+        : [];
+      const customerLedgers = Array.isArray(customerRes.data?.result)
+        ? customerRes.data.result
+            .filter((customer) => customer?.Customer_uuid && customer?.Customer_name)
+            .map((customer) => ({
+              Account_uuid: customer.Customer_uuid,
+              Account_name: customer.Customer_name,
+              Account_group: customer.Customer_group || "Customer",
+              Account_type: "Customer",
+              Normal_balance_side: "debit",
+              Balance: null,
+              __customerLedger: true,
+            }))
+        : [];
+
+      setAccounts([...chartAccounts, ...customerLedgers]);
     } catch (e) {
       console.error("Error loading staff accounts:", e?.message || e);
       setAccounts([]);
@@ -330,53 +354,79 @@ export default function AllAttandance() {
 
   const ledgerRows = useMemo(() => {
     const rows = [];
+
     ledgerTransactions.forEach((tx) => {
       const txDate = toIndiaISO(tx.Transaction_date);
       if (selectedDate && txDate !== selectedDate) return;
 
-      (tx?.Journal_entry || []).forEach((entry, index) => {
-        const member = userByAccountId[entry?.Account_id];
-        if (!member) return;
+      memberOptions.forEach((member) => {
+        if (!member?.accountId) return;
         if (memberFilter && member.uuid !== memberFilter) return;
 
-        const account = accountById[entry.Account_id];
-        rows.push({
-          key: `${tx.Transaction_uuid || tx._id || tx.Transaction_id}-${entry.Account_id}-${index}`,
-          date: txDate,
-          member,
-          accountName: account?.Account_name || entry.Account_name || entry.Account_id,
-          accountBalance: Number(account?.Balance || 0),
-          description: tx.Description || "—",
-          paymentMode: tx.Payment_mode || "—",
-          type: entry.Type || "—",
-          amount: Number(entry.Amount || 0),
+        const account = accountById[member.accountId];
+        const entries = account?.__customerLedger
+          ? getCustomerLedgerLegs(tx, member.accountId)
+          : (tx?.Journal_entry || []).filter(
+              (entry) => String(entry?.Account_id || "") === String(member.accountId)
+            );
+
+        entries.forEach((entry, index) => {
+          rows.push({
+            key: `${tx.Transaction_uuid || tx._id || tx.Transaction_id}-${member.accountId}-${index}`,
+            date: txDate,
+            member,
+            accountName: account?.Account_name || entry.Account_name || member.accountId,
+            accountBalance: Number(account?.Balance || 0),
+            description: tx.Description || "—",
+            paymentMode: tx.Payment_mode || "—",
+            type: entry.Type || "—",
+            amount: Number(entry.Amount || 0),
+          });
         });
       });
     });
 
     return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  }, [ledgerTransactions, userByAccountId, accountById, memberFilter, selectedDate]);
+  }, [ledgerTransactions, memberOptions, accountById, memberFilter, selectedDate]);
 
   const journalBalanceByAccount = useMemo(() => {
     const totals = {};
-    ledgerTransactions.forEach((tx) => {
-      (tx?.Journal_entry || []).forEach((entry) => {
-        const accountId = entry?.Account_id;
-        if (!accountId || !userByAccountId[accountId]) return;
 
-        const account = accountById[accountId];
-        const normalSide = String(account?.Normal_balance_side || "debit").toLowerCase() === "credit"
-          ? "credit"
-          : "debit";
-        const amount = Number(entry.Amount || 0);
-        const onNormalSide =
-          (entry.Type === "Debit" && normalSide === "debit") ||
-          (entry.Type === "Credit" && normalSide === "credit");
-        totals[accountId] = (totals[accountId] || 0) + (onNormalSide ? amount : -amount);
+    memberOptions.forEach((member) => {
+      const accountId = member?.accountId;
+      if (!accountId) return;
+
+      const account = accountById[accountId];
+      if (!account) return;
+
+      let balance = 0;
+      ledgerTransactions.forEach((tx) => {
+        const entries = account.__customerLedger
+          ? getCustomerLedgerLegs(tx, accountId)
+          : (tx?.Journal_entry || []).filter(
+              (entry) => String(entry?.Account_id || "") === String(accountId)
+            );
+
+        const normalSide = account.__customerLedger
+          ? "debit"
+          : String(account?.Normal_balance_side || "debit").toLowerCase() === "credit"
+            ? "credit"
+            : "debit";
+
+        entries.forEach((entry) => {
+          const amount = Number(entry.Amount || 0);
+          const onNormalSide =
+            (entry.Type === "Debit" && normalSide === "debit") ||
+            (entry.Type === "Credit" && normalSide === "credit");
+          balance += onNormalSide ? amount : -amount;
+        });
       });
+
+      totals[accountId] = Number(balance.toFixed(2));
     });
+
     return totals;
-  }, [ledgerTransactions, userByAccountId, accountById]);
+  }, [ledgerTransactions, memberOptions, accountById]);
 
   const ledgerSummary = useMemo(() => {
     return ledgerRows.reduce(
@@ -458,9 +508,13 @@ export default function AllAttandance() {
           ? (present / fyElapsedWorkingDays) * 100
           : 0;
         const account = member.accountId ? accountById[member.accountId] : null;
-        const storedBalance = account ? Number(account.Balance || 0) : null;
         const derivedBalance = account
           ? Number(journalBalanceByAccount[member.accountId] || 0)
+          : null;
+        const storedBalance = account
+          ? account.__customerLedger
+            ? derivedBalance
+            : Number(account.Balance || 0)
           : null;
         const balanceDifference =
           storedBalance === null || derivedBalance === null
@@ -701,7 +755,7 @@ export default function AllAttandance() {
                   </TableRow>
                 ) : (
                   fySummaryRows.map((row) => {
-                    const balanceMeta = accountBalanceMeta(row.account);
+                    const balanceMeta = accountBalanceMeta(row.account, row.derivedBalance);
                     return (
                       <TableRow key={row.uuid} hover>
                         <TableCell>
@@ -951,7 +1005,10 @@ export default function AllAttandance() {
                           <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtDate(row.date)}</TableCell>
                           <TableCell>
                             <Typography variant="body2" fontWeight={700}>{row.member.name}</Typography>
-                            <Tooltip title={`Current account balance: ${accountBalanceMeta(accountById[row.member.accountId]).label}`}>
+                            <Tooltip title={`Current account balance: ${accountBalanceMeta(
+                              accountById[row.member.accountId],
+                              journalBalanceByAccount[row.member.accountId]
+                            ).label}`}>
                               <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 155, display: "block" }}>
                                 {row.accountName}
                               </Typography>

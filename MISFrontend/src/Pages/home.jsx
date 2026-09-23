@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Box, Paper, LinearProgress, Tabs, Tab } from '@mui/material';
+import { Box, Button, Paper, LinearProgress, Stack, Tabs, Tab, Typography } from '@mui/material';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
@@ -34,6 +34,44 @@ const RateCalculator = lazy(loadRateCalculator);
 const DayBook = lazy(loadDayBook);
 const HomeInbox = lazy(loadHomeInbox);
 
+function AttendanceHome() {
+  const navigate = useNavigate();
+  return (
+    <Stack spacing={1.25}>
+      <Paper
+        variant="outlined"
+        sx={{
+          px: 1.5,
+          py: 1,
+          borderRadius: 2.5,
+          display: 'flex',
+          gap: 1,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          justifyContent: 'space-between',
+          flexDirection: { xs: 'column', sm: 'row' },
+        }}
+      >
+        <Box>
+          <Typography variant="subtitle2" fontWeight={800}>Month-wise Attendance Report</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Check any month staff-wise with working days, present, absent and attendance percentage.
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={<EventAvailableRoundedIcon />}
+          onClick={() => navigate('/attendance-report')}
+          sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2, whiteSpace: 'nowrap' }}
+        >
+          Monthly Report
+        </Button>
+      </Paper>
+      <AllAttandance />
+    </Stack>
+  );
+}
+
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
   { id: 'inbox', label: 'Inbox', icon: ChatRoundedIcon, Component: HomeInbox },
@@ -41,7 +79,7 @@ const HOME_TABS = [
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: AllOrders },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
   { id: 'transaction4D', label: 'Cash & Bank', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
-  { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AllAttandance },
+  { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
   { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'workflowAudit', label: 'Workflow Audit', icon: FactCheckRoundedIcon, Component: WorkflowAudit, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },

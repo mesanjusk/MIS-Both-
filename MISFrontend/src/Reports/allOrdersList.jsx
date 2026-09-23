@@ -3,6 +3,36 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 import { ORDER_STAGES } from '../constants/orderStages';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControl,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import EventIcon from '@mui/icons-material/Event';
+import EditIcon from '@mui/icons-material/Edit';
+import ReceiptIcon from '@mui/icons-material/Receipt';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -10,14 +40,13 @@ const fmtDate = (d) => {
   return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 const fmtAmt = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
-const DELIVERED_STAGES = new Set(['delivered', 'paid']);
-
-const STAGE_COLOR = {
-  enquiry: 'bg-gray-100 text-gray-700', quoted: 'bg-yellow-100 text-yellow-800', approved: 'bg-blue-100 text-blue-800',
-  design: 'bg-purple-100 text-purple-800', printing: 'bg-indigo-100 text-indigo-800', post_printing: 'bg-cyan-100 text-cyan-800',
-  finishing: 'bg-teal-100 text-teal-800', ready: 'bg-orange-100 text-orange-800', delivered: 'bg-green-100 text-green-800',
-  paid: 'bg-emerald-100 text-emerald-800', lost: 'bg-red-100 text-red-700', cancelled: 'bg-rose-100 text-rose-700',
+const isoDate = (d) => {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 };
+const DELIVERED_STAGES = new Set(['delivered', 'paid']);
 
 function orderAmount(order) {
   const itemsTotal = (order.Items || []).reduce((s, it) => s + (Number(it.Amount) || 0), 0);
@@ -46,9 +75,8 @@ export default function AllOrdersList() {
   const [searchText, setSearchText] = useState(searchParams.get('q') || '');
   const [view, setView] = useState(searchParams.get('view') || 'all');
   const [stageFilter, setStageFilter] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [sortConfig, setSortConfig] = useState({ key: 'Order_Number', direction: 'desc' });
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [sidebarDateInput, setSidebarDateInput] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -72,22 +100,64 @@ export default function AllOrdersList() {
     }).catch(() => toast.error('Failed to load orders')).finally(() => setLoading(false));
   }, []);
 
-  const customerMap = useMemo(() => Object.fromEntries(customers.filter((c) => c.Customer_uuid).map((c) => [c.Customer_uuid, c.Customer_name])), [customers]);
+  const customerMap = useMemo(
+    () => Object.fromEntries(customers.filter((c) => c.Customer_uuid).map((c) => [c.Customer_uuid, c.Customer_name])),
+    [customers]
+  );
+
   const rows = useMemo(() => orders.map((o) => {
     const amount = orderAmount(o);
     const isDelivered = delivered(o);
     const billStatus = String(o.billStatus || 'unpaid').toLowerCase();
+    const date = o.createdAt || o.updatedAt || '';
     return {
       order: o,
       customerName: o.Customer_name || customerMap[o.Customer_uuid] || o.Customer_uuid || '—',
-      remark: orderRemark(o), amount,
+      remark: orderRemark(o),
+      amount,
       stage: String(o.stage || latestTask(o)).toLowerCase(),
-      latestTask: latestTask(o), billStatus, isDelivered,
+      latestTask: latestTask(o),
+      billStatus,
+      isDelivered,
       isBillable: amount > 0,
       isComplete: isDelivered && (amount <= 0 || billStatus === 'paid'),
-      date: o.createdAt || o.updatedAt || '',
+      date,
+      dateISO: isoDate(date),
     };
   }), [orders, customerMap]);
+
+  const quickFiltered = useMemo(() => rows.filter((r) => {
+    if (view === 'active' && r.isDelivered) return false;
+    if (view === 'payment' && (!r.isBillable || r.billStatus === 'paid')) return false;
+    if (view === 'delivery' && r.isDelivered) return false;
+    if (view === 'completed' && !r.isComplete) return false;
+    return true;
+  }), [rows, view]);
+
+  const searchedRows = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    return quickFiltered.filter((r) => {
+      if (stageFilter && r.stage !== stageFilter && r.latestTask.toLowerCase() !== stageFilter) return false;
+      if (q && ![r.order.Order_Number, r.customerName, r.remark, r.stage, r.latestTask].join(' ').toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [quickFiltered, searchText, stageFilter]);
+
+  const availableDates = useMemo(() => {
+    const set = new Set(searchedRows.map((r) => r.dateISO).filter(Boolean));
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [searchedRows]);
+
+  const dateCountMap = useMemo(() => {
+    const map = {};
+    searchedRows.forEach((r) => { if (r.dateISO) map[r.dateISO] = (map[r.dateISO] || 0) + 1; });
+    return map;
+  }, [searchedRows]);
+
+  const filtered = useMemo(
+    () => selectedDate ? searchedRows.filter((r) => r.dateISO === selectedDate) : searchedRows,
+    [searchedRows, selectedDate]
+  );
 
   const counts = useMemo(() => ({
     all: rows.length,
@@ -97,90 +167,203 @@ export default function AllOrdersList() {
     completed: rows.filter((r) => r.isComplete).length,
   }), [rows]);
 
-  const filtered = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (view === 'active' && r.isDelivered) return false;
-      if (view === 'payment' && (!r.isBillable || r.billStatus === 'paid')) return false;
-      if (view === 'delivery' && r.isDelivered) return false;
-      if (view === 'completed' && !r.isComplete) return false;
-      if (stageFilter && r.stage !== stageFilter && r.latestTask.toLowerCase() !== stageFilter) return false;
-      if (startDate && new Date(r.date) < new Date(startDate)) return false;
-      if (endDate && new Date(r.date) > new Date(`${endDate}T23:59:59`)) return false;
-      if (q && ![r.order.Order_Number, r.customerName, r.remark, r.stage, r.latestTask].join(' ').toLowerCase().includes(q)) return false;
-      return true;
-    });
-  }, [rows, view, searchText, stageFilter, startDate, endDate]);
-
-  const sorted = useMemo(() => [...filtered].sort((a, b) => {
-    const { key, direction } = sortConfig;
-    const mul = direction === 'asc' ? 1 : -1;
-    const av = key === 'Order_Number' ? Number(a.order.Order_Number || 0) : key === 'date' ? new Date(a.date).getTime() : key === 'amount' ? a.amount : String(a[key] || '');
-    const bv = key === 'Order_Number' ? Number(b.order.Order_Number || 0) : key === 'date' ? new Date(b.date).getTime() : key === 'amount' ? b.amount : String(b[key] || '');
-    return typeof av === 'string' ? av.localeCompare(bv) * mul : (av - bv) * mul;
-  }), [filtered, sortConfig]);
-
-  const setQuickView = (next) => { setView(next); const p = new URLSearchParams(searchParams); if (next === 'all') p.delete('view'); else p.set('view', next); setSearchParams(p, { replace: true }); };
-  const sort = (key) => setSortConfig((p) => ({ key, direction: p.key === key && p.direction === 'asc' ? 'desc' : 'asc' }));
-  const arrow = (key) => sortConfig.key === key ? (sortConfig.direction === 'asc' ? ' ▲' : ' ▼') : '';
-  const clearFilters = () => { setSearchText(''); setStageFilter(''); setStartDate(''); setEndDate(''); setQuickView('all'); };
-  const totalAmount = filtered.reduce((s, r) => s + r.amount, 0);
+  const stats = useMemo(() => ({
+    count: filtered.length,
+    value: filtered.reduce((s, r) => s + r.amount, 0),
+    paymentDue: filtered.filter((r) => r.isBillable && r.billStatus !== 'paid').length,
+    deliveryPending: filtered.filter((r) => !r.isDelivered).length,
+    completed: filtered.filter((r) => r.isComplete).length,
+  }), [filtered]);
 
   const quickViews = [
     ['all', 'All'], ['active', 'Active'], ['payment', 'Payment Due'], ['delivery', 'Delivery Pending'], ['completed', 'Completed'],
   ];
 
+  const setQuickView = (next) => {
+    setView(next);
+    setSelectedDate(null);
+    const p = new URLSearchParams(searchParams);
+    if (next === 'all') p.delete('view'); else p.set('view', next);
+    setSearchParams(p, { replace: true });
+  };
+
+  const goToDate = () => { if (sidebarDateInput) setSelectedDate(sidebarDateInput); };
+  const selectedLabel = selectedDate ? fmtDate(selectedDate) : 'All Dates';
+
   return (
-    <div className="pt-16 pb-24 px-4">
-      <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-        <div><h2 className="text-xl font-bold text-gray-800">Orders</h2><p className="text-sm text-gray-500">Production, billing, payment and delivery in one place</p></div>
-        <div className="text-sm text-gray-600">Showing <b className="text-blue-600">{filtered.length}</b> of {orders.length}</div>
-      </div>
+    <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
+      <Paper
+        variant="outlined"
+        sx={{ width: 210, flexShrink: 0, borderRadius: 3, display: { xs: 'none', md: 'flex' }, flexDirection: 'column', overflow: 'hidden', height: 'calc(100vh - 80px)', position: 'sticky', top: 16 }}
+      >
+        <Box sx={{ p: 1.5, pb: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700}>Orders</Typography>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
+            <TextField
+              type="date"
+              size="small"
+              value={sidebarDateInput}
+              onChange={(e) => setSidebarDateInput(e.target.value)}
+              sx={{ flex: 1, '& input': { fontSize: 12, py: 0.6 } }}
+              InputLabelProps={{ shrink: true }}
+            />
+            <Tooltip title="Go to date">
+              <Button size="small" onClick={goToDate} sx={{ minWidth: 34, px: 0.5 }}><EventIcon fontSize="small" /></Button>
+            </Tooltip>
+          </Stack>
+        </Box>
+        <Divider />
+        <Box sx={{ overflowY: 'auto', flex: 1 }}>
+          <Box
+            onClick={() => setSelectedDate(null)}
+            sx={{ px: 2, py: 1.25, cursor: 'pointer', bgcolor: selectedDate === null ? 'primary.main' : 'transparent', color: selectedDate === null ? 'primary.contrastText' : 'text.primary', '&:hover': { bgcolor: selectedDate === null ? 'primary.dark' : 'action.hover' } }}
+          >
+            <Typography variant="body2" fontWeight={700}>All Dates</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.75 }}>{searchedRows.length} orders</Typography>
+          </Box>
+          <Divider />
+          {availableDates.map((date) => (
+            <Box key={date}>
+              <Box
+                onClick={() => setSelectedDate(date)}
+                sx={{ px: 2, py: 1.25, cursor: 'pointer', bgcolor: selectedDate === date ? 'primary.main' : 'transparent', color: selectedDate === date ? 'primary.contrastText' : 'text.primary', '&:hover': { bgcolor: selectedDate === date ? 'primary.dark' : 'action.hover' } }}
+              >
+                <Typography variant="body2" fontWeight={600}>{fmtDate(date)}</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.75 }}>{dateCountMap[date] || 0} orders</Typography>
+              </Box>
+              <Divider />
+            </Box>
+          ))}
+        </Box>
+      </Paper>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {quickViews.map(([key, label]) => <button key={key} onClick={() => setQuickView(key)} className={`px-3 py-1.5 rounded-lg border text-sm font-semibold ${view === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{label} <span className="opacity-75">({counts[key]})</span></button>)}
-      </div>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1.5 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="h5" fontWeight={900} noWrap>Orders</Typography>
+            <Typography variant="body2" color="text.secondary">{selectedLabel} · {stats.count} orders · Production, billing, payment & delivery</Typography>
+          </Box>
 
-      <div className="bg-white border rounded-xl p-3 mb-4 shadow-sm flex flex-wrap gap-3">
-        <div className="flex-1 min-w-[220px]"><label className="block text-xs font-medium text-gray-600 mb-1">Search order, customer or job</label><input value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full border rounded-lg px-3 py-1.5 text-sm" placeholder="Order # / customer / remark" /></div>
-        <div className="min-w-[150px]"><label className="block text-xs font-medium text-gray-600 mb-1">Stage</label><select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className="w-full border rounded-lg px-3 py-1.5 text-sm"><option value="">All stages</option>{ORDER_STAGES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}</select></div>
-        <div><label className="block text-xs font-medium text-gray-600 mb-1">From</label><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" /></div>
-        <div><label className="block text-xs font-medium text-gray-600 mb-1">To</label><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded-lg px-2 py-1.5 text-sm" /></div>
-        <div className="flex items-end"><button onClick={clearFilters} className="px-3 py-1.5 text-sm bg-gray-100 rounded-lg border">Clear</button></div>
-      </div>
+          <TextField
+            size="small"
+            placeholder="Search order / customer"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            sx={{ width: { xs: '100%', sm: 210 } }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+          />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-        <div className="border rounded-lg px-3 py-2 bg-blue-50"><div className="text-xs text-blue-700">Value shown</div><b>{fmtAmt(totalAmount)}</b></div>
-        <div className="border rounded-lg px-3 py-2 bg-red-50"><div className="text-xs text-red-700">Payment due</div><b>{counts.payment}</b></div>
-        <div className="border rounded-lg px-3 py-2 bg-orange-50"><div className="text-xs text-orange-700">Delivery pending</div><b>{counts.delivery}</b></div>
-        <div className="border rounded-lg px-3 py-2 bg-green-50"><div className="text-xs text-green-700">Completed</div><b>{counts.completed}</b></div>
-      </div>
+          <FormControl size="small" sx={{ width: { xs: '100%', sm: 150 } }}>
+            <InputLabel>Stage</InputLabel>
+            <Select value={stageFilter} label="Stage" onChange={(e) => setStageFilter(e.target.value)}>
+              <MenuItem value="">All stages</MenuItem>
+              {ORDER_STAGES.map((s) => <MenuItem key={s} value={s}>{s.replaceAll('_', ' ')}</MenuItem>)}
+            </Select>
+          </FormControl>
+        </Stack>
 
-      {loading ? <div className="text-center py-12 text-gray-500">Loading orders…</div> : <div className="overflow-x-auto rounded-xl border shadow-sm"><table className="min-w-full border-collapse text-sm bg-white">
-        <thead className="bg-gray-100 text-gray-700"><tr>
-          <th className="py-2 px-3 text-left cursor-pointer" onClick={() => sort('Order_Number')}>Order #{arrow('Order_Number')}</th>
-          <th className="py-2 px-3 text-left cursor-pointer" onClick={() => sort('date')}>Date{arrow('date')}</th>
-          <th className="py-2 px-3 text-left cursor-pointer" onClick={() => sort('customerName')}>Customer{arrow('customerName')}</th>
-          <th className="py-2 px-3 text-left">Job</th><th className="py-2 px-3 text-left">Stage</th>
-          <th className="py-2 px-3 text-left cursor-pointer" onClick={() => sort('amount')}>Amount{arrow('amount')}</th>
-          <th className="py-2 px-3 text-left">Payment</th><th className="py-2 px-3 text-left">Delivery</th><th className="py-2 px-3 text-center">Actions</th>
-        </tr></thead>
-        <tbody>{sorted.length === 0 && <tr><td colSpan={9} className="py-10 text-center text-gray-400">No orders found</td></tr>}
-          {sorted.map((r, idx) => {
-            const id = r.order.Order_uuid || r.order._id;
-            const stageClass = STAGE_COLOR[r.stage] || 'bg-gray-100 text-gray-600';
-            return <tr key={id || idx} className="border-t hover:bg-blue-50">
-              <td className="py-2 px-3 font-semibold text-blue-700">#{r.order.Order_Number}</td><td className="py-2 px-3 whitespace-nowrap text-gray-600">{fmtDate(r.date)}</td>
-              <td className="py-2 px-3 font-medium">{r.customerName}</td><td className="py-2 px-3 max-w-[220px]"><span className="block truncate" title={r.remark}>{r.remark}</span></td>
-              <td className="py-2 px-3"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${stageClass}`}>{r.stage.replace('_', ' ')}</span></td>
-              <td className="py-2 px-3 font-semibold whitespace-nowrap">{r.amount > 0 ? fmtAmt(r.amount) : '—'}</td>
-              <td className="py-2 px-3"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.billStatus === 'paid' ? 'bg-green-100 text-green-700' : r.isBillable ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-500'}`}>{r.isBillable ? (r.billStatus === 'paid' ? 'Paid' : 'Due') : 'No bill'}</span></td>
-              <td className="py-2 px-3"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${r.isDelivered ? 'bg-green-100 text-green-700' : 'bg-orange-50 text-orange-700'}`}>{r.isDelivered ? 'Delivered' : 'Pending'}</span></td>
-              <td className="py-2 px-3 text-center whitespace-nowrap"><button onClick={() => navigate(`/orderUpdate/${id}`)} className="text-blue-600 hover:underline text-xs mr-3">Edit</button><button onClick={() => navigate(`/reports/invoices?q=${encodeURIComponent(r.order.Order_Number || '')}`)} className="text-purple-600 hover:underline text-xs mr-3">Invoice</button><button onClick={() => navigate(`/updateDelivery/${id}`)} className="text-green-600 hover:underline text-xs">Delivery</button></td>
-            </tr>;
-          })}
-        </tbody>
-      </table></div>}
-    </div>
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+          {quickViews.map(([key, label]) => (
+            <Chip
+              key={key}
+              clickable
+              onClick={() => setQuickView(key)}
+              label={`${label} (${counts[key]})`}
+              color={view === key ? 'primary' : 'default'}
+              variant={view === key ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 700 }}
+            />
+          ))}
+        </Stack>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+          {[
+            { label: 'Orders', value: stats.count, color: 'text.primary' },
+            { label: 'Order Value', value: fmtAmt(stats.value), color: 'primary.main' },
+            { label: 'Payment Due', value: stats.paymentDue, color: 'error.dark' },
+            { label: 'Delivery Pending', value: stats.deliveryPending, color: 'warning.dark' },
+            { label: 'Completed', value: stats.completed, color: 'success.dark' },
+          ].map((item) => (
+            <Card key={item.label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+              <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
+                <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                <Typography variant="h6" fontWeight={900} color={item.color}>{item.value}</Typography>
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
+
+        {loading ? (
+          <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box>
+        ) : filtered.length === 0 ? (
+          <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No orders found for this selection.</Typography>
+        ) : (
+          <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <LocalShippingIcon fontSize="small" color="success" />
+                <Typography variant="subtitle2" fontWeight={700} color="success.dark" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Orders Control
+                </Typography>
+              </Stack>
+              <Typography variant="subtitle2" fontWeight={700} color="primary.main">{fmtAmt(stats.value)}</Typography>
+            </Stack>
+
+            <TableContainer sx={{ maxHeight: '66vh' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700, width: 56, px: 0.75 }}>#</TableCell>
+                    <TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell>
+                    <TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 90, px: 0.75 }}>Amount</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 700, width: 112, px: 0.5 }}>·</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filtered.map((r, idx) => {
+                    const id = r.order.Order_uuid || r.order._id;
+                    return (
+                      <TableRow key={id || idx} hover>
+                        <TableCell sx={{ px: 0.75 }}><Typography variant="caption" fontWeight={800}>#{r.order.Order_Number}</Typography></TableCell>
+                        <TableCell sx={{ px: 0.75 }}>
+                          <Tooltip title={r.customerName}>
+                            <Button variant="text" size="small" onClick={() => navigate(`/orderUpdate/${id}`)} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 700, maxWidth: 170, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {r.customerName}
+                            </Button>
+                          </Tooltip>
+                          <Typography variant="caption" color="text.secondary">{fmtDate(r.date)}</Typography>
+                        </TableCell>
+                        <TableCell sx={{ px: 0.75 }}>
+                          <Tooltip title={r.remark}>
+                            <Typography variant="caption" sx={{ display: 'block', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.remark}</Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell sx={{ px: 0.75 }}><Chip size="small" variant="outlined" label={(r.stage || '—').replaceAll('_', ' ')} sx={{ height: 20, fontSize: 10.5 }} /></TableCell>
+                        <TableCell align="right" sx={{ px: 0.75, fontWeight: 800 }}>{r.amount > 0 ? fmtAmt(r.amount) : '—'}</TableCell>
+                        <TableCell align="center" sx={{ px: 0.75 }}>
+                          <Chip size="small" label={r.isBillable ? (r.billStatus === 'paid' ? 'Paid' : 'Due') : 'No bill'} color={r.billStatus === 'paid' ? 'success' : r.isBillable ? 'error' : 'default'} variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
+                        </TableCell>
+                        <TableCell align="center" sx={{ px: 0.75 }}>
+                          <Chip size="small" label={r.isDelivered ? 'Delivered' : 'Pending'} color={r.isDelivered ? 'success' : 'warning'} variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
+                        </TableCell>
+                        <TableCell align="center" sx={{ px: 0.5, whiteSpace: 'nowrap' }}>
+                          <Tooltip title="Edit order"><Button size="small" onClick={() => navigate(`/orderUpdate/${id}`)} sx={{ minWidth: 28, px: 0.5 }}><EditIcon fontSize="small" /></Button></Tooltip>
+                          <Tooltip title="Invoice"><Button size="small" onClick={() => navigate(`/reports/invoices?q=${encodeURIComponent(r.order.Order_Number || '')}`)} sx={{ minWidth: 28, px: 0.5 }}><ReceiptIcon fontSize="small" /></Button></Tooltip>
+                          <Tooltip title="Delivery"><Button size="small" color="success" onClick={() => navigate(`/updateDelivery/${id}`)} sx={{ minWidth: 28, px: 0.5 }}><LocalShippingIcon fontSize="small" /></Button></Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+      </Box>
+    </Box>
   );
 }

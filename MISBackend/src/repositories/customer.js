@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
 
 const normalizePartyRoles = (roles = []) => {
   const allowed = new Set(["customer", "vendor"]);
@@ -13,6 +14,10 @@ const normalizePartyRoles = (roles = []) => {
 
 const CustomersSchema = new mongoose.Schema({
   Customer_uuid: { type: String },
+  // Additive integrity key: new customers are protected immediately while
+  // historical rows are backfilled only after the migration confirms the UUID
+  // is not shared by more than one party.
+  Customer_identity_key: { type: String, default: undefined, select: false },
   Customer_name: { type: String, required: true },
   Mobile_number: { type: String },
   Email: { type: String, default: '', trim: true },
@@ -43,6 +48,13 @@ const CustomersSchema = new mongoose.Schema({
 });
 
 CustomersSchema.pre("validate", function (next) {
+  if (!this.Customer_uuid) this.Customer_uuid = uuidv4();
+  // Only new rows are keyed automatically. Existing rows are deliberately not
+  // keyed just because they are edited; the migration first checks duplicates.
+  if (this.isNew || this.Customer_identity_key) {
+    this.Customer_identity_key = String(this.Customer_uuid || '').trim();
+  }
+
   if (!Array.isArray(this.PartyRoles) || this.PartyRoles.length === 0) {
     this.PartyRoles = ["customer"];
   }
@@ -64,6 +76,14 @@ CustomersSchema.index({ Mobile_number: 1 }, { unique: true, sparse: true });
 CustomersSchema.index({ Customer_group: 1 });
 CustomersSchema.index({ Status: 1 });
 CustomersSchema.index({ Customer_uuid: 1 });
+CustomersSchema.index(
+  { Customer_identity_key: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { Customer_identity_key: { $type: "string" } },
+    name: "Customer_identity_key_unique",
+  }
+);
 CustomersSchema.index({ LastInteraction: -1 });
 CustomersSchema.index({ PartyRoles: 1 });
 

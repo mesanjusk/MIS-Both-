@@ -33,6 +33,7 @@ import EventIcon from '@mui/icons-material/Event';
 import EditIcon from '@mui/icons-material/Edit';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -120,6 +121,8 @@ export default function AllOrdersList() {
       billStatus,
       isDelivered,
       isBillable: amount > 0,
+      isMissingAmount: amount <= 0,
+      isLowAmount: amount > 0 && amount < 99,
       isComplete: isDelivered && (amount <= 0 || billStatus === 'paid'),
       date,
       dateISO: isoDate(date),
@@ -131,6 +134,8 @@ export default function AllOrdersList() {
     if (view === 'payment' && (!r.isBillable || r.billStatus === 'paid')) return false;
     if (view === 'delivery' && r.isDelivered) return false;
     if (view === 'completed' && !r.isComplete) return false;
+    if (view === 'missing' && !r.isMissingAmount) return false;
+    if (view === 'low' && !r.isLowAmount) return false;
     return true;
   }), [rows, view]);
 
@@ -165,6 +170,8 @@ export default function AllOrdersList() {
     payment: rows.filter((r) => r.isBillable && r.billStatus !== 'paid').length,
     delivery: rows.filter((r) => !r.isDelivered).length,
     completed: rows.filter((r) => r.isComplete).length,
+    missing: rows.filter((r) => r.isMissingAmount).length,
+    low: rows.filter((r) => r.isLowAmount).length,
   }), [rows]);
 
   const stats = useMemo(() => ({
@@ -173,6 +180,8 @@ export default function AllOrdersList() {
     paymentDue: filtered.filter((r) => r.isBillable && r.billStatus !== 'paid').length,
     deliveryPending: filtered.filter((r) => !r.isDelivered).length,
     completed: filtered.filter((r) => r.isComplete).length,
+    missingAmount: filtered.filter((r) => r.isMissingAmount).length,
+    lowAmount: filtered.filter((r) => r.isLowAmount).length,
   }), [filtered]);
 
   const quickViews = [
@@ -276,17 +285,33 @@ export default function AllOrdersList() {
           ))}
         </Stack>
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }} useFlexGap>
           {[
             { label: 'Orders', value: stats.count, color: 'text.primary' },
             { label: 'Order Value', value: fmtAmt(stats.value), color: 'primary.main' },
             { label: 'Payment Due', value: stats.paymentDue, color: 'error.dark' },
             { label: 'Delivery Pending', value: stats.deliveryPending, color: 'warning.dark' },
             { label: 'Completed', value: stats.completed, color: 'success.dark' },
+            { label: 'Missing Amount', value: stats.missingAmount, color: 'error.main', alertView: 'missing' },
+            { label: 'Below ₹99', value: stats.lowAmount, color: 'warning.dark', alertView: 'low' },
           ].map((item) => (
-            <Card key={item.label} variant="outlined" sx={{ flex: 1, borderRadius: 3 }}>
+            <Card
+              key={item.label}
+              variant="outlined"
+              onClick={item.alertView ? () => setQuickView(item.alertView) : undefined}
+              sx={{
+                flex: '1 1 135px',
+                borderRadius: 3,
+                cursor: item.alertView ? 'pointer' : 'default',
+                borderColor: item.alertView && item.value > 0 ? item.color : undefined,
+                bgcolor: item.alertView && item.value > 0 ? 'action.hover' : undefined,
+              }}
+            >
               <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  {item.alertView && item.value > 0 ? <WarningAmberIcon sx={{ fontSize: 17, color: item.color }} /> : null}
+                  <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                </Stack>
                 <Typography variant="h6" fontWeight={900} color={item.color}>{item.value}</Typography>
               </CardContent>
             </Card>
@@ -317,7 +342,7 @@ export default function AllOrdersList() {
                     <TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell>
                     <TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, width: 90, px: 0.75 }}>Amount</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, width: 105, px: 0.75 }}>Amount</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 700, width: 112, px: 0.5 }}>·</TableCell>
@@ -326,8 +351,13 @@ export default function AllOrdersList() {
                 <TableBody>
                   {filtered.map((r, idx) => {
                     const id = r.order.Order_uuid || r.order._id;
+                    const amountWarning = r.isMissingAmount ? 'Missing amount' : r.isLowAmount ? 'Below ₹99' : '';
                     return (
-                      <TableRow key={id || idx} hover>
+                      <TableRow
+                        key={id || idx}
+                        hover
+                        sx={{ bgcolor: r.isMissingAmount ? 'error.50' : r.isLowAmount ? 'warning.50' : undefined }}
+                      >
                         <TableCell sx={{ px: 0.75 }}><Typography variant="caption" fontWeight={800}>#{r.order.Order_Number}</Typography></TableCell>
                         <TableCell sx={{ px: 0.75 }}>
                           <Tooltip title={r.customerName}>
@@ -343,7 +373,21 @@ export default function AllOrdersList() {
                           </Tooltip>
                         </TableCell>
                         <TableCell sx={{ px: 0.75 }}><Chip size="small" variant="outlined" label={(r.stage || '—').replaceAll('_', ' ')} sx={{ height: 20, fontSize: 10.5 }} /></TableCell>
-                        <TableCell align="right" sx={{ px: 0.75, fontWeight: 800 }}>{r.amount > 0 ? fmtAmt(r.amount) : '—'}</TableCell>
+                        <TableCell align="right" sx={{ px: 0.75, fontWeight: 800 }}>
+                          {amountWarning ? (
+                            <Tooltip title={`${amountWarning} — open order and correct the amount`}>
+                              <Chip
+                                size="small"
+                                icon={<WarningAmberIcon />}
+                                label={r.isMissingAmount ? 'NO AMOUNT' : fmtAmt(r.amount)}
+                                color={r.isMissingAmount ? 'error' : 'warning'}
+                                variant="outlined"
+                                onClick={() => navigate(`/orderUpdate/${id}`)}
+                                sx={{ height: 23, fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}
+                              />
+                            </Tooltip>
+                          ) : fmtAmt(r.amount)}
+                        </TableCell>
                         <TableCell align="center" sx={{ px: 0.75 }}>
                           <Chip size="small" label={r.isBillable ? (r.billStatus === 'paid' ? 'Paid' : 'Due') : 'No bill'} color={r.billStatus === 'paid' ? 'success' : r.isBillable ? 'error' : 'default'} variant="outlined" sx={{ height: 20, fontSize: 10.5 }} />
                         </TableCell>

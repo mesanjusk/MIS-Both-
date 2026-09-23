@@ -10,7 +10,17 @@ const diaryEntrySchema = new mongoose.Schema({
   mode:             { type: String, default: 'cash' },
   checked:          { type: Boolean, default: false },
   notes:            { type: String, default: '' },
-  account_assigned:   { type: String, default: '' },
+  // Legacy display/input value retained so old UI and records continue to work.
+  account_assigned:      { type: String, default: '' },
+  // Canonical identity used by new posting/migration code. Existing entries are
+  // backfilled only when the value can be resolved without ambiguity.
+  account_assigned_uuid: { type: String, default: '' },
+  account_assigned_name: { type: String, default: '' },
+  account_assigned_type: {
+    type: String,
+    enum: ['', 'account', 'customer', 'vendor', 'employee'],
+    default: '',
+  },
   auto_suggested:     { type: Boolean, default: false },
   suggestion_source:  { type: String, default: '' },
   entry_status:       { type: String, enum: ['draft', 'confirmed', 'rejected'], default: 'draft' },
@@ -30,6 +40,8 @@ const DiaryDraftSchema = new mongoose.Schema({
 // diary_uuid already gets an index from `unique: true` on its field definition above.
 DiaryDraftSchema.index({ diary_date: -1 });
 DiaryDraftSchema.index({ status: 1 });
+DiaryDraftSchema.index({ 'entries.account_assigned_uuid': 1 });
+DiaryDraftSchema.index({ 'entries.transaction_uuid': 1 });
 
 const DiaryDraft = mongoose.model('DiaryDraft', DiaryDraftSchema);
 module.exports = DiaryDraft;

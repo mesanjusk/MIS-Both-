@@ -1,13 +1,23 @@
 const Accounts = require('../repositories/accounts');
 const Customer = require('../repositories/customer');
 const Transaction = require('../repositories/transaction');
-const {
-  applyBalanceMovement,
-  invalidateCache,
-} = require('./accountRegistry');
+const { applyBalanceMovement, invalidateCache } = require('./accountRegistry');
 
 const lower = (value) => String(value || '').trim().toLowerCase();
 
+/**
+ * Repair legacy shadow chart-of-account UUIDs across the ENTIRE transaction
+ * journal. Account_name is only a display label; Account_id is ledger identity.
+ *
+ * Safety rules:
+ * - only non-system default General/Asset accounts created by the historical
+ *   name resolver are candidates;
+ * - the shadow name must map to exactly one real Customer_uuid;
+ * - the journal line display name must agree with that unique customer;
+ * - ambiguous duplicate names are reported and never moved automatically;
+ * - the update is conditional/idempotent and cached account movement is
+ *   reversed only after the transaction was actually changed.
+ */
 async function repairShadowPartyJournalLines() {
   const customers = await Customer.find(
     { Customer_uuid: { $ne: null }, Customer_name: { $ne: '' } },
@@ -23,9 +33,6 @@ async function repairShadowPartyJournalLines() {
     customerBuckets.set(key, bucket);
   }
 
-  // getUuid() historically auto-created unknown names as non-system,
-  // Asset/debit, General accounts. Only those default-shape accounts are
-  // candidates for automatic party-ledger repair.
   const shadowAccounts = await Accounts.find({
     Is_system: { $ne: true },
     Account_group: 'General',
@@ -33,26 +40,38 @@ async function repairShadowPartyJournalLines() {
   }).lean();
 
   const shadowToCustomer = new Map();
+  const ambiguousAccounts = [];
   for (const account of shadowAccounts) {
     const matches = customerBuckets.get(lower(account.Account_name)) || [];
+    if (matches.length > 1) {
+      ambiguousAccounts.push({
+        accountUuid: account.Account_uuid,
+        accountName: account.Account_name,
+        customerUuids: matches.map((item) => item.Customer_uuid),
+      });
+      continue;
+    }
     if (matches.length !== 1) continue;
     const customer = matches[0];
     if (String(customer.Customer_uuid) === String(account.Account_uuid)) continue;
     shadowToCustomer.set(String(account.Account_uuid), customer);
   }
 
-  if (!shadowToCustomer.size) {
+  const shadowIds = [...shadowToCustomer.keys()];
+  if (!shadowIds.length) {
     return {
+      accountsChecked: shadowAccounts.length,
       candidateShadowAccounts: 0,
+      ambiguousAccounts,
       transactionsScanned: 0,
       transactionsRepaired: 0,
       journalLinesRepaired: 0,
     };
   }
 
-  const shadowIds = [...shadowToCustomer.keys()];
+  // IMPORTANT: intentionally no Source filter. Historical shadow UUIDs can
+  // exist in bank, UPI, cash, diary, manual and other accounting workflows.
   const transactions = await Transaction.find({
-    Source: { $regex: /^(diary:|business:bank_statement:)/ },
     'Journal_entry.Account_id': { $in: shadowIds },
   });
 
@@ -68,16 +87,13 @@ async function repairShadowPartyJournalLines() {
     }));
 
     let changed = false;
+    let changedLines = 0;
     const nextJournal = previousJournal.map((line) => {
       const customer = shadowToCustomer.get(String(line.Account_id || ''));
       if (!customer) return line;
-
-      // Name agreement is required as an extra safety check before changing
-      // the foreign key. This prevents an unrelated reused UUID from moving.
       if (lower(line.Account_name) !== lower(customer.Customer_name)) return line;
-
       changed = true;
-      journalLinesRepaired += 1;
+      changedLines += 1;
       return {
         ...line,
         Account_id: customer.Customer_uuid,
@@ -87,11 +103,6 @@ async function repairShadowPartyJournalLines() {
 
     if (!changed) continue;
 
-    // Use a conditional atomic update instead of document.save(). During a
-    // zero-downtime deploy, another worker/user can touch the same transaction.
-    // The shadow-id predicate makes this idempotent: once another process has
-    // repaired the row, this update matches nothing and we do not reverse the
-    // old cached balance a second time.
     const updateResult = await Transaction.updateOne(
       {
         _id: transaction._id,
@@ -99,30 +110,22 @@ async function repairShadowPartyJournalLines() {
       },
       { $set: { Journal_entry: nextJournal } }
     );
-
     if (!updateResult.modifiedCount) continue;
 
-    // Remove the cached movement from the obsolete shadow Accounts row.
-    // Customer ledgers are derived from Transaction journal lines, so the new
-    // Customer_uuid line does not need a separate Accounts.Balance update.
-    await applyBalanceMovement({
-      reverse: previousJournal,
-      apply: nextJournal,
-    });
-
+    await applyBalanceMovement({ reverse: previousJournal, apply: nextJournal });
     transactionsRepaired += 1;
+    journalLinesRepaired += changedLines;
   }
 
   invalidateCache();
-
   return {
+    accountsChecked: shadowAccounts.length,
     candidateShadowAccounts: shadowToCustomer.size,
+    ambiguousAccounts,
     transactionsScanned: transactions.length,
     transactionsRepaired,
     journalLinesRepaired,
   };
 }
 
-module.exports = {
-  repairShadowPartyJournalLines,
-};
+module.exports = { repairShadowPartyJournalLines };

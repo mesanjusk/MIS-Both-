@@ -69,7 +69,7 @@ describe('partyLedgerIntegrityService', () => {
     expect(shadow.Balance).toBe(0);
   });
 
-  test('does not rewrite unrelated manual transactions', async () => {
+  test('repairs a true shadow party UUID even when the original posting source is manual', async () => {
     const customerUuid = uuid();
     const shadowUuid = uuid();
 
@@ -108,9 +108,11 @@ describe('partyLedgerIntegrityService', () => {
     });
 
     const result = await repairShadowPartyJournalLines();
-    expect(result.transactionsRepaired).toBe(0);
+    expect(result.transactionsRepaired).toBe(1);
+    expect(result.journalLinesRepaired).toBe(1);
 
-    const untouched = await Transaction.findOne({ Transaction_uuid: txnUuid }).lean();
-    expect(untouched.Journal_entry[0].Account_id).toBe(shadowUuid);
+    const repaired = await Transaction.findOne({ Transaction_uuid: txnUuid }).lean();
+    expect(repaired.Journal_entry[0].Account_id).toBe(customerUuid);
+    expect(repaired.Journal_entry[0].Account_name).toBe('Example Party');
   });
 });

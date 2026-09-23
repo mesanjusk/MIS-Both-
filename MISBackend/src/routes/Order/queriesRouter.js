@@ -216,13 +216,10 @@ router.get("/GetBillList", async (_req, res) => {
   try {
     const rows = await Orders.aggregate([
       ...latestStatusProjectionStages,
-      // Count any order that was ever delivered, matching the Bills tab paged
-      // endpoint and the Delivery tab (GetDeliveredList): an order counts as
-      // delivered if its stage is "delivered"/"paid" OR any Status entry's Task
-      // contains "delivered". The stage-based workflow writes Task labels like
-      // "delivered - Delivered", so an exact "delivered" match misses them.
+      // Bills represent every order with a positive billable line amount.
+      // Delivery is a separate workflow/report and must not gate billing.
       { $addFields: { wasDelivered: { $or: [{ $in: [{ $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } }, ["delivered", "paid"]] }, { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $regexMatch: { input: { $ifNull: ["$$s.Task", ""] }, regex: "delivered", options: "i" } } } } }] } } },
-      { $match: { wasDelivered: true, hasBillable: true } },
+      { $match: { hasBillable: true } },
     ]);
     res.json({ success: true, result: rows });
   } catch (err) {
@@ -376,7 +373,9 @@ router.get("/GetBillListPaged", async (req, res) => {
           },
         },
       },
-      { $match: { wasDelivered: true, hasBillable: true } },
+      // A bill is eligible as soon as it has a positive billable amount;
+      // delivery status remains available for display but no longer gates it.
+      { $match: { hasBillable: true } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: searchClauses } }] : []),
       ...(dedicatedBillNumberRegex

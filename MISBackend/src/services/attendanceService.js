@@ -1,5 +1,6 @@
 const { v4: uuid } = require('uuid');
 const Attendance = require('../repositories/attendance');
+const attendanceNumber = require('./attendanceNumberService');
 const { businessDateString, businessDayKey } = require('../utils/businessDay');
 
 // Both were locally defined and disagreed: one produced a UTC date string, the
@@ -28,11 +29,6 @@ const isTransitionAllowed = ({ hasAttendance, currentType, attendanceType }) => 
   return (TRANSITION_MAP[currentType] || []).includes(attendanceType);
 };
 
-const getNextAttendanceRecordId = async () => {
-  const lastAttendanceRecord = await Attendance.findOne().sort({ Attendance_Record_ID: -1 }).lean();
-  return lastAttendanceRecord ? lastAttendanceRecord.Attendance_Record_ID + 1 : 1;
-};
-
 const markAttendance = async ({
   employeeUuid,
   type = 'In',
@@ -47,23 +43,30 @@ const markAttendance = async ({
   }
 
   const attendanceDate = getDateOnly(createdAt);
+  const businessDay = businessDateString(createdAt);
   const entryTime = time || new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+  // Prefer the new stable business-day key, but keep the legacy Date fallback so
+  // historical rows remain visible before the backfill migration is run.
   const existingAttendance = await Attendance.findOne({
     Employee_uuid: employeeUuid,
-    Date: attendanceDate,
+    $or: [
+      { Business_day: businessDay },
+      { Date: attendanceDate },
+    ],
   });
 
   if (existingAttendance) {
     return { attendance: existingAttendance, created: false };
   }
 
-  const nextAttendanceRecordId = await getNextAttendanceRecordId();
+  const nextAttendanceRecordId = await attendanceNumber.allocate();
   const newAttendance = new Attendance({
     Attendance_uuid: uuid(),
     Attendance_Record_ID: nextAttendanceRecordId,
     Employee_uuid: employeeUuid,
     Date: attendanceDate,
+    Business_day: businessDay,
     Status: status,
     source,
     User: addInitialEntry ? [{ Type: type, Time: entryTime, CreatedAt: createdAt }] : [],

@@ -48,6 +48,56 @@ const TransactionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Protect all new/edited accounting postings while leaving unrelated updates to
+// historical rows possible. Old malformed rows are reported by the audit script;
+// they are not rewritten or deleted automatically.
+TransactionSchema.pre('validate', function (next) {
+  const accountingChanged = this.isNew
+    || this.isModified('Journal_entry')
+    || this.isModified('Total_Debit')
+    || this.isModified('Total_Credit');
+
+  if (!accountingChanged) return next();
+
+  const lines = Array.isArray(this.Journal_entry) ? this.Journal_entry : [];
+  if (lines.length < 2) {
+    return next(new Error('Transaction requires at least one debit and one credit journal line'));
+  }
+
+  let debit = 0;
+  let credit = 0;
+  for (const [index, line] of lines.entries()) {
+    const type = String(line?.Type || '').trim().toLowerCase();
+    const amount = Number(line?.Amount);
+    if (type !== 'debit' && type !== 'credit') {
+      return next(new Error(`Journal_entry[${index}].Type must be Debit or Credit`));
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return next(new Error(`Journal_entry[${index}].Amount must be greater than zero`));
+    }
+    if (type === 'debit') debit += amount;
+    else credit += amount;
+  }
+
+  const round2 = (value) => Number(Number(value || 0).toFixed(2));
+  debit = round2(debit);
+  credit = round2(credit);
+  const totalDebit = round2(this.Total_Debit);
+  const totalCredit = round2(this.Total_Credit);
+
+  if (debit !== credit) {
+    return next(new Error(`Journal is not balanced: debit ${debit} != credit ${credit}`));
+  }
+  if (totalDebit !== totalCredit) {
+    return next(new Error(`Transaction totals are not balanced: debit ${totalDebit} != credit ${totalCredit}`));
+  }
+  if (totalDebit !== debit || totalCredit !== credit) {
+    return next(new Error('Transaction totals must equal the journal debit/credit totals'));
+  }
+
+  next();
+});
+
 TransactionSchema.index({ Transaction_uuid: 1 }, { unique: true, sparse: true });
 TransactionSchema.index({ Transaction_id: 1 });
 TransactionSchema.index({ Order_uuid: 1 });

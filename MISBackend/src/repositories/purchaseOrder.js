@@ -4,6 +4,9 @@ const { v4: uuidv4 } = require('uuid');
 const purchaseOrderItemSchema = new mongoose.Schema(
   {
     itemName: { type: String, required: true, trim: true },
+    // Stable catalog identity. Existing rows remain valid with an empty value;
+    // the integrity migration backfills it only on an exact unique item-name match.
+    itemUuid: { type: String, default: '' },
     qty: { type: Number, default: 0, min: 0 },
     unit: { type: String, default: 'Nos' },
     rate: { type: Number, default: 0, min: 0 },
@@ -36,6 +39,7 @@ const purchaseOrderSchema = new mongoose.Schema(
 );
 
 purchaseOrderSchema.index({ sourceDriveFolderId: 1 }, { unique: true, sparse: true });
+purchaseOrderSchema.index({ 'Items.itemUuid': 1 });
 
 purchaseOrderSchema.pre('validate', function(next) {
   if (!this.PO_uuid) this.PO_uuid = uuidv4();

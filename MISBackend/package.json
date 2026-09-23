@@ -9,6 +9,9 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "migrate:vendorwork-to-productionjob": "node scripts/migrate-vendorwork-to-productionjob.js",
+    "audit:schema-integrity": "node scripts/migrate-schema-integrity-safe.js",
+    "migrate:schema-integrity": "node scripts/migrate-schema-integrity-safe.js --apply",
+    "migrate:schema-integrity:indexes": "node scripts/migrate-schema-integrity-safe.js --apply --indexes",
     "backup:db": "bash scripts/backup-mongo.sh",
     "lint:syntax": "bash scripts/check-syntax.sh",
     "audit:ledger": "node scripts/audit-ledger-integrity.js"

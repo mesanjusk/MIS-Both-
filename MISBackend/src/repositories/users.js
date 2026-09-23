@@ -1,7 +1,13 @@
 const mongoose = require("mongoose");
+const { v4: uuidv4 } = require("uuid");
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const UsersSchema = new mongoose.Schema({
   User_uuid: { type: String },
+  // Additive identity key. New users are protected immediately; historical
+  // rows are backfilled only after the integrity migration proves uniqueness.
+  User_identity_key: { type: String, default: undefined, select: false },
   employeeId: { type: String },
   name: { type: String },
   phone: { type: String, unique: true, sparse: true },
@@ -38,7 +44,10 @@ const UsersSchema = new mongoose.Schema({
   Mobile_number: { type: String, required: true, unique: true },
   User_group: { type: String, required: true },
   Amount: { type: Number, required: true },
+  // Legacy field retained for compatibility. New code should prefer the
+  // explicit Ledger_account_uuid field below.
   AccountID: { type: String },
+  Ledger_account_uuid: { type: String, default: '' },
   lastCustomerMessageAt: { type: Date },
   Allowed_Task_Groups: {
     type: [String],
@@ -173,9 +182,33 @@ const UsersSchema = new mongoose.Schema({
   },
 });
 
+UsersSchema.pre('validate', function (next) {
+  if (!this.User_uuid) this.User_uuid = uuidv4();
+  if (this.isNew || this.User_identity_key) {
+    this.User_identity_key = String(this.User_uuid || '').trim();
+  }
+  // Preserve AccountID for all existing consumers. Only copy it automatically
+  // when it is already UUID-shaped; legacy names are resolved by the migration
+  // against existing ledgers and are never auto-created or guessed here.
+  const legacyAccountId = String(this.AccountID || '').trim();
+  if (!this.Ledger_account_uuid && UUID_RE.test(legacyAccountId)) {
+    this.Ledger_account_uuid = legacyAccountId;
+  }
+  next();
+});
+
 UsersSchema.index({ User_name: 1 });
 UsersSchema.index({ User_group: 1 });
 UsersSchema.index({ User_uuid: 1 });
+UsersSchema.index(
+  { User_identity_key: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { User_identity_key: { $type: 'string' } },
+    name: 'User_identity_key_unique',
+  }
+);
+UsersSchema.index({ Ledger_account_uuid: 1 });
 UsersSchema.index({ 'operations.priority': 1 });
 UsersSchema.index({ 'operations.active': 1 });
 

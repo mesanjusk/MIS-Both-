@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { backfillEmbeddedLedgerIdentities } = require('../utils/ledgerIdentity');
 
 const bankStatementEntrySchema = new mongoose.Schema({
   entry_uuid:                { type: String, required: true },
@@ -15,8 +16,16 @@ const bankStatementEntrySchema = new mongoose.Schema({
   matched_diary_uuid:        { type: String, default: null },
   matched_diary_entry_uuid:  { type: String, default: null },
   matched_party:             { type: String, default: '' },
-  // Day Book assignment fields
+  // Day Book assignment fields. account_assigned remains for backward
+  // compatibility; UUID/type fields are the canonical identity going forward.
   account_assigned:          { type: String, default: '' },
+  account_assigned_uuid:     { type: String, default: '' },
+  account_assigned_name:     { type: String, default: '' },
+  account_assigned_type: {
+    type: String,
+    enum: ['', 'account', 'customer', 'vendor', 'employee'],
+    default: '',
+  },
   entry_status:              { type: String, enum: ['pending', 'confirmed', 'rejected'], default: 'pending' },
   transaction_uuid:          { type: String, default: null },
 });
@@ -39,9 +48,16 @@ const BankStatementSchema = new mongoose.Schema({
   entries:        [bankStatementEntrySchema],
 }, { timestamps: true });
 
+BankStatementSchema.pre('save', async function () {
+  const changed = await backfillEmbeddedLedgerIdentities(this.entries || []);
+  if (changed) this.markModified('entries');
+});
+
 // statement_uuid already gets an index from `unique: true` on its field definition above.
 BankStatementSchema.index({ 'entries.txn_date': 1 });
 BankStatementSchema.index({ 'entries.match_status': 1 });
+BankStatementSchema.index({ 'entries.account_assigned_uuid': 1 });
+BankStatementSchema.index({ 'entries.transaction_uuid': 1 });
 
 const BankStatement = mongoose.model('BankStatement', BankStatementSchema);
 module.exports = BankStatement;

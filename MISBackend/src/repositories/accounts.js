@@ -1,9 +1,18 @@
 const mongoose = require('mongoose');
 
+const normalizeAccountNameKey = (value) => String(value || '')
+  .trim()
+  .replace(/\s+/g, ' ')
+  .toLowerCase();
+
 const AccountsSchema = new mongoose.Schema(
   {
     Account_uuid:        { type: String, required: true },
     Account_name:        { type: String, required: true },
+    // Additive integrity key. Existing rows are intentionally left without it
+    // until the safe migration proves the normalized name is unambiguous.
+    // New rows get it automatically and are protected by a partial unique index.
+    Account_name_key:    { type: String, default: undefined, select: false },
     Account_type:        { type: String, required: true },
     Account_code:        { type: Number, required: true },
 
@@ -29,8 +38,26 @@ const AccountsSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+AccountsSchema.pre('validate', function (next) {
+  // Do not silently key historical rows on ordinary saves: a legacy database
+  // may contain duplicate names. The migration backfills only proven-unique
+  // historical names. New accounts are protected immediately.
+  if (this.isNew || this.Account_name_key) {
+    this.Account_name_key = normalizeAccountNameKey(this.Account_name);
+  }
+  next();
+});
+
 AccountsSchema.index({ Account_uuid: 1 },    { unique: true });
 AccountsSchema.index({ Account_name: 1 });
+AccountsSchema.index(
+  { Account_name_key: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { Account_name_key: { $type: 'string' } },
+    name: 'Account_name_key_unique',
+  }
+);
 AccountsSchema.index({ Account_type: 1 });
 AccountsSchema.index({ Account_code: 1 });
 AccountsSchema.index({ Account_group: 1 });

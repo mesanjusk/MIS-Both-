@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { backfillEmbeddedLedgerIdentities } = require('../utils/ledgerIdentity');
 
 const bankStatementEntrySchema = new mongoose.Schema({
   entry_uuid:                { type: String, required: true },
@@ -46,6 +47,11 @@ const BankStatementSchema = new mongoose.Schema({
   period_end:     { type: Date },
   entries:        [bankStatementEntrySchema],
 }, { timestamps: true });
+
+BankStatementSchema.pre('save', async function () {
+  const changed = await backfillEmbeddedLedgerIdentities(this.entries || []);
+  if (changed) this.markModified('entries');
+});
 
 // statement_uuid already gets an index from `unique: true` on its field definition above.
 BankStatementSchema.index({ 'entries.txn_date': 1 });

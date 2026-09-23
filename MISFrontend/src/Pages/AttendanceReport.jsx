@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   CircularProgress,
   MenuItem,
@@ -16,9 +14,16 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
+import PictureAsPdfRoundedIcon from "@mui/icons-material/PictureAsPdfRounded";
 import { useNavigate } from "react-router-dom";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
+import ExportGuard from "../Components/ExportGuard";
 import {
   fetchUserNames,
   fetchAttendanceList,
@@ -169,6 +174,84 @@ export default function AttendanceReport() {
       });
   }, [monthAttendance, selectedUser]);
 
+  const exportLabel = selectedUser || (!isAdmin ? loggedInUserName : "all-staff");
+  const safeLabel = String(exportLabel || "all-staff").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "");
+
+  const exportToExcel = () => {
+    const summaryData = summaryRows.map((row) => ({
+      Member: row.name,
+      Group: row.group || "",
+      Month: range.label,
+      "Working Days": workingDays,
+      Present: row.present,
+      Absent: row.absent,
+      "Attendance %": Number(row.attendancePercent.toFixed(1)),
+    }));
+
+    const detailData = detailRows.map((row) => ({
+      Date: fmtDate(row.DateISO),
+      Member: row.User_name,
+      In: row.In || "",
+      Break: row.Break || "",
+      Start: row.Start || "",
+      Out: row.Out || "",
+      Hours: Number(row.TotalHours || 0).toFixed(2),
+      Source: row.Source || "Dashboard",
+    }));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Monthly Summary");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailData), "Daily Detail");
+    XLSX.writeFile(wb, `attendance_${selectedMonth}_${safeLabel}_${today}.xlsx`);
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text(`Month-wise Attendance Report - ${range.label}`, 14, 12);
+    doc.setFontSize(9);
+    doc.text(
+      `${selectedUser || (!isAdmin ? loggedInUserName : "All staff")} | Working days: ${workingDays} | Sundays excluded`,
+      14,
+      18
+    );
+
+    doc.autoTable({
+      head: [["Member", "Group", "Working Days", "Present", "Absent", "Attendance %"]],
+      body: summaryRows.map((row) => [
+        row.name,
+        row.group || "-",
+        workingDays,
+        row.present,
+        row.absent,
+        `${row.attendancePercent.toFixed(1)}%`,
+      ]),
+      startY: 24,
+      styles: { fontSize: 8 },
+    });
+
+    const nextY = (doc.lastAutoTable?.finalY || 24) + 8;
+    doc.setFontSize(11);
+    doc.text("Daily Attendance Detail", 14, nextY);
+    doc.autoTable({
+      head: [["Date", "Member", "In", "Break", "Start", "Out", "Hours", "Source"]],
+      body: detailRows.map((row) => [
+        fmtDate(row.DateISO),
+        row.User_name,
+        row.In || "-",
+        row.Break || "-",
+        row.Start || "-",
+        row.Out || "-",
+        Number(row.TotalHours || 0).toFixed(2),
+        row.Source || "Dashboard",
+      ]),
+      startY: nextY + 4,
+      styles: { fontSize: 7 },
+    });
+
+    doc.save(`attendance_${selectedMonth}_${safeLabel}_${today}.pdf`);
+  };
+
   return (
     <Box sx={{ p: { xs: 1, md: 2 }, maxWidth: 1400, mx: "auto" }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }} sx={{ mb: 2 }}>
@@ -179,6 +262,39 @@ export default function AttendanceReport() {
             Sunday is treated as the official weekly holiday. Duplicate check-ins count only once per employee per India calendar date.
           </Typography>
         </Box>
+        <ExportGuard>
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Export monthly attendance as PDF">
+              <span>
+                <Button
+                  variant="contained"
+                  color="error"
+                  size="small"
+                  startIcon={<PictureAsPdfRoundedIcon />}
+                  onClick={exportToPDF}
+                  disabled={!summaryRows.length}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                >
+                  PDF
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title="Export monthly attendance as Excel">
+              <span>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<FileDownloadRoundedIcon />}
+                  onClick={exportToExcel}
+                  disabled={!summaryRows.length}
+                  sx={{ borderRadius: 2, textTransform: "none", fontWeight: 800 }}
+                >
+                  Excel
+                </Button>
+              </span>
+            </Tooltip>
+          </Stack>
+        </ExportGuard>
       </Stack>
 
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>

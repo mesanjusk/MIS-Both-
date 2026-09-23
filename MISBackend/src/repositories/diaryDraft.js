@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { backfillEmbeddedLedgerIdentities } = require('../utils/ledgerIdentity');
 
 const diaryEntrySchema = new mongoose.Schema({
   entry_uuid:       { type: String, required: true },
@@ -36,6 +37,11 @@ const DiaryDraftSchema = new mongoose.Schema({
   closing_balance:  { type: Number, default: 0 },
   entries:          [diaryEntrySchema],
 }, { timestamps: true });
+
+DiaryDraftSchema.pre('save', async function () {
+  const changed = await backfillEmbeddedLedgerIdentities(this.entries || []);
+  if (changed) this.markModified('entries');
+});
 
 // diary_uuid already gets an index from `unique: true` on its field definition above.
 DiaryDraftSchema.index({ diary_date: -1 });

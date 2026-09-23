@@ -43,6 +43,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
   const { setAuthData, userName, userGroup } = useAuth();
+  const hasStoredSession = Boolean(userName && getStoredToken());
 
   const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
     const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
@@ -80,9 +81,16 @@ export default function Login() {
   }, [navigate]);
 
   useEffect(() => {
-    if (!userName || !getStoredToken()) return;
-    void ensureMandatoryGoogleDrive(userGroup);
-  }, [ensureMandatoryGoogleDrive, userGroup, userName]);
+    if (!hasStoredSession) return;
+
+    // A persisted MIS session must not be held on the login screen by an
+    // unrelated Google Drive availability/reconnect check. The bearer token is
+    // already stored in localStorage and the API will validate it on the first
+    // protected request. If it has genuinely expired/revoked, apiClient's 401
+    // handler sends the user back here. Otherwise go straight to the dashboard.
+    const target = userGroup === 'Vendor' ? '/vendorHome' : '/home';
+    navigate(target, { replace: true });
+  }, [hasStoredSession, navigate, userGroup]);
 
   async function submit(e) {
     e.preventDefault();
@@ -109,6 +117,14 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (hasStoredSession) {
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress size={32} />
+      </Box>
+    );
   }
 
   return (

@@ -46,8 +46,6 @@ async function activeGlCatalog() {
   const customerNames = new Set(customers.map((row) => norm(row.Customer_name)).filter(Boolean));
   return accounts
     .filter((row) => isUuid(row.Account_uuid))
-    // A non-system General/Asset account with the same name as a Customer is a
-    // historical shadow candidate and must never be offered as a live choice.
     .filter((row) => !(
       row.Is_system !== true &&
       row.Account_group === 'General' &&
@@ -103,8 +101,17 @@ async function getCustomerLedger(uuid) {
   };
 }
 
+async function getAccountingLedger(uuid) {
+  if (!isUuid(uuid)) return null;
+  const customer = await getCustomerLedger(uuid);
+  if (customer) return customer;
+  const accounts = await activeGlCatalog();
+  return accounts.find((row) => row.uuid === uuid) || null;
+}
+
 module.exports = {
   searchPartyLedgers,
   searchAccountingLedgers,
   getCustomerLedger,
+  getAccountingLedger,
 };

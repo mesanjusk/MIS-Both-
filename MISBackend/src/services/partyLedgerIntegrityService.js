@@ -2,21 +2,22 @@ const Accounts = require('../repositories/accounts');
 const Customer = require('../repositories/customer');
 const Transaction = require('../repositories/transaction');
 const { applyBalanceMovement, invalidateCache } = require('./accountRegistry');
+const { consolidateShadowPartyAccounts } = require('./partyLedgerConsolidationService');
 
-const lower = (value) => String(value || '').trim().toLowerCase();
+const lower = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /**
  * Repair legacy shadow chart-of-account UUIDs across the ENTIRE transaction
- * journal. Account_name is only a display label; Account_id is ledger identity.
+ * journal, then consolidate the remaining non-journal references and archive
+ * shadow party Accounts that have been fully replaced by Customer Report.
  *
  * Safety rules:
- * - only non-system default General/Asset accounts created by the historical
- *   name resolver are candidates;
+ * - only active, non-system default General/Asset accounts are candidates;
  * - the shadow name must map to exactly one real Customer_uuid;
  * - the journal line display name must agree with that unique customer;
  * - ambiguous duplicate names are reported and never moved automatically;
- * - the update is conditional/idempotent and cached account movement is
- *   reversed only after the transaction was actually changed.
+ * - amounts, debit/credit types and totals are never changed;
+ * - shadow Accounts are archived only after known references are rechecked.
  */
 async function repairShadowPartyJournalLines() {
   const customers = await Customer.find(
@@ -34,6 +35,7 @@ async function repairShadowPartyJournalLines() {
   }
 
   const shadowAccounts = await Accounts.find({
+    Is_archived: { $ne: true },
     Is_system: { $ne: true },
     Account_group: 'General',
     Account_type: 'Asset',
@@ -58,22 +60,9 @@ async function repairShadowPartyJournalLines() {
   }
 
   const shadowIds = [...shadowToCustomer.keys()];
-  if (!shadowIds.length) {
-    return {
-      accountsChecked: shadowAccounts.length,
-      candidateShadowAccounts: 0,
-      ambiguousAccounts,
-      transactionsScanned: 0,
-      transactionsRepaired: 0,
-      journalLinesRepaired: 0,
-    };
-  }
-
-  // IMPORTANT: intentionally no Source filter. Historical shadow UUIDs can
-  // exist in bank, UPI, cash, diary, manual and other accounting workflows.
-  const transactions = await Transaction.find({
-    'Journal_entry.Account_id': { $in: shadowIds },
-  });
+  const transactions = shadowIds.length
+    ? await Transaction.find({ 'Journal_entry.Account_id': { $in: shadowIds } })
+    : [];
 
   let transactionsRepaired = 0;
   let journalLinesRepaired = 0;
@@ -118,6 +107,12 @@ async function repairShadowPartyJournalLines() {
   }
 
   invalidateCache();
+
+  // This second phase moves User/Diary/Bank/customer references and archives
+  // only shadow rows that no longer have any known live reference. It is
+  // idempotent, so startup can safely run it on every deploy.
+  const consolidation = await consolidateShadowPartyAccounts();
+
   return {
     accountsChecked: shadowAccounts.length,
     candidateShadowAccounts: shadowToCustomer.size,
@@ -125,6 +120,7 @@ async function repairShadowPartyJournalLines() {
     transactionsScanned: transactions.length,
     transactionsRepaired,
     journalLinesRepaired,
+    consolidation,
   };
 }
 

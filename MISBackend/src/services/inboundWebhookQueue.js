@@ -219,8 +219,16 @@ async function claimNext(provider) {
     { returnDocument: 'after' }
   );
 
-  const doc = result?.value || result;
-  const events = doc?.value?.events || [];
+  // MongoDB driver v6 returns the document directly. Older return shapes wrap
+  // it in `{ value: document }`. The app_settings document itself also has a
+  // `value` field, so support both without mistaking the setting payload for
+  // the whole document.
+  const events =
+    result?.value?.value?.events ||
+    result?.value?.events ||
+    result?.events ||
+    [];
+
   return events.find((event) => event.lease_token === leaseToken) || null;
 }
 

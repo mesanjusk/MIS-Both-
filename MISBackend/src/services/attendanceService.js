@@ -3,6 +3,13 @@ const Attendance = require('../repositories/attendance');
 const attendanceNumber = require('./attendanceNumberService');
 const { businessDateString, businessDayKey } = require('../utils/businessDay');
 
+// whatsappAttendanceService historically referenced businessDayKey directly
+// without importing it. Expose the shared helper on the Node global as a
+// compatibility bridge so the live WhatsApp attendance path uses the same
+// Asia/Kolkata business-day calculation immediately. Keep exporting it below
+// for callers that import it explicitly.
+global.businessDayKey = businessDayKey;
+
 // Both were locally defined and disagreed: one produced a UTC date string, the
 // other a local midnight, while the daily schedulers worked in Asia/Kolkata.
 // They now share the one business-day definition (see utils/businessDay).
@@ -80,6 +87,7 @@ module.exports = {
   markAttendance,
   getTodayDateString,
   getDateOnly,
+  businessDayKey,
   TRANSITION_MAP,
   getCurrentAttendanceType,
   isTransitionAllowed,

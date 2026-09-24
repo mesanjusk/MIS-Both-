@@ -25,7 +25,6 @@ import {
   ManageSearchRounded,
   RefreshRounded,
   SecurityRounded,
-  WarningAmberRounded,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 
@@ -34,14 +33,30 @@ import DatabaseIntegrityReviewDialog from '../Components/DatabaseIntegrityReview
 
 const API_BASE = '/api/api-usage/database-integrity';
 const REVIEWABLE_KEYS = new Set([
-  'duplicate_account_code',
   'staff_ledger_unresolved',
   'diary_assignment_unresolved',
   'bank_assignment_unresolved',
-  'attendance_duplicate_day',
-  'po_item_unresolved',
   'transaction_integrity',
 ]);
+
+const LEGACY_INFORMATIONAL_KEYS = new Set([
+  'attendance_duplicate_day',
+  'attendance_duplicate_record_id',
+  'po_item_unresolved',
+]);
+
+function isLegacyInformationalIssue(row) {
+  if (!row) return false;
+  if (LEGACY_INFORMATIONAL_KEYS.has(row.key)) return true;
+
+  // Archived shadow-party accounts keep their old account code for audit/rollback.
+  // They are intentionally inactive and should not be shown as work for the user.
+  if (row.key === 'duplicate_account_code') {
+    return (row.examples || []).some((value) => String(value || '').includes('__archived_party__'));
+  }
+
+  return false;
+}
 
 function SummaryCard({ title, value, helper, tone = 'default' }) {
   const toneColor = tone === 'warning' ? 'warning.main' : tone === 'success' ? 'success.main' : 'text.primary';
@@ -58,7 +73,7 @@ function SummaryCard({ title, value, helper, tone = 'default' }) {
 
 function statusChip(row) {
   if (row.fixable) return <Chip size="small" color="success" variant="outlined" label="Safe fix available" />;
-  return <Chip size="small" color="warning" variant="outlined" label="Manual review" />;
+  return <Chip size="small" color="warning" variant="outlined" label="Needs review" />;
 }
 
 function historyAction(row) {
@@ -109,11 +124,39 @@ export default function DatabaseIntegrity() {
     }
   }, [loadHistory]);
 
+  const allIssueRows = useMemo(() => report?.issues || [], [report]);
+  const issueRows = useMemo(
+    () => allIssueRows.filter((row) => !isLegacyInformationalIssue(row)),
+    [allIssueRows]
+  );
+  const legacyRows = useMemo(
+    () => allIssueRows.filter((row) => isLegacyInformationalIssue(row)),
+    [allIssueRows]
+  );
+
+  const actionableSummary = useMemo(() => {
+    const safeFixable = issueRows
+      .filter((row) => row.fixable)
+      .reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const manualReview = issueRows
+      .filter((row) => !row.fixable)
+      .reduce((sum, row) => sum + Number(row.count || 0), 0);
+    return {
+      safeFixable,
+      manualReview,
+      totalIssues: safeFixable + manualReview,
+      transactionIssues: Number(report?.summary?.transactionIssues || 0),
+      legacyCount: legacyRows.reduce((sum, row) => sum + Number(row.count || 0), 0),
+    };
+  }, [issueRows, legacyRows, report]);
+
+  const hasSafeFix = actionableSummary.safeFixable > 0;
+
   const runSafeFix = useCallback(async () => {
     if (!report) return toast.error('Run Audit first.');
-    if (!report.summary?.safeFixable) return toast('No safe automatic fixes are currently available.');
+    if (!actionableSummary.safeFixable) return toast('No safe automatic fixes are currently available.');
     const ok = window.confirm(
-      `Safe Fix can update ${report.summary.safeFixable} additive/unambiguous item(s).\n\n` +
+      `Safe Fix can update ${actionableSummary.safeFixable} additive/unambiguous item(s).\n\n` +
       'It will NOT delete, merge or renumber records and will NOT edit transaction journal amounts/accounts.\n\nContinue?'
     );
     if (!ok) return;
@@ -133,15 +176,12 @@ export default function DatabaseIntegrity() {
     } finally {
       setFixing(false);
     }
-  }, [report, loadHistory]);
+  }, [report, actionableSummary.safeFixable, loadHistory]);
 
   const onManualResolved = useCallback(async (nextReport) => {
     if (nextReport) setReport(nextReport);
     await loadHistory();
   }, [loadHistory]);
-
-  const issueRows = useMemo(() => report?.issues || [], [report]);
-  const hasSafeFix = Number(report?.summary?.safeFixable || 0) > 0;
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1500, mx: 'auto' }}>
@@ -151,7 +191,7 @@ export default function DatabaseIntegrity() {
             <SecurityRounded color="success" />
             <Typography variant="h5" fontWeight={700}>Database Integrity</Typography>
           </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Audit live MIS data, auto-fix only proven matches, and manually review the rest.</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Shows only data problems that can affect current MIS work.</Typography>
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button variant={report ? 'outlined' : 'contained'} startIcon={auditing ? <CircularProgress size={16} color="inherit" /> : <FactCheckRounded />} onClick={runAudit} disabled={auditing || fixing}>
@@ -164,7 +204,7 @@ export default function DatabaseIntegrity() {
       </Stack>
 
       <Alert severity="info" sx={{ mt: 2 }}>
-        <strong>Safety rule:</strong> Safe Fix never deletes, merges or renumbers records. Manual Review requires you to choose the correct existing account/item before saving. Attendance duplicates are inspect-only and cannot be merged or deleted from this screen.
+        <strong>Simple rule:</strong> if a finding is shown below, it can affect current data and may need attention. Old archived accounts, historical attendance duplicates and old PO lines without catalog UUIDs are treated as legacy information and do not require you to fix them.
       </Alert>
 
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
@@ -173,8 +213,8 @@ export default function DatabaseIntegrity() {
       {!report && (
         <Paper variant="outlined" sx={{ mt: 2.5, p: 4, textAlign: 'center' }}>
           <FactCheckRounded sx={{ fontSize: 46, color: 'text.secondary' }} />
-          <Typography variant="h6" sx={{ mt: 1 }}>Start with a read-only audit</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>The report separates automatic safe fixes from records that need your review.</Typography>
+          <Typography variant="h6" sx={{ mt: 1 }}>Check current data integrity</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>Legacy historical records are kept out of your action list.</Typography>
           <Button variant="contained" onClick={runAudit} disabled={auditing} startIcon={auditing ? <CircularProgress size={16} color="inherit" /> : <FactCheckRounded />}>Run Audit</Button>
         </Paper>
       )}
@@ -182,17 +222,23 @@ export default function DatabaseIntegrity() {
       {report && (
         <>
           <Stack direction="row" gap={1.5} flexWrap="wrap" sx={{ mt: 2.5 }}>
-            <SummaryCard title="Issues found" value={report.summary?.totalIssues} helper="Across all checked areas" tone={report.summary?.totalIssues ? 'warning' : 'success'} />
-            <SummaryCard title="Safe fixable" value={report.summary?.safeFixable} helper="Unambiguous additive changes" tone={report.summary?.safeFixable ? 'success' : 'default'} />
-            <SummaryCard title="Manual review" value={report.summary?.manualReview} helper="Click Review to inspect" tone={report.summary?.manualReview ? 'warning' : 'success'} />
-            <SummaryCard title="Transaction review" value={report.summary?.transactionIssues} helper="Ledger identity only is editable" tone={report.summary?.transactionIssues ? 'warning' : 'success'} />
+            <SummaryCard title="Needs attention" value={actionableSummary.totalIssues} helper="Current actionable findings only" tone={actionableSummary.totalIssues ? 'warning' : 'success'} />
+            <SummaryCard title="Safe fixable" value={actionableSummary.safeFixable} helper="Can be fixed automatically" tone={actionableSummary.safeFixable ? 'success' : 'default'} />
+            <SummaryCard title="Manual review" value={actionableSummary.manualReview} helper="Only records needing a decision" tone={actionableSummary.manualReview ? 'warning' : 'success'} />
+            <SummaryCard title="Transaction review" value={actionableSummary.transactionIssues} helper="Accounting records needing review" tone={actionableSummary.transactionIssues ? 'warning' : 'success'} />
           </Stack>
+
+          {actionableSummary.legacyCount > 0 && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              <strong>{actionableSummary.legacyCount.toLocaleString()} legacy finding(s) hidden.</strong> These are historical/archived records retained for audit history and do not require action from you.
+            </Alert>
+          )}
 
           <Paper variant="outlined" sx={{ mt: 2.5, overflow: 'hidden' }}>
             <Box sx={{ px: 2, py: 1.5 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
                 <Box>
-                  <Typography variant="subtitle1" fontWeight={700}>Integrity findings</Typography>
+                  <Typography variant="subtitle1" fontWeight={700}>Actionable findings</Typography>
                   <Typography variant="caption" color="text.secondary">Report generated {new Date(report.generatedAt).toLocaleString()}</Typography>
                 </Box>
                 <Chip size="small" label={`${issueRows.length} categories`} />
@@ -213,7 +259,7 @@ export default function DatabaseIntegrity() {
                 </TableHead>
                 <TableBody>
                   {issueRows.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5 }}><CheckCircleRounded color="success" sx={{ verticalAlign: 'middle', mr: 1 }} />No integrity issues found.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} align="center" sx={{ py: 5 }}><CheckCircleRounded color="success" sx={{ verticalAlign: 'middle', mr: 1 }} />No action required. Current MIS integrity checks are clear.</TableCell></TableRow>
                   ) : issueRows.map((row) => (
                     <TableRow key={row.key} hover>
                       <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{row.area}</TableCell>
@@ -251,12 +297,12 @@ export default function DatabaseIntegrity() {
         <Divider />
         <TableContainer>
           <Table size="small">
-            <TableHead><TableRow><TableCell>When</TableCell><TableCell>By</TableCell><TableCell>Action</TableCell><TableCell align="right">Changed</TableCell><TableCell align="right">Issues after run</TableCell></TableRow></TableHead>
+            <TableHead><TableRow><TableCell>When</TableCell><TableCell>By</TableCell><TableCell>Action</TableCell><TableCell align="right">Changed</TableCell></TableRow></TableHead>
             <TableBody>
               {historyLoading && history.length === 0 ? (
-                <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}><CircularProgress size={22} /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3 }}><CircularProgress size={22} /></TableCell></TableRow>
               ) : history.length === 0 ? (
-                <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3, color: 'text.secondary' }}>No integrity runs recorded yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} align="center" sx={{ py: 3, color: 'text.secondary' }}>No integrity runs recorded yet.</TableCell></TableRow>
               ) : history.map((row, index) => {
                 const action = historyAction(row);
                 return (
@@ -265,7 +311,6 @@ export default function DatabaseIntegrity() {
                     <TableCell>{row.actor || 'Admin'}</TableCell>
                     <TableCell><Chip size="small" icon={action.icon} color={action.color} variant="outlined" label={action.label} /></TableCell>
                     <TableCell align="right">{Number(row.changed || 0).toLocaleString()}</TableCell>
-                    <TableCell align="right"><Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">{Number(row.manualReview || 0) > 0 && <WarningAmberRounded color="warning" fontSize="small" />}<span>{Number(row.totalIssues || 0).toLocaleString()}</span></Stack></TableCell>
                   </TableRow>
                 );
               })}

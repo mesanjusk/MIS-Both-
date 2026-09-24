@@ -62,18 +62,25 @@ function OptionSearch({ kind, value, onChange, initialQuery = '' }) {
   const [options, setOptions] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const isItem = kind === 'item';
+  const isParty = kind === 'party';
+
   const search = useCallback(async (q = query) => {
     setLoading(true);
     try {
-      const endpoint = kind === 'item' ? 'item-options' : 'ledger-options';
+      const endpoint = isItem
+        ? 'item-options'
+        : isParty
+          ? 'party-ledger-options'
+          : 'accounting-ledger-options';
       const { data } = await client.get(`${API_BASE}/review/${endpoint}`, { params: { q, limit: 60 } });
       setOptions(Array.isArray(data?.options) ? data.options : []);
     } catch (err) {
-      toast.error(err?.response?.data?.message || `Could not search ${kind === 'item' ? 'items' : 'ledgers'}.`);
+      toast.error(err?.response?.data?.message || `Could not search ${isItem ? 'items' : 'ledgers'}.`);
     } finally {
       setLoading(false);
     }
-  }, [kind, query]);
+  }, [isItem, isParty, query]);
 
   useEffect(() => {
     setQuery(initialQuery || '');
@@ -83,13 +90,24 @@ function OptionSearch({ kind, value, onChange, initialQuery = '' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery, kind]);
 
+  const inputLabel = isItem
+    ? 'Search catalog item'
+    : isParty
+      ? 'Search Customer Report ledger'
+      : 'Search customer or system/GL ledger';
+  const selectLabel = isItem
+    ? 'Choose catalog item'
+    : isParty
+      ? 'Choose Customer Report ledger'
+      : 'Choose correct accounting ledger';
+
   return (
     <Stack spacing={1.2}>
       <Stack direction="row" spacing={1}>
         <TextField
           size="small"
           fullWidth
-          label={kind === 'item' ? 'Search catalog item' : 'Search ledger/customer/account'}
+          label={inputLabel}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') search(); }}
@@ -99,21 +117,26 @@ function OptionSearch({ kind, value, onChange, initialQuery = '' }) {
         </Button>
       </Stack>
       <FormControl size="small" fullWidth>
-        <InputLabel>{kind === 'item' ? 'Choose catalog item' : 'Choose correct ledger'}</InputLabel>
+        <InputLabel>{selectLabel}</InputLabel>
         <Select
           value={value || ''}
-          label={kind === 'item' ? 'Choose catalog item' : 'Choose correct ledger'}
+          label={selectLabel}
           onChange={(event) => onChange(event.target.value)}
         >
           {options.map((option) => (
             <MenuItem key={option.uuid} value={option.uuid}>
-              {option.name} {option.code || option.group ? `— ${option.code || option.group}` : ''}
+              {option.name} — {option.source || (option.type === 'customer' ? 'Customer Report' : 'System / GL')}
+              {option.code || option.group ? ` · ${option.code || option.group}` : ''}
             </MenuItem>
           ))}
         </Select>
       </FormControl>
       {!loading && options.length === 0 && (
-        <Typography variant="caption" color="text.secondary">Type a name and click Search to choose an existing record. Nothing new is created here.</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {isParty
+            ? 'Only existing Customer Report ledgers are shown here. Nothing new is created.'
+            : 'Type a name and click Search to choose an existing record. Nothing new is created here.'}
+        </Typography>
       )}
     </Stack>
   );
@@ -304,15 +327,15 @@ export default function DatabaseIntegrityReviewDialog({ open, issue, onClose, on
 
                 {category === 'staff_ledger_unresolved' && (
                   <>
-                    <Alert severity="info">Current legacy AccountID: <strong>{selected.currentAccountId || '—'}</strong></Alert>
-                    <OptionSearch kind="ledger" value={selectedOption} onChange={setSelectedOption} initialQuery={selected.label || selected.currentAccountId || ''} />
+                    <Alert severity="info">Current legacy AccountID: <strong>{selected.currentAccountId || '—'}</strong>. Staff party mapping must use the ledger shown in Customer Report.</Alert>
+                    <OptionSearch kind="party" value={selectedOption} onChange={setSelectedOption} initialQuery={selected.label || selected.currentAccountId || ''} />
                   </>
                 )}
 
                 {(category === 'diary_assignment_unresolved' || category === 'bank_assignment_unresolved') && (
                   <>
-                    <Alert severity="info">Map all {selected.affectedCount} unresolved entries named <strong>{selected.label}</strong> to one verified existing ledger.</Alert>
-                    <OptionSearch kind="ledger" value={selectedOption} onChange={setSelectedOption} initialQuery={selected.label || ''} />
+                    <Alert severity="info">Map all {selected.affectedCount} unresolved entries named <strong>{selected.label}</strong> to the verified ledger from Customer Report.</Alert>
+                    <OptionSearch kind="party" value={selectedOption} onChange={setSelectedOption} initialQuery={selected.label || ''} />
                   </>
                 )}
 
@@ -357,7 +380,7 @@ export default function DatabaseIntegrityReviewDialog({ open, issue, onClose, on
                       </Select>
                     </FormControl>
                     {(selected.issues || []).map((text, index) => <Typography key={index} variant="caption" color="warning.main">• {text}</Typography>)}
-                    <OptionSearch kind="ledger" value={selectedOption} onChange={setSelectedOption} initialQuery={(selected.orphanLines || []).find((row) => Number(row.index) === Number(lineIndex))?.accountName || initialOptionQuery} />
+                    <OptionSearch kind="accounting" value={selectedOption} onChange={setSelectedOption} initialQuery={(selected.orphanLines || []).find((row) => Number(row.index) === Number(lineIndex))?.accountName || initialOptionQuery} />
                   </>
                 )}
 

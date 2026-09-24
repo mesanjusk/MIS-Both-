@@ -19,7 +19,7 @@ const loadAllAttandance = () => import('./AllAttandance');
 const loadPayableAccount = () => import('./PayableAccount');
 const loadWorkflowAudit = () => import('./WorkflowAudit');
 const loadRateCalculator = () => import('./RateCalculator');
-const loadDayBook = () => import('./DayBook');
+const loadDayBookLedger = () => import('../Reports/allTransaction4D');
 const loadHomeInbox = () => import('./HomeInbox');
 
 const OutstandingReport = lazy(loadOutstandingReport);
@@ -28,7 +28,7 @@ const AllAttandance = lazy(loadAllAttandance);
 const PayableAccount = lazy(loadPayableAccount);
 const WorkflowAudit = lazy(loadWorkflowAudit);
 const RateCalculator = lazy(loadRateCalculator);
-const DayBook = lazy(loadDayBook);
+const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
 
 function AttendanceHome() {
@@ -69,30 +69,61 @@ function AttendanceHome() {
   );
 }
 
+function DayBookHome() {
+  const navigate = useNavigate();
+  return (
+    <Stack spacing={1.25}>
+      <Paper
+        variant="outlined"
+        sx={{
+          px: 1.5,
+          py: 1,
+          borderRadius: 2.5,
+          display: 'flex',
+          gap: 1,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          justifyContent: 'space-between',
+          flexDirection: { xs: 'column', sm: 'row' },
+        }}
+      >
+        <Box>
+          <Typography variant="subtitle2" fontWeight={900}>Day Book — All Transactions</Typography>
+          <Typography variant="caption" color="text.secondary">
+            Check Cash, UPI Sanju SK and UPI Office separately. Opening, receipts, payments and closing balance are calculated per book.
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<MenuBookRoundedIcon />}
+          onClick={() => navigate('/accounts/day-book')}
+          sx={{ textTransform: 'none', fontWeight: 800, borderRadius: 2, whiteSpace: 'nowrap' }}
+        >
+          Diary Review / Posting
+        </Button>
+      </Paper>
+      <DayBookLedger />
+    </Stack>
+  );
+}
+
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
   { id: 'inbox', label: 'Inbox', icon: ChatRoundedIcon, Component: HomeInbox },
-  // Orders is now the single operational record for production + billing + payment + delivery.
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: AllOrders },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
   { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'workflowAudit', label: 'Workflow Audit', icon: FactCheckRoundedIcon, Component: WorkflowAudit, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
-  // Day Book already contains the cash + bank historical ledger view along with
-  // diary review, account assignment, bank-statement posting, edit/reopen and
-  // upload actions. Keep that complete UI as the single home accounting book.
-  { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
+  { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBookHome, requiresAccounts: true },
 ];
 
-const HOME_TAB_PRELOADERS = [loadHomeInbox, loadAllOrders, loadOutstandingReport, loadAllAttandance, loadPayableAccount, loadWorkflowAudit, loadRateCalculator, loadDayBook];
+const HOME_TAB_PRELOADERS = [loadHomeInbox, loadAllOrders, loadOutstandingReport, loadAllAttandance, loadPayableAccount, loadWorkflowAudit, loadRateCalculator, loadDayBookLedger];
 
 const LEGACY_HOME_TAB_IDS = {
   quickLinks: 'workflow', recentAttendance: 'attendance', ordersBoard: 'orders',
-  // Existing user/widget settings for retired tabs keep working.
   delivery: 'orders', bills: 'orders',
-  // Cash & Bank is merged into Day Book. Persisted selections and widget
-  // permissions that still reference the old id transparently land on Day Book.
   transaction4D: 'dayBook',
 };
 const HOME_TAB_STORAGE_KEY = 'mis.home.activeTab';

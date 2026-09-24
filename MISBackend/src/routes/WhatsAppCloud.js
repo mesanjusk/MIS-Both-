@@ -6,6 +6,9 @@ const { enforceWhatsApp24hWindow } = require('../middleware/whatsapp24hGuard');
 const asyncHandler = require('../utils/asyncHandler');
 const sanjusk = require('../services/sanjuskApiService');
 const sanjuskConversation = require('../services/sanjuskConversationService');
+const Message = require('../repositories/Message');
+const { processWhatsAppAttendanceCommand } = require('../services/whatsappAttendanceService');
+const logger = require('../utils/logger');
 
 const {
   exchangeMetaToken,
@@ -121,6 +124,93 @@ const normalizeSanjuskMessage = (row = {}) => {
   };
 };
 
+// SanjuSK's inbox API is also the source Home → Inbox polls. When the provider
+// webhook is missing or delayed, a valid attendance command used to be visible
+// in Inbox but never reached the attendance processor. Process only *fresh*
+// incoming rows here as a resilient fallback. The existing Message collection
+// is the idempotency ledger, so a row already handled by the webhook is skipped
+// and a row handled here will be skipped if the webhook arrives later.
+//
+// Freshness is deliberately bounded: the no-cursor Inbox call reads the recent
+// conversation tail repeatedly. We must never let an old "start" from yesterday
+// create today's attendance just because it is still one of the latest rows.
+const POLLED_ATTENDANCE_MAX_AGE_MS = 10 * 60 * 1000;
+
+const sendSanjuskAttendanceReply = async ({ to, body }) => {
+  const phone = String(to || '').replace(/\D/g, '');
+  const text = String(body || '').trim();
+  if (!phone || !text) return;
+  await sanjusk.sendText({ phone, text, requireEnabled: false });
+};
+
+const processFreshPolledAttendance = async (rows = []) => {
+  for (const rawRow of rows) {
+    const row = normalizeSanjuskMessage(rawRow);
+    if (String(row.direction).toLowerCase() !== 'incoming') continue;
+
+    const messageId = String(row.id || '').trim();
+    const from = String(row.from || '').trim();
+    const text = String(row.body || '').trim();
+    const timestamp = row.timestamp ? new Date(row.timestamp) : null;
+
+    // A provider id is required for safe replay protection. Rows without one
+    // remain visible in Inbox but are not allowed to mutate attendance.
+    if (!messageId || !from || !text || !timestamp || Number.isNaN(timestamp.getTime())) continue;
+
+    const ageMs = Date.now() - timestamp.getTime();
+    if (ageMs < -60 * 1000 || ageMs > POLLED_ATTENDANCE_MAX_AGE_MS) continue;
+
+    try {
+      const existing = await Message.exists({ messageId });
+      if (existing) continue;
+
+      const result = await processWhatsAppAttendanceCommand({
+        payload: {
+          from,
+          message: text,
+          text,
+          messageId,
+          timestamp,
+        },
+        sendText: sendSanjuskAttendanceReply,
+      });
+
+      if (!result?.handled) continue;
+
+      // Mark the provider message as consumed only after the attendance service
+      // has handled it. This uses the existing messages collection; no new
+      // collection is introduced (important on the current Mongo plan limit).
+      await Message.findOneAndUpdate(
+        { messageId },
+        {
+          $setOnInsert: {
+            fromMe: false,
+            from,
+            to: String(row.to || ''),
+            message: text,
+            body: text,
+            text,
+            timestamp,
+            time: timestamp,
+            status: String(row.status || 'received'),
+            direction: 'incoming',
+            messageId,
+            type: String(row.messageType || 'text'),
+            source: 'SANJUSK_POLL_ATTENDANCE',
+          },
+        },
+        { upsert: true, setDefaultsOnInsert: true }
+      );
+
+      logger.info(`[sanjusk-inbox] attendance command handled from polled message ${messageId}`);
+    } catch (error) {
+      // Inbox must remain usable even when attendance processing has a data or
+      // provider problem. Log the row and let the normal response continue.
+      logger.error('[sanjusk-inbox] failed to process polled attendance command:', error);
+    }
+  }
+};
+
 router.get(
   '/sanjusk/status',
   requireAuth,
@@ -149,6 +239,7 @@ router.get(
 
     if (!req.query.since) {
       const { rows, nextSince } = await sanjuskConversation.getRecentMessages({ limit });
+      await processFreshPolledAttendance(rows);
       return res.json({
         success: true,
         data: rows.map(normalizeSanjuskMessage),
@@ -165,6 +256,7 @@ router.get(
       requireEnabled: false,
     });
     const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    await processFreshPolledAttendance(rows);
     return res.json({
       success: true,
       data: rows.map(normalizeSanjuskMessage),

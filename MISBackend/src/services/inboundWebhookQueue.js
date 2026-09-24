@@ -1,126 +1,229 @@
 /**
- * Record an inbound webhook delivery before acknowledging it, and retry the
- * processing until it succeeds.
+ * Durable inbound webhook retry queue stored inside the existing app_settings
+ * collection.
  *
- * Acknowledging first and processing afterwards means any failure after the
- * 200 loses the delivery permanently — the sender has been told it worked and
- * will not send it again. Recording first turns the 200 into a promise this
- * server can keep.
+ * Why this lives in app_settings instead of its own collection:
+ * this deployment can run on MongoDB plans with a strict collection-count
+ * limit. Reusing an existing collection keeps webhook durability and retries
+ * without requiring another MongoDB collection to be created.
  */
 const crypto = require('crypto');
-const InboundWebhookEvent = require('../repositories/inboundWebhookEvent');
+const { AppSetting } = require('../repositories/appSetting');
 const logger = require('../utils/logger');
 
-// Give up after this many attempts; the row stays for inspection.
 const MAX_ATTEMPTS = 5;
-
-// How long a worker may hold a row before another may retry it.
 const LEASE_MS = 2 * 60 * 1000;
+const QUEUE_KEY = 'system_inbound_webhook_queue';
+const QUEUE_DESCRIPTION = 'Durable inbound webhook retry queue stored in app_settings';
+const DONE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const FAILED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * A stable identity for a delivery: the provider's own message id when there
- * is one, otherwise a hash of the payload so an identical retry still collapses
- * onto one row.
- */
+function collection() {
+  return AppSetting.collection;
+}
+
 function dedupeKeyFor(provider, payload, providerMessageId = '') {
   if (providerMessageId) return `${provider}:${providerMessageId}`;
   const hash = crypto.createHash('sha256').update(JSON.stringify(payload || {})).digest('hex');
   return `${provider}:sha256:${hash}`;
 }
 
-/**
- * Store the delivery. Safe to call twice for the same delivery: the second call
- * returns the existing row rather than creating another.
- *
- * @returns {Promise<{event: object|null, duplicate: boolean, recorded: boolean}>}
- *   `recorded` is false when the row could not be written at all, which is the
- *   one case the caller must not answer 200 to.
- */
+async function ensureQueueDocument() {
+  await collection().updateOne(
+    { key: QUEUE_KEY },
+    {
+      $setOnInsert: {
+        key: QUEUE_KEY,
+        value: { events: [] },
+        description: QUEUE_DESCRIPTION,
+        createdAt: new Date(),
+      },
+      $set: { updatedAt: new Date() },
+    },
+    { upsert: true }
+  );
+}
+
+async function pruneOldEvents() {
+  const now = Date.now();
+  await collection().updateOne(
+    { key: QUEUE_KEY },
+    {
+      $pull: {
+        'value.events': {
+          $or: [
+            { status: 'done', processed_at: { $lt: new Date(now - DONE_RETENTION_MS) } },
+            { status: 'failed', updated_at: { $lt: new Date(now - FAILED_RETENTION_MS) } },
+          ],
+        },
+      },
+      $set: { updatedAt: new Date() },
+    }
+  ).catch((err) => logger.warn(`[webhook-queue] Could not prune old events: ${err.message}`));
+}
+
+async function findEventByDedupeKey(dedupeKey) {
+  const doc = await collection().findOne(
+    { key: QUEUE_KEY, 'value.events.dedupe_key': dedupeKey },
+    { projection: { 'value.events.$': 1 } }
+  );
+  return doc?.value?.events?.[0] || null;
+}
+
 async function record({ provider, payload, providerMessageId }) {
   const dedupeKey = dedupeKeyFor(provider, payload, providerMessageId);
 
   try {
-    const event = await InboundWebhookEvent.create({
+    await ensureQueueDocument();
+    await pruneOldEvents();
+
+    const now = new Date();
+    const event = {
+      _id: crypto.randomUUID(),
       provider,
       dedupe_key: dedupeKey,
       payload,
       status: 'pending',
-    });
-    return { event, duplicate: false, recorded: true };
-  } catch (err) {
-    if (err.code === 11000 || err.code === 11001) {
-      const existing = await InboundWebhookEvent.findOne({ dedupe_key: dedupeKey }).lean();
-      return { event: existing, duplicate: true, recorded: true };
+      attempts: 0,
+      last_error: '',
+      lease_until: null,
+      lease_token: '',
+      processed_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const result = await collection().updateOne(
+      {
+        key: QUEUE_KEY,
+        'value.events': { $not: { $elemMatch: { dedupe_key: dedupeKey } } },
+      },
+      {
+        $push: { 'value.events': event },
+        $set: { updatedAt: now },
+      }
+    );
+
+    if (result.modifiedCount === 1) {
+      return { event, duplicate: false, recorded: true };
     }
+
+    const existing = await findEventByDedupeKey(dedupeKey);
+    if (existing) return { event: existing, duplicate: true, recorded: true };
+
+    logger.error(`[webhook-queue] Could not record ${provider} delivery: queue document was not updated`);
+    return { event: null, duplicate: false, recorded: false };
+  } catch (err) {
     logger.error(`[webhook-queue] Could not record ${provider} delivery: ${err.message}`);
     return { event: null, duplicate: false, recorded: false };
   }
 }
 
-/** Mark a row finished. */
 async function markDone(eventId) {
   if (!eventId) return;
-  await InboundWebhookEvent.updateOne(
-    { _id: eventId },
-    { $set: { status: 'done', processed_at: new Date(), lease_until: null, last_error: '' } }
+  const now = new Date();
+  await collection().updateOne(
+    { key: QUEUE_KEY },
+    {
+      $set: {
+        'value.events.$[event].status': 'done',
+        'value.events.$[event].processed_at': now,
+        'value.events.$[event].lease_until': null,
+        'value.events.$[event].lease_token': '',
+        'value.events.$[event].last_error': '',
+        'value.events.$[event].updated_at': now,
+        updatedAt: now,
+      },
+    },
+    { arrayFilters: [{ 'event._id': String(eventId) }] }
   ).catch((err) => logger.error(`[webhook-queue] Could not mark ${eventId} done: ${err.message}`));
 }
 
-/**
- * Record a failed attempt. The row goes back to pending — and so is retried —
- * until it has been tried MAX_ATTEMPTS times.
- */
 async function markFailed(eventId, error) {
   if (!eventId) return;
-  const row = await InboundWebhookEvent.findById(eventId).lean().catch(() => null);
-  const attempts = Number(row?.attempts || 0) + 1;
 
-  await InboundWebhookEvent.updateOne(
-    { _id: eventId },
-    {
-      $set: {
-        status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
-        last_error: String(error?.message || error || '').slice(0, 1000),
-        lease_until: null,
-      },
-      $inc: { attempts: 1 },
-    }
-  ).catch((err) => logger.error(`[webhook-queue] Could not mark ${eventId} failed: ${err.message}`));
-
-  if (attempts >= MAX_ATTEMPTS) {
-    logger.error(
-      `[webhook-queue] Giving up on ${eventId} after ${attempts} attempts; the row is kept for inspection.`
+  try {
+    const doc = await collection().findOne(
+      { key: QUEUE_KEY, 'value.events._id': String(eventId) },
+      { projection: { 'value.events.$': 1 } }
     );
+    const row = doc?.value?.events?.[0];
+    if (!row) return;
+
+    const attempts = Number(row.attempts || 0) + 1;
+    const now = new Date();
+
+    await collection().updateOne(
+      { key: QUEUE_KEY },
+      {
+        $set: {
+          'value.events.$[event].status': attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
+          'value.events.$[event].attempts': attempts,
+          'value.events.$[event].last_error': String(error?.message || error || '').slice(0, 1000),
+          'value.events.$[event].lease_until': null,
+          'value.events.$[event].lease_token': '',
+          'value.events.$[event].updated_at': now,
+          updatedAt: now,
+        },
+      },
+      { arrayFilters: [{ 'event._id': String(eventId) }] }
+    );
+
+    if (attempts >= MAX_ATTEMPTS) {
+      logger.error(`[webhook-queue] Giving up on ${eventId} after ${attempts} attempts; event retained for inspection.`);
+    }
+  } catch (err) {
+    logger.error(`[webhook-queue] Could not mark ${eventId} failed: ${err.message}`);
   }
 }
 
-/**
- * Claim one row to work on.
- *
- * The claim is a single atomic findOneAndUpdate that both selects the row and
- * takes its lease, so two workers cannot claim the same delivery.
- */
 async function claimNext(provider) {
+  await ensureQueueDocument();
+
   const now = new Date();
-  return InboundWebhookEvent.findOneAndUpdate(
+  const leaseUntil = new Date(now.getTime() + LEASE_MS);
+  const leaseToken = crypto.randomUUID();
+
+  const result = await collection().findOneAndUpdate(
     {
-      provider,
-      status: 'pending',
-      attempts: { $lt: MAX_ATTEMPTS },
-      $or: [{ lease_until: null }, { lease_until: { $lt: now } }],
+      key: QUEUE_KEY,
+      'value.events': {
+        $elemMatch: {
+          provider,
+          attempts: { $lt: MAX_ATTEMPTS },
+          $or: [
+            {
+              status: 'pending',
+              $or: [
+                { lease_until: null },
+                { lease_until: { $lt: now } },
+              ],
+            },
+            {
+              status: 'processing',
+              lease_until: { $lt: now },
+            },
+          ],
+        },
+      },
     },
-    { $set: { status: 'processing', lease_until: new Date(now.getTime() + LEASE_MS) } },
-    { sort: { createdAt: 1 }, new: true }
-  ).lean();
+    {
+      $set: {
+        'value.events.$.status': 'processing',
+        'value.events.$.lease_until': leaseUntil,
+        'value.events.$.lease_token': leaseToken,
+        'value.events.$.updated_at': now,
+        updatedAt: now,
+      },
+    },
+    { returnDocument: 'after' }
+  );
+
+  const doc = result?.value || result;
+  const events = doc?.value?.events || [];
+  return events.find((event) => event.lease_token === leaseToken) || null;
 }
 
-/**
- * Re-run deliveries that have not been processed yet.
- *
- * @param {string} provider
- * @param {(payload: object) => Promise<void>} handler
- * @param {number} [limit] most rows to work through in one sweep
- */
 async function drain(provider, handler, limit = 25) {
   let processed = 0;
 
@@ -138,7 +241,18 @@ async function drain(provider, handler, limit = 25) {
     }
   }
 
+  if (processed > 0) await pruneOldEvents();
   return processed;
 }
 
-module.exports = { record, markDone, markFailed, claimNext, drain, dedupeKeyFor, MAX_ATTEMPTS, LEASE_MS };
+module.exports = {
+  record,
+  markDone,
+  markFailed,
+  claimNext,
+  drain,
+  dedupeKeyFor,
+  MAX_ATTEMPTS,
+  LEASE_MS,
+  QUEUE_KEY,
+};

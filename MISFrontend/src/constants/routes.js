@@ -71,9 +71,7 @@ export const ROUTES = {
   REPORTS_VENDORS: '/reports/vendors',
   REPORTS_TEAM: '/reports/team',
   REPORTS_DELIVERY: '/reports/delivery',
-  // The admin-only hub: profit and the item/order/vendor/employee splits.
   REPORTS_BUSINESS: '/reports/business',
-  // Which endpoints and pages are used, and the switches for each.
   REPORTS_API_PERFORMANCE: '/reports/api-performance',
   REPORTS_BILLS: '/allBills',
   REPORTS_PRIORITY: '/priorityReport',
@@ -91,12 +89,10 @@ export const ROUTES = {
   OPENING_BALANCE:           '/accounts/opening-balance',
   OPENING_BALANCE_UPLOAD:    '/accounts/opening-balance-upload',
 
-  // Gmail / Email
   GMAIL_ACCOUNTS: '/gmail/accounts',
   EMAIL_COMPOSE:  '/gmail/compose',
   EMAIL_HISTORY:  '/gmail/history',
 
-  // legacy aliases still used in old code
   ADD_ORDER: '/addOrder',
   ADD_ORDER_V2: '/addOrder1',
   ALL_BILLS: '/allBills',
@@ -110,10 +106,8 @@ export const ROUTES = {
   CALL_LOGS: '/calllogs',
   FLOW_BUILDER: '/flow-builder',
 
-  // SOP
   SOP: '/sop',
 
-  // Team Operations
   OPERATIONS: '/operations',
   OPERATIONS_MY: '/operations/me',
   OPERATIONS_RESPONSIBILITIES: '/operations/responsibilities',
@@ -121,7 +115,6 @@ export const ROUTES = {
   OPERATIONS_DAILY_REPORT: '/operations/daily-report',
   OPERATIONS_USERS: '/operations/users',
 
-  // Social Media
   SOCIAL_OVERVIEW: '/social',
   SOCIAL_CREATE_POST: '/social/create',
   SOCIAL_CALENDAR: '/social/calendar',
@@ -131,7 +124,6 @@ export const ROUTES = {
   SOCIAL_ACCOUNTS: '/social/accounts',
   SOCIAL_ANALYTICS: '/social/analytics',
 
-  // Admin
   ADMIN_BUSINESS_PROFILE: '/admin/business-profile',
   ADMIN_NETWORK_FILES: '/admin/network-files',
   ADMIN_API: '/admin/api',
@@ -139,6 +131,7 @@ export const ROUTES = {
   ADMIN_GROUP_PERMISSIONS: '/admin/group-permissions',
   WHATSAPP_ACTION_LOG: '/admin/whatsapp-action-log',
   DRIVE_FOLDER_REPORT: '/admin/drive-folder-report',
+  DATABASE_INTEGRITY: '/admin/database-integrity',
 };
 
 export const ROUTE_ALIASES = {

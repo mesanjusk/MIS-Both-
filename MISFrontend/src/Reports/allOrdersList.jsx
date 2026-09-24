@@ -4,6 +4,7 @@ import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 import { ORDER_STAGES } from '../constants/orderStages';
 import OrderFileThumbnail from '../Components/orders/OrderFileThumbnail';
+import { buildPoIndex, collectVendorLinks } from '../utils/vendorMapping';
 import {
   copyPathToClipboard,
   getBillLocalPaths,
@@ -42,6 +43,7 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 
 const fmtDate = (d) => {
   if (!d) return '—';
@@ -74,16 +76,32 @@ function delivered(order) {
   if (DELIVERED_STAGES.has(stage)) return true;
   return (order.Status || []).some((s) => String(s?.Task || '').toLowerCase().includes('delivered'));
 }
+function billSearchValue(order) {
+  return [
+    order?.Order_Number,
+    order?.Bill_Number,
+    order?.billNumber,
+    order?.Invoice_Number,
+    order?.invoiceNumber,
+    order?.invoiceNo,
+  ].filter(Boolean).join(' ');
+}
 
 export default function AllOrdersList() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState(searchParams.get('q') || '');
   const [view, setView] = useState(searchParams.get('view') || 'all');
   const [stageFilter, setStageFilter] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const [deliveryFilter, setDeliveryFilter] = useState('all');
+  const [invoiceFilter, setInvoiceFilter] = useState('all');
+  const [showOnly99, setShowOnly99] = useState(false);
+  const [showUnmappedOnly, setShowUnmappedOnly] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [sidebarDateInput, setSidebarDateInput] = useState('');
   const [localShareRoot, setLocalShareRoot] = useState('');
@@ -152,7 +170,8 @@ export default function AllOrdersList() {
       axios.get('/api/orders/GetDeliveredList'),
       axios.get('/api/orders/GetBillListPaged?page=1&limit=200'),
       axios.get('/api/customers/GetCustomersList'),
-    ]).then(([activeRes, deliveredRes, billRes, custRes]) => {
+      axios.get('/api/purchaseorder/list').catch(() => ({ data: { result: [] } })),
+    ]).then(([activeRes, deliveredRes, billRes, custRes, poRes]) => {
       const active = activeRes.data?.success ? (activeRes.data.result || []) : [];
       const done = deliveredRes.data?.success ? (deliveredRes.data.result || []) : [];
       const bills = billRes.data?.success ? (billRes.data.result || []) : [];
@@ -164,6 +183,7 @@ export default function AllOrdersList() {
       });
       setOrders([...byKey.values()]);
       if (custRes.data?.success) setCustomers(custRes.data.result || []);
+      setPurchaseOrders(poRes.data?.result || []);
     }).catch(() => toast.error('Failed to load orders')).finally(() => setLoading(false));
   }, []);
 
@@ -171,12 +191,14 @@ export default function AllOrdersList() {
     () => Object.fromEntries(customers.filter((c) => c.Customer_uuid).map((c) => [c.Customer_uuid, c.Customer_name])),
     [customers]
   );
+  const poIndex = useMemo(() => buildPoIndex(purchaseOrders), [purchaseOrders]);
 
   const rows = useMemo(() => orders.map((o) => {
     const amount = orderAmount(o);
     const isDelivered = delivered(o);
     const billStatus = String(o.billStatus || 'unpaid').toLowerCase();
     const date = o.createdAt || o.updatedAt || '';
+    const vendorLinks = collectVendorLinks(o, poIndex);
     return {
       order: o,
       customerName: o.Customer_name || customerMap[o.Customer_uuid] || o.Customer_uuid || '—',
@@ -189,11 +211,13 @@ export default function AllOrdersList() {
       isBillable: amount > 0,
       isMissingAmount: amount <= 0,
       isLowAmount: amount > 0 && amount < 99,
+      isExactly99: amount === 99,
+      vendorMapped: Boolean(vendorLinks?.mapped),
       isComplete: isDelivered && (amount <= 0 || billStatus === 'paid'),
       date,
       dateISO: isoDate(date),
     };
-  }), [orders, customerMap]);
+  }), [orders, customerMap, poIndex]);
 
   const quickFiltered = useMemo(() => rows.filter((r) => {
     if (view === 'active' && r.isDelivered) return false;
@@ -209,10 +233,25 @@ export default function AllOrdersList() {
     const q = searchText.trim().toLowerCase();
     return quickFiltered.filter((r) => {
       if (stageFilter && r.stage !== stageFilter && r.latestTask.toLowerCase() !== stageFilter) return false;
-      if (q && ![r.order.Order_Number, r.customerName, r.remark, r.stage, r.latestTask].join(' ').toLowerCase().includes(q)) return false;
+      if (paymentFilter === 'paid' && r.billStatus !== 'paid') return false;
+      if (paymentFilter === 'due' && (!r.isBillable || r.billStatus === 'paid')) return false;
+      if (paymentFilter === 'no-bill' && r.isBillable) return false;
+      if (deliveryFilter === 'pending' && r.isDelivered) return false;
+      if (deliveryFilter === 'delivered' && !r.isDelivered) return false;
+      if (invoiceFilter === 'missing' && r.isBillable) return false;
+      if (invoiceFilter === 'created' && !r.isBillable) return false;
+      if (showOnly99 && !r.isExactly99) return false;
+      if (showUnmappedOnly && r.vendorMapped) return false;
+      if (q && ![
+        billSearchValue(r.order),
+        r.customerName,
+        r.remark,
+        r.stage,
+        r.latestTask,
+      ].join(' ').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [quickFiltered, searchText, stageFilter]);
+  }, [quickFiltered, searchText, stageFilter, paymentFilter, deliveryFilter, invoiceFilter, showOnly99, showUnmappedOnly]);
 
   const availableDates = useMemo(() => Array.from(new Set(searchedRows.map((r) => r.dateISO).filter(Boolean))).sort((a, b) => b.localeCompare(a)), [searchedRows]);
   const dateCountMap = useMemo(() => searchedRows.reduce((map, r) => { if (r.dateISO) map[r.dateISO] = (map[r.dateISO] || 0) + 1; return map; }, {}), [searchedRows]);
@@ -226,6 +265,8 @@ export default function AllOrdersList() {
     completed: rows.filter((r) => r.isComplete).length,
     missing: rows.filter((r) => r.isMissingAmount).length,
     low: rows.filter((r) => r.isLowAmount).length,
+    exact99: rows.filter((r) => r.isExactly99).length,
+    unmapped: rows.filter((r) => !r.vendorMapped).length,
   }), [rows]);
 
   const stats = useMemo(() => ({
@@ -246,7 +287,16 @@ export default function AllOrdersList() {
     if (next === 'all') p.delete('view'); else p.set('view', next);
     setSearchParams(p, { replace: true });
   };
+  const clearAdvancedFilters = () => {
+    setStageFilter('');
+    setPaymentFilter('all');
+    setDeliveryFilter('all');
+    setInvoiceFilter('all');
+    setShowOnly99(false);
+    setShowUnmappedOnly(false);
+  };
   const selectedLabel = selectedDate ? fmtDate(selectedDate) : 'All Dates';
+  const hasAdvancedFilters = stageFilter || paymentFilter !== 'all' || deliveryFilter !== 'all' || invoiceFilter !== 'all' || showOnly99 || showUnmappedOnly;
 
   return (
     <Box sx={{ display: 'flex', minHeight: '80vh', gap: 2, p: { xs: 1, md: 2 } }}>
@@ -269,13 +319,24 @@ export default function AllOrdersList() {
       </Paper>
 
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1.5 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1.25 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="h5" fontWeight={900} noWrap>Orders</Typography><Typography variant="body2" color="text.secondary">{selectedLabel} · {stats.count} orders · Production, billing, payment & delivery</Typography></Box>
-          <TextField size="small" placeholder="Search order / customer" value={searchText} onChange={(e) => setSearchText(e.target.value)} sx={{ width: { xs: '100%', sm: 210 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
-          <FormControl size="small" sx={{ width: { xs: '100%', sm: 150 } }}><InputLabel>Stage</InputLabel><Select value={stageFilter} label="Stage" onChange={(e) => setStageFilter(e.target.value)}><MenuItem value="">All stages</MenuItem>{ORDER_STAGES.map((s) => <MenuItem key={s} value={s}>{s.replaceAll('_', ' ')}</MenuItem>)}</Select></FormControl>
+          <TextField size="small" placeholder="Search order / bill # / customer" value={searchText} onChange={(e) => setSearchText(e.target.value)} sx={{ width: { xs: '100%', sm: 250 } }} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
         </Stack>
 
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>{quickViews.map(([key, label]) => <Chip key={key} clickable onClick={() => setQuickView(key)} label={`${label} (${counts[key]})`} color={view === key ? 'primary' : 'default'} variant={view === key ? 'filled' : 'outlined'} sx={{ fontWeight: 700 }} />)}</Stack>
+        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1.25 }}>{quickViews.map(([key, label]) => <Chip key={key} clickable onClick={() => setQuickView(key)} label={`${label} (${counts[key]})`} color={view === key ? 'primary' : 'default'} variant={view === key ? 'filled' : 'outlined'} sx={{ fontWeight: 700 }} />)}</Stack>
+
+        <Paper variant="outlined" sx={{ p: 1, mb: 1.5, borderRadius: 2.5 }}>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center">
+            <FormControl size="small" sx={{ minWidth: 135 }}><InputLabel>Stage</InputLabel><Select value={stageFilter} label="Stage" onChange={(e) => setStageFilter(e.target.value)}><MenuItem value="">All stages</MenuItem>{ORDER_STAGES.map((s) => <MenuItem key={s} value={s}>{s.replaceAll('_', ' ')}</MenuItem>)}</Select></FormControl>
+            <FormControl size="small" sx={{ minWidth: 130 }}><InputLabel>Payment</InputLabel><Select value={paymentFilter} label="Payment" onChange={(e) => setPaymentFilter(e.target.value)}><MenuItem value="all">All</MenuItem><MenuItem value="paid">Paid</MenuItem><MenuItem value="due">Due</MenuItem><MenuItem value="no-bill">No bill</MenuItem></Select></FormControl>
+            <FormControl size="small" sx={{ minWidth: 135 }}><InputLabel>Delivery</InputLabel><Select value={deliveryFilter} label="Delivery" onChange={(e) => setDeliveryFilter(e.target.value)}><MenuItem value="all">All</MenuItem><MenuItem value="pending">Pending</MenuItem><MenuItem value="delivered">Delivered</MenuItem></Select></FormControl>
+            <FormControl size="small" sx={{ minWidth: 145 }}><InputLabel>Invoice</InputLabel><Select value={invoiceFilter} label="Invoice" onChange={(e) => setInvoiceFilter(e.target.value)}><MenuItem value="all">All</MenuItem><MenuItem value="missing">Needs invoice</MenuItem><MenuItem value="created">Invoice created</MenuItem></Select></FormControl>
+            <Chip clickable label={`₹99 Bills (${counts.exact99})`} color={showOnly99 ? 'error' : 'default'} variant={showOnly99 ? 'filled' : 'outlined'} onClick={() => setShowOnly99((v) => !v)} sx={{ fontWeight: 700 }} />
+            <Chip clickable label={`No Vendor (${counts.unmapped})`} color={showUnmappedOnly ? 'warning' : 'default'} variant={showUnmappedOnly ? 'filled' : 'outlined'} onClick={() => setShowUnmappedOnly((v) => !v)} sx={{ fontWeight: 700 }} />
+            {hasAdvancedFilters && <Tooltip title="Clear delivery/billing filters"><Button size="small" onClick={clearAdvancedFilters} startIcon={<RestartAltIcon />} sx={{ textTransform: 'none' }}>Reset</Button></Tooltip>}
+          </Stack>
+        </Paper>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }} useFlexGap>
           {[
@@ -292,7 +353,7 @@ export default function AllOrdersList() {
         {loading ? <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box> : filtered.length === 0 ? <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No orders found for this selection.</Typography> : (
           <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}><Stack direction="row" spacing={1} alignItems="center"><LocalShippingIcon fontSize="small" color="success" /><Typography variant="subtitle2" fontWeight={700} color="success.dark" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>Orders Control</Typography></Stack><Typography variant="subtitle2" fontWeight={700} color="primary.main">{fmtAmt(stats.value)}</Typography></Stack>
-            <TableContainer sx={{ maxHeight: '66vh' }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell sx={{ fontWeight: 700, width: 112, px: 0.75 }}># / File</TableCell><TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell><TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell><TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700, width: 105, px: 0.75 }}>Amount</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 145, px: 0.5 }}>·</TableCell></TableRow></TableHead>
+            <TableContainer sx={{ maxHeight: '66vh' }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell sx={{ fontWeight: 700, width: 112, px: 0.75 }}># / File</TableCell><TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell><TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell><TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700, width: 105, px: 0.75 }}>Amount</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 160, px: 0.5 }}>Actions</TableCell></TableRow></TableHead>
               <TableBody>{filtered.map((r, idx) => {
                 const id = r.order.Order_uuid || r.order._id;
                 const amountWarning = r.isMissingAmount ? 'Missing amount' : r.isLowAmount ? 'Below ₹99' : '';
@@ -311,9 +372,13 @@ export default function AllOrdersList() {
                   <TableCell align="center" sx={{ px: 0.75 }}><Chip size="small" label={r.isDelivered ? 'Delivered' : 'Pending'} color={r.isDelivered ? 'success' : 'warning'} variant="outlined" sx={{ height: 20, fontSize: 10.5 }} /></TableCell>
                   <TableCell align="center" sx={{ px: 0.5, whiteSpace: 'nowrap' }}>
                     <Tooltip title="Edit order"><Button size="small" onClick={() => navigate(`/orderUpdate/${id}`)} sx={{ minWidth: 28, px: 0.5 }}><EditIcon fontSize="small" /></Button></Tooltip>
-                    <Tooltip title="Invoice"><Button size="small" onClick={() => navigate(`/reports/invoices?q=${encodeURIComponent(r.order.Order_Number || '')}`)} sx={{ minWidth: 28, px: 0.5 }}><ReceiptIcon fontSize="small" /></Button></Tooltip>
+                    {r.isBillable ? (
+                      <Tooltip title="View invoice"><Button size="small" color="primary" onClick={() => navigate(`/reports/invoices?q=${encodeURIComponent(r.order.Order_Number || '')}`)} sx={{ minWidth: 28, px: 0.5 }}><ReceiptIcon fontSize="small" /></Button></Tooltip>
+                    ) : (
+                      <Tooltip title="Create invoice"><Button size="small" color="success" onClick={() => navigate(`/orderUpdate/${id}?createInvoice=1`)} sx={{ minWidth: 28, px: 0.5 }}><ReceiptIcon fontSize="small" /></Button></Tooltip>
+                    )}
                     <Tooltip title="Open local folder"><Button size="small" color="secondary" onClick={() => openLocalFolder(r.order)} sx={{ minWidth: 28, px: 0.5 }}><FolderOpenIcon fontSize="small" /></Button></Tooltip>
-                    <Tooltip title="Delivery"><Button size="small" color="success" onClick={() => navigate(`/updateDelivery/${id}`)} sx={{ minWidth: 28, px: 0.5 }}><LocalShippingIcon fontSize="small" /></Button></Tooltip>
+                    <Tooltip title={r.isDelivered ? 'Edit delivery' : 'Mark / update delivery'}><Button size="small" color="success" onClick={() => navigate(`/updateDelivery/${id}`)} sx={{ minWidth: 28, px: 0.5 }}><LocalShippingIcon fontSize="small" /></Button></Tooltip>
                   </TableCell>
                 </TableRow>;
               })}</TableBody></Table></TableContainer>

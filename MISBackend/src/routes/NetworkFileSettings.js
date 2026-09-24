@@ -5,8 +5,15 @@ const { AppSetting } = require('../repositories/appSetting');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
 const { getAuthorizedDriveClient } = require('../services/googleDriveOAuthService');
+const {
+  listSubfolders,
+  parseFolderDate,
+  ensurePrintingFolder,
+  isOrderFolderName,
+} = require('../services/driveArchiveFolderService');
 
 const SETTINGS_KEY = 'network_file_settings';
+const PRINTING_PREVIEW_CACHE_MS = 60 * 1000;
 
 const EMPTY_SETTINGS = Object.freeze({
   serverLocalPath: '',
@@ -14,6 +21,9 @@ const EMPTY_SETTINGS = Object.freeze({
   driveAnchorFolderName: '',
   note: '',
 });
+
+let printingPreviewCache = { expiresAt: 0, byOrder: new Map() };
+let printingPreviewScanPromise = null;
 
 function cleanText(value, max = 500) {
   return String(value || '').trim().slice(0, max);
@@ -99,6 +109,141 @@ async function resolveDriveRelativePath(fileId, anchorName) {
     relativePath: segments.join('\\'),
   };
 }
+
+function fileExtension(name = '') {
+  const clean = String(name || '').toLowerCase();
+  const dot = clean.lastIndexOf('.');
+  return dot >= 0 ? clean.slice(dot + 1) : '';
+}
+
+function previewRank(file, orderNumber) {
+  const ext = fileExtension(file?.name);
+  const startsWithOrder = new RegExp(`^${orderNumber}(?:[\\s_-]|$)`, 'i').test(String(file?.name || '').trim());
+  const imageRank = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff'].includes(ext) ? 400 : 0;
+  const pdfRank = ext === 'pdf' ? 300 : 0;
+  const corelRank = ['cdr', 'cmx'].includes(ext) ? 200 : 0;
+  const genericRank = imageRank || pdfRank || corelRank ? 0 : 100;
+  return (startsWithOrder ? 1000 : 0) + imageRank + pdfRank + corelRank + genericRank;
+}
+
+async function listFilesInFolder(drive, folderId) {
+  const files = [];
+  let pageToken;
+  do {
+    const response = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+      fields: 'nextPageToken, files(id,name,mimeType,modifiedTime)',
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    files.push(...(response.data.files || []));
+    pageToken = response.data.nextPageToken || null;
+  } while (pageToken);
+  return files;
+}
+
+async function buildPrintingPreviewMap() {
+  const archiveFolderId = cleanText(process.env.DRIVE_ARCHIVE_FOLDER_ID, 255);
+  if (!archiveFolderId) return new Map();
+
+  const drive = await getAuthorizedDriveClient();
+  const byOrder = new Map();
+  const monthFolders = await listSubfolders(drive, archiveFolderId);
+
+  for (const monthFolder of monthFolders) {
+    const dateFolders = await listSubfolders(drive, monthFolder.id);
+    for (const dateFolder of dateFolders.filter((folder) => parseFolderDate(folder.name))) {
+      const printingFolder = await ensurePrintingFolder(drive, dateFolder.id, { create: false });
+      if (!printingFolder) continue;
+
+      const orderFolders = await listSubfolders(drive, printingFolder.id);
+      for (const orderFolder of orderFolders) {
+        const match = String(orderFolder.name || '').trim().match(/^(\d+)(?:[\s_-]|$)/);
+        if (!match) continue;
+        const orderNumber = Number(match[1]);
+        if (!orderNumber) continue;
+
+        const files = await listFilesInFolder(drive, orderFolder.id);
+        if (!files.length) continue;
+
+        files.sort((a, b) => previewRank(b, orderNumber) - previewRank(a, orderNumber)
+          || String(b.modifiedTime || '').localeCompare(String(a.modifiedTime || '')));
+        const best = files[0];
+        const relativePath = [
+          monthFolder.name,
+          dateFolder.name,
+          printingFolder.name,
+          orderFolder.name,
+          best.name,
+        ].map(sanitizeWindowsSegment).filter(Boolean).join('\\');
+
+        const existing = byOrder.get(orderNumber);
+        if (!existing || String(best.modifiedTime || '') > String(existing.modifiedTime || '')) {
+          byOrder.set(orderNumber, {
+            fileId: best.id,
+            fileName: best.name,
+            mimeType: best.mimeType || '',
+            modifiedTime: best.modifiedTime || '',
+            orderFolderId: orderFolder.id,
+            orderFolderName: orderFolder.name,
+            relativePath,
+          });
+        }
+      }
+    }
+  }
+
+  return byOrder;
+}
+
+async function getPrintingPreviewMap({ refresh = false } = {}) {
+  if (!refresh && printingPreviewCache.expiresAt > Date.now()) {
+    return printingPreviewCache.byOrder;
+  }
+  if (printingPreviewScanPromise) return printingPreviewScanPromise;
+
+  printingPreviewScanPromise = buildPrintingPreviewMap()
+    .then((byOrder) => {
+      printingPreviewCache = {
+        byOrder,
+        expiresAt: Date.now() + PRINTING_PREVIEW_CACHE_MS,
+      };
+      return byOrder;
+    })
+    .finally(() => {
+      printingPreviewScanPromise = null;
+    });
+
+  return printingPreviewScanPromise;
+}
+
+router.get('/printing-preview/:orderNumber', requireAuth, async (req, res) => {
+  try {
+    const orderNumber = Number(req.params.orderNumber);
+    if (!Number.isInteger(orderNumber) || orderNumber <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid order number is required.' });
+    }
+
+    const settings = normalizeSettings(
+      await AppSetting.getSetting(SETTINGS_KEY, EMPTY_SETTINGS)
+    );
+    const previews = await getPrintingPreviewMap({ refresh: String(req.query.refresh || '').toLowerCase() === 'true' });
+    const preview = previews.get(orderNumber) || null;
+
+    return res.json({
+      success: true,
+      result: preview ? {
+        ...preview,
+        networkShareRoot: settings.networkShareRoot,
+        driveUrl: `https://drive.google.com/file/d/${preview.fileId}/view`,
+      } : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
 router.get('/resolve', requireAuth, async (req, res) => {
   try {

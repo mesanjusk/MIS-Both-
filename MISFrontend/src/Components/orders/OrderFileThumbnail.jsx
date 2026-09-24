@@ -1,17 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Tooltip, Typography } from '@mui/material';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
-
-function fileNameFrom(order) {
-  return String(
-    order?.driveFile?.name ||
-    order?.driveFile?.fileName ||
-    order?.driveFile?.localRelativePath ||
-    ''
-  ).trim();
-}
+import axios from '../../apiClient';
+import { launchMisFileUrl, normalizeWindowsPath } from '../../utils/localFileLauncher';
 
 function extensionOf(name) {
   const clean = String(name || '').split(/[\\/]/).pop() || '';
@@ -19,12 +12,47 @@ function extensionOf(name) {
   return dot > -1 ? clean.slice(dot + 1).toLowerCase() : '';
 }
 
+function joinWindowsPath(root, relative) {
+  const cleanRoot = normalizeWindowsPath(root || '').replace(/\\+$/g, '');
+  const cleanRelative = String(relative || '').replace(/^\\+/g, '');
+  return cleanRoot && cleanRelative ? `${cleanRoot}\\${cleanRelative}` : '';
+}
+
 const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tif', 'tiff']);
 
 export default function OrderFileThumbnail({ order, onOpen }) {
+  const [preview, setPreview] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
-  const fileId = String(order?.driveFile?.fileId || '').trim();
-  const fileName = fileNameFrom(order);
+  const orderNumber = Number(order?.Order_Number || 0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPreview(null);
+    setLoaded(false);
+    setImageFailed(false);
+
+    if (!orderNumber) {
+      setLoaded(true);
+      return () => { cancelled = true; };
+    }
+
+    axios.get(`/api/network-files/printing-preview/${orderNumber}`)
+      .then((res) => {
+        if (!cancelled) setPreview(res?.data?.result || null);
+      })
+      .catch(() => {
+        if (!cancelled) setPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+
+    return () => { cancelled = true; };
+  }, [orderNumber]);
+
+  const fileId = String(preview?.fileId || '').trim();
+  const fileName = String(preview?.fileName || '').trim();
   const ext = extensionOf(fileName);
   const isImage = IMAGE_EXTS.has(ext);
   const isPdf = ext === 'pdf';
@@ -35,23 +63,34 @@ export default function OrderFileThumbnail({ order, onOpen }) {
     [fileId]
   );
 
-  if (!fileId && !fileName) return null;
+  if (!loaded || !preview) return null;
 
-  const title = fileName
-    ? `Open order file/folder: ${fileName}`
-    : 'Open order file/folder';
+  const openPrintingFile = () => {
+    const localPath = joinWindowsPath(preview.networkShareRoot, preview.relativePath);
+    if (localPath) {
+      launchMisFileUrl(localPath, { select: true });
+      return;
+    }
+    if (preview.driveUrl) {
+      window.open(preview.driveUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    onOpen?.();
+  };
+
+  const title = `Printing file: ${fileName}`;
 
   return (
     <Tooltip title={title}>
       <Box
         role="button"
         tabIndex={0}
-        onClick={(e) => { e.stopPropagation(); onOpen?.(); }}
+        onClick={(e) => { e.stopPropagation(); openPrintingFile(); }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             e.stopPropagation();
-            onOpen?.();
+            openPrintingFile();
           }
         }}
         sx={(t) => ({
@@ -73,7 +112,7 @@ export default function OrderFileThumbnail({ order, onOpen }) {
           <Box
             component="img"
             src={driveThumb}
-            alt={fileName || 'Order file preview'}
+            alt={fileName || 'Printing file preview'}
             loading="lazy"
             onError={() => setImageFailed(true)}
             sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}

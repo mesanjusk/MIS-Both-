@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Box, Button, Paper, LinearProgress, Stack, Tabs, Tab, Typography } from '@mui/material';
 import AssignmentRoundedIcon from '@mui/icons-material/AssignmentRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
-import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
@@ -15,7 +14,6 @@ import { useAuth } from '../context/AuthContext';
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
 
 const loadOutstandingReport = () => import('../Reports/outstandingReport');
-const loadAllTransaction4D = () => import('../Reports/allTransaction4D');
 const loadAllOrders = () => import('../Reports/allOrdersList');
 const loadAllAttandance = () => import('./AllAttandance');
 const loadPayableAccount = () => import('./PayableAccount');
@@ -25,7 +23,6 @@ const loadDayBook = () => import('./DayBook');
 const loadHomeInbox = () => import('./HomeInbox');
 
 const OutstandingReport = lazy(loadOutstandingReport);
-const AllTransaction4D = lazy(loadAllTransaction4D);
 const AllOrders = lazy(loadAllOrders);
 const AllAttandance = lazy(loadAllAttandance);
 const PayableAccount = lazy(loadPayableAccount);
@@ -78,20 +75,25 @@ const HOME_TABS = [
   // Orders is now the single operational record for production + billing + payment + delivery.
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: AllOrders },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
-  { id: 'transaction4D', label: 'Cash & Bank', icon: SwapHorizRoundedIcon, Component: AllTransaction4D },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
   { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'workflowAudit', label: 'Workflow Audit', icon: FactCheckRoundedIcon, Component: WorkflowAudit, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
+  // Day Book already contains the cash + bank historical ledger view along with
+  // diary review, account assignment, bank-statement posting, edit/reopen and
+  // upload actions. Keep that complete UI as the single home accounting book.
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBook },
 ];
 
-const HOME_TAB_PRELOADERS = [loadHomeInbox, loadAllOrders, loadOutstandingReport, loadAllTransaction4D, loadAllAttandance, loadPayableAccount, loadWorkflowAudit, loadRateCalculator, loadDayBook];
+const HOME_TAB_PRELOADERS = [loadHomeInbox, loadAllOrders, loadOutstandingReport, loadAllAttandance, loadPayableAccount, loadWorkflowAudit, loadRateCalculator, loadDayBook];
 
 const LEGACY_HOME_TAB_IDS = {
   quickLinks: 'workflow', recentAttendance: 'attendance', ordersBoard: 'orders',
-  // Existing user/widget settings for the retired tabs continue to expose Orders.
+  // Existing user/widget settings for retired tabs keep working.
   delivery: 'orders', bills: 'orders',
+  // Cash & Bank is merged into Day Book. Persisted selections and widget
+  // permissions that still reference the old id transparently land on Day Book.
+  transaction4D: 'dayBook',
 };
 const HOME_TAB_STORAGE_KEY = 'mis.home.activeTab';
 function storedHomeTab() {

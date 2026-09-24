@@ -1,7 +1,10 @@
 const sanjusk = require('./sanjuskApiService');
 const sanjuskConversation = require('./sanjuskConversationService');
 const Message = require('../repositories/Message');
-const { processWhatsAppAttendanceCommand } = require('./whatsappAttendanceService');
+const {
+  processWhatsAppAttendanceCommand,
+  processWhatsAppAttendanceButtonTap,
+} = require('./whatsappAttendanceService');
 const logger = require('../utils/logger');
 
 const DEFAULT_POLL_INTERVAL_MS = 15 * 1000;
@@ -51,16 +54,27 @@ async function processRows(rows = [], { maxAgeMs = DEFAULT_MAX_AGE_MS } = {}) {
       const existing = await Message.exists({ messageId: row.id });
       if (existing) continue;
 
-      const result = await processWhatsAppAttendanceCommand({
-        payload: {
-          from: row.from,
-          message: row.body,
-          text: row.body,
-          messageId: row.id,
-          timestamp,
-        },
-        sendText: sendAttendanceReply,
-      });
+      const payload = {
+        from: row.from,
+        message: row.body,
+        text: row.body,
+        messageId: row.id,
+        timestamp,
+      };
+
+      const normalizedCommand = row.body.trim().toLowerCase();
+      const result = normalizedCommand === 'start' || normalizedCommand === 'hi'
+        ? await processWhatsAppAttendanceButtonTap({
+            payload: {
+              ...payload,
+              replyId: 'attn:mark:start',
+            },
+            sendText: sendAttendanceReply,
+          })
+        : await processWhatsAppAttendanceCommand({
+            payload,
+            sendText: sendAttendanceReply,
+          });
 
       if (!result?.handled) continue;
 
@@ -87,7 +101,10 @@ async function processRows(rows = [], { maxAgeMs = DEFAULT_MAX_AGE_MS } = {}) {
       );
 
       handled += 1;
-      logger.info({ messageId: row.id, from: row.from }, '[sanjusk-attendance-poller] attendance command handled');
+      logger.info(
+        { messageId: row.id, from: row.from, command: normalizedCommand, success: result?.success !== false },
+        '[sanjusk-attendance-poller] attendance command handled'
+      );
     } catch (error) {
       logger.error(
         { err: error?.message || error, messageId: row.id, from: row.from },

@@ -36,11 +36,6 @@ const emptyConfig = () => ({
   baseUrl: DEFAULT_BASE_URL,
   apiKeyEncrypted: '',
   keyPrefix: '',
-  // The inbound webhook signing secret (matches SanjuSK's "Webhook
-  // destinations" secret). Stored encrypted here so it can be managed from the
-  // Admin → API screen instead of a server env var. The webhook verifier falls
-  // back to process.env.METABSP_WEBHOOK_SECRET when this is empty, so existing
-  // env-based deployments keep working unchanged.
   webhookSecretEncrypted: '',
   enabled: false,
   updatedAt: null,
@@ -55,25 +50,49 @@ const loadRawConfig = async () => {
   return { ...emptyConfig(), ...(stored || {}) };
 };
 
-/** The shape safe to hand a browser: no key, only enough to identify it. */
-const toPublicConfig = (config) => ({
-  baseUrl: config.baseUrl || DEFAULT_BASE_URL,
-  enabled: Boolean(config.enabled),
-  hasApiKey: Boolean(config.apiKeyEncrypted),
-  keyPrefix: config.keyPrefix || '',
-  hasWebhookSecret: Boolean(config.webhookSecretEncrypted),
-  updatedAt: config.updatedAt || null,
-  updatedBy: config.updatedBy || '',
-});
+/**
+ * Return whether an encrypted credential can still be opened with the current
+ * server encryption key. This deliberately never returns the plaintext.
+ */
+const encryptedValueUsable = (value) => {
+  if (!value) return false;
+  try {
+    return Boolean(decrypt(value));
+  } catch {
+    return false;
+  }
+};
+
+/** The shape safe to hand a browser: no secret values are ever returned. */
+const toPublicConfig = (config) => {
+  const hasApiKey = Boolean(config.apiKeyEncrypted);
+  const apiKeyUsable = hasApiKey && encryptedValueUsable(config.apiKeyEncrypted);
+  const hasWebhookSecret = Boolean(config.webhookSecretEncrypted);
+  const webhookSecretUsable = hasWebhookSecret && encryptedValueUsable(config.webhookSecretEncrypted);
+
+  return {
+    baseUrl: config.baseUrl || DEFAULT_BASE_URL,
+    enabled: Boolean(config.enabled),
+    hasApiKey,
+    apiKeyUsable,
+    apiKeyNeedsReentry: hasApiKey && !apiKeyUsable,
+    keyPrefix: config.keyPrefix || '',
+    hasWebhookSecret,
+    webhookSecretUsable,
+    webhookSecretNeedsReentry: hasWebhookSecret && !webhookSecretUsable,
+    updatedAt: config.updatedAt || null,
+    updatedBy: config.updatedBy || '',
+  };
+};
 
 const getPublicConfig = async () => toPublicConfig(await loadRawConfig());
 
 /**
- * Saves the configuration. An absent or blank apiKey leaves the stored key
- * alone rather than clearing it — the UI never receives the key, so it cannot
- * send it back, and treating "field left empty" as "delete the credential"
- * would wipe the integration every time someone edited the base URL.
- * Clearing is explicit, via clearApiKey().
+ * Saves the configuration. A new plaintext key/secret is always encrypted with
+ * the CURRENT server encryption key, replacing any stale ciphertext. Blank
+ * fields keep an existing credential only when that credential is still
+ * decryptable. This prevents an old, undecryptable value from silently
+ * surviving what looks like a successful configuration update.
  */
 const saveConfig = async ({ baseUrl, apiKey, webhookSecret, enabled, updatedBy }) => {
   const current = await loadRawConfig();
@@ -93,9 +112,6 @@ const saveConfig = async ({ baseUrl, apiKey, webhookSecret, enabled, updatedBy }
     next.keyPrefix = trimmedKey.slice(0, 12);
   }
 
-  // Like the API key, a blank webhook secret leaves the stored one alone (the
-  // UI never receives it, so it cannot send it back). Clearing is explicit,
-  // via clearWebhookSecret().
   if (webhookSecret !== undefined) {
     const trimmedSecret = String(webhookSecret || '').trim();
     if (trimmedSecret) {
@@ -107,6 +123,28 @@ const saveConfig = async ({ baseUrl, apiKey, webhookSecret, enabled, updatedBy }
 
   if (next.enabled && !next.apiKeyEncrypted) {
     throw new AppError('Save an API key before turning the integration on.', 400);
+  }
+
+  // If the encryption key changed, keeping the old ciphertext is not a valid
+  // save. Force a real replacement instead of returning “Saved” while Inbox
+  // continues to fail later.
+  if (!trimmedKey && next.apiKeyEncrypted && !encryptedValueUsable(next.apiKeyEncrypted)) {
+    throw new AppError(
+      'The saved SanjuSK API key was encrypted with an older server key. Re-enter the API key to replace it.',
+      409
+    );
+  }
+
+  if (
+    webhookSecret !== undefined &&
+    !String(webhookSecret || '').trim() &&
+    next.webhookSecretEncrypted &&
+    !encryptedValueUsable(next.webhookSecretEncrypted)
+  ) {
+    throw new AppError(
+      'The saved webhook secret was encrypted with an older server key. Re-enter the webhook secret to replace it.',
+      409
+    );
   }
 
   next.updatedAt = new Date().toISOString();
@@ -127,8 +165,6 @@ const clearApiKey = async ({ updatedBy } = {}) => {
     ...current,
     apiKeyEncrypted: '',
     keyPrefix: '',
-    // A configuration with no key cannot send, so leaving it enabled would
-    // only produce confusing failures at send time.
     enabled: false,
     updatedAt: new Date().toISOString(),
     updatedBy: String(updatedBy || ''),
@@ -161,13 +197,12 @@ const resolveCredentials = async ({ requireEnabled = true } = {}) => {
   try {
     apiKey = decrypt(config.apiKeyEncrypted);
   } catch (error) {
-    // A changed WHATSAPP_TOKEN_ENCRYPTION_KEY is the usual cause, and it is
-    // worth saying so: the stored value is not recoverable, it must be
-    // re-entered.
     logger.error({ err: error.message }, '[sanjusk] stored API key could not be decrypted');
+    // This is configuration state, not a server crash. Returning 409 also
+    // prevents monitoring/UI from reporting it as an unexplained 500.
     throw new AppError(
-      'The saved API key could not be decrypted — the encryption key has changed. Re-enter the API key under Admin → API.',
-      500
+      'The saved SanjuSK API key was encrypted with an older server key. Re-enter the API key under Admin → API.',
+      409
     );
   }
 
@@ -176,11 +211,6 @@ const resolveCredentials = async ({ requireEnabled = true } = {}) => {
 
 /**
  * One place where a failed call becomes a message a human can act on.
- *
- * The SanjuSK API answers errors as {success:false, message, code}. Passing
- * that through matters most for OUTSIDE_24H_WINDOW, which is not a fault —
- * it means the reply must be a template — and callers need to distinguish it
- * from an outage.
  */
 const request = async ({ method, path, body, requireEnabled = true }) => {
   const { baseUrl, apiKey } = await resolveCredentials({ requireEnabled });
@@ -234,15 +264,6 @@ const sendMedia = ({ phone, type = 'image', link, caption = '', filename = '', r
     requireEnabled,
   });
 
-/**
- * Interactive message — WhatsApp reply buttons or a list/menu.
- *
- *   type 'button'  → buttons: [{ id, title }]           (up to 3)
- *   type 'list'    → buttonLabel + sections: [{ title, rows: [{ id, title, description }] }]
- *
- * SanjuSK builds the Meta interactive payload from these fields, the same way
- * send-text / send-media hide the Meta envelope behind flat inputs.
- */
 const sendInteractive = ({
   phone,
   type = 'button',
@@ -259,11 +280,7 @@ const sendInteractive = ({
     requireEnabled,
   });
 
-/**
- * Recent messages, oldest first. Used by the admin screen to show that
- * inbound is actually arriving; the live inbound path is the webhook, not
- * this.
- */
+/** Recent messages, oldest first. */
 const listMessages = ({ since, direction, phone, limit = 25, requireEnabled = true } = {}) => {
   const params = new URLSearchParams();
   if (since) params.set('since', since);
@@ -274,31 +291,25 @@ const listMessages = ({ since, direction, phone, limit = 25, requireEnabled = tr
   return request({ method: 'get', path: `/messages${query ? `?${query}` : ''}`, requireEnabled });
 };
 
-/** True when the "Send through SanjuSK" toggle is on AND a key is saved. */
+/** True when the toggle is on AND the stored key is actually usable. */
 const isEnabled = async () => {
   const config = await loadRawConfig();
-  return Boolean(config.enabled && config.apiKeyEncrypted);
+  return Boolean(config.enabled && encryptedValueUsable(config.apiKeyEncrypted));
 };
 
 /**
- * True when a SanjuSK API key is saved, regardless of the enabled toggle.
- *
- * This is what routes ALL outbound — automation included — through the one
- * SanjuSK account the Home → Inbox already uses, instead of the direct-Meta
- * credentials in the server environment. Sending uses requireEnabled:false so
- * a saved key is enough; only removing the key falls back to Meta.
+ * True only when the stored SanjuSK API key can be decrypted with the current
+ * server key. A stale ciphertext must not hijack outbound routing away from the
+ * existing direct-Meta fallback.
  */
 const isConfigured = async () => {
   const config = await loadRawConfig();
-  return Boolean(config.apiKeyEncrypted);
+  return encryptedValueUsable(config.apiKeyEncrypted);
 };
 
 /**
  * The inbound webhook signing secret saved from Admin → API, or '' if none is
- * stored. The webhook verifier uses this first and falls back to the
- * METABSP_WEBHOOK_SECRET env var, so moving the secret to the frontend is
- * backward-compatible with env-based deployments. A decrypt failure (changed
- * encryption key) is swallowed to '' so the caller can still try the env var.
+ * stored/usable. The webhook verifier can then fall back to the env secret.
  */
 const getWebhookSecret = async () => {
   const config = await loadRawConfig();

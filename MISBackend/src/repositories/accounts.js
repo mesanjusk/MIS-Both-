@@ -30,6 +30,17 @@ const AccountsSchema = new mongoose.Schema(
     // true = created by the system; false = created by a user
     Is_system: { type: Boolean, default: false },
 
+    // Legacy party names were historically auto-created in Accounts even when
+    // the real ledger already lived in Customers. Those rows are preserved for
+    // audit/rollback, but removed from active accounting once safely replaced.
+    Is_archived:                 { type: Boolean, default: false, index: true },
+    Archived_at:                 { type: Date, default: null },
+    Archived_reason:             { type: String, default: '' },
+    Archived_account_name:       { type: String, default: '' },
+    Archived_account_code:       { type: Number, default: null },
+    Replaced_by_customer_uuid:   { type: String, default: '' },
+    Replaced_by_customer_name:   { type: String, default: '' },
+
     Balance:     { type: Number, required: true, default: 0 },
     Currency:    { type: String, required: true, default: 'INR' },
     Created_at:  { type: Date,   required: true, default: Date.now },
@@ -62,6 +73,7 @@ AccountsSchema.index({ Account_type: 1 });
 AccountsSchema.index({ Account_code: 1 });
 AccountsSchema.index({ Account_group: 1 });
 AccountsSchema.index({ Is_system: 1 });
+AccountsSchema.index({ Is_archived: 1, Replaced_by_customer_uuid: 1 });
 
 const Accounts = mongoose.model('Accounts', AccountsSchema);
 module.exports = Accounts;

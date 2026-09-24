@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from '../apiClient.js';
 import toast from 'react-hot-toast';
 import { ORDER_STAGES } from '../constants/orderStages';
+import OrderFileThumbnail from '../Components/orders/OrderFileThumbnail';
 import {
   copyPathToClipboard,
   getBillLocalPaths,
@@ -291,12 +292,17 @@ export default function AllOrdersList() {
         {loading ? <Box sx={{ textAlign: 'center', py: 6 }}><CircularProgress /></Box> : filtered.length === 0 ? <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No orders found for this selection.</Typography> : (
           <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}><Stack direction="row" spacing={1} alignItems="center"><LocalShippingIcon fontSize="small" color="success" /><Typography variant="subtitle2" fontWeight={700} color="success.dark" sx={{ textTransform: 'uppercase', letterSpacing: 1 }}>Orders Control</Typography></Stack><Typography variant="subtitle2" fontWeight={700} color="primary.main">{fmtAmt(stats.value)}</Typography></Stack>
-            <TableContainer sx={{ maxHeight: '66vh' }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell sx={{ fontWeight: 700, width: 56, px: 0.75 }}>#</TableCell><TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell><TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell><TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700, width: 105, px: 0.75 }}>Amount</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 145, px: 0.5 }}>·</TableCell></TableRow></TableHead>
+            <TableContainer sx={{ maxHeight: '66vh' }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell sx={{ fontWeight: 700, width: 112, px: 0.75 }}># / File</TableCell><TableCell sx={{ fontWeight: 700, px: 0.75 }}>Customer</TableCell><TableCell sx={{ fontWeight: 700, width: 150, px: 0.75 }}>Remark</TableCell><TableCell sx={{ fontWeight: 700, width: 110, px: 0.75 }}>Stage</TableCell><TableCell align="right" sx={{ fontWeight: 700, width: 105, px: 0.75 }}>Amount</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 88, px: 0.75 }}>Payment</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 92, px: 0.75 }}>Delivery</TableCell><TableCell align="center" sx={{ fontWeight: 700, width: 145, px: 0.5 }}>·</TableCell></TableRow></TableHead>
               <TableBody>{filtered.map((r, idx) => {
                 const id = r.order.Order_uuid || r.order._id;
                 const amountWarning = r.isMissingAmount ? 'Missing amount' : r.isLowAmount ? 'Below ₹99' : '';
                 return <TableRow key={id || idx} hover sx={{ bgcolor: r.isMissingAmount ? 'error.50' : r.isLowAmount ? 'warning.50' : undefined }}>
-                  <TableCell sx={{ px: 0.75 }}><Typography variant="caption" fontWeight={800}>#{r.order.Order_Number}</Typography></TableCell>
+                  <TableCell sx={{ px: 0.75 }}>
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <OrderFileThumbnail order={r.order} onOpen={() => openLocalFolder(r.order)} />
+                      <Typography variant="caption" fontWeight={800}>#{r.order.Order_Number}</Typography>
+                    </Stack>
+                  </TableCell>
                   <TableCell sx={{ px: 0.75 }}><Tooltip title={r.customerName}><Button variant="text" size="small" onClick={() => navigate(`/orderUpdate/${id}`)} sx={{ p: 0, minWidth: 0, textTransform: 'none', fontWeight: 700, maxWidth: 170, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.customerName}</Button></Tooltip><Typography variant="caption" color="text.secondary">{fmtDate(r.date)}</Typography></TableCell>
                   <TableCell sx={{ px: 0.75 }}><Tooltip title={r.remark}><Typography variant="caption" sx={{ display: 'block', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.remark}</Typography></Tooltip></TableCell>
                   <TableCell sx={{ px: 0.75 }}><Chip size="small" variant="outlined" label={(r.stage || '—').replaceAll('_', ' ')} sx={{ height: 20, fontSize: 10.5 }} /></TableCell>

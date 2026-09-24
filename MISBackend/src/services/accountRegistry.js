@@ -1,24 +1,20 @@
 /**
  * accountRegistry.js
  *
- * Singleton service that maps account names ↔ Account_uuid values stored in the
- * Accounts collection.  All accounting posting functions must obtain UUIDs from
- * here instead of embedding raw account-name strings in transaction records.
+ * Central ledger identity resolver.
  *
- * Guarantees:
- *   - Every known account name resolves to a stable UUID.
- *   - If an account does not yet exist in the DB it is auto-created with sensible
- *     defaults (type, code, normal-balance side).
- *   - Cache is invalidated after write operations so subsequent reads are fresh.
+ * Party/customer ledgers live in Customers and are canonical for party names.
+ * Accounts is reserved for chart-of-accounts / GL records. Historical versions
+ * of this resolver auto-created a General/Asset Accounts row for any unknown
+ * name; when that name was really a customer this created a duplicate "shadow"
+ * ledger. New resolution now prefers the unique Customer record first and
+ * ignores archived shadow Accounts.
  */
 
 const { v4: uuid } = require('uuid');
 const Accounts = require('../repositories/accounts');
 const Customer = require('../repositories/customer');
 
-// ---------------------------------------------------------------------------
-// System-account metadata: name → { type, normal_balance_side, group }
-// ---------------------------------------------------------------------------
 const SYSTEM_ACCOUNT_META = Object.freeze({
   'cash':                  { type: 'Asset',     normal_balance_side: 'debit',  group: 'Cash & Bank',        code_hint: 1001 },
   'bank':                  { type: 'Asset',     normal_balance_side: 'debit',  group: 'Cash & Bank',        code_hint: 1002 },
@@ -35,23 +31,24 @@ const SYSTEM_ACCOUNT_META = Object.freeze({
   'opening balance equity':{ type: 'Equity',    normal_balance_side: 'credit', group: 'Equity',             code_hint: 3001 },
 });
 
-// In-memory caches ─ refreshed lazily
-const _nameToUuid = new Map(); // lowercased name → uuid
-const _uuidToName = new Map(); // uuid → canonical name
-
+const _nameToUuid = new Map();
+const _uuidToName = new Map();
 let _initialized = false;
-let _initPromise  = null;
+let _initPromise = null;
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const escapeRegexLiteral = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function isUuid(value) {
+  return UUID_RE.test(String(value || '').trim());
+}
 
 async function _init() {
   if (_initialized) return;
-  if (_initPromise)  return _initPromise;
+  if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
-    const accounts = await Accounts.find({}).lean();
+    const accounts = await Accounts.find({ Is_archived: { $ne: true } }).lean();
     for (const acct of accounts) {
       if (acct.Account_uuid && acct.Account_name) {
         _nameToUuid.set(acct.Account_name.toLowerCase(), acct.Account_uuid);
@@ -68,16 +65,17 @@ function _invalidate() {
   _nameToUuid.clear();
   _uuidToName.clear();
   _initialized = false;
-  _initPromise  = null;
+  _initPromise = null;
 }
 
 async function _nextAccountCode(codeHint) {
   if (codeHint) {
-    // Use hint if not already taken
-    const taken = await Accounts.findOne({ Account_code: codeHint }).lean();
+    const taken = await Accounts.findOne({ Account_code: codeHint, Is_archived: { $ne: true } }).lean();
     if (!taken) return codeHint;
   }
-  const last = await Accounts.findOne({}, { Account_code: 1 }).sort({ Account_code: -1 }).lean();
+  const last = await Accounts.findOne({ Is_archived: { $ne: true } }, { Account_code: 1 })
+    .sort({ Account_code: -1 })
+    .lean();
   return Number(last?.Account_code || 1000) + 1;
 }
 
@@ -90,53 +88,80 @@ function _metaFor(nameLower) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+async function _customersByExactName(raw) {
+  const rows = await Customer.find(
+    { Customer_name: { $regex: new RegExp('^' + escapeRegexLiteral(raw) + '$', 'i') } },
+    { Customer_uuid: 1, Customer_name: 1 }
+  ).limit(10).lean();
+  return rows.filter((row) => row?.Customer_uuid && row?.Customer_name);
+}
+
+async function _uniqueCustomerByName(raw) {
+  const valid = await _customersByExactName(raw);
+  if (valid.length === 1) return valid[0];
+  if (valid.length > 1) {
+    const exactCase = valid.filter((row) => String(row.Customer_name).trim() === raw);
+    if (exactCase.length === 1) return exactCase[0];
+    throw Object.assign(
+      new Error(`More than one Customer Report ledger named '${raw}' exists. Choose a unique customer before posting.`),
+      { statusCode: 409 }
+    );
+  }
+  return null;
+}
 
 /**
- * Resolve an account name to its Account_uuid.
- * Auto-creates the account in the DB if it does not exist.
+ * Resolve a name to a canonical ledger UUID.
  *
- * @param {string} name - Human-readable account name (case-insensitive).
- * @returns {Promise<string>} Account_uuid
+ * For non-system names a unique Customer Report ledger wins before Accounts.
+ * This is the key guard that prevents another customer shadow Account from
+ * being created. Genuine GL names still resolve/create in Accounts as before.
  */
 async function getUuid(name) {
   await _init();
 
   const raw = String(name || '').trim();
   if (!raw) throw Object.assign(new Error('Account name must not be empty'), { statusCode: 400 });
-
   const key = raw.toLowerCase();
+  const isKnownSystemName = Object.prototype.hasOwnProperty.call(SYSTEM_ACCOUNT_META, key);
 
-  // 1. Cache hit
+  if (!isKnownSystemName) {
+    const customer = await _uniqueCustomerByName(raw);
+    if (customer) {
+      _nameToUuid.set(key, customer.Customer_uuid);
+      _uuidToName.set(customer.Customer_uuid, customer.Customer_name);
+      return customer.Customer_uuid;
+    }
+  }
+
   if (_nameToUuid.has(key)) return _nameToUuid.get(key);
 
-  // 2. DB lookup (cache may be cold / stale)
-  const existing = await Accounts.findOne({ Account_name: { $regex: new RegExp(`^${raw}$`, 'i') } }).lean();
+  const existing = await Accounts.findOne({
+    Account_name: { $regex: new RegExp('^' + escapeRegexLiteral(raw) + '$', 'i') },
+    Is_archived: { $ne: true },
+  }).lean();
   if (existing?.Account_uuid) {
     _nameToUuid.set(key, existing.Account_uuid);
     _uuidToName.set(existing.Account_uuid, existing.Account_name);
     return existing.Account_uuid;
   }
 
-  // 3. Auto-create
-  const meta     = _metaFor(key);
+  const meta = _metaFor(key);
   const acctUuid = uuid();
-  const code     = await _nextAccountCode(meta.code_hint);
+  const code = await _nextAccountCode(meta.code_hint);
 
   await Accounts.create({
-    Account_uuid:        acctUuid,
-    Account_name:        raw,
-    Account_type:        meta.type,
-    Account_code:        code,
+    Account_uuid: acctUuid,
+    Account_name: raw,
+    Account_type: meta.type,
+    Account_code: code,
     Normal_balance_side: meta.normal_balance_side,
-    Account_group:       meta.group,
-    Is_system:           Object.prototype.hasOwnProperty.call(SYSTEM_ACCOUNT_META, key),
-    Balance:             0,
-    Currency:            'INR',
-    Created_at:          new Date(),
-    Updated_at:          new Date(),
+    Account_group: meta.group,
+    Is_system: isKnownSystemName,
+    Balance: 0,
+    Currency: 'INR',
+    Created_at: new Date(),
+    Updated_at: new Date(),
   });
 
   _nameToUuid.set(key, acctUuid);
@@ -144,162 +169,123 @@ async function getUuid(name) {
   return acctUuid;
 }
 
-/**
- * Resolve an Account_uuid back to its human-readable name.
- * Returns the UUID itself as a safe fallback when not found.
- *
- * @param {string} accountUuid
- * @returns {Promise<string>} Account_name or accountUuid fallback
- */
 async function getName(accountUuid) {
   await _init();
 
   const key = String(accountUuid || '').trim();
   if (!key) return '';
-
   if (_uuidToName.has(key)) return _uuidToName.get(key);
 
-  const acct = await Accounts.findOne({ Account_uuid: key }).lean();
-  if (acct?.Account_name) {
-    _uuidToName.set(key, acct.Account_name);
-    _nameToUuid.set(acct.Account_name.toLowerCase(), key);
-    return acct.Account_name;
-  }
-
-  // Customer UUIDs are sometimes used as account IDs — resolve their display name too
   const cust = await Customer.findOne({ Customer_uuid: key }, { Customer_name: 1 }).lean();
   if (cust?.Customer_name) {
+    _uuidToName.set(key, cust.Customer_name);
     return cust.Customer_name;
   }
 
-  return key; // fallback: return UUID itself
+  const acct = await Accounts.findOne({ Account_uuid: key }).lean();
+  if (acct?.Is_archived && acct?.Replaced_by_customer_uuid) {
+    const replacement = await Customer.findOne(
+      { Customer_uuid: acct.Replaced_by_customer_uuid },
+      { Customer_name: 1 }
+    ).lean();
+    if (replacement?.Customer_name) return replacement.Customer_name;
+  }
+  if (acct?.Account_name) {
+    if (!acct.Is_archived) {
+      _uuidToName.set(key, acct.Account_name);
+      _nameToUuid.set(acct.Account_name.toLowerCase(), key);
+    }
+    return acct.Archived_account_name || acct.Account_name;
+  }
+
+  return key;
 }
 
-/**
- * True when the value looks like a UUID (v4 hex format).
- * Used by callers that need to distinguish "already a UUID" from "account name".
- */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function isUuid(value) {
-  return UUID_RE.test(String(value || '').trim());
-}
-
-/**
- * Resolve a value that is either already a UUID or an account name.
- * Returns { uuid, name } pair.
- *
- * @param {string} value - UUID or account name
- * @returns {Promise<{uuid: string, name: string}>}
- */
 async function resolve(value) {
   const raw = String(value || '').trim();
   if (!raw) throw Object.assign(new Error('Account identifier must not be empty'), { statusCode: 400 });
 
   if (isUuid(raw)) {
+    const customer = await Customer.findOne({ Customer_uuid: raw }, { Customer_uuid: 1, Customer_name: 1 }).lean();
+    if (customer?.Customer_uuid) return { uuid: customer.Customer_uuid, name: customer.Customer_name || raw };
+
+    const account = await Accounts.findOne({ Account_uuid: raw }).lean();
+    if (account?.Is_archived && account?.Replaced_by_customer_uuid) {
+      const replacement = await Customer.findOne(
+        { Customer_uuid: account.Replaced_by_customer_uuid },
+        { Customer_uuid: 1, Customer_name: 1 }
+      ).lean();
+      if (replacement?.Customer_uuid) {
+        return { uuid: replacement.Customer_uuid, name: replacement.Customer_name || replacement.Customer_uuid };
+      }
+    }
+    if (account?.Account_uuid && !account.Is_archived) {
+      return { uuid: account.Account_uuid, name: account.Account_name || raw };
+    }
+
     const name = await getName(raw);
     return { uuid: raw, name };
   }
+
   const resolvedUuid = await getUuid(raw);
-  return { uuid: resolvedUuid, name: raw };
+  const name = await getName(resolvedUuid);
+  return { uuid: resolvedUuid, name: name || raw };
 }
 
-const escapeRegexLiteral = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /**
- * Resolve a ledger entity that may be either a chart-of-accounts item or a
- * customer/vendor sub-ledger. Assignment UIs use customer names, so resolving
- * those names through getUuid() would otherwise auto-create a shadow Accounts
- * record with the same label and hide the posting from the real party ledger.
+ * Resolve a ledger entity that may be either a GL account or Customer Report
+ * party ledger. With preferCustomer=true only a unique customer name is used;
+ * ambiguity is rejected rather than guessed.
  */
 async function resolveLedgerEntity(value, { preferCustomer = false } = {}) {
   const raw = String(value || '').trim();
   if (!raw) throw Object.assign(new Error('Ledger identifier must not be empty'), { statusCode: 400 });
 
-  if (isUuid(raw)) return resolve(raw);
-
-  if (preferCustomer) {
-    const customers = await Customer.find(
-      { Customer_name: { $regex: new RegExp('^' + escapeRegexLiteral(raw) + '$', 'i') } },
-      { Customer_uuid: 1, Customer_name: 1 }
-    ).limit(5).lean();
-
-    const valid = customers.filter((customer) => customer?.Customer_uuid && customer?.Customer_name);
-    if (valid.length === 1) {
-      return { uuid: valid[0].Customer_uuid, name: valid[0].Customer_name, kind: 'customer' };
-    }
-
-    if (valid.length > 1) {
-      const exactCase = valid.filter((customer) => String(customer.Customer_name).trim() === raw);
-      if (exactCase.length === 1) {
-        return { uuid: exactCase[0].Customer_uuid, name: exactCase[0].Customer_name, kind: 'customer' };
-      }
-      throw Object.assign(
-        new Error("More than one customer named '" + raw + "' exists. Use a unique customer before posting."),
-        { statusCode: 409 }
-      );
-    }
+  if (isUuid(raw)) {
+    const customer = await Customer.findOne({ Customer_uuid: raw }, { Customer_uuid: 1, Customer_name: 1 }).lean();
+    if (customer?.Customer_uuid) return { uuid: customer.Customer_uuid, name: customer.Customer_name || raw, kind: 'customer' };
+    const resolved = await resolve(raw);
+    return { ...resolved, kind: 'account' };
   }
 
-  const account = await resolve(raw);
-  return { ...account, kind: 'account' };
+  if (preferCustomer) {
+    const customer = await _uniqueCustomerByName(raw);
+    if (customer) return { uuid: customer.Customer_uuid, name: customer.Customer_name, kind: 'customer' };
+  }
+
+  const resolved = await resolve(raw);
+  const customer = await Customer.findOne({ Customer_uuid: resolved.uuid }, { Customer_uuid: 1 }).lean();
+  return { ...resolved, kind: customer ? 'customer' : 'account' };
 }
 
-/**
- * Warm-up the cache (called at server startup).
- */
 async function initialize() {
   return _init();
 }
 
-/**
- * Force-clear the cache (useful after bulk migrations).
- */
 function invalidateCache() {
   _invalidate();
 }
 
-/**
- * Signed movement one journal line applies to its account's stored Balance.
- * A line on the account's normal side increases it; the opposite side
- * decreases it.
- */
 function lineDelta(entryType, amount, normalSide) {
-  const side     = String(normalSide || 'debit').toLowerCase();
-  const isNormal = (entryType === 'Debit'  && side === 'debit') ||
+  const side = String(normalSide || 'debit').toLowerCase();
+  const isNormal = (entryType === 'Debit' && side === 'debit') ||
                    (entryType === 'Credit' && side === 'credit');
   return isNormal ? amount : -amount;
 }
 
 const round2 = (n) => Number(n.toFixed(2));
 
-/**
- * Apply a net balance movement: reverse the `reverse` lines and apply the
- * `apply` lines in one pass.
- *
- * Edits and deletions must go through here rather than posting the new journal
- * on its own — posting alone leaves the superseded journal's movement in the
- * stored balance forever, which is how balances drift away from the ledger.
- *
- * Per-account deltas are netted first, so an edit that only changes an amount
- * issues a single $inc of the difference instead of a decrement followed by an
- * increment. Lines whose account no longer exists are skipped, matching the
- * previous single-line behaviour.
- *
- * @param {{reverse?: Array<object>, apply?: Array<object>}} movement
- */
 async function applyBalanceMovement({ reverse = [], apply = [] } = {}) {
   const lines = [...reverse, ...apply];
   const uuids = [...new Set(lines.map((l) => l && l.Account_id).filter(Boolean))];
   if (!uuids.length) return;
 
-  const accounts = await Accounts.find({ Account_uuid: { $in: uuids } })
-    .select('Account_uuid Normal_balance_side')
-    .lean();
+  const accounts = await Accounts.find({
+    Account_uuid: { $in: uuids },
+    Is_archived: { $ne: true },
+  }).select('Account_uuid Normal_balance_side').lean();
 
-  const sideByUuid = new Map(
-    accounts.map((a) => [a.Account_uuid, a.Normal_balance_side])
-  );
-
+  const sideByUuid = new Map(accounts.map((a) => [a.Account_uuid, a.Normal_balance_side]));
   const deltas = new Map();
   const collect = (entries, sign) => {
     for (const line of entries) {
@@ -320,45 +306,25 @@ async function applyBalanceMovement({ reverse = [], apply = [] } = {}) {
     if (delta === 0) continue;
     ops.push({
       updateOne: {
-        filter: { Account_uuid },
+        filter: { Account_uuid, Is_archived: { $ne: true } },
         update: { $inc: { Balance: delta }, $set: { Updated_at: new Date() } },
       },
     });
   }
   if (!ops.length) return;
-
   await Accounts.bulkWrite(ops, { ordered: false });
 }
 
-/**
- * Update account balance after a transaction journal line is posted.
- * Uses Normal_balance_side to determine direction.
- *
- * @param {string} accountUuid
- * @param {'Debit'|'Credit'} entryType
- * @param {number} amount
- */
 async function updateBalance(accountUuid, entryType, amount) {
   return applyBalanceMovement({
     apply: [{ Account_id: accountUuid, Type: entryType, Amount: amount }],
   });
 }
 
-/**
- * Apply every line in a journal entry to its account balance.
- *
- * @param {Array<{Account_id: string, Type: string, Amount: number}>} journalLines
- */
 async function updateBalancesForJournal(journalLines = []) {
   return applyBalanceMovement({ apply: journalLines });
 }
 
-/**
- * Undo a journal entry's effect on account balances — for deletions and for
- * the superseded half of an edit.
- *
- * @param {Array<{Account_id: string, Type: string, Amount: number}>} journalLines
- */
 async function reverseBalancesForJournal(journalLines = []) {
   return applyBalanceMovement({ reverse: journalLines });
 }

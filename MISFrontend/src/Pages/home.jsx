@@ -7,7 +7,6 @@ import EventAvailableRoundedIcon from '@mui/icons-material/EventAvailableRounded
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import RequestQuoteRoundedIcon from '@mui/icons-material/RequestQuoteRounded';
-import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
 import { useAuth } from '../context/AuthContext';
@@ -17,7 +16,6 @@ const loadOutstandingReport = () => import('../Reports/outstandingReport');
 const loadAllOrders = () => import('../Reports/allOrdersList');
 const loadAllAttandance = () => import('./AllAttandance');
 const loadPayableAccount = () => import('./PayableAccount');
-const loadWorkflowAudit = () => import('./WorkflowAudit');
 const loadRateCalculator = () => import('./RateCalculator');
 const loadDayBookLedger = () => import('../Reports/allTransaction4D');
 const loadHomeInbox = () => import('./HomeInbox');
@@ -26,7 +24,6 @@ const OutstandingReport = lazy(loadOutstandingReport);
 const AllOrders = lazy(loadAllOrders);
 const AllAttandance = lazy(loadAllAttandance);
 const PayableAccount = lazy(loadPayableAccount);
-const WorkflowAudit = lazy(loadWorkflowAudit);
 const RateCalculator = lazy(loadRateCalculator);
 const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
@@ -110,21 +107,20 @@ function DayBookHome() {
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
   { id: 'inbox', label: 'Inbox', icon: ChatRoundedIcon, Component: HomeInbox },
+  { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBookHome, requiresAccounts: true },
+  { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
   { id: 'orders', label: 'Orders', icon: ListAltRoundedIcon, Component: AllOrders },
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
-  { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
-  { id: 'payableAccount', label: 'Payable Account', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
-  { id: 'workflowAudit', label: 'Workflow Audit', icon: FactCheckRoundedIcon, Component: WorkflowAudit, requiresAccounts: true },
+  { id: 'payableAccount', label: 'Payable', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
-  { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBookHome, requiresAccounts: true },
 ];
 
-const HOME_TAB_PRELOADERS = [loadHomeInbox, loadAllOrders, loadOutstandingReport, loadAllAttandance, loadPayableAccount, loadWorkflowAudit, loadRateCalculator, loadDayBookLedger];
+const HOME_TAB_PRELOADERS = [loadHomeInbox, loadDayBookLedger, loadAllAttandance, loadAllOrders, loadOutstandingReport, loadPayableAccount, loadRateCalculator];
 
 const LEGACY_HOME_TAB_IDS = {
   quickLinks: 'workflow', recentAttendance: 'attendance', ordersBoard: 'orders',
   delivery: 'orders', bills: 'orders',
-  transaction4D: 'dayBook',
+  transaction4D: 'dayBook', workflowAudit: 'workflow',
 };
 const HOME_TAB_STORAGE_KEY = 'mis.home.activeTab';
 function storedHomeTab() {

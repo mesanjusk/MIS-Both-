@@ -3,8 +3,6 @@
  *
  * Admin-only: it lists every endpoint the server has, how heavily each is
  * used and how well it performs, and lets an administrator switch one off.
- * That is enough to take the app apart, so it sits behind the same
- * `requireRole('admin')` — "Admin User" — as the business reports.
  */
 
 const express = require('express');
@@ -20,42 +18,22 @@ const { flush } = require('../middleware/apiUsage');
 const { invalidate, isProtected } = require('../middleware/featureToggle');
 const { PAGES } = require('../constants/frontendPages');
 const { DEFAULT_DISABLED_KEYS } = require('../constants/defaultFeatureToggles');
+const DatabaseIntegrityRouter = require('./DatabaseIntegrity');
 
-// Everything here needs a login. The report and the switches additionally
-// need admin — they expose the whole route table and can take endpoints
-// offline. `/toggles` deliberately does not: every signed-in user's app needs
-// to know which pages are hidden, and a list of switched-off paths gives away
-// nothing that the navigation would not.
 router.use(requireAuth);
 
-/** How long an endpoint must go untouched to count as unused. */
 const DEFAULT_IDLE_DAYS = 45;
 
-/**
- * The report is only as old as the telemetry. Recording started when this
- * shipped, so until 45 days have passed "unused for 45 days" cannot be
- * distinguished from "we have not been watching for 45 days" — and the
- * response says which, rather than letting the screen imply the stronger
- * claim.
- */
 async function observationStart() {
   const earliest = await ApiUsage.findOne({}).sort({ firstSeenAt: 1 }).select('firstSeenAt').lean();
   return earliest?.firstSeenAt || null;
 }
 
-/**
- * `GET /api/api-usage/report`
- *
- * Every route the server serves, joined to its usage and its switch.
- * Endpoints with no usage row have genuinely never been called since
- * recording began — which is different from never being called.
- */
 router.get('/report', requireRole('admin'), async (req, res) => {
   try {
     const idleDays = Math.max(1, Math.min(365, Number(req.query.idleDays) || DEFAULT_IDLE_DAYS));
     const idleBefore = new Date(Date.now() - idleDays * 24 * 60 * 60 * 1000);
 
-    // Flush first, so a report opened right after using the app reflects it.
     await flush().catch(() => {});
 
     const [routes, usageRows, toggleRows, since] = await Promise.all([
@@ -85,15 +63,12 @@ router.get('/report', requireRole('admin'), async (req, res) => {
         maxMs: stat?.maxMs || null,
         errorRate: hits > 0 ? errors / hits : null,
         status5xx: stat?.status5xx || 0,
-        // Never called at all, or not since the cut-off.
         idle: !stat?.lastUsedAt || new Date(stat.lastUsedAt) < idleBefore,
         neverCalled: !stat?.lastUsedAt,
         disabled: Boolean(toggle?.disabled),
         disabledBy: toggle?.disabledBy || '',
         note: toggle?.note || '',
         defaultOff: DEFAULT_DISABLED_KEYS.has(route.key),
-        // A protected endpoint shows in the list but cannot be switched off,
-        // so the UI can grey the box rather than fail the click.
         locked: isProtected(route.path),
       };
     });
@@ -104,12 +79,7 @@ router.get('/report', requireRole('admin'), async (req, res) => {
         key: page.path,
         path: page.path,
         label: page.label,
-        // Whether any menu points at it. Short of real traffic this is the
-        // strongest hint that a page is unused — an unlinked page can only be
-        // reached by typing its URL.
         linked: page.linked !== false,
-        // Pages are React routes; the server never sees them, so there is no
-        // hit count to report. Their switch still works.
         disabled: Boolean(toggle?.disabled),
         disabledBy: toggle?.disabledBy || '',
         note: toggle?.note || '',
@@ -127,8 +97,6 @@ router.get('/report', requireRole('admin'), async (req, res) => {
       success: true,
       idleDays,
       observedSince: since,
-      // Days of telemetry actually collected. Below `idleDays` the "unused"
-      // column is provisional, and the client says so.
       observedDays: since ? Math.floor((Date.now() - new Date(since)) / 86_400_000) : 0,
       totals: {
         endpoints: apis.length,
@@ -149,11 +117,6 @@ router.get('/report', requireRole('admin'), async (req, res) => {
   }
 });
 
-/**
- * `POST /api/api-usage/toggle` — switch one endpoint or page on or off.
- *
- * Body: `{ key, kind: 'api'|'page', disabled: boolean, note? }`
- */
 router.post('/toggle', requireRole('admin'), async (req, res) => {
   try {
     const { key, kind, disabled, note } = req.body || {};
@@ -167,8 +130,6 @@ router.post('/toggle', requireRole('admin'), async (req, res) => {
 
     const path = kind === 'api' ? key.slice(key.indexOf(' ') + 1) : key;
     if (kind === 'api' && isProtected(path)) {
-      // The lockout guard. Refused here as well as in the middleware so the
-      // row never even reaches the database looking switched off.
       return res.status(400).json({
         success: false,
         message: `${path} keeps the app reachable and cannot be switched off.`,
@@ -202,7 +163,6 @@ router.post('/toggle', requireRole('admin'), async (req, res) => {
   }
 });
 
-/** `GET /api/api-usage/toggles` — just the switches, for the frontend to gate pages. */
 router.get('/toggles', async (_req, res) => {
   try {
     const rows = await FeatureToggle.find({ disabled: true }).select('key kind').lean();
@@ -216,5 +176,10 @@ router.get('/toggles', async (_req, res) => {
     return res.status(500).json({ success: false, message: 'Could not read the switches.' });
   }
 });
+
+// Reuse this already-mounted admin router so the integrity feature does not
+// need another top-level index.js registration. The child router repeats auth
+// and applies the stricter Admin/Owner guard to every integrity action.
+router.use('/database-integrity', DatabaseIntegrityRouter);
 
 module.exports = router;

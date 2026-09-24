@@ -15,9 +15,6 @@ import {
 } from './Components/routeGuards';
 import { ACCOUNT_ROLES, NAV_ROLES, OFFICE_ROLES } from './constants/roles';
 
-// Screens the menus give to Admin, Owner and general office staff — the
-// outbound-communication and delivery views, which are wider than Admin but
-// narrower than every signed-in account.
 const EMAIL_ROLES = [...ACCOUNT_ROLES.filter((role) => role !== NAV_ROLES.ACCOUNTS), NAV_ROLES.OFFICE_STAFF];
 
 const Login = lazy(() => import('./Pages/login'));
@@ -98,6 +95,7 @@ const AdminUserPermissions = lazy(() => import('./Pages/AdminUserPermissions'));
 const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions'));
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
 const DriveFolderReport = lazy(() => import('./Pages/DriveFolderReport'));
+const DatabaseIntegrity = lazy(() => import('./Pages/DatabaseIntegrity'));
 const SopPage = lazy(() => import('./Pages/SopPage'));
 const TeamOperations = lazy(() => import('./Pages/TeamOperations'));
 const MyOperations = lazy(() => import('./Pages/MyOperations'));
@@ -131,23 +129,14 @@ function withSuspense(element) {
   );
 }
 
-/**
- * Route element for a screen only Admin and Owner may open.
- *
- * The guard sits outside Suspense so an unauthorized user never triggers the
- * page's lazy chunk download — the denial is decided before the code for the
- * thing being denied is fetched.
- */
 function adminOnly(element) {
   return <RequireAdmin>{withSuspense(element)}</RequireAdmin>;
 }
 
-/** Route element for the Accounts audience (Admin, Owner, Accounts). */
 function accountsOnly(element) {
   return <RequireAccounts>{withSuspense(element)}</RequireAccounts>;
 }
 
-/** Route element restricted to an explicit list of menu role keys. */
 function rolesOnly(roles, element) {
   return <RequireRoles roles={roles}>{withSuspense(element)}</RequireRoles>;
 }
@@ -167,9 +156,6 @@ export default function App() {
         <Routes>
           <Route path={ROUTES.ROOT} element={withSuspense(<Login />)} />
           <Route path={ROUTES.LOGIN} element={withSuspense(<Login />)} />
-          {/* Public registration was removed: this is an internal MIS and staff
-              accounts are created from Admin → Add User. The path stays mounted so
-              existing bookmarks land on the login screen instead of a dead route. */}
           <Route path={ROUTES.REGISTER} element={<Navigate to={ROUTES.LOGIN} replace />} />
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.PUBLIC_INVOICE} element={withSuspense(<PublicInvoice />)} />
@@ -200,11 +186,6 @@ export default function App() {
             <Route path={ROUTES.ADD_ORDER} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ADD_ORDER_V2} element={<Navigate to={ROUTES.ORDERS_NEW} replace />} />
             <Route path={ROUTES.ORDERS_BOARD} element={withSuspense(<OrderKanban />)} />
-            {/* The Business Control Center's queues now live on the Workflow
-                tab of the dashboard, and its vendor payables on the order
-                ledger; its Business Profile form moved to Admin. The path
-                stays mounted so existing bookmarks land on the queues rather
-                than a dead route. */}
             <Route path={ROUTES.BUSINESS_CONTROL} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={rolesOnly(OFFICE_ROLES, <PostPrintingControl />)} />
             <Route path={ROUTES.WORKFLOW_TEMPLATES} element={adminOnly(<WorkflowTemplates />)} />
@@ -253,7 +234,6 @@ export default function App() {
             <Route path={ROUTES.REPORTS_ORDERS_LIST} element={adminOnly(<AllOrdersList />)} />
             <Route path="/reports/delivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
             <Route path="/allDelivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
-            {/* The five money-report screens are now tabs on one Ledger page. */}
             <Route path={ROUTES.LEDGER} element={accountsOnly(<Ledger />)} />
             <Route path={ROUTES.ALL_TRANSACTION} element={<Navigate to={`${ROUTES.LEDGER}?tab=register`} replace />} />
             <Route path={ROUTES.REPORTS_TRANSACTIONS} element={<Navigate to={`${ROUTES.LEDGER}?tab=register`} replace />} />
@@ -261,7 +241,7 @@ export default function App() {
             <Route path={ROUTES.REPORTS_TRANSACTION_2} element={<Navigate to={`${ROUTES.LEDGER}?tab=parties`} replace />} />
             <Route path={ROUTES.REPORTS_TRANSACTION_3} element={<Navigate to={`${ROUTES.LEDGER}?tab=statement`} replace />} />
             <Route path={ROUTES.REPORTS_TRANSACTION_4D} element={<Navigate to={`${ROUTES.LEDGER}?tab=cashbank`} replace />} />
-            <Route path={ROUTES.REPORTS_TRANSACTION_5}  element={<Navigate to={`${ROUTES.LEDGER}?tab=edit`} replace />} />
+            <Route path={ROUTES.REPORTS_TRANSACTION_5} element={<Navigate to={`${ROUTES.LEDGER}?tab=edit`} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_1_TYPO} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_1} replace />} />
             <Route path={ROUTE_ALIASES.ALL_TRANSACTION_2_LOWER} element={<Navigate to={ROUTES.REPORTS_TRANSACTION_2} replace />} />
             <Route path={ROUTES.AGING_REPORT} element={accountsOnly(<AgingReport />)} />
@@ -283,8 +263,8 @@ export default function App() {
             <Route path={ROUTES.REPORTS_PRIORITY} element={adminOnly(<PriorityReport />)} />
 
             <Route path={ROUTES.GMAIL_ACCOUNTS} element={adminOnly(<GmailAccounts />)} />
-            <Route path={ROUTES.EMAIL_COMPOSE}  element={rolesOnly(EMAIL_ROLES, <EmailCompose />)} />
-            <Route path={ROUTES.EMAIL_HISTORY}  element={rolesOnly(EMAIL_ROLES, <EmailHistory />)} />
+            <Route path={ROUTES.EMAIL_COMPOSE} element={rolesOnly(EMAIL_ROLES, <EmailCompose />)} />
+            <Route path={ROUTES.EMAIL_HISTORY} element={rolesOnly(EMAIL_ROLES, <EmailHistory />)} />
 
             <Route path={ROUTES.CALL_LOGS} element={rolesOnly(OFFICE_ROLES, <CallLogs />)} />
             <Route path={ROUTES.FLOW_BUILDER} element={adminOnly(<FlowBuilderPage />)} />
@@ -294,6 +274,7 @@ export default function App() {
             <Route path={ROUTES.ADMIN_GROUP_PERMISSIONS} element={adminOnly(<AdminGroupPermissions />)} />
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={adminOnly(<WhatsAppActionLogPage />)} />
             <Route path={ROUTES.DRIVE_FOLDER_REPORT} element={adminOnly(<DriveFolderReport />)} />
+            <Route path={ROUTES.DATABASE_INTEGRITY} element={adminOnly(<DatabaseIntegrity />)} />
             <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
 
             <Route path={ROUTES.OPERATIONS} element={adminOnly(<TeamOperations />)} />

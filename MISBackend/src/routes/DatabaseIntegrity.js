@@ -8,6 +8,12 @@ const {
   auditDatabaseIntegrity,
   applySafeIntegrityFixes,
 } = require('../services/databaseIntegrityService');
+const {
+  listManualReview,
+  resolveManualReview,
+  searchLedgerOptions,
+  searchItemOptions,
+} = require('../services/databaseIntegrityManualReviewService');
 const logger = require('../utils/logger');
 
 const HISTORY_KEY = '__database_integrity_history__';
@@ -25,6 +31,10 @@ function actor(req) {
     req.user?.id ||
     'admin'
   ).trim();
+}
+
+function actorId(req) {
+  return String(req.user?.User_uuid || req.user?.id || req.user?._id || '').trim();
 }
 
 async function appendHistory(entry) {
@@ -48,13 +58,6 @@ async function appendHistory(entry) {
   );
 }
 
-/**
- * GET /api/database-integrity/audit
- *
- * Read-only against business collections. The only write is one small audit
- * metadata entry recording who ran the check and its summary; no customer,
- * transaction, attendance, order, ledger or other business record is changed.
- */
 router.get('/audit', async (req, res) => {
   try {
     const report = await auditDatabaseIntegrity();
@@ -74,20 +77,9 @@ router.get('/audit', async (req, res) => {
   }
 });
 
-/**
- * POST /api/database-integrity/safe-fix
- * Body must include { confirm: true }.
- *
- * This intentionally exposes no delete/merge/renumber operation. The service
- * only fills missing additive identity fields when a match is unambiguous and
- * never edits transaction journals.
- */
 router.post('/safe-fix', async (req, res) => {
   if (req.body?.confirm !== true) {
-    return res.status(400).json({
-      success: false,
-      message: 'Explicit confirmation is required before running Safe Fix.',
-    });
+    return res.status(400).json({ success: false, message: 'Explicit confirmation is required before running Safe Fix.' });
   }
 
   try {
@@ -101,10 +93,7 @@ router.post('/safe-fix', async (req, res) => {
       safeFixable: result.report.summary.safeFixable,
       manualReview: result.report.summary.manualReview,
     });
-    logger.info(
-      { by: actor(req), changed: result.changed, changes: result.changes },
-      '[database-integrity] safe fix completed'
-    );
+    logger.info({ by: actor(req), changed: result.changed, changes: result.changes }, '[database-integrity] safe fix completed');
     return res.json({ success: true, result });
   } catch (error) {
     logger.error({ err: error }, '[database-integrity] safe fix failed');
@@ -112,7 +101,71 @@ router.post('/safe-fix', async (req, res) => {
   }
 });
 
-/** GET /api/database-integrity/history */
+router.get('/review/ledger-options', async (req, res) => {
+  try {
+    const options = await searchLedgerOptions(req.query.q || '', req.query.limit || 40);
+    return res.json({ success: true, options });
+  } catch (error) {
+    logger.error({ err: error }, '[database-integrity] ledger option search failed');
+    return res.status(500).json({ success: false, message: 'Could not search ledgers.' });
+  }
+});
+
+router.get('/review/item-options', async (req, res) => {
+  try {
+    const options = await searchItemOptions(req.query.q || '', req.query.limit || 40);
+    return res.json({ success: true, options });
+  } catch (error) {
+    logger.error({ err: error }, '[database-integrity] item option search failed');
+    return res.status(500).json({ success: false, message: 'Could not search catalog items.' });
+  }
+});
+
+router.get('/review/:category', async (req, res) => {
+  try {
+    const review = await listManualReview(req.params.category, {
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+    });
+    return res.json({ success: true, review });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    logger.error({ err: error, category: req.params.category }, '[database-integrity] manual review load failed');
+    return res.status(status).json({ success: false, message: error.message || 'Could not load manual review.' });
+  }
+});
+
+router.post('/review/:category/resolve', async (req, res) => {
+  try {
+    const result = await resolveManualReview(
+      req.params.category,
+      req.body || {},
+      { actor: actor(req), actorId: actorId(req) }
+    );
+    const report = await auditDatabaseIntegrity();
+    await appendHistory({
+      action: 'manual_fix',
+      actor: actor(req),
+      category: req.params.category,
+      changed: result.changed || 0,
+      note: result.message || '',
+      totalIssues: report.summary.totalIssues,
+      safeFixable: report.summary.safeFixable,
+      manualReview: report.summary.manualReview,
+    });
+    logger.info(
+      { by: actor(req), category: req.params.category, changed: result.changed, message: result.message },
+      '[database-integrity] manual review fix completed'
+    );
+    return res.json({ success: true, result, report });
+  } catch (error) {
+    const status = Number(error.statusCode) || 500;
+    logger.error({ err: error, category: req.params.category }, '[database-integrity] manual review fix failed');
+    return res.status(status).json({ success: false, message: error.message || 'Could not apply the reviewed change.' });
+  }
+});
+
 router.get('/history', async (_req, res) => {
   try {
     const row = await FeatureToggle.findOne({ key: HISTORY_KEY }).select('systemHistory').lean();

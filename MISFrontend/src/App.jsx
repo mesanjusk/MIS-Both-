@@ -37,6 +37,7 @@ const AddOrder1 = lazy(() => import('./Pages/addOrder1'));
 const OrderKanban = lazy(() => import('./Pages/OrderKanban'));
 const PostPrintingControl = lazy(() => import('./Pages/PostPrintingControl'));
 const WorkflowTemplates = lazy(() => import('./Pages/WorkflowTemplates'));
+const WorkflowAudit = lazy(() => import('./Pages/WorkflowAudit'));
 const OrderUpdate = lazy(() => import('./Pages/OrderUpdate'));
 const UpdateDelivery = lazy(() => import('./Pages/updateDelivery'));
 const AddTransaction = lazy(() => import('./Pages/AddTransaction'));
@@ -189,6 +190,7 @@ export default function App() {
             <Route path={ROUTES.BUSINESS_CONTROL} element={<Navigate to={ROUTES.HOME} replace />} />
             <Route path={ROUTES.POST_PRINTING_CONTROL} element={rolesOnly(OFFICE_ROLES, <PostPrintingControl />)} />
             <Route path={ROUTES.WORKFLOW_TEMPLATES} element={adminOnly(<WorkflowTemplates />)} />
+            <Route path={ROUTES.WORKFLOW_AUDIT} element={adminOnly(<WorkflowAudit />)} />
             <Route path={ROUTES.PURCHASE_ORDERS} element={adminOnly(<PurchaseOrder />)} />
             <Route path={ROUTES.POST_PRINTING_JOBS} element={adminOnly(<PostPrintingJob />)} />
             <Route path="/orderUpdate/:id" element={withSuspense(<OrderUpdate />)} />

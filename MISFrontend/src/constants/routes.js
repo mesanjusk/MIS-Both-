@@ -132,6 +132,7 @@ export const ROUTES = {
   WHATSAPP_ACTION_LOG: '/admin/whatsapp-action-log',
   DRIVE_FOLDER_REPORT: '/admin/drive-folder-report',
   DATABASE_INTEGRITY: '/admin/database-integrity',
+  WORKFLOW_AUDIT: '/admin/workflow-audit',
 };
 
 export const ROUTE_ALIASES = {

@@ -174,3 +174,17 @@ const resetCache = () => {
 };
 
 module.exports = { getRecentMessages, resetCache, PROVIDER_MAX_LIMIT, MAX_WALK_PAGES, TAIL_SIZE };
+
+// WhatsApp attendance must not depend on Home → Inbox being open. This module
+// is loaded by the WhatsApp routes on every backend process, so start the
+// background poller once after module initialization. Tests keep explicit
+// control of timers by skipping the automatic scheduler in NODE_ENV=test.
+if (process.env.NODE_ENV !== 'test') {
+  setImmediate(() => {
+    try {
+      require('./sanjuskAttendancePoller').initSanjuskAttendancePoller();
+    } catch (error) {
+      logger.error({ err: error?.message || error }, '[sanjusk-attendance-poller] failed to start');
+    }
+  });
+}

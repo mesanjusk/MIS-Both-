@@ -11,13 +11,22 @@ const {
 const {
   listManualReview,
   resolveManualReview,
-  searchLedgerOptions,
   searchItemOptions,
 } = require('../services/databaseIntegrityManualReviewService');
+const {
+  searchPartyLedgers,
+  searchAccountingLedgers,
+  getCustomerLedger,
+} = require('../services/canonicalLedgerSearchService');
 const logger = require('../utils/logger');
 
 const HISTORY_KEY = '__database_integrity_history__';
 const HISTORY_LIMIT = 50;
+const PARTY_ONLY_REVIEW_CATEGORIES = new Set([
+  'staff_ledger_unresolved',
+  'diary_assignment_unresolved',
+  'bank_assignment_unresolved',
+]);
 
 router.use(requireAuth);
 router.use(requireAdminOrOwner);
@@ -101,9 +110,34 @@ router.post('/safe-fix', async (req, res) => {
   }
 });
 
+// Party assignment screens intentionally search only Customer Report. This
+// prevents historical shadow chart-of-account rows from being selected again.
+router.get('/review/party-ledger-options', async (req, res) => {
+  try {
+    const options = await searchPartyLedgers(req.query.q || '', req.query.limit || 40);
+    return res.json({ success: true, options });
+  } catch (error) {
+    logger.error({ err: error }, '[database-integrity] party ledger option search failed');
+    return res.status(500).json({ success: false, message: 'Could not search Customer Report ledgers.' });
+  }
+});
+
+// Transaction repair may legitimately need a system/GL ledger, so it gets the
+// active accounting catalog plus Customer Report, with shadow candidates removed.
+router.get('/review/accounting-ledger-options', async (req, res) => {
+  try {
+    const options = await searchAccountingLedgers(req.query.q || '', req.query.limit || 40);
+    return res.json({ success: true, options });
+  } catch (error) {
+    logger.error({ err: error }, '[database-integrity] accounting ledger option search failed');
+    return res.status(500).json({ success: false, message: 'Could not search accounting ledgers.' });
+  }
+});
+
+// Backward-compatible alias for any old UI chunk still cached in a browser.
 router.get('/review/ledger-options', async (req, res) => {
   try {
-    const options = await searchLedgerOptions(req.query.q || '', req.query.limit || 40);
+    const options = await searchAccountingLedgers(req.query.q || '', req.query.limit || 40);
     return res.json({ success: true, options });
   } catch (error) {
     logger.error({ err: error }, '[database-integrity] ledger option search failed');
@@ -138,6 +172,16 @@ router.get('/review/:category', async (req, res) => {
 
 router.post('/review/:category/resolve', async (req, res) => {
   try {
+    if (PARTY_ONLY_REVIEW_CATEGORIES.has(req.params.category)) {
+      const customer = await getCustomerLedger(req.body?.ledgerUuid);
+      if (!customer) {
+        return res.status(400).json({
+          success: false,
+          message: 'This correction must use a ledger from Customer Report. Chart-of-account/shadow records are not allowed here.',
+        });
+      }
+    }
+
     const result = await resolveManualReview(
       req.params.category,
       req.body || {},

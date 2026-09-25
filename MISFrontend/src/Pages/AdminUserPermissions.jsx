@@ -19,10 +19,6 @@ import { PRIMARY_NAV, SIDEBAR_GROUPS } from '../constants/sidebarMenu';
 import { FOOTER_LINKS } from '../Components/Footer';
 import { usePageToggles } from '../hooks/usePageToggles';
 
-// The primary navigation headings, read from the same definition the navbar
-// renders, so this screen cannot list a heading that no longer exists.
-// Previously hidden headings keep working: each PRIMARY_NAV entry carries the
-// older dropdown names it replaced, and the navbar honours those too.
 const TOP_NAV_ITEMS = PRIMARY_NAV.map((entry) => entry.label);
 const FOOTER_LABELS = FOOTER_LINKS.map((l) => l.label);
 const RIGHT_ACTIONS = ['Day Book', 'Send Email', 'UPI Payment', 'Cash & Bank', 'Attendance'];
@@ -42,6 +38,7 @@ const DEFAULT_PERMISSIONS = {
   canUseEmail: true,
   canManageDesignFiles: true,
   canViewWhatsapp: true,
+  canMarkAttendanceWhatsapp: true,
   dashboardCards: [],
   allowedWidgets: [],
   topNavHidden: [],
@@ -79,6 +76,7 @@ const PERMISSION_LABELS = [
   { key: 'canUseEmail',           label: 'Use Email',           desc: 'Can send mail and view email history' },
   { key: 'canManageDesignFiles',  label: 'Manage Design Files', desc: 'Can change Drive files and send proofs' },
   { key: 'canViewWhatsapp',       label: 'View WhatsApp',       desc: 'Can see WhatsApp chats and live messages' },
+  { key: 'canMarkAttendanceWhatsapp', label: 'WhatsApp Attendance', desc: 'Can mark attendance from the registered WhatsApp number' },
 ];
 
 const ALL_SIDEBAR_GROUPS = SIDEBAR_GROUPS.map((g) => g.label);
@@ -649,7 +647,6 @@ export default function AdminUserPermissions() {
       </Stack>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-        {/* User list */}
         <Box sx={{ width: { xs: '100%', md: 280 }, flexShrink: 0 }}>
           <Typography variant="caption" fontWeight={800} color="text.secondary" sx={{ mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: 0.8 }}>
             Users ({users.length})
@@ -693,7 +690,8 @@ export default function AdminUserPermissions() {
                       user.permissions?.rightLinksHidden?.length > 0 ||
                       user.permissions?.leftSidebarEnabled ||
                       user.permissions?.rightSidebarEnabled ||
-                      user.permissions?.footerEnabled
+                      user.permissions?.footerEnabled ||
+                      user.permissions?.canMarkAttendanceWhatsapp === false
                     ) && (
                       <Chip size="small" label="Custom" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
                     )}
@@ -704,7 +702,6 @@ export default function AdminUserPermissions() {
           </Stack>
         </Box>
 
-        {/* Permission editor */}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           {selected ? (
             <Card variant="outlined">

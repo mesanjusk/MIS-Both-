@@ -1,7 +1,7 @@
 const User = require('../repositories/users');
 const Attendance = require('../repositories/attendance');
 const { AppSetting } = require('../repositories/appSetting');
-const { markAttendance, isTransitionAllowed } = require('./attendanceService');
+const { markAttendance, isTransitionAllowed, businessDayKey } = require('./attendanceService');
 const { getPendingOrdersForUser, buildTaskSummaryMessage, rolloverPendingOrders } = require('./orderTaskService');
 const WhatsAppPendingInput = require('../repositories/WhatsAppPendingInput');
 const AttendanceAbsence = require('../repositories/AttendanceAbsence');
@@ -16,6 +16,7 @@ const logger = require('../utils/logger');
 
 const SETTING_KEY = 'whatsapp_attendance_config';
 const ABSENCE_PENDING_TTL_MS = 15 * 60 * 1000;
+const EMPLOYEE_DISABLED_REPLY = 'WhatsApp attendance is disabled for your account. Contact admin.';
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -162,6 +163,18 @@ async function findEmployeeByWhatsAppNumber(rawPhone) {
       },
     ],
   }).lean();
+}
+
+function canEmployeeMarkWhatsAppAttendance(employee) {
+  return employee?.permissions?.canMarkAttendanceWhatsapp !== false;
+}
+
+async function rejectDisabledEmployee({ employee, payload, sendText }) {
+  if (canEmployeeMarkWhatsAppAttendance(employee)) return null;
+  if (sendText) {
+    await sendText({ to: payload.from, body: EMPLOYEE_DISABLED_REPLY });
+  }
+  return { handled: true, success: false, reason: 'employee_disabled' };
 }
 
 function getIstDate(date = new Date()) {
@@ -509,13 +522,11 @@ async function processWhatsAppAttendanceCommand({ payload, sendText, sendButtons
     return { handled: true, success: false, reason: 'unknown_number' };
   }
 
-  // "Day start" opens the button menu instead of marking instantly, so the
-  // employee can see which action is actually valid right now. Every other
-  // command (lunch/restart/end and their aliases) still marks immediately.
-  if (command.attendanceType === 'In') {
-    return sendApplicableAttendanceButtons({ config, employee, payload, sendText, sendButtons });
-  }
+  const disabledResult = await rejectDisabledEmployee({ employee, payload, sendText });
+  if (disabledResult) return disabledResult;
 
+  // Typed commands and real-time webhook events use the same transition engine.
+  // In particular, hi/start marks In immediately instead of only opening a menu.
   return executeAttendanceCommand({ config, command, employee, payload, sendText, sendButtons, sendList, sourceLabel: incomingText });
 }
 
@@ -539,6 +550,9 @@ async function processWhatsAppAttendanceButtonTap({ payload, sendText, sendButto
     }
     return { handled: true, success: false, reason: 'unknown_number' };
   }
+
+  const disabledResult = await rejectDisabledEmployee({ employee, payload, sendText });
+  if (disabledResult) return disabledResult;
 
   const [, action, arg] = replyId.split(':');
 

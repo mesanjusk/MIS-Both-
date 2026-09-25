@@ -155,6 +155,19 @@ function NavDropdown({ label, section, roleKey, allowedGroups, onNavigate }) {
             ))}
           </Box>
         ))}
+        {label === 'Admin' && (
+          <>
+            <Divider sx={{ my: 0.5 }} />
+            <MenuItem
+              dense
+              onClick={() => { handleClose(); onNavigate(ROUTES.ADMIN_USER_PERMISSIONS); }}
+              sx={{ fontSize: '0.82rem', fontWeight: 600, gap: 1, borderRadius: 1, mx: 0.5, '&:hover': { bgcolor: 'action.hover' } }}
+            >
+              <DashboardCustomizeRoundedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              User Permissions
+            </MenuItem>
+          </>
+        )}
       </Menu>
     </>
   );

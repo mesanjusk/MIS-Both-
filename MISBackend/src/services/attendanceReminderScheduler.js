@@ -10,12 +10,14 @@ const { renderTemplate } = require('./whatsappTemplateService');
 const { runDueJobs } = require('./dailyScheduleService');
 const logger = require('../utils/logger');
 
-// Daily "Good morning, are you coming in today?" broadcast — sent to every
-// employee at 8 AM IST, skipped entirely on a configured weekly-off day, and
-// skipped per-employee if they've already marked attendance some other way.
+// Proactive 8 AM attendance prompts are intentionally OFF by default because
+// each prompt is a paid outbound WhatsApp message. Employees can still mark
+// attendance by sending hi/start themselves. To explicitly restore the old
+// broadcast behaviour, set dailyCheckInEnabled: true in the existing
+// whatsapp_attendance_config setting.
 async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
   const config = await getAttendanceConfig();
-  if (!config.enabled) return;
+  if (!config.enabled || config.dailyCheckInEnabled !== true) return;
 
   const nowIst = getIstDate(new Date());
   if ((config.weeklyOffDays || [0]).includes(nowIst.getDay())) return;
@@ -27,6 +29,7 @@ async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
     try {
       const phone = String(user.Mobile_number || user.phone || '').replace(/\D/g, '');
       if (!phone || !user.User_uuid) continue;
+      if (user?.permissions?.canMarkAttendanceWhatsapp === false) continue;
 
       const attendance = await Attendance.findOne({
         Employee_uuid: user.User_uuid,
@@ -42,9 +45,8 @@ async function sendDailyAttendanceCheckIn({ sendText, sendButtons }) {
   }
 }
 
-// Two hours. "Are you coming in today?" is worth asking if the process woke
-// late in the morning; by midday the answer is already visible in whether the
-// employee turned up, and asking then reads as broken rather than helpful.
+// Two hours. This only matters when the paid proactive prompt has explicitly
+// been enabled by an administrator.
 const CHECK_IN_CATCH_UP_MINUTES = 2 * 60;
 
 function initAttendanceReminderScheduler({ sendText, sendButtons }) {

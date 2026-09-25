@@ -142,6 +142,10 @@ const UsersSchema = new mongoose.Schema({
       // Governs the live WhatsApp message stream as well as the pages: every
       // authenticated socket used to receive every inbound message.
       canViewWhatsapp:       { type: Boolean, default: true },
+      // Allows this employee's registered WhatsApp number to create/update
+      // attendance records through the WhatsApp attendance command flow.
+      // Default true preserves existing behaviour until an admin turns it off.
+      canMarkAttendanceWhatsapp: { type: Boolean, default: true },
       dashboardCards:  { type: [String], default: [] }, // empty = show all cards
       allowedWidgets:      { type: [String], default: [] }, // empty = allow all home widgets
       topNavHidden:        { type: [String], default: [] }, // top navbar dropdown labels hidden by admin
@@ -168,6 +172,7 @@ const UsersSchema = new mongoose.Schema({
       canUseEmail: true,
       canManageDesignFiles: true,
       canViewWhatsapp: true,
+      canMarkAttendanceWhatsapp: true,
       dashboardCards: [],
       allowedWidgets: [],
       topNavHidden: [],

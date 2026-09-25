@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const sanjusk = require('./sanjuskApiService');
 const Message = require('../repositories/Message');
 const { emitNewMessage } = require('../socket');
@@ -5,12 +6,78 @@ const logger = require('../utils/logger');
 
 const norm = (v) => String(v || '').replace(/\D/g, '');
 
+// Cost-control defaults for automated WhatsApp traffic. This service is the
+// shared automation sender; staff-typed Inbox replies use the interactive
+// controller path and are deliberately not rate-limited here.
+const EXACT_DUPLICATE_TTL_MS = 6 * 60 * 60 * 1000;
+const SOURCE_COOLDOWN_MS = {
+  // Morning + evening digests used to create two paid outbound messages for
+  // the same employee. One useful digest in an 18-hour window is sufficient.
+  DAILY_DIGEST: 18 * 60 * 60 * 1000,
+  // Protect the owner summary from catch-up/restart duplicates.
+  OWNER_SUMMARY: 18 * 60 * 60 * 1000,
+};
+const MAX_CACHE_ENTRIES = 5000;
+const recentExactSends = new Map();
+const recentSourceSends = new Map();
+
 const extractSanjuskMessageId = (data) =>
   data?.messages?.[0]?.id ||
   data?.data?.messages?.[0]?.id ||
   data?.messageId ||
   data?.id ||
   '';
+
+function normalizeBody(body) {
+  return String(body || '').replace(/\s+/g, ' ').trim();
+}
+
+function hashBody(body) {
+  return crypto.createHash('sha256').update(normalizeBody(body)).digest('hex').slice(0, 24);
+}
+
+function pruneCache(cache, now) {
+  if (cache.size <= MAX_CACHE_ENTRIES) return;
+  const entries = [...cache.entries()].sort((a, b) => a[1] - b[1]);
+  for (const [key] of entries.slice(0, Math.ceil(entries.length / 4))) cache.delete(key);
+  // Also remove obviously stale entries while pruning.
+  for (const [key, at] of cache.entries()) {
+    if (now - at > 24 * 60 * 60 * 1000) cache.delete(key);
+  }
+}
+
+function shouldSuppressAutomatedSend({ to, body, source, force = false, now = Date.now() }) {
+  if (force) return { suppress: false };
+
+  const cleanBody = normalizeBody(body);
+  if (!cleanBody) return { suppress: true, reason: 'empty_body' };
+
+  const exactKey = `${to}|${hashBody(cleanBody)}`;
+  const exactAt = recentExactSends.get(exactKey);
+  if (exactAt && now - exactAt < EXACT_DUPLICATE_TTL_MS) {
+    return { suppress: true, reason: 'exact_duplicate' };
+  }
+
+  const sourceKey = String(source || '').trim().toUpperCase();
+  const cooldown = SOURCE_COOLDOWN_MS[sourceKey];
+  if (cooldown) {
+    const sourceRecipientKey = `${to}|${sourceKey}`;
+    const sourceAt = recentSourceSends.get(sourceRecipientKey);
+    if (sourceAt && now - sourceAt < cooldown) {
+      return { suppress: true, reason: 'source_cooldown' };
+    }
+  }
+
+  return { suppress: false, exactKey, sourceKey };
+}
+
+function rememberAutomatedSend({ to, body, source, now = Date.now() }) {
+  recentExactSends.set(`${to}|${hashBody(body)}`, now);
+  const sourceKey = String(source || '').trim().toUpperCase();
+  if (SOURCE_COOLDOWN_MS[sourceKey]) recentSourceSends.set(`${to}|${sourceKey}`, now);
+  pruneCache(recentExactSends, now);
+  pruneCache(recentSourceSends, now);
+}
 
 /**
  * Records an outbound automation message in the Message collection and pushes
@@ -48,46 +115,47 @@ const recordOutboundMessage = async ({ to, body, source, messageId }) => {
 };
 
 /**
- * One outbound text, sent by whichever provider is configured.
+ * Shared sender for automated WhatsApp traffic.
  *
- * Two paths, and the choice is a single stored flag:
- *
- *   SanjuSK   POST {baseUrl}/api/v1/send-text with the account's API key.
- *             Credentials, the 24-hour window and template handling are the
- *             provider's problem, which is the point of using one.
- *   Direct    Meta's Graph API with WHATSAPP_ACCESS_TOKEN, exactly as before.
- *
- * Direct remains the default and is untouched. Nothing changes until an
- * administrator saves a key under Admin → API and turns the integration on,
- * and turning it back off restores the previous behaviour with no code
- * change — which is the property that makes this safe to ship while MIS is
- * already sending real messages.
- *
- * A failure to resolve the provider is never allowed to become a silent
- * fallback to the other one: if SanjuSK is on and its call fails, that error
- * propagates. Quietly sending through a different provider than the one an
- * administrator selected would make delivery problems undiagnosable.
+ * Cost controls are intentionally applied here rather than independently in
+ * every scheduler/module so new automation cannot accidentally reintroduce
+ * duplicate paid replies. `force: true` is available only for a caller that has
+ * a genuine operational reason to send an otherwise duplicate automation.
  */
-async function sendWhatsAppText({ to, body, source = '' }) {
+async function sendWhatsAppText({ to, body, source = '', force = false }) {
   const toClean = norm(to);
+  const cleanBody = String(body || '').trim();
+  if (!toClean) throw new Error('WhatsApp recipient is required');
 
-  // All outbound — automation included — goes through the one SanjuSK account
-  // (meta.sanjusk.in) the Home → Inbox uses. Direct Meta sending has been
-  // retired: there is no fallback, so a missing SanjuSK key is a hard error
-  // rather than a silent switch to a second provider. The Meta WhatsApp
-  // credentials are no longer used.
+  const decision = shouldSuppressAutomatedSend({
+    to: toClean,
+    body: cleanBody,
+    source,
+    force,
+  });
+  if (decision.suppress) {
+    logger.info(
+      { to: toClean, source: source || '', reason: decision.reason },
+      '[whatsapp] automated send suppressed by cost control'
+    );
+    return { suppressed: true, reason: decision.reason };
+  }
+
+  // All outbound automation goes through the one SanjuSK account
+  // (meta.sanjusk.in). Direct Meta sending remains retired.
   if (!(await sanjusk.isConfigured())) {
     throw new Error(
       'WhatsApp sending is not configured: save a SanjuSK API key under Admin → API.'
     );
   }
 
-  const result = await sanjusk.sendText({ phone: toClean, text: body, requireEnabled: false });
+  const result = await sanjusk.sendText({ phone: toClean, text: cleanBody, requireEnabled: false });
+  rememberAutomatedSend({ to: toClean, body: cleanBody, source });
   logger.info({ to: toClean, provider: 'sanjusk', source: source || '' }, '[whatsapp] text sent');
 
   await recordOutboundMessage({
     to: toClean,
-    body,
+    body: cleanBody,
     source,
     messageId: extractSanjuskMessageId(result),
   });
@@ -95,4 +163,7 @@ async function sendWhatsAppText({ to, body, source = '' }) {
   return result;
 }
 
-module.exports = { sendWhatsAppText };
+module.exports = {
+  sendWhatsAppText,
+  shouldSuppressAutomatedSend,
+};

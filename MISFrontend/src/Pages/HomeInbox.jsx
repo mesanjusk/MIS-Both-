@@ -14,7 +14,7 @@ import { LoadingSkeleton } from '../Components/ui';
 const MessagesPanel = lazy(() => import('../Components/whatsappCloud/MessagesPanel'));
 
 /**
- * Home → Inbox tab.
+ * Home → Inbox tab (fixed-height shell for independent pane scrolling).
  *
  * A WhatsApp Web-style inbox embedded directly on the home page: browse the
  * conversations connected through the WhatsApp account, open a chat and reply

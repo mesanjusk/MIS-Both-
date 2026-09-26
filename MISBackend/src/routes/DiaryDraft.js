@@ -355,7 +355,7 @@ router.get('/:uuid', async (req, res) => {
 // PUT /api/diary/:uuid/entry/:entryUuid
 router.put('/:uuid/entry/:entryUuid', async (req, res) => {
   try {
-    const { account_assigned, entry_status, notes } = req.body;
+    const { account_assigned, entry_status, notes, amount } = req.body;
     const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid });
     if (!draft) return res.status(404).json({ success: false, message: 'Diary not found' });
     if (draft.status === 'confirmed') {
@@ -370,6 +370,13 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     }
     if (entry_status !== undefined) setFields['entries.$[e].entry_status'] = entry_status;
     if (notes        !== undefined) setFields['entries.$[e].notes']        = notes;
+    if (amount       !== undefined) {
+      const parsedAmount = Number(amount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({ success: false, message: 'Amount must be a positive number' });
+      }
+      setFields['entries.$[e].amount'] = parsedAmount;
+    }
 
     await DiaryDraft.updateOne(
       { diary_uuid: req.params.uuid },

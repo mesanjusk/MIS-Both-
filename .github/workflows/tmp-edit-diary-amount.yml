@@ -1,0 +1,70 @@
+name: Apply diary amount edit patch
+
+on:
+  push:
+    branches:
+      - fix/day-book-edit-draft-amount
+    paths:
+      - .github/workflows/tmp-edit-diary-amount.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/day-book-edit-draft-amount
+          fetch-depth: 0
+      - name: Patch Day Book amount editing
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          frontend = Path('MISFrontend/src/Pages/DayBook.jsx')
+          s = frontend.read_text()
+
+          old = """  const [editing, setEditing] = useState(false);\n  const [acct, setAcct]       = useState(entry.account_assigned || '');\n  const [saving, setSaving]   = useState(false);\n"""
+          new = """  const [editing, setEditing] = useState(false);\n  const [acct, setAcct]       = useState(entry.account_assigned || '');\n  const [saving, setSaving]   = useState(false);\n  const [editingAmount, setEditingAmount] = useState(false);\n  const [amount, setAmount] = useState(String(entry.amount ?? ''));\n  const [savingAmount, setSavingAmount] = useState(false);\n"""
+          if old not in s:
+              raise SystemExit('EntryRow state block not found')
+          s = s.replace(old, new, 1)
+
+          old = """  const acceptSuggestion = () => save(entry.account_assigned);\n\n  const reject = async () => {\n"""
+          new = """  const acceptSuggestion = () => save(entry.account_assigned);\n\n  useEffect(() => {\n    if (!editingAmount) setAmount(String(entry.amount ?? ''));\n  }, [entry.amount, editingAmount]);\n\n  const saveAmount = async () => {\n    const parsedAmount = Number(amount);\n    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return;\n    setSavingAmount(true);\n    try {\n      await onUpdate(entry.entry_uuid, { amount: parsedAmount });\n      setEditingAmount(false);\n    } finally {\n      setSavingAmount(false);\n    }\n  };\n\n  const cancelAmountEdit = () => {\n    setAmount(String(entry.amount ?? ''));\n    setEditingAmount(false);\n  };\n\n  const reject = async () => {\n"""
+          if old not in s:
+              raise SystemExit('acceptSuggestion block not found')
+          s = s.replace(old, new, 1)
+
+          old = """      {/* Amount */}\n      <TableCell align=\"right\">\n        <Typography variant=\"body2\" fontWeight={700}>{money(entry.amount)}</Typography>\n      </TableCell>\n"""
+          new = """      {/* Amount */}\n      <TableCell align=\"right\" sx={{ minWidth: 145 }}>\n        {editingAmount ? (\n          <Stack direction=\"row\" spacing={0.25} alignItems=\"center\" justifyContent=\"flex-end\">\n            <TextField\n              autoFocus\n              size=\"small\"\n              type=\"number\"\n              value={amount}\n              onChange={(e) => setAmount(e.target.value)}\n              onKeyDown={(e) => {\n                if (e.key === 'Enter') saveAmount();\n                if (e.key === 'Escape') cancelAmountEdit();\n              }}\n              inputProps={{ min: 0.01, step: '0.01', inputMode: 'decimal' }}\n              sx={{ width: 100 }}\n            />\n            <IconButton\n              size=\"small\"\n              color=\"success\"\n              onClick={saveAmount}\n              disabled={savingAmount || !Number.isFinite(Number(amount)) || Number(amount) <= 0}\n            >\n              {savingAmount ? <CircularProgress size={16} /> : <CheckCircleRoundedIcon fontSize=\"small\" />}\n            </IconButton>\n            <IconButton size=\"small\" onClick={cancelAmountEdit} disabled={savingAmount}>\n              <CancelRoundedIcon fontSize=\"small\" />\n            </IconButton>\n          </Stack>\n        ) : (\n          <Stack direction=\"row\" spacing={0.25} alignItems=\"center\" justifyContent=\"flex-end\">\n            <Typography variant=\"body2\" fontWeight={700}>{money(entry.amount)}</Typography>\n            {isDraft && entry.entry_status !== 'rejected' && (\n              <Tooltip title=\"Edit amount\">\n                <IconButton\n                  size=\"small\"\n                  onClick={() => { setAmount(String(entry.amount ?? '')); setEditingAmount(true); }}\n                  aria-label=\"Edit amount\"\n                >\n                  <EditRoundedIcon fontSize=\"small\" />\n                </IconButton>\n              </Tooltip>\n            )}\n          </Stack>\n        )}\n      </TableCell>\n"""
+          if old not in s:
+              raise SystemExit('Amount cell block not found')
+          s = s.replace(old, new, 1)
+          frontend.write_text(s)
+
+          backend = Path('MISBackend/src/routes/DiaryDraft.js')
+          s = backend.read_text()
+          old = "    const { account_assigned, entry_status, notes } = req.body;"
+          new = "    const { account_assigned, entry_status, notes, amount } = req.body;"
+          if old not in s:
+              raise SystemExit('Diary update destructuring block not found')
+          s = s.replace(old, new, 1)
+
+          old = """    if (entry_status !== undefined) setFields['entries.$[e].entry_status'] = entry_status;\n    if (notes        !== undefined) setFields['entries.$[e].notes']        = notes;\n"""
+          new = """    if (entry_status !== undefined) setFields['entries.$[e].entry_status'] = entry_status;\n    if (notes        !== undefined) setFields['entries.$[e].notes']        = notes;\n    if (amount       !== undefined) {\n      const parsedAmount = Number(amount);\n      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {\n        return res.status(400).json({ success: false, message: 'Amount must be a positive number' });\n      }\n      setFields['entries.$[e].amount'] = parsedAmount;\n    }\n"""
+          if old not in s:
+              raise SystemExit('Diary update fields block not found')
+          s = s.replace(old, new, 1)
+          backend.write_text(s)
+          PY
+
+          rm .github/workflows/tmp-edit-diary-amount.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MISFrontend/src/Pages/DayBook.jsx MISBackend/src/routes/DiaryDraft.js .github/workflows/tmp-edit-diary-amount.yml
+          git commit -m "fix: allow editing diary draft amounts"
+          git push origin HEAD:fix/day-book-edit-draft-amount

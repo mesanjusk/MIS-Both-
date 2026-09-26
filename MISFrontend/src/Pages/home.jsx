@@ -180,6 +180,7 @@ export default function Home() {
     setMountedTabs((current) => new Set([...current, next]));
     try { sessionStorage.setItem(HOME_TAB_STORAGE_KEY, next); } catch { /* preference only */ }
   };
+  const isInboxActive = resolvedActiveTab === 'inbox';
 
   return <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.default' }}>
     <Box sx={{ px: { xs: 1, md: 1.5 }, pt: 1.5, flexShrink: 0 }}><Paper elevation={0} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'hidden' }}>
@@ -187,8 +188,44 @@ export default function Home() {
         {visibleTabs.map((tab) => { const Icon = tab.icon; return <Tab key={tab.id} value={tab.id} label={tab.label} icon={<Icon sx={{ fontSize: 17 }} />} iconPosition="start" />; })}
       </Tabs>
     </Paper></Box>
-    <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, md: 1.5 }, py: 1.5 }}><Paper elevation={0} sx={{ borderRadius: 2.5, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', p: 1.5, minHeight: '100%', boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
-      {visibleTabs.filter((tab) => tab.id === resolvedActiveTab || mountedTabs.has(tab.id)).map((tab) => { const TabComponent = tab.Component; const isActive = tab.id === resolvedActiveTab; return <Box key={tab.id} role="tabpanel" aria-hidden={!isActive} sx={{ display: isActive ? 'block' : 'none', minHeight: '100%' }}><Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}><TabComponent /></Suspense></Box>; })}
-    </Paper></Box>
+    <Box sx={{ flex: 1, minHeight: 0, overflow: isInboxActive ? 'hidden' : 'auto', px: { xs: 1, md: 1.5 }, py: 1.5 }}>
+      <Paper
+        elevation={0}
+        sx={{
+          borderRadius: 2.5,
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+          p: 1.5,
+          minHeight: isInboxActive ? 0 : '100%',
+          height: isInboxActive ? '100%' : 'auto',
+          overflow: isInboxActive ? 'hidden' : 'visible',
+          boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
+        }}
+      >
+        {visibleTabs.filter((tab) => tab.id === resolvedActiveTab || mountedTabs.has(tab.id)).map((tab) => {
+          const TabComponent = tab.Component;
+          const isActive = tab.id === resolvedActiveTab;
+          const isInboxTab = tab.id === 'inbox';
+          return (
+            <Box
+              key={tab.id}
+              role="tabpanel"
+              aria-hidden={!isActive}
+              sx={{
+                display: isActive ? 'block' : 'none',
+                minHeight: isInboxTab ? 0 : '100%',
+                height: isInboxTab ? '100%' : 'auto',
+                overflow: isInboxTab ? 'hidden' : 'visible',
+              }}
+            >
+              <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
+                <TabComponent />
+              </Suspense>
+            </Box>
+          );
+        })}
+      </Paper>
+    </Box>
   </Box>;
 }

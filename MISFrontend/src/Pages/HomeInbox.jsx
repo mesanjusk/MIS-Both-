@@ -68,7 +68,7 @@ export default function HomeInbox() {
         : 'error';
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <Stack
         direction="row"
         alignItems="center"
@@ -101,8 +101,7 @@ export default function HomeInbox() {
       <Box
         sx={{
           flex: 1,
-          minHeight: { xs: 480, md: 560 },
-          height: { xs: 'calc(100dvh - 15rem)', md: 'calc(100dvh - 13rem)' },
+          minHeight: 0,
           overflow: 'hidden',
         }}
       >

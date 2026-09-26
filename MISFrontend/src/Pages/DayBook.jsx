@@ -57,6 +57,9 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
   const [editing, setEditing] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
   const [saving, setSaving]   = useState(false);
+  const [editingAmount, setEditingAmount] = useState(false);
+  const [amount, setAmount] = useState(String(entry.amount ?? ''));
+  const [savingAmount, setSavingAmount] = useState(false);
 
   const isDraft          = diaryStatus !== 'confirmed';
   const isSuggested      = entry.auto_suggested && entry.account_assigned;
@@ -71,6 +74,27 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
   };
 
   const acceptSuggestion = () => save(entry.account_assigned);
+
+  useEffect(() => {
+    if (!editingAmount) setAmount(String(entry.amount ?? ''));
+  }, [entry.amount, editingAmount]);
+
+  const saveAmount = async () => {
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return;
+    setSavingAmount(true);
+    try {
+      await onUpdate(entry.entry_uuid, { amount: parsedAmount });
+      setEditingAmount(false);
+    } finally {
+      setSavingAmount(false);
+    }
+  };
+
+  const cancelAmountEdit = () => {
+    setAmount(String(entry.amount ?? ''));
+    setEditingAmount(false);
+  };
 
   const reject = async () => {
     await onUpdate(entry.entry_uuid, {
@@ -111,8 +135,50 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
       </TableCell>
 
       {/* Amount */}
-      <TableCell align="right">
-        <Typography variant="body2" fontWeight={700}>{money(entry.amount)}</Typography>
+      <TableCell align="right" sx={{ minWidth: 145 }}>
+        {editingAmount ? (
+          <Stack direction="row" spacing={0.25} alignItems="center" justifyContent="flex-end">
+            <TextField
+              autoFocus
+              size="small"
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveAmount();
+                if (e.key === 'Escape') cancelAmountEdit();
+              }}
+              inputProps={{ min: 0.01, step: '0.01', inputMode: 'decimal' }}
+              sx={{ width: 100 }}
+            />
+            <IconButton
+              size="small"
+              color="success"
+              onClick={saveAmount}
+              disabled={savingAmount || !Number.isFinite(Number(amount)) || Number(amount) <= 0}
+            >
+              {savingAmount ? <CircularProgress size={16} /> : <CheckCircleRoundedIcon fontSize="small" />}
+            </IconButton>
+            <IconButton size="small" onClick={cancelAmountEdit} disabled={savingAmount}>
+              <CancelRoundedIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        ) : (
+          <Stack direction="row" spacing={0.25} alignItems="center" justifyContent="flex-end">
+            <Typography variant="body2" fontWeight={700}>{money(entry.amount)}</Typography>
+            {isDraft && entry.entry_status !== 'rejected' && (
+              <Tooltip title="Edit amount">
+                <IconButton
+                  size="small"
+                  onClick={() => { setAmount(String(entry.amount ?? '')); setEditingAmount(true); }}
+                  aria-label="Edit amount"
+                >
+                  <EditRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        )}
       </TableCell>
 
       {/* Account assignment */}

@@ -14,6 +14,22 @@ const endOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,
 
 const toLower = (value = '') => String(value || '').trim().toLowerCase();
 
+// Avoid one request per employee running serially, but cap concurrency so
+// a busy Home load cannot flood MongoDB with every user query at once.
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+  const workers = Math.min(items.length, Math.max(1, limit));
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
 const normalizeDateValue = (value) => {
   if (!value) return null;
   const dt = new Date(value);
@@ -191,7 +207,7 @@ const getDashboardSummary = async (req, res) => {
       String(req.query?.isAdmin || '').trim().toLowerCase() === 'true' ||
       String(req.query?.role || '').trim().toLowerCase() === 'admin';
 
-    const [orderAgg, revenueAgg, pendingPaymentAgg, attendanceAgg, urgentOrders, users, allUsertasks, todayDeliveredOrders, allOrders] =
+    const [orderAgg, revenueAgg, pendingPaymentAgg, attendanceAgg, urgentOrders, users, allUsertasks, todayDeliveredCount, allOrders] =
       await Promise.all([
         Orders.aggregate([
           {
@@ -222,11 +238,16 @@ const getDashboardSummary = async (req, res) => {
           .lean(),
         Users.find({}).lean(),
         Usertasks.find({}).lean(),
-        Orders.find({
+        Orders.countDocuments({
           updatedAt: { $gte: from, $lte: to },
           Status: { $elemMatch: { Task: 'Delivered' } },
-        }).lean(),
-        Orders.find({}).lean(),
+        }),
+        // Enquiry count needs only today's stage/status, not every full order
+        // since the beginning of the business.
+        Orders.find(
+          { createdAt: { $gte: from, $lte: to } },
+          { createdAt: 1, Status: 1, stage: 1 },
+        ).lean(),
       ]);
 
     const todayOrdersCount = orderAgg?.[0]?.todayOrders?.[0]?.count || 0;
@@ -234,7 +255,7 @@ const getDashboardSummary = async (req, res) => {
     const todayRevenue = revenueAgg?.[0]?.revenue || 0;
     const pendingPayments = pendingPaymentAgg?.[0]?.pendingPayments || 0;
     const todayAttendance = attendanceAgg?.[0]?.count || 0;
-    const todayDelivery = Array.isArray(todayDeliveredOrders) ? todayDeliveredOrders.length : 0;
+    const todayDelivery = Number(todayDeliveredCount || 0);
 
     const todayEnquiry = (allOrders || []).filter((order) => {
       const createdAt = normalizeDateValue(order?.createdAt);
@@ -243,19 +264,20 @@ const getDashboardSummary = async (req, res) => {
     }).length;
 
     const orderRowsByUser = new Map();
-    for (const user of users) {
-      const userName = String(user?.User_name || '').trim();
-      if (!userName) continue;
+    const namedUsers = users.filter((user) => String(user?.User_name || '').trim());
+    const orderRows = await mapWithConcurrency(namedUsers, 4, async (user) => {
+      const userName = String(user.User_name).trim();
       try {
         const assigned = await getPendingOrdersForUser(userName);
         const rows = Array.isArray(assigned?.orders)
           ? assigned.orders.map((order) => buildOrderTaskRow(order, userName))
           : [];
-        orderRowsByUser.set(userName, rows);
+        return { userName, rows };
       } catch {
-        orderRowsByUser.set(userName, []);
+        return { userName, rows: [] };
       }
-    }
+    });
+    orderRows.forEach(({ userName, rows }) => orderRowsByUser.set(userName, rows));
 
     // Operations ownership is additive here: if it cannot be resolved the
     // dashboard falls back to the stored name exactly as before, so a problem
@@ -542,7 +564,7 @@ const getCashBookSummary = async (_req, res) => {
     const now = new Date();
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
-    const txns = await Transaction.find({}).sort({ Transaction_date: 1, createdAt: 1 }).lean();
+    const txns = await Transaction.find({}, { Transaction_date: 1, createdAt: 1, Journal_entry: 1 }).lean();
 
     let historicalDebit = 0;
     let historicalCredit = 0;
@@ -595,6 +617,7 @@ module.exports = {
   // User-Wise Tasks panel, which are pure given a resolution context.
   resolveOperationsOwner,
   buildUserWiseAssignedTasks,
+  mapWithConcurrency,
   getDashboardSummary,
   getOutstandingSummary,
   getStuckOrders,

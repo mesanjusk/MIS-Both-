@@ -40,6 +40,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from '../apiClient';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 import ExportGuard from '../Components/ExportGuard';
+import { matchesPayableAccountSearch } from '../utils/payableFilters';
 import PurchaseInvoiceEditor from '../Components/PurchaseInvoiceEditor';
 import PostPressJobsPanel from '../Components/PostPressJobsPanel';
 import {
@@ -90,6 +91,7 @@ export default function PayableAccount() {
   const [printingRows, setPrintingRows] = useState([]);
   const [printingDates, setPrintingDates] = useState([]);
   const [partyFilter, setPartyFilter] = useState('');
+  const [accountSearch, setAccountSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [balanceFilter, setBalanceFilter] = useState('all');
   const [loading, setLoading] = useState(false);
@@ -109,7 +111,12 @@ export default function PayableAccount() {
     try {
       const [partyRes, txRes] = await Promise.all([
         axios.get('/api/vendors/payable-parties'),
-        axios.get('/api/transaction'),
+        // The new endpoint uses the indexed journal account field and a narrow
+        // projection. Fallback keeps Vercel safe if it deploys before the API.
+        axios.get('/api/vendors/payable-ledger-transactions').catch((err) => {
+          if (err?.response?.status === 404) return axios.get('/api/transaction');
+          throw err;
+        }),
       ]);
 
       setParties(partyRes.data?.success && Array.isArray(partyRes.data.result)
@@ -261,6 +268,7 @@ export default function PayableAccount() {
       .map((party) => ({ ...party, kind: partyKind(party) }))
       .filter((party) => (typeFilter === 'all' ? true : party.kind === typeFilter))
       .filter((party) => (partyFilter ? party.Vendor_uuid === partyFilter : true))
+      .filter((party) => matchesPayableAccountSearch(party, accountSearch))
       .filter((party) => {
         if (balanceFilter === 'all') return true;
         const bal = currentBalanceByParty[party.Vendor_uuid] || { debit: 0, credit: 0 };
@@ -270,7 +278,7 @@ export default function PayableAccount() {
         if (balanceFilter === 'settled') return Math.abs(due) < 0.005;
         return true;
       });
-  }, [parties, typeFilter, partyFilter, balanceFilter, currentBalanceByParty]);
+  }, [parties, typeFilter, partyFilter, accountSearch, balanceFilter, currentBalanceByParty]);
 
   const filteredPartyIds = useMemo(
     () => new Set(filteredParties.map((party) => party.Vendor_uuid)),
@@ -304,6 +312,7 @@ export default function PayableAccount() {
       const uniqueParticipantIds = [...new Set(participantIds)];
 
       if (partyFilter && !uniqueParticipantIds.includes(partyFilter)) return false;
+      if (accountSearch && !uniqueParticipantIds.some((id) => matchesPayableAccountSearch(partyById[id], accountSearch))) return false;
 
       if (typeFilter !== 'all') {
         const hasType = uniqueParticipantIds.some(
@@ -331,6 +340,7 @@ export default function PayableAccount() {
     vendorDrafts,
     partyById,
     partyFilter,
+    accountSearch,
     typeFilter,
     balanceFilter,
     currentBalanceByParty,
@@ -695,6 +705,16 @@ export default function PayableAccount() {
             <MenuItem value="advance">Advance</MenuItem>
             <MenuItem value="settled">Settled</MenuItem>
           </TextField>
+
+          <TextField
+            size="small"
+            label="Search Account"
+            placeholder="Name or account ID"
+            value={accountSearch}
+            onChange={(event) => setAccountSearch(event.target.value)}
+            inputProps={{ 'aria-label': 'Search payable accounts' }}
+            sx={{ width: { xs: '100%', lg: 200 } }}
+          />
 
           <Autocomplete
             size="small"

@@ -28,6 +28,7 @@ const {
   postVendorLedgerEntry,
   reverseAndDeleteTransaction,
 } = require('../services/accountingPostingService');
+const { getPayableLedgerTransactions } = require('../services/payableLedgerReadService');
 const logger = require('../utils/logger');
 
 function toNumber(value, fallback = 0) {
@@ -644,6 +645,19 @@ router.get('/payable-parties', async (_req, res) => {
   } catch (error) {
     logger.error('Failed to list payable parties', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// GET /api/vendors/payable-ledger-transactions
+// Only the fields required by Home > Payable, restricted to active Account
+// Payable parties. Other transaction consumers retain the existing full API.
+router.get('/payable-ledger-transactions', requirePermission('canViewAccounts'), async (_req, res) => {
+  try {
+    const result = await getPayableLedgerTransactions();
+    return res.json({ success: true, result });
+  } catch (error) {
+    logger.error('Failed to load payable ledger transactions', error);
+    return res.status(500).json({ success: false, message: 'Could not load payable ledger' });
   }
 });
 

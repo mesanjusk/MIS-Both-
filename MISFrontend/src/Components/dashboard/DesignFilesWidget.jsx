@@ -634,6 +634,19 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
   );
 }
 
+function MasterFieldAdd({ label, onClick, disabled }) {
+  return (
+    <Tooltip title={label}>
+      <span>
+        <IconButton size="small" disabled={disabled} onClick={onClick}
+          aria-label={label} sx={{ border: '1px solid', borderColor: 'primary.light', borderRadius: 1, color: 'primary.main', p: 0.65 }}>
+          <AddRoundedIcon sx={{ fontSize: 17 }} />
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
+
 // ─── Confirm Final Dialog ─────────────────────────────────────────────────────
 function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
   const [customer, setCustomer] = useState(null);
@@ -828,7 +841,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   );
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={addKind ? undefined : onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Typography fontWeight={700}>Confirm Final File → Create Order</Typography>
@@ -842,8 +855,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
         </Typography>
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
             <Autocomplete
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
               options={filteredCustomers} value={customer}
               onChange={(_, v) => { setCustomer(v); if (v?.Mobile) setMobileNumber(v.Mobile); }}
               inputValue={customerInput} onInputChange={(_, v) => setCustomerInput(v)}
@@ -856,6 +870,8 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                 />
               )}
             />
+            <MasterFieldAdd label="Add new customer" onClick={() => setAddKind('customer')} disabled={submitting} />
+            </Stack>
             <TextField label="Mobile Number" value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
               size="small" disabled={submitting} sx={{ width: { xs: '100%', sm: 160 } }}

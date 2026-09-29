@@ -42,7 +42,8 @@ describe('Home payment follow-up integration', () => {
     render(<PaymentFollowupHome />);
     expect(await screen.findByText('Customer One')).toBeInTheDocument();
     expect(screen.getByText('Invoice 12')).toBeInTheDocument();
-    expect(screen.getByText('₹500')).toBeInTheDocument();
+    // Appears in both the outstanding summary card and the matching table row.
+    expect(screen.getAllByText('₹500').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('button', { name: /Manage/i })).toBeInTheDocument();
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/api/paymentfollowup/list', expect.objectContaining({ cache: false }),

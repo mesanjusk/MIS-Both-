@@ -15,13 +15,7 @@ import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import {
   extractPhoneNumber,
   normalizeWhatsAppPhone,
-  sendTemplateWithTextFallback,
 } from '../utils/whatsapp.js';
-import {
-  WHATSAPP_TEMPLATES,
-  buildFollowupDueTodayParameters,
-  buildFollowupFriendlyParameters,
-} from '../constants/whatsappTemplates';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
@@ -76,7 +70,7 @@ export default function PaymentFollowup() {
   const [customerOptions, setCustomerOptions] = useState([]);
   const [customerDetails, setCustomerDetails] = useState([]);
 
-  const [whatsAppMessage, setWhatsAppMessage] = useState('');
+  const [savedFollowupId, setSavedFollowupId] = useState('');
   const [mobileToSend, setMobileToSend] = useState('');
   const [sendWhatsAppAfterSave, setSendWhatsAppAfterSave] = useState(false);
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
@@ -132,64 +126,22 @@ export default function PaymentFollowup() {
     setDeadline(todayISO());
   };
 
-  const sendWhatsApp = async (
-    phone = mobileToSend,
-    message = whatsAppMessage,
-    customerData = null
-  ) => {
-    const selectedCustomer =
-      customerData || findCustomerRecord(customerDetails, Customer);
-
-    const resolvedPhone = normalizeWhatsAppPhone(
-      phone || getCustomerPhone(selectedCustomer)
-    );
-
-    if (!resolvedPhone) {
-      toast.error('Customer phone number is required');
-      return;
-    }
-
+  // Both the legacy creation form and Home tab use the same guarded backend
+  // sender, which verifies the live ledger, uses an approved template, and
+  // records the send with a 48-hour duplicate cooldown.
+  const sendWhatsApp = async (id = savedFollowupId) => {
+    if (!id) return toast.error('Save a follow-up first.');
+    if (!window.confirm('Send one approved WhatsApp payment reminder? This may incur a charge.')) return;
     setIsSendingWhatsApp(true);
-
     try {
-      const customerLabel = getCustomerName(selectedCustomer) || Customer || 'Customer';
-      const followupDate = Deadline || todayISO();
-      const today = todayISO();
-
-      const isDueToday = followupDate === today;
-      const templateName = isDueToday
-        ? WHATSAPP_TEMPLATES.FOLLOWUP_DUE_TODAY
-        : WHATSAPP_TEMPLATES.FOLLOWUP_FRIENDLY;
-
-      const bodyParameters = isDueToday
-        ? buildFollowupDueTodayParameters({
-            customerName: customerLabel,
-            amount: String(Number(Amount || 0) || 0),
-            dueDate: followupDate,
-            reference: Title?.trim() || Remark?.trim() || '-',
-          })
-        : buildFollowupFriendlyParameters({
-            customerName: customerLabel,
-            amount: String(Number(Amount || 0) || 0),
-            expectedDate: followupDate,
-            reference: Title?.trim() || Remark?.trim() || '-',
-          });
-
-      const { data } = await sendTemplateWithTextFallback({
-        axiosInstance: axios,
-        phone: resolvedPhone,
-        templateName,
-        bodyParameters,
-        fallbackMessage: message,
-      });
-
-      if (data?.success) {
-        toast.success('WhatsApp message sent');
-      } else {
-        toast.error(data?.error || 'Failed to send WhatsApp message');
-      }
+      const { data } = await axios.post(
+        '/api/paymentfollowup/' + encodeURIComponent(id) + '/send-reminder',
+        { confirmed: true }
+      );
+      data?.success ? toast.success('WhatsApp reminder sent and logged') :
+        toast.error(data?.message || 'Failed to send reminder');
     } catch (error) {
-      toast.error(error?.response?.data?.error || 'Failed to send WhatsApp message');
+      toast.error(error?.response?.data?.message || 'Failed to send WhatsApp reminder');
     } finally {
       setIsSendingWhatsApp(false);
     }
@@ -212,32 +164,38 @@ export default function PaymentFollowup() {
     try {
       setSubmitting(true);
       setIsTransactionSaved(false);
-      setWhatsAppMessage('');
+      setSavedFollowupId('');
       setMobileToSend('');
 
-      await axios.post('/api/paymentfollowup/add', {
+      const matching = customerDetails.filter(
+        (item) => getCustomerName(item).toLowerCase() === Customer.trim().toLowerCase()
+      );
+      // Name-only legacy records remain supported; never link an ambiguous
+      // duplicated display name to an arbitrary customer's ledger.
+      const uniqueCustomer = matching.length === 1 ? matching[0] : null;
+      const saved = await axios.post('/api/paymentfollowup/add', {
         Customer,
+        Customer_uuid: uniqueCustomer?.Customer_uuid || '',
         Amount: Number(Amount),
         Title: Title?.trim(),
         Followup_date: finalDate,
         Remark: Remark?.trim(),
       });
 
-      const selectedCustomer = findCustomerRecord(customerDetails, Customer);
+      const selectedCustomer = uniqueCustomer || findCustomerRecord(customerDetails, Customer);
       const phoneNumber = getCustomerPhone(selectedCustomer);
-      const message = `Hello ${Customer}, we will follow up with you for ₹${Number(Amount)}. Thank you!`;
-
+      const id = saved.data?.result?._id || '';
       toast.success('Payment follow-up added.');
-      setWhatsAppMessage(message);
+      setSavedFollowupId(id);
       setMobileToSend(phoneNumber);
       setIsTransactionSaved(true);
 
-      if (sendWhatsAppAfterSave) {
+      if (sendWhatsAppAfterSave && id) {
         if (!phoneNumber) {
           toast.error('Customer phone number is missing for WhatsApp');
           return;
         }
-        await sendWhatsApp(phoneNumber, message, selectedCustomer);
+        await sendWhatsApp(id);
       }
     } catch (err) {
       if (err?.response?.status === 409) {

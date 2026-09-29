@@ -159,6 +159,13 @@ export default function Home() {
   }, [location.state?.id, navigate, userName]);
 
   useEffect(() => {
+    if (location.state?.openTab !== 'paymentFollowup' || permissions?.canViewAccounts === false) return;
+    setActiveTab('paymentFollowup');
+    setMountedTabs((current) => new Set([...current, 'paymentFollowup']));
+    try { sessionStorage.setItem(HOME_TAB_STORAGE_KEY, 'paymentFollowup'); } catch { /* preference only */ }
+  }, [location.state?.openTab, location.key, permissions?.canViewAccounts]);
+
+  useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
       const fallback = visibleTabs[0]?.id || 'workflow';
       setActiveTab(fallback);
@@ -225,7 +232,9 @@ export default function Home() {
               }}
             >
               <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
-                <TabComponent />
+                <TabComponent {...(tab.id === 'paymentFollowup'
+                  ? { initialCustomerUuid: location.state?.followupCustomerUuid || '', prefillKey: location.key }
+                  : {})} />
               </Suspense>
             </Box>
           );

@@ -49,7 +49,7 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       title, description, section, frequency, timeOfDay,
       primaryGroup, fallbackGroups, isSkippable, isActive, sortOrder, kpi,
       responsibility_uuid,
-      scheduledTime, durationMinutes, weekDays, category,
+      scheduledTime, durationMinutes, weekDays, category, autoVerifyKey,
     } = req.body;
     if (!title || !primaryGroup) {
       return res.status(400).json({ success: false, message: 'title and primaryGroup are required' });

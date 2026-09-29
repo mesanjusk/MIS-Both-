@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const SOPCompletionSchema = new mongoose.Schema(
   {
     sop_uuid: { type: String, required: true },
+    employee_uuid: { type: String, default: '', index: true }, // new personal checklist records; legacy group history stays readable
     date: { type: Date, required: true },
     completedBy: { type: String, default: '' },
     completedByName: { type: String, default: '' },

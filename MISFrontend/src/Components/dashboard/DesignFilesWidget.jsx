@@ -951,6 +951,8 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               onClick={() => setOrderMode('items')} disabled={submitting}
               sx={{ fontSize: 11, py: 0.3, px: 1, minHeight: 26 }}
             >Detailed Items</Button>
+            <MasterFieldAdd label="Add new item to master"
+              onClick={() => { setAddItemIndex(0); setAddKind('item'); }} disabled={submitting} />
           </Stack>
 
           {orderMode === 'note' ? (
@@ -968,7 +970,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               {items.map((row, i) => (
                 <Grid container spacing={1} key={i} alignItems="center" sx={{ mb: 1 }}>
                   <Grid item xs={12} md={5}>
+                    <Stack direction="row" spacing={0.5} alignItems="center">
                     <Autocomplete
+                      sx={{ flex: 1, minWidth: 0 }}
                       freeSolo
                       options={itemOptions}
                       value={row.itemName}
@@ -980,6 +984,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                         <TextField {...params} size="small" placeholder="Select item" />
                       )}
                     />
+                    <MasterFieldAdd label={'Add new item beside row ' + (i + 1)}
+                      onClick={() => { setAddItemIndex(i); setAddKind('item'); }} disabled={submitting} />
+                    </Stack>
                   </Grid>
                   <Grid item xs={4} md={2}>
                     <TextField size="small" type="number" placeholder="Qty" fullWidth value={row.qty}
@@ -1081,6 +1088,11 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
           Confirm & Create Order
         </Button>
       </DialogActions>
+      <ConfirmFinalMasterAddDialog
+        kind={addKind} onClose={() => setAddKind('')}
+        onCreated={handleMasterCreated}
+        stage={stage} stageCapability={stageCapability} stageOptions={stageChoices}
+      />
     </Dialog>
   );
 }

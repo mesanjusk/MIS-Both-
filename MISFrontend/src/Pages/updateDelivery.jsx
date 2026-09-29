@@ -309,7 +309,9 @@ export default function UpdateDelivery({
             { Account_id: "Sales",       Account_name: "Sales",       Type: "Credit", Amount: totalAmount },
           ];
           const txnPayload = {
-            Description:      resolvedName,
+            // Retain a ledger narration edited from the Statement while
+            // updating invoice items/rates. New invoices still use the party.
+            Description:      String(existingInvoice?.Description || '').trim() || resolvedName,
             Order_uuid:       orderUuid || existingInvoice?.Order_uuid || null,
             Order_number:     order.Order_Number || existingInvoice?.Order_number || null,
             // Keep the original invoice date on an edit; only a new invoice is dated today.

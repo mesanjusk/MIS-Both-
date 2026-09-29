@@ -1,6 +1,7 @@
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
+const mongoose = require('mongoose');
 const { v4: uuid } = require('uuid');
 const PaymentFollowup = require('../repositories/paymentFollowup');
 const Customers = require('../repositories/customer');
@@ -218,6 +219,7 @@ router.patch('/:id/status', async (req, res) => {
 });
 
 async function dispatchReminder(id, actor) {
+  if (!mongoose.isValidObjectId(id)) return { status: 400, message: 'Invalid follow-up ID' };
   const stored = await PaymentFollowup.findById(id).lean();
   if (!stored) return { status: 404, message: 'Follow-up not found' };
   const [row] = await enrichFollowups([stored]);

@@ -74,8 +74,7 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
-import ArchiveQuickOrderDialog from './ArchiveQuickOrderDialog';
-import { canQuickCreateMisOrder } from './archiveOrderEligibility';
+import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
 import { usePageToggles } from '../../hooks/usePageToggles';
@@ -446,21 +445,6 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
-// The quick + is available beside every eligible unlinked Final archive file.
-function ArchiveQuickAddButton({ file, onQuickConfirm }) {
-  if (!onQuickConfirm || !canQuickCreateMisOrder(file)) return null;
-  return (
-    <Tooltip title="Quick create MIS order">
-      <IconButton size="small"
-        aria-label={`Quick create MIS order for ${file.fileName}`}
-        onClick={(event) => { event.stopPropagation(); onQuickConfirm(file); }}
-        sx={{ p: 0.25, color: 'primary.main', border: '1px solid', borderColor: 'primary.light', borderRadius: 1 }}>
-        <AddRoundedIcon sx={{ fontSize: 15 }} />
-      </IconButton>
-    </Tooltip>
-  );
-}
-
 // ─── List row ─────────────────────────────────────────────────────────────────
 /** A file confirmed as a real MIS order — not a draft, not a temp order. */
 function isConfirmedOrder(file) {
@@ -488,7 +472,7 @@ function rowColors(file, checked) {
 // hideStageChip skips the per-file stage chip entirely — used by the
 // Design Board, where every card in a column already shares one stage, so
 // repeating it on every card added noise without adding information.
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, onQuickConfirm, viewOnly, hideStageChip }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover } = rowColors(file, checked);
   const subText = file.isDraft
@@ -542,7 +526,6 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         </Tooltip>
 
         {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
-        <ArchiveQuickAddButton file={file} onQuickConfirm={onQuickConfirm} />
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
       </Stack>
 
@@ -560,7 +543,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, onQuickConfirm, viewOnly, hideStageChip }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg } = rowColors(file, checked);
   const subText = file.isDraft
@@ -598,7 +581,6 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
           )}
           {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
           <Box sx={{ flex: 1 }} />
-          <ArchiveQuickAddButton file={file} onQuickConfirm={onQuickConfirm} />
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
         </Stack>
 
@@ -633,8 +615,21 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
   );
 }
 
+function MasterFieldAdd({ label, onClick, disabled }) {
+  return (
+    <Tooltip title={label}>
+      <span>
+        <IconButton size="small" disabled={disabled} onClick={onClick}
+          aria-label={label} sx={{ border: '1px solid', borderColor: 'primary.light', borderRadius: 1, color: 'primary.main', p: 0.65 }}>
+          <AddRoundedIcon sx={{ fontSize: 17 }} />
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
+
 // ─── Confirm Final Dialog ─────────────────────────────────────────────────────
-function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
+export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
   const [customer, setCustomer] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customerInput, setCustomerInput] = useState('');
@@ -647,6 +642,10 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const [stage, setStage] = useState(fromArchive ? 'print' : 'new_design');
   const [assigneeId, setAssigneeId] = useState('');
   const [assignees, setAssignees] = useState([]);
+  const [stageShortcuts, setStageShortcuts] = useState([]);
+  const [stageShortcutId, setStageShortcutId] = useState('');
+  const [addKind, setAddKind] = useState('');
+  const [addItemIndex, setAddItemIndex] = useState(0);
   const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -655,26 +654,79 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
     if (!open) {
       setCustomer(null); setCustomerInput(''); setMobileNumber('');
       setOrderMode('note'); setError(''); setExtraCharges([]); setAssigneeId('');
+      setAddKind(''); setStageShortcutId('');
       setItems([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
       return;
     }
     setStage(fromArchive ? 'print' : 'new_design');
+    setStageShortcutId('');
     setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
     setLoadingData(true);
     Promise.all([
       axios.get('/api/customers/GetCustomerList'),
       axios.get('/api/items/GetItemList'),
       fetchAssignees().catch(() => ({ data: { result: [] } })),
+      axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false })
+        .catch(() => ({ data: { result: [] } })), // supports staged frontend/backend rollout
     ])
-      .then(([custRes, itemRes, assigneeRes]) => {
+      .then(([custRes, itemRes, assigneeRes, shortcutRes]) => {
         setCustomers(custRes.data?.result || []);
         setItemOptions(itemRes.data?.result || []);
         // Account Payable parties only — same list the assign menu uses.
         setAssignees((assigneeRes.data?.result || []).filter((a) => a.type === 'payable'));
+        setStageShortcuts(shortcutRes.data?.result || []);
       })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleMasterCreated = async ({ kind, name, saved, canonicalStage }) => {
+    const exact = (rowName) => String(rowName || '').trim().toLowerCase() === name.toLowerCase();
+    if (kind === 'customer') {
+      const { data } = await axios.get('/api/customers/GetCustomerList', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => exact(row.Customer_name));
+      if (!added) throw new Error('Customer saved but was not returned by the refreshed list. Reopen to refresh.');
+      setCustomers(updated);
+      setCustomer(added);
+      setCustomerInput(`${added.Customer_name}${added.Mobile ? ` — ${added.Mobile}` : ''}`);
+      setMobileNumber(added.Mobile || '');
+    } else if (kind === 'assignee') {
+      const { data } = await axios.get('/api/assignees', { cache: false });
+      const updated = (data?.result || []).filter((row) => row.type === 'payable');
+      const added = updated.find((row) => exact(row.name));
+      if (!added) throw new Error('Assignable party saved but not found in the refreshed list.');
+      setAssignees(updated);
+      setAssigneeId(added.id);
+    } else if (kind === 'item') {
+      const { data } = await axios.get('/api/items/GetItemList', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => saved?.Item_uuid
+        ? row.Item_uuid === saved.Item_uuid
+        : exact(row.Item_name));
+      if (!added) throw new Error('Item saved but not found in the refreshed master list.');
+      setItemOptions(updated);
+      setOrderMode('items');
+      setItems((previous) => previous.map((row, i) =>
+        i === addItemIndex ? { ...row, itemName: added.Item_name } : row
+      ));
+    } else if (kind === 'stage') {
+      const { data } = await axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => saved?.id ? row.id === saved.id : exact(row.label));
+      if (!added) throw new Error('Stage shortcut saved but not returned by the refreshed list.');
+      setStageShortcuts(updated);
+      setStage(added.canonicalStage || canonicalStage);
+      setStageShortcutId(added.id);
+    }
+    setAddKind('');
+  };
+
+  const stageChoices = [...new Map(STAGE_GROUPS.flatMap((group) =>
+    group.sections.map((section) => [sectionStage(section), {
+      value: sectionStage(section), label: section.label,
+    }])
+  )).values()];
 
   const addItemRow = () => setItems((prev) => [...prev, { itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
   const removeItemRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));
@@ -770,7 +822,7 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   );
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={addKind ? undefined : onClose} maxWidth="md" fullWidth>
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Typography fontWeight={700}>Confirm Final File → Create Order</Typography>
@@ -784,8 +836,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
         </Typography>
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
             <Autocomplete
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
               options={filteredCustomers} value={customer}
               onChange={(_, v) => { setCustomer(v); if (v?.Mobile) setMobileNumber(v.Mobile); }}
               inputValue={customerInput} onInputChange={(_, v) => setCustomerInput(v)}
@@ -798,6 +851,8 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                 />
               )}
             />
+            <MasterFieldAdd label="Add new customer" onClick={() => setAddKind('customer')} disabled={submitting} />
+            </Stack>
             <TextField label="Mobile Number" value={mobileNumber}
               onChange={(e) => setMobileNumber(e.target.value)}
               size="small" disabled={submitting} sx={{ width: { xs: '100%', sm: 160 } }}
@@ -807,22 +862,44 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
           {/* Stage + assignee — the assignee also names the Printing folder
               this order gets ("793 Anand"). */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              select label="Stage" size="small" value={stage}
-              onChange={(e) => setStage(e.target.value)} disabled={submitting}
-              sx={{ flex: 1 }}
-            >
-              {STAGE_GROUPS.flatMap((group) => [
-                <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {group.label}
-                </ListSubheader>,
-                ...group.sections.map((section) => (
-                  <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
-                    {section.label}
+
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
+              <TextField select label="Stage" size="small"
+                value={stageShortcutId ? 'shortcut:' + stageShortcutId : stage}
+                onChange={(event) => {
+                  const chosen = String(event.target.value);
+                  if (chosen.startsWith('shortcut:')) {
+                    const shortcut = stageShortcuts.find((row) => 'shortcut:' + row.id === chosen);
+                    if (shortcut) {
+                      setStage(shortcut.canonicalStage);
+                      setStageShortcutId(shortcut.id);
+                    }
+                  } else {
+                    setStage(chosen);
+                    setStageShortcutId('');
+                  }
+                }}
+                disabled={submitting} sx={{ flex: 1, minWidth: 0 }}>
+                {STAGE_GROUPS.flatMap((group) => [
+                  <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {group.label}
+                  </ListSubheader>,
+                  ...group.sections.map((section) => (
+                    <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
+                      {section.label}
+                    </MenuItem>
+                  )),
+                ])}
+                {stageShortcuts.length > 0 && <ListSubheader>Stage shortcuts</ListSubheader>}
+                {stageShortcuts.map((row) => (
+                  <MenuItem key={row.id} value={'shortcut:' + row.id} sx={{ fontSize: 13 }}>
+                    {row.label} (follows {stageChoices.find((opt) => opt.value === row.canonicalStage)?.label || row.canonicalStage})
                   </MenuItem>
-                )),
-              ])}
-            </TextField>
+                ))}
+              </TextField>
+              <MasterFieldAdd label="Add stage shortcut" onClick={() => setAddKind('stage')} disabled={submitting} />
+            </Stack>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
             <TextField
               select label="Assign to" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
@@ -832,13 +909,16 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                   ? `${CAPABILITY_LABELS[stageCapability] || 'Stage'} parties · goes on the Printing folder`
                   : `Nobody tagged for ${CAPABILITY_LABELS[stageCapability] || 'this stage'} yet — showing everyone`
               }
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
               {assigneeOptions.map((a) => (
                 <MenuItem key={a.id} value={a.id} sx={{ fontSize: 13 }}>{a.name}</MenuItem>
               ))}
             </TextField>
+
+              <MasterFieldAdd label="Add new assignable party" onClick={() => setAddKind('assignee')} disabled={submitting} />
+            </Stack>
           </Stack>
 
           {/* Order type toggle */}
@@ -852,6 +932,8 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               onClick={() => setOrderMode('items')} disabled={submitting}
               sx={{ fontSize: 11, py: 0.3, px: 1, minHeight: 26 }}
             >Detailed Items</Button>
+            <MasterFieldAdd label="Add new item to master"
+              onClick={() => { setAddItemIndex(0); setAddKind('item'); }} disabled={submitting} />
           </Stack>
 
           {orderMode === 'note' ? (
@@ -869,7 +951,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
               {items.map((row, i) => (
                 <Grid container spacing={1} key={i} alignItems="center" sx={{ mb: 1 }}>
                   <Grid item xs={12} md={5}>
+                    <Stack direction="row" spacing={0.5} alignItems="center">
                     <Autocomplete
+                      sx={{ flex: 1, minWidth: 0 }}
                       freeSolo
                       options={itemOptions}
                       value={row.itemName}
@@ -881,6 +965,9 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                         <TextField {...params} size="small" placeholder="Select item" />
                       )}
                     />
+                    <MasterFieldAdd label={'Add new item beside row ' + (i + 1)}
+                      onClick={() => { setAddItemIndex(i); setAddKind('item'); }} disabled={submitting} />
+                    </Stack>
                   </Grid>
                   <Grid item xs={4} md={2}>
                     <TextField size="small" type="number" placeholder="Qty" fullWidth value={row.qty}
@@ -982,6 +1069,11 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
           Confirm & Create Order
         </Button>
       </DialogActions>
+      <ConfirmFinalMasterAddDialog
+        kind={addKind} onClose={() => setAddKind('')}
+        onCreated={handleMasterCreated}
+        stage={stage} stageCapability={stageCapability} stageOptions={stageChoices}
+      />
     </Dialog>
   );
 }
@@ -1540,7 +1632,7 @@ function DeliverDialog({ open, file, onClose, onSuccess }) {
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onQuickConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
+function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 5 || section.stageNumber === 6;
@@ -1570,7 +1662,6 @@ function ArchiveDateSection({ section, onConfirm, onQuickConfirm, onCreatePrintJ
                   checked={isActionable && selectedIds?.has(file.fileId)}
                   onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                   onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
-                  onQuickConfirm={section.stageNumber === 5 ? onQuickConfirm : undefined}
                   onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                   onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                   onRelink={isActionable ? onRelink : undefined}
@@ -1591,7 +1682,6 @@ function ArchiveDateSection({ section, onConfirm, onQuickConfirm, onCreatePrintJ
                 checked={isActionable && selectedIds?.has(file.fileId)}
                 onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                 onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
-                  onQuickConfirm={section.stageNumber === 5 ? onQuickConfirm : undefined}
                 onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                 onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                 onRelink={isActionable ? onRelink : undefined}
@@ -1606,7 +1696,7 @@ function ArchiveDateSection({ section, onConfirm, onQuickConfirm, onCreatePrintJ
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onQuickConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -1629,7 +1719,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onQuickConfirm, onCreatePrintJ
         <Stack spacing={0.6} sx={{ px: 1, pt: 0.6 }}>
           {dateGroup.sections.map((section, i) => (
             <ArchiveDateSection key={i} section={section}
-              onConfirm={onConfirm} onQuickConfirm={onQuickConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
+              onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
               selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewMode={viewMode}
             />
           ))}
@@ -1661,7 +1751,7 @@ function FolderTile({ name, caption, onOpen }) {
   );
 }
 
-function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrintJob, viewMode }) {
+function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
   const { userName } = useAuth();
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1678,7 +1768,6 @@ function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrint
   const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
-  const [quickOrderFile, setQuickOrderFile] = useState(null);
 
   const loadArchive = useCallback(async (preservePath = false) => {
     setLoading(true); setError('');
@@ -1912,7 +2001,6 @@ function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrint
                       key={i}
                       section={section}
                       onConfirm={onConfirm}
-                      onQuickConfirm={setQuickOrderFile}
                       onCreatePrintJob={handleSinglePrintJob}
                       onEditPrintJob={onEditPrintJob}
                       selectedIds={selectedIds}
@@ -1938,7 +2026,6 @@ function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrint
                 key={dateGroup.dateFolderId}
                 dateGroup={dateGroup}
                 onConfirm={onConfirm}
-                onQuickConfirm={setQuickOrderFile}
                 onCreatePrintJob={handleSinglePrintJob}
                 onEditPrintJob={onEditPrintJob}
                 selectedIds={selectedIds}
@@ -1992,19 +2079,6 @@ function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrint
           </Stack>
         </>
       )}
-
-      {/* Quick creation for one archive Final file. Reload the same date and
-          the parent workflow scan without navigating away. */}
-      <ArchiveQuickOrderDialog
-        open={!!quickOrderFile} file={quickOrderFile}
-        onClose={() => setQuickOrderFile(null)}
-        onSuccess={(message) => {
-          setArchiveToast({ message, severity: 'success' });
-          setQuickOrderFile(null);
-          loadArchive(true);
-          onArchiveUpdated?.();
-        }}
-      />
 
       {/* Archive-internal dialogs */}
       <LinkOrderDialog
@@ -3115,7 +3189,6 @@ export default function DesignFilesWidget() {
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
             <ArchivePanel
               onConfirm={setConfirmFile}
-              onArchiveUpdated={load}
               refreshKey={archiveRefreshKey}
               onEditPrintJob={setEditPrintJobFile}
               viewMode={viewMode}

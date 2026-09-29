@@ -68,6 +68,7 @@ const { normalizePhone } = require('../utils/phone');
 const { updateOrderStage } = require('../services/orderLifecycleService');
 const { ACCOUNT_PAYABLE_GROUP } = require('../constants/assignees');
 const { ORDER_STAGES } = require('../constants/orderStages');
+const { AppSetting } = require('../repositories/appSetting');
 const logger = require('../utils/logger');
 
 router.use(requireAuth);
@@ -76,6 +77,48 @@ router.use(requireAuth);
 // were login-only; the permission is permissive by default so existing design
 // staff are unaffected, but it can now be withdrawn from an account.
 const canManageDesignFiles = requirePermission('canManageDesignFiles');
+
+// Optional labels in the Confirm Final popup. Each one maps to a canonical
+// stage so production routing, stage history and reporting remain unchanged.
+const CONFIRM_STAGE_SHORTCUTS_KEY = 'confirm_final_stage_shortcuts';
+
+router.get('/confirm-stage-shortcuts', async (_req, res) => {
+  try {
+    const rows = await AppSetting.getSetting(CONFIRM_STAGE_SHORTCUTS_KEY, []);
+    return res.json({ success: true, result: Array.isArray(rows) ? rows : [] });
+  } catch (error) {
+    logger.error({ error }, 'Failed to list Confirm Final stage shortcuts');
+    return res.status(500).json({ success: false, message: 'Could not load stage shortcuts' });
+  }
+});
+
+router.post('/confirm-stage-shortcuts', canManageDesignFiles, async (req, res) => {
+  try {
+    const label = String(req.body?.label || '').trim().replace(/\s+/g, ' ');
+    const canonicalStage = String(req.body?.canonicalStage || '').trim();
+    if (!label || label.length > 60 || !ORDER_STAGES.includes(canonicalStage)) {
+      return res.status(400).json({ success: false, message: 'Enter a label and select a supported MIS stage' });
+    }
+    const prior = await AppSetting.getSetting(CONFIRM_STAGE_SHORTCUTS_KEY, []);
+    const rows = Array.isArray(prior) ? prior : [];
+    if (rows.some((row) => String(row.label || '').toLowerCase() === label.toLowerCase())) {
+      return res.status(409).json({ success: false, message: 'Stage shortcut already exists' });
+    }
+    if (rows.length >= 50) {
+      return res.status(409).json({ success: false, message: 'Maximum 50 stage shortcuts' });
+    }
+    const created = { id: uuidv4(), label, canonicalStage };
+    await AppSetting.upsertSetting({
+      key: CONFIRM_STAGE_SHORTCUTS_KEY,
+      value: [...rows, created],
+      description: 'Custom Confirm Final labels mapped to the canonical MIS workflow',
+    });
+    return res.status(201).json({ success: true, result: created });
+  } catch (error) {
+    logger.error({ error }, 'Failed to save Confirm Final stage shortcut');
+    return res.status(500).json({ success: false, message: 'Could not save stage shortcut' });
+  }
+});
 
 // ─── Stage config ─────────────────────────────────────────────────────────────
 // Folder 7 (Approval) covers the MIS 'approval'/'customer' stages, which

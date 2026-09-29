@@ -94,7 +94,7 @@ router.get('/confirm-stage-shortcuts', async (_req, res) => {
 
 router.post('/confirm-stage-shortcuts', canManageDesignFiles, async (req, res) => {
   try {
-    const label = String(req.body?.label || '').trim().replace(/\\s+/g, ' ');
+    const label = String(req.body?.label || '').trim().replace(/\s+/g, ' ');
     const canonicalStage = String(req.body?.canonicalStage || '').trim();
     if (!label || label.length > 60 || !ORDER_STAGES.includes(canonicalStage)) {
       return res.status(400).json({ success: false, message: 'Enter a label and select a supported MIS stage' });

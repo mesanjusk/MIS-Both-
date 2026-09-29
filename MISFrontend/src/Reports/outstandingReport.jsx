@@ -227,6 +227,14 @@ const OutstandingReport = () => {
     }
   };
 
+  const openFollowup = (customer) => {
+    // Home reads this navigation state and preselects the UUID, avoiding
+    // ambiguous display-name lookups and duplicate customer selection.
+    navigate('/home', {
+      state: { openTab: 'paymentFollowup', followupCustomerUuid: customer.uuid },
+    });
+  };
+
   const viewTransactions = (customer) => {
     // Open the account's full statement — now the Statement tab on the Ledger
     // page. The customer must ride along as router state, which the Statement
@@ -408,7 +416,7 @@ const OutstandingReport = () => {
                   <TableCell onClick={() => handleSort('balance')} align="right" sx={{ fontWeight: 700, cursor: 'pointer' }}>
                     Outstanding {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <FaSortUp className="inline ml-1" /> : <FaSortDown className="inline ml-1" />)}
                   </TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, width: 80 }}>Action</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 155 }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -432,21 +440,23 @@ const OutstandingReport = () => {
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        {item.mobile !== 'No phone number' ? (
-                          <Tooltip title="Send outstanding reminder">
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              color="success"
-                              onClick={() => sendWhatsApp(item)}
-                              sx={{ minWidth: 32, px: 0.7, borderRadius: 1.5 }}
-                            >
-                              <FaWhatsapp />
+                        <Stack direction="row" spacing={0.5} justifyContent="center">
+                          {item.balance > 0 && Boolean(item.uuid) && (
+                            <Button size="small" variant="contained"
+                              onClick={() => openFollowup(item)} sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}>
+                              Follow-up
                             </Button>
-                          </Tooltip>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">—</Typography>
-                        )}
+                          )}
+                          {item.mobile !== 'No phone number' && (
+                            <Tooltip title="Legacy direct WhatsApp reminder (not tracked as a follow-up)">
+                              <Button size="small" variant="outlined" color="success"
+                                onClick={() => sendWhatsApp(item)}
+                                sx={{ minWidth: 32, px: 0.7, borderRadius: 1.5 }}>
+                                <FaWhatsapp />
+                              </Button>
+                            </Tooltip>
+                          )}
+                        </Stack>
                       </TableCell>
                     </TableRow>
                   ))

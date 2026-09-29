@@ -74,6 +74,9 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
+import toast from 'react-hot-toast';
+import { copyPathToClipboard, launchMisFileUrl } from '../../utils/localFileLauncher';
+import { getWorkflowLocalFolderPath } from './workflowLocalFolder';
 import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
 import { archiveFolderSummary, archiveFolderStatusSx, isConfirmedArchiveOrder } from './archiveFolderStatus';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
@@ -446,6 +449,50 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
+// Shares the same Admin → Network Files resolver and Windows misfile://
+// opener used by Orders. Opens the selected Drive file's containing folder.
+export function FileLocalFolderButton({ file }) {
+  const [opening, setOpening] = useState(false);
+  if (!file?.fileId) return null;
+
+  const openLocalFolder = async (event) => {
+    event.stopPropagation(); // Do not select the file card or expand its row.
+    if (opening) return;
+    setOpening(true);
+    try {
+      const { data } = await axios.get('/api/network-files/resolve', {
+        params: { fileId: file.fileId }, cache: false,
+      });
+      if (!data?.success) throw new Error(data?.message || 'Could not resolve the local folder.');
+      const target = getWorkflowLocalFolderPath(data.result);
+      if (!target) {
+        throw new Error(data?.result?.driveLookupFailed
+          ? 'Drive folder could not be resolved. Check the Drive connection in Admin → Network Files.'
+          : 'A mapped local folder was not found. Check Admin → Network Files share root and Drive anchor.');
+      }
+      await copyPathToClipboard(target); // Fallback if the Windows protocol handler is not installed.
+      if (!launchMisFileUrl(target, { select: false })) throw new Error('Could not open the local folder.');
+      toast.success('Opening local folder…');
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Unable to open local folder.');
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <Tooltip title="Open containing local folder (same as Orders)">
+      <span>
+        <IconButton size="small" onClick={openLocalFolder} disabled={opening}
+          aria-label={`Open local folder for ${file.fileName || 'file'}`}
+          sx={{ p: 0.3, flexShrink: 0, color: 'secondary.main' }}>
+          {opening ? <CircularProgress size={14} /> : <FolderOpenRoundedIcon sx={{ fontSize: 17 }} />}
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
+
 // ─── List row ─────────────────────────────────────────────────────────────────
 /** A file confirmed as a real MIS order — not a draft, not a temp order. */
 function isConfirmedOrder(file) {
@@ -527,6 +574,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         </Tooltip>
 
         {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
+          <FileLocalFolderButton file={file} />
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
       </Stack>
 
@@ -582,6 +630,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
           )}
           {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
           <Box sx={{ flex: 1 }} />
+          <FileLocalFolderButton file={file} />
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
         </Stack>
 

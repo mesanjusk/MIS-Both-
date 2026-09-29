@@ -75,6 +75,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import ArchiveQuickOrderDialog from './ArchiveQuickOrderDialog';
+import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
 import { canQuickCreateMisOrder } from './archiveOrderEligibility';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
@@ -647,6 +648,10 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
   const [stage, setStage] = useState(fromArchive ? 'print' : 'new_design');
   const [assigneeId, setAssigneeId] = useState('');
   const [assignees, setAssignees] = useState([]);
+  const [stageShortcuts, setStageShortcuts] = useState([]);
+  const [stageShortcutId, setStageShortcutId] = useState('');
+  const [addKind, setAddKind] = useState('');
+  const [addItemIndex, setAddItemIndex] = useState(0);
   const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -655,26 +660,79 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
     if (!open) {
       setCustomer(null); setCustomerInput(''); setMobileNumber('');
       setOrderMode('note'); setError(''); setExtraCharges([]); setAssigneeId('');
+      setAddKind(''); setStageShortcutId('');
       setItems([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
       return;
     }
     setStage(fromArchive ? 'print' : 'new_design');
+    setStageShortcutId('');
     setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
     setLoadingData(true);
     Promise.all([
       axios.get('/api/customers/GetCustomerList'),
       axios.get('/api/items/GetItemList'),
       fetchAssignees().catch(() => ({ data: { result: [] } })),
+      axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false })
+        .catch(() => ({ data: { result: [] } })), // supports staged frontend/backend rollout
     ])
-      .then(([custRes, itemRes, assigneeRes]) => {
+      .then(([custRes, itemRes, assigneeRes, shortcutRes]) => {
         setCustomers(custRes.data?.result || []);
         setItemOptions(itemRes.data?.result || []);
         // Account Payable parties only — same list the assign menu uses.
         setAssignees((assigneeRes.data?.result || []).filter((a) => a.type === 'payable'));
+        setStageShortcuts(shortcutRes.data?.result || []);
       })
       .catch(() => {})
       .finally(() => setLoadingData(false));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleMasterCreated = async ({ kind, name, saved, canonicalStage }) => {
+    const exact = (rowName) => String(rowName || '').trim().toLowerCase() === name.toLowerCase();
+    if (kind === 'customer') {
+      const { data } = await axios.get('/api/customers/GetCustomerList', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => exact(row.Customer_name));
+      if (!added) throw new Error('Customer saved but was not returned by the refreshed list. Reopen to refresh.');
+      setCustomers(updated);
+      setCustomer(added);
+      setCustomerInput(`${added.Customer_name}${added.Mobile ? ` — ${added.Mobile}` : ''}`);
+      setMobileNumber(added.Mobile || '');
+    } else if (kind === 'assignee') {
+      const { data } = await axios.get('/api/assignees', { cache: false });
+      const updated = (data?.result || []).filter((row) => row.type === 'payable');
+      const added = updated.find((row) => exact(row.name));
+      if (!added) throw new Error('Assignable party saved but not found in the refreshed list.');
+      setAssignees(updated);
+      setAssigneeId(added.id);
+    } else if (kind === 'item') {
+      const { data } = await axios.get('/api/items/GetItemList', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => saved?.Item_uuid
+        ? row.Item_uuid === saved.Item_uuid
+        : exact(row.Item_name));
+      if (!added) throw new Error('Item saved but not found in the refreshed master list.');
+      setItemOptions(updated);
+      setOrderMode('items');
+      setItems((previous) => previous.map((row, i) =>
+        i === addItemIndex ? { ...row, itemName: added.Item_name } : row
+      ));
+    } else if (kind === 'stage') {
+      const { data } = await axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false });
+      const updated = data?.result || [];
+      const added = updated.find((row) => saved?.id ? row.id === saved.id : exact(row.label));
+      if (!added) throw new Error('Stage shortcut saved but not returned by the refreshed list.');
+      setStageShortcuts(updated);
+      setStage(added.canonicalStage || canonicalStage);
+      setStageShortcutId(added.id);
+    }
+    setAddKind('');
+  };
+
+  const stageChoices = [...new Map(STAGE_GROUPS.flatMap((group) =>
+    group.sections.map((section) => [sectionStage(section), {
+      value: sectionStage(section), label: section.label,
+    }])
+  )).values()];
 
   const addItemRow = () => setItems((prev) => [...prev, { itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
   const removeItemRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));

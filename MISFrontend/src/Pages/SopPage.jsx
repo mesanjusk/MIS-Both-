@@ -55,6 +55,7 @@ const EMPTY_FORM = {
   section: '',
   frequency: 'daily',
   timeOfDay: 'any',
+  autoVerifyKey: '',
   primaryGroup: '',
   fallbackGroups: ['', '', ''],
   isSkippable: false,
@@ -81,6 +82,9 @@ export default function SopPage() {
   const [filterTime, setFilterTime] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [pendingHandovers, setPendingHandovers] = useState([]);
+  const [canReviewHandovers, setCanReviewHandovers] = useState(false);
+  const [reviewing, setReviewing] = useState('');
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -103,10 +107,34 @@ export default function SopPage() {
     }
   }, []);
 
+  const fetchHandovers = useCallback(async () => {
+    try {
+      const { data } = await axios.get('/api/sop/handovers', { cache: false });
+      setPendingHandovers(data?.result || []);
+      setCanReviewHandovers(Boolean(data?.success));
+    } catch (err) {
+      // Staff still access the existing SOP Manager; only manager accounts
+      // may read colleague handover reasons. The backend enforces that role.
+      if (err?.response?.status === 403) setCanReviewHandovers(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
     fetchGroups();
-  }, [fetchTasks, fetchGroups]);
+    fetchHandovers();
+  }, [fetchTasks, fetchGroups, fetchHandovers]);
+
+  const reviewHandover = async (record) => {
+    setReviewing(record._id); setError('');
+    try {
+      await axios.patch(`/api/sop/handovers/${encodeURIComponent(record._id)}/review`, {});
+      await fetchHandovers();
+      setSuccess('SOP handover acknowledged. The task remains recorded as an exception.');
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Could not acknowledge SOP exception.');
+    } finally { setReviewing(''); }
+  };
 
   const openAdd = () => {
     setEditId(null);
@@ -123,6 +151,7 @@ export default function SopPage() {
       section: task.section || '',
       frequency: task.frequency || 'daily',
       timeOfDay: task.timeOfDay || 'any',
+      autoVerifyKey: task.autoVerifyKey || '',
       primaryGroup: task.primaryGroup || '',
       fallbackGroups: fallbacks,
       isSkippable: task.isSkippable || false,
@@ -222,6 +251,31 @@ export default function SopPage() {
     >
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1 }}>{success}</Alert>}
+
+      {canReviewHandovers && pendingHandovers.length > 0 && (
+        <SectionCard title={`Pending SOP handovers (${pendingHandovers.length})`} sx={{ mb: 2 }} contentSx={{ p: 1.5 }}>
+          <Stack gap={1}>
+            {pendingHandovers.map((item) => (
+              <Stack key={item._id} direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }}
+                gap={1} sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 1.5, p: 1 }}>
+                <Box flex={1} minWidth={0}>
+                  <Typography variant="body2" fontWeight={800}>
+                    {item.employeeName} · {item.taskTitle}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.kind === 'emergency' ? 'Emergency exit' : 'Handover'} ·
+                    {item.assignedTo || 'Manager'} · {new Date(item.createdAt || item.date).toLocaleDateString('en-IN')}
+                  </Typography>
+                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{item.reason}</Typography>
+                </Box>
+                <Button size="small" variant="outlined" color="warning"
+                  disabled={Boolean(reviewing)}
+                  onClick={() => reviewHandover(item)}>Acknowledge</Button>
+              </Stack>
+            ))}
+          </Stack>
+        </SectionCard>
+      )}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center" sx={{ mb: 2 }} flexWrap="wrap">
         <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -370,6 +424,14 @@ export default function SopPage() {
                 </Select>
               </FormControl>
             </Stack>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Automatic verification</InputLabel>
+              <Select value={form.autoVerifyKey || ''} label="Automatic verification"
+                onChange={(event) => setForm((oldForm) => ({ ...oldForm, autoVerifyKey: event.target.value }))}>
+                <MenuItem value="">Manual confirmation (default)</MenuItem>
+                <MenuItem value="attendance_in">Verified by today's Punch In</MenuItem>
+              </Select>
+            </FormControl>
             <FormControl size="small" fullWidth>
               <InputLabel>Primary Group *</InputLabel>
               <Select value={form.primaryGroup} label="Primary Group *" onChange={(e) => setForm((f) => ({ ...f, primaryGroup: e.target.value }))}>

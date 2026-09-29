@@ -308,6 +308,23 @@ async function executeAttendanceCommand({ config, command, employee, payload, se
     return { handled: true, success: false, reason: 'invalid_transition' };
   }
 
+  if (attendanceType === 'Out') {
+    try {
+      // WhatsApp and dashboard share one server-side closing policy.
+      // Emergency handover requires a reason and is handled on the dashboard.
+      const { ensureSopClockOut } = require('./employeeSopDayService');
+      await ensureSopClockOut(employee, { source: 'whatsapp' });
+    } catch (error) {
+      if (error.code !== 'SOP_PENDING') throw error;
+      if (sendText) await sendText({
+        to: payload.from,
+        body: `Day-end SOP pending: ${(error.blockingTasks || []).length} mandatory item(s). Complete or hand over your tasks in MIS (https://dash.sanjusk.in/home) before sending END again. For emergency exit, use the dashboard and record a reason.`,
+      });
+      return { handled: true, success: false, reason: 'sop_pending',
+        blockingTasks: error.blockingTasks || [] };
+    }
+  }
+
   if (!attendance) {
     const result = await markAttendance({
       employeeUuid: employee.User_uuid,
@@ -347,7 +364,9 @@ async function executeAttendanceCommand({ config, command, employee, payload, se
         time: eventTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         name: employee.name || employee.User_name || 'User',
         command: sourceLabel,
-      }),
+      }) + (attendanceType === 'In'
+        ? '\nReview your morning SOP in MIS → My SOP: https://dash.sanjusk.in/home'
+        : ''),
     });
   }
 

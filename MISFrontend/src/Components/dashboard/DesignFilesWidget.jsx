@@ -75,6 +75,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import ArchiveQuickOrderDialog from './ArchiveQuickOrderDialog';
+import { canQuickCreateMisOrder } from './archiveOrderEligibility';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
 import { usePageToggles } from '../../hooks/usePageToggles';
@@ -447,7 +448,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 
 // The quick + is available beside every eligible unlinked Final archive file.
 function ArchiveQuickAddButton({ file, onQuickConfirm }) {
-  if (!onQuickConfirm || file.stageNumber !== 5 || file.matched || file.orderUuid || file.isTemporaryOrder) return null;
+  if (!onQuickConfirm || !canQuickCreateMisOrder(file)) return null;
   return (
     <Tooltip title="Quick create MIS order">
       <IconButton size="small"

@@ -63,9 +63,9 @@ describe('payment follow-up V2 API', () => {
   });
 
   test('returns derived settlement status before filtering the list', async () => {
-    Followup.find.mockReturnValue({
-      sort: () => ({ limit: () => ({ lean: () => Promise.resolve([{ _id: id }]) }) }),
-    });
+    const query = { lean: () => Promise.resolve([{ _id: id }]) };
+    query.limit = () => query; // Mongoose mutates and returns its own query.
+    Followup.find.mockReturnValue({ sort: () => query });
     ledger.enrichFollowups.mockResolvedValue([
       { _id: id, status: 'pending', effectiveStatus: 'done', autoSettled: true },
     ]);

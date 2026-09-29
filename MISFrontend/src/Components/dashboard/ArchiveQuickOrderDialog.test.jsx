@@ -35,7 +35,7 @@ describe('Archive quick MIS order popup', () => {
   it('shows only the requested order fields and pre-fills item from the file', async () => {
     render(<ArchiveQuickOrderDialog open file={archiveFile} onClose={() => {}} onSuccess={() => {}} />);
     expect(await screen.findByRole('combobox', { name: /customer name/i })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: /stage/i })).toHaveValue('print');
+    expect(screen.getByRole('combobox', { name: /stage/i })).toHaveTextContent(/Print/i);
     expect(screen.getByRole('combobox', { name: /assign to/i })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: /new item/i })).toHaveValue('Wedding Card');
   });

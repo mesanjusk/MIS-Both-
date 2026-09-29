@@ -151,6 +151,7 @@ export default function SopPage() {
       section: task.section || '',
       frequency: task.frequency || 'daily',
       timeOfDay: task.timeOfDay || 'any',
+      autoVerifyKey: task.autoVerifyKey || '',
       primaryGroup: task.primaryGroup || '',
       fallbackGroups: fallbacks,
       isSkippable: task.isSkippable || false,
@@ -423,6 +424,14 @@ export default function SopPage() {
                 </Select>
               </FormControl>
             </Stack>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Automatic verification</InputLabel>
+              <Select value={form.autoVerifyKey || ''} label="Automatic verification"
+                onChange={(event) => setForm((oldForm) => ({ ...oldForm, autoVerifyKey: event.target.value }))}>
+                <MenuItem value="">Manual confirmation (default)</MenuItem>
+                <MenuItem value="attendance_in">Verified by today's Punch In</MenuItem>
+              </Select>
+            </FormControl>
             <FormControl size="small" fullWidth>
               <InputLabel>Primary Group *</InputLabel>
               <Select value={form.primaryGroup} label="Primary Group *" onChange={(e) => setForm((f) => ({ ...f, primaryGroup: e.target.value }))}>

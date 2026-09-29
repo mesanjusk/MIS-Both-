@@ -95,7 +95,7 @@ describe('Employee daily SOP', () => {
     const result = await saveSopHandover(employee, 'proof', {
       reason: 'Client waiting for approval', assignedTo: 'Manager',
     });
-    expect(result).toMatchObject({ kind: 'blocked' === 'handover' ? 'blocked' : 'blocked' });
+    expect(result).toMatchObject({ kind: 'blocked', assignedTo: 'Manager' });
     expect(SOPHandover.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ employee_uuid: 'emp-1', sop_uuid: 'proof' }),
       expect.objectContaining({ $set: expect.objectContaining({ assignedTo: 'Manager' }) }),

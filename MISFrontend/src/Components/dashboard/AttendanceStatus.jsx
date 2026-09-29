@@ -3,99 +3,89 @@ import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   Stack, Tooltip, Typography,
 } from '@mui/material';
+import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import axios from '../../apiClient';
+import EmployeeSopDialog from './EmployeeSopDialog';
 
-// Compact "Start day / End day" attendance control, shown next to the
-// user's name in the top nav — moved out of the Workflow widget so
-// attendance lives with identity, not buried in a task list.
+// The personal checklist (not a group-level "someone already ticked it"
+// estimate) is now the employee's single Start Day / End Day checkpoint.
+// Attendance endpoints enforce the same policy for every attendance channel.
 export default function AttendanceStatus() {
-  const { userName, userGroup } = useAuth();
+  const { userName } = useAuth();
   const [attendanceFlow, setAttendanceFlow] = useState([]);
   const [error, setError] = useState('');
   const [pendingAssignments, setPendingAssignments] = useState([]);
   const [showAssignmentDialog, setShowAssignmentDialog] = useState(false);
-  const [sopCanEndDay, setSopCanEndDay] = useState(true);
-  const [sopBlockingTasks, setSopBlockingTasks] = useState([]);
-
-  const group = userGroup || localStorage.getItem('User_group') || '';
-
-  const loadSopStatus = useCallback(async () => {
-    if (!group) return;
-    try {
-      const res = await axios.get('/api/sop/daily', { params: { userGroup: group } });
-      if (res.data.success) {
-        setSopCanEndDay(res.data.canEndDay !== false);
-        setSopBlockingTasks(res.data.blockingTasks || []);
-      }
-    } catch {}
-  }, [group]);
+  const [sopOpen, setSopOpen] = useState(false);
+  const [sopMode, setSopMode] = useState('day');
+  const [submitting, setSubmitting] = useState(false);
 
   const loadAttendance = useCallback(async () => {
     if (!userName) return;
     try {
-      setError('');
-      const res = await axios.get(`/api/attendance/getTodayAttendance/${userName}`);
+      const res = await axios.get(
+        `/api/attendance/getTodayAttendance/${encodeURIComponent(userName)}`,
+        { cache: false }
+      );
       setAttendanceFlow(res?.data?.flow || []);
       setPendingAssignments(res?.data?.pendingAssignments || []);
+      setError('');
     } catch (err) {
       console.error(err);
       setError('Failed to load attendance.');
     }
   }, [userName]);
 
-  useEffect(() => {
-    loadAttendance();
-    loadSopStatus();
-  }, [loadAttendance, loadSopStatus]);
+  useEffect(() => { loadAttendance(); }, [loadAttendance]);
 
   const hasStarted = attendanceFlow.includes('In');
   const hasEnded = attendanceFlow.includes('Out');
 
-  const saveAttendance = async (type) => {
+  const openSop = (mode) => {
+    setSopMode(mode);
+    setSopOpen(true);
+    setError('');
+  };
+
+  const closeSop = () => {
+    setSopOpen(false);
+    // Preserve the previous post-punch pending-assignment popup, but display
+    // the shorter morning SOP first rather than opening two dialogs at once.
+    if (sopMode === 'start' && pendingAssignments.length > 0) {
+      setShowAssignmentDialog(true);
+    }
+  };
+
+  const saveAttendance = async (type, sopEmergencyReason = '') => {
+    if (submitting) return false;
+    setSubmitting(true);
     try {
       setError('');
       const response = await axios.post('/api/attendance/addAttendance', {
         User_name: userName,
         Type: type,
         Status: type === 'Out' ? 'Completed' : 'Present',
-        Time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        Time: new Date().toLocaleTimeString('en-IN', { hour12: false }),
+        ...(sopEmergencyReason ? { sopEmergencyReason } : {}),
       });
-      if (type === 'In' && Array.isArray(response?.data?.pendingAssignments)) {
-        setPendingAssignments(response.data.pendingAssignments);
-        setShowAssignmentDialog(response.data.pendingAssignments.length > 0);
+      if (!response?.data?.success) throw new Error(response?.data?.message || 'Attendance update failed.');
+      if (type === 'In') {
+        setPendingAssignments(response?.data?.pendingAssignments || []);
+        openSop('start');
+      }
+      if (type === 'Out') {
+        toast.success(sopEmergencyReason ? 'Day ended; SOP exceptions recorded for review.' : 'Day ended. SOP checked.');
       }
       await loadAttendance();
+      return true;
     } catch (err) {
-      console.error(err);
-      setError('Failed to update attendance.');
-    }
+      const message = err?.response?.data?.message || err.message || 'Could not update attendance.';
+      setError(message);
+      if (type === 'In') toast.error(message);
+      throw err;
+    } finally { setSubmitting(false); }
   };
-
-  const endDayButton = (() => {
-    if (!hasStarted || hasEnded) return null;
-    if (!sopCanEndDay) {
-      const label = sopBlockingTasks.length
-        ? `${sopBlockingTasks.length} SOP task${sopBlockingTasks.length > 1 ? 's' : ''} pending`
-        : 'SOP tasks pending';
-      return (
-        <Tooltip title={label} arrow>
-          <span>
-            <Button variant="outlined" size="small" disabled
-              sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
-              End day
-            </Button>
-          </span>
-        </Tooltip>
-      );
-    }
-    return (
-      <Button variant="outlined" size="small" onClick={() => saveAttendance('Out')}
-        sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
-        End day
-      </Button>
-    );
-  })();
 
   if (!userName) return null;
 
@@ -103,29 +93,42 @@ export default function AttendanceStatus() {
     <>
       <Stack direction="row" spacing={0.5} alignItems="center">
         <Tooltip title={error || (attendanceFlow.length ? attendanceFlow.join(' → ') : 'Not checked in')}>
-          <Chip
-            size="small"
+          <Chip size="small"
             label={hasStarted && !hasEnded ? 'On duty' : hasEnded ? 'Day done' : 'Not checked in'}
-            color={hasStarted && !hasEnded ? 'success' : 'default'}
+            color={error ? 'error' : hasStarted && !hasEnded ? 'success' : 'default'}
             variant={hasStarted ? 'filled' : 'outlined'}
-            sx={{ height: 22, fontSize: '0.66rem', fontWeight: 600 }}
-          />
+            sx={{ height: 22, fontSize: '0.66rem', fontWeight: 600 }} />
         </Tooltip>
-        {!hasStarted && (
-          <Button size="small" variant="contained" onClick={() => saveAttendance('In')}
-            sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
-            Start day
-          </Button>
-        )}
-        {endDayButton}
+        {!hasStarted && <Button size="small" variant="contained" disabled={submitting}
+          onClick={() => saveAttendance('In').catch(() => {})}
+          sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
+          Start day
+        </Button>}
+        {hasStarted && <Button size="small" color="primary" variant="outlined"
+          onClick={() => openSop('day')}
+          sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
+          My SOP
+        </Button>}
+        {hasStarted && !hasEnded && <Button variant="outlined" size="small" disabled={submitting}
+          onClick={() => openSop('close')}
+          sx={{ py: 0.2, px: 1, fontSize: '0.7rem', minHeight: 24, whiteSpace: 'nowrap' }}>
+          End day
+        </Button>}
       </Stack>
+
+      <EmployeeSopDialog
+        open={sopOpen} mode={sopMode}
+        onClose={closeSop}
+        onPunchOut={(reason) => saveAttendance('Out', reason)}
+      />
 
       <Dialog open={showAssignmentDialog} onClose={() => setShowAssignmentDialog(false)} fullWidth maxWidth="sm">
         <DialogTitle>Pending assignments</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             {pendingAssignments.length ? pendingAssignments.map((task) => (
-              <Box key={`${task.source}-${task.id}`} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
+              <Box key={`${task.source}-${task.id}`}
+                sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
                 <Typography fontWeight={700}>{task.title}</Typography>
                 <Typography variant="body2" color="text.secondary">Type: {task.source}</Typography>
                 <Typography variant="body2" color="text.secondary">Task: {task.taskName}</Typography>

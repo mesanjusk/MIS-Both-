@@ -29,7 +29,7 @@ const statusLabel = (row) => {
 const statusColor = (row) =>
   rowStatus(row) === 'done' ? 'success' : row.overdue ? 'error' : row.dueToday ? 'warning' : 'info';
 
-export default function PaymentFollowupHome() {
+export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillKey = '' }) {
   const [rows, setRows] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -72,6 +72,12 @@ export default function PaymentFollowupHome() {
       .then(({ data }) => { if (data?.success) setCustomers(data.result || []); })
       .catch(() => setError('Could not load customers for a new follow-up'));
   }, [loadRows]);
+
+  useEffect(() => {
+    if (!initialCustomerUuid || !customers.length) return;
+    const match = customers.find((item) => item.Customer_uuid === initialCustomerUuid);
+    if (match) { setCustomer(match); setAmount(''); }
+  }, [initialCustomerUuid, prefillKey, customers]);
 
   useEffect(() => {
     if (!customer?.Customer_uuid) { setCustomerBalance(null); return undefined; }

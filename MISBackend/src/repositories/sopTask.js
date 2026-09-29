@@ -27,6 +27,9 @@ const SOPTaskSchema = new mongoose.Schema(
     durationMinutes: { type: Number, default: 0 },
     weekDays: { type: [Number], default: [] },      // empty = every working day
     category: { type: String, default: 'general' },
+    // Only evidence-backed automation is offered. Existing title-based default
+    // Punch In verification continues to work without migrating seeded tasks.
+    autoVerifyKey: { type: String, enum: ['', 'attendance_in'], default: '' },
     isSkippable: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },

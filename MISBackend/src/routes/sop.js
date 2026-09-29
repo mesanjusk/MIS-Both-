@@ -13,6 +13,18 @@ const {
   SOPCompletion,
 } = require('../services/sopService');
 const { OWNERSHIP_FIELDS } = require('../constants/ownership');
+const User = require('../repositories/users');
+const {
+  getEmployeeDailyStatus, saveEmployeeCompletion, saveSopHandover,
+} = require('../services/employeeSopDayService');
+
+async function currentEmployee(req) {
+  const query = req.user?.id ? { _id: req.user.id } : { User_name: req.user?.userName };
+  return User.findOne(query).select('User_uuid User_name User_group').lean();
+}
+const respondSopError = (res, err) => res.status(err.status || 500).json({
+  success: false, message: err.status ? err.message : 'Could not update employee SOP',
+});
 
 // GET /api/sop/tasks — admin: list all tasks
 router.get('/tasks', requireAuth, async (req, res, next) => {
@@ -115,47 +127,53 @@ router.get('/daily', requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /api/sop/daily/me — today's checklist resolved through the user-level
-// responsibility chain rather than the caller's group.
+// GET /api/sop/daily/me — personal responsibilities + applicable group SOP.
+// Attendance is independent evidence; no need to manually tick Punch In again.
 router.get('/daily/me', requireAuth, async (req, res, next) => {
   try {
-    const User = require('../repositories/users');
-    const query = req.user?.id ? { _id: req.user.id } : { User_name: req.user?.userName };
-    const actor = await User.findOne(query).select('User_uuid').lean();
-    if (!actor) return res.status(404).json({ success: false, message: 'User not found' });
-    const status = await getDailyStatusForUser(actor.User_uuid);
-    res.json({ success: true, ...status });
-  } catch (err) {
-    next(err);
-  }
+    const actor = await currentEmployee(req);
+    if (!actor?.User_uuid) return res.status(404).json({ success: false, message: 'Employee not found' });
+    const status = await getEmployeeDailyStatus(actor);
+    return res.json({ success: true, ...status });
+  } catch (error) { return next(error); }
 });
 
-// POST /api/sop/complete — mark a task done for today
-router.post('/complete', requireAuth, async (req, res, next) => {
+// Completion belongs to the authenticated employee (not userName/userGroup
+// supplied in a request body). Existing admin task configuration is preserved.
+router.post('/complete', requireAuth, async (req, res) => {
   try {
-    const { sopUuid } = req.body;
-    const userName = req.user?.userName || req.body.userName || '';
-    const userGroup = req.user?.userGroup || req.body.userGroup || '';
-    if (!sopUuid) return res.status(400).json({ success: false, message: 'sopUuid required' });
-    const result = await markComplete({ sopUuid, userName, userGroup });
-    res.json({ success: true, result });
-  } catch (err) {
-    next(err);
-  }
+    const actor = await currentEmployee(req);
+    if (!actor?.User_uuid) return res.status(404).json({ success: false, message: 'Employee not found' });
+    if (!req.body?.sopUuid) return res.status(400).json({ success: false, message: 'sopUuid required' });
+    const result = await saveEmployeeCompletion(actor, req.body.sopUuid);
+    return res.json({ success: true, result });
+  } catch (error) { return respondSopError(res, error); }
 });
 
-// POST /api/sop/skip — skip a skippable task for today
-router.post('/skip', requireAuth, async (req, res, next) => {
+// Optional work can be marked N/A with a reason, but mandatory work requires
+// actual completion or a recorded handover; skip cannot defeat the close gate.
+router.post('/skip', requireAuth, async (req, res) => {
   try {
-    const { sopUuid, skipReason } = req.body;
-    const userName = req.user?.userName || req.body.userName || '';
-    const userGroup = req.user?.userGroup || req.body.userGroup || '';
-    if (!sopUuid) return res.status(400).json({ success: false, message: 'sopUuid required' });
-    const result = await markSkipped({ sopUuid, userName, userGroup, skipReason });
-    res.json({ success: true, result });
-  } catch (err) {
-    next(err);
-  }
+    const actor = await currentEmployee(req);
+    if (!actor?.User_uuid) return res.status(404).json({ success: false, message: 'Employee not found' });
+    if (!req.body?.sopUuid) return res.status(400).json({ success: false, message: 'sopUuid required' });
+    const result = await saveEmployeeCompletion(actor, req.body.sopUuid, {
+      skip: true, reason: String(req.body.skipReason || ''),
+    });
+    return res.json({ success: true, result });
+  } catch (error) { return respondSopError(res, error); }
+});
+
+router.post('/handover', requireAuth, async (req, res) => {
+  try {
+    const actor = await currentEmployee(req);
+    if (!actor?.User_uuid) return res.status(404).json({ success: false, message: 'Employee not found' });
+    if (!req.body?.sopUuid) return res.status(400).json({ success: false, message: 'sopUuid required' });
+    const result = await saveSopHandover(actor, req.body.sopUuid, {
+      kind: 'handover', reason: req.body.reason, assignedTo: req.body.assignedTo,
+    });
+    return res.json({ success: true, result });
+  } catch (error) { return respondSopError(res, error); }
 });
 
 // POST /api/sop/seed — seed default tasks (admin, only when collection is empty)

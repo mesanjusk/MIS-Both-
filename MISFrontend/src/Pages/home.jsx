@@ -9,6 +9,7 @@ import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import RequestQuoteRoundedIcon from '@mui/icons-material/RequestQuoteRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
+import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import { useAuth } from '../context/AuthContext';
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
 
@@ -17,6 +18,7 @@ const loadAllOrders = () => import('../Reports/allOrdersList');
 const loadAllAttandance = () => import('./AllAttandance');
 const loadPayableAccount = () => import('./PayableAccount');
 const loadRateCalculator = () => import('./RateCalculator');
+const loadPaymentFollowup = () => import('./PaymentFollowupHome');
 const loadDayBookLedger = () => import('../Reports/allTransaction4D');
 const loadHomeInbox = () => import('./HomeInbox');
 
@@ -25,6 +27,7 @@ const AllOrders = lazy(loadAllOrders);
 const AllAttandance = lazy(loadAllAttandance);
 const PayableAccount = lazy(loadPayableAccount);
 const RateCalculator = lazy(loadRateCalculator);
+const PaymentFollowup = lazy(loadPaymentFollowup);
 const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
 
@@ -113,9 +116,10 @@ const HOME_TABS = [
   { id: 'outstanding', label: 'Outstanding', icon: AccountBalanceWalletRoundedIcon, Component: OutstandingReport },
   { id: 'payableAccount', label: 'Payable', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
+  { id: 'paymentFollowup', label: 'Payment Follow-up', icon: NotificationsActiveRoundedIcon, Component: PaymentFollowup, requiresAccounts: true },
 ];
 
-const HOME_TAB_PRELOADERS = [loadHomeInbox, loadDayBookLedger, loadAllAttandance, loadAllOrders, loadOutstandingReport, loadPayableAccount, loadRateCalculator];
+const HOME_TAB_PRELOADERS = [loadHomeInbox, loadDayBookLedger, loadAllAttandance, loadAllOrders, loadOutstandingReport, loadPayableAccount, loadRateCalculator, loadPaymentFollowup];
 
 const LEGACY_HOME_TAB_IDS = {
   quickLinks: 'workflow', recentAttendance: 'attendance', ordersBoard: 'orders',
@@ -143,7 +147,8 @@ export default function Home() {
     const configured = permissions?.allowedWidgets || [];
     if (!configured.length) return accountVisibleTabs;
     const allowed = new Set(configured.map((id) => LEGACY_HOME_TAB_IDS[id] || id));
-    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id));
+    // Newly introduced Accounts tab remains visible until widget configuration supports it.
+    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id) || tab.id === 'paymentFollowup');
     return filtered.length ? filtered : accountVisibleTabs;
   }, [permissions?.allowedWidgets, permissions?.canViewAccounts]);
 
@@ -152,6 +157,13 @@ export default function Home() {
     if (!user) { navigate('/'); return; }
     setLoggedInUser(user);
   }, [location.state?.id, navigate, userName]);
+
+  useEffect(() => {
+    if (location.state?.openTab !== 'paymentFollowup' || permissions?.canViewAccounts === false) return;
+    setActiveTab('paymentFollowup');
+    setMountedTabs((current) => new Set([...current, 'paymentFollowup']));
+    try { sessionStorage.setItem(HOME_TAB_STORAGE_KEY, 'paymentFollowup'); } catch { /* preference only */ }
+  }, [location.state?.openTab, location.key, permissions?.canViewAccounts]);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
@@ -220,7 +232,9 @@ export default function Home() {
               }}
             >
               <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
-                <TabComponent />
+                <TabComponent {...(tab.id === 'paymentFollowup'
+                  ? { initialCustomerUuid: location.state?.followupCustomerUuid || '', prefillKey: location.key }
+                  : {})} />
               </Suspense>
             </Box>
           );

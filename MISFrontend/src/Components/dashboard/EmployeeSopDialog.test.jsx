@@ -54,7 +54,9 @@ describe('employee morning and closing SOP popup', () => {
   it('stores a documented handover rather than falsely marking mandatory work completed', async () => {
     render(<EmployeeSopDialog open mode="close" onClose={() => {}} onPunchOut={() => {}} />);
     await screen.findByText('Save active design files');
-    fireEvent.click(screen.getByRole('button', { name: 'Blocked / Handover' }));
+    // Closing can show several pending rows. The first belongs to the
+    // mandatory design-file SOP in this fixture.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Blocked / Handover' })[0]);
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), {
       target: { value: 'Waiting for customer approval' },
     });

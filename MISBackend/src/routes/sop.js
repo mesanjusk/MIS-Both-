@@ -75,6 +75,7 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       durationMinutes: Number(durationMinutes) || 0,
       weekDays: Array.isArray(weekDays) ? weekDays.map(Number).filter((d) => d >= 0 && d <= 6) : [],
       category: category?.trim() || 'general',
+      autoVerifyKey: autoVerifyKey === 'attendance_in' ? 'attendance_in' : '',
     });
     res.status(201).json({ success: true, result: task });
   } catch (err) {
@@ -89,11 +90,12 @@ router.put('/tasks/:id', requireAuth, async (req, res, next) => {
     const allowed = ['title', 'description', 'section', 'frequency', 'timeOfDay',
       'primaryGroup', 'fallbackGroups', 'isSkippable', 'isActive', 'sortOrder', 'kpi',
       'responsibility_uuid', ...OWNERSHIP_FIELDS,
-      'scheduledTime', 'durationMinutes', 'weekDays', 'category'];
+      'scheduledTime', 'durationMinutes', 'weekDays', 'category', 'autoVerifyKey'];
     const update = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
+    if (update.autoVerifyKey !== undefined) update.autoVerifyKey = update.autoVerifyKey === 'attendance_in' ? 'attendance_in' : '';
     if (update.fallbackGroups && !Array.isArray(update.fallbackGroups)) {
       update.fallbackGroups = [];
     }

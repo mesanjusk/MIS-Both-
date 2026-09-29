@@ -55,6 +55,7 @@ const EMPTY_FORM = {
   section: '',
   frequency: 'daily',
   timeOfDay: 'any',
+  autoVerifyKey: '',
   primaryGroup: '',
   fallbackGroups: ['', '', ''],
   isSkippable: false,

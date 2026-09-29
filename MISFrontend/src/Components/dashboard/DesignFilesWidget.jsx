@@ -881,22 +881,44 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
           {/* Stage + assignee — the assignee also names the Printing folder
               this order gets ("793 Anand"). */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField
-              select label="Stage" size="small" value={stage}
-              onChange={(e) => setStage(e.target.value)} disabled={submitting}
-              sx={{ flex: 1 }}
-            >
-              {STAGE_GROUPS.flatMap((group) => [
-                <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  {group.label}
-                </ListSubheader>,
-                ...group.sections.map((section) => (
-                  <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
-                    {section.label}
+
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
+              <TextField select label="Stage" size="small"
+                value={stageShortcutId ? 'shortcut:' + stageShortcutId : stage}
+                onChange={(event) => {
+                  const chosen = String(event.target.value);
+                  if (chosen.startsWith('shortcut:')) {
+                    const shortcut = stageShortcuts.find((row) => 'shortcut:' + row.id === chosen);
+                    if (shortcut) {
+                      setStage(shortcut.canonicalStage);
+                      setStageShortcutId(shortcut.id);
+                    }
+                  } else {
+                    setStage(chosen);
+                    setStageShortcutId('');
+                  }
+                }}
+                disabled={submitting} sx={{ flex: 1, minWidth: 0 }}>
+                {STAGE_GROUPS.flatMap((group) => [
+                  <ListSubheader key={group.label} sx={{ fontSize: 11, fontWeight: 800, lineHeight: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {group.label}
+                  </ListSubheader>,
+                  ...group.sections.map((section) => (
+                    <MenuItem key={section.key} value={sectionStage(section)} sx={{ fontSize: 13 }}>
+                      {section.label}
+                    </MenuItem>
+                  )),
+                ])}
+                {stageShortcuts.length > 0 && <ListSubheader>Stage shortcuts</ListSubheader>}
+                {stageShortcuts.map((row) => (
+                  <MenuItem key={row.id} value={'shortcut:' + row.id} sx={{ fontSize: 13 }}>
+                    {row.label} (follows {stageChoices.find((opt) => opt.value === row.canonicalStage)?.label || row.canonicalStage})
                   </MenuItem>
-                )),
-              ])}
-            </TextField>
+                ))}
+              </TextField>
+              <MasterFieldAdd label="Add stage shortcut" onClick={() => setAddKind('stage')} disabled={submitting} />
+            </Stack>
+            <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flex: 1, minWidth: 0 }}>
             <TextField
               select label="Assign to" size="small" value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
@@ -906,13 +928,16 @@ function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = fals
                   ? `${CAPABILITY_LABELS[stageCapability] || 'Stage'} parties · goes on the Printing folder`
                   : `Nobody tagged for ${CAPABILITY_LABELS[stageCapability] || 'this stage'} yet — showing everyone`
               }
-              sx={{ flex: 1 }}
+              sx={{ flex: 1, minWidth: 0 }}
             >
               <MenuItem value="" sx={{ fontSize: 13, fontStyle: 'italic' }}>Unassigned</MenuItem>
               {assigneeOptions.map((a) => (
                 <MenuItem key={a.id} value={a.id} sx={{ fontSize: 13 }}>{a.name}</MenuItem>
               ))}
             </TextField>
+
+              <MasterFieldAdd label="Add new assignable party" onClick={() => setAddKind('assignee')} disabled={submitting} />
+            </Stack>
           </Stack>
 
           {/* Order type toggle */}

@@ -27,12 +27,15 @@ async function hasActiveUsersInGroup(group, date) {
   return Boolean(record);
 }
 
-async function getEffectiveGroup(task, date) {
+async function getEffectiveGroup(task, date, groupPresence = new Map()) {
   const chain = [task.primaryGroup, ...(task.fallbackGroups || [])];
   for (const group of chain) {
     if (!group) continue;
-    const active = await hasActiveUsersInGroup(group, date);
-    if (active) return group;
+    // The daily checklist often contains 20+ tasks with the same 2–3 groups.
+    // Cache attendance/group resolution per request rather than issuing a
+    // sequential database query for every task.
+    if (!groupPresence.has(group)) groupPresence.set(group, await hasActiveUsersInGroup(group, date));
+    if (groupPresence.get(group)) return group;
   }
   return task.primaryGroup;
 }
@@ -51,9 +54,10 @@ async function getTasksForGroup(userGroup, date) {
     .lean();
 
   const result = [];
+  const groupPresence = new Map();
   for (const task of tasks) {
     if (hasUserChain(task)) continue;
-    const effective = await getEffectiveGroup(task, date);
+    const effective = await getEffectiveGroup(task, date, groupPresence);
     if (effective === userGroup) result.push(task);
   }
   return result;

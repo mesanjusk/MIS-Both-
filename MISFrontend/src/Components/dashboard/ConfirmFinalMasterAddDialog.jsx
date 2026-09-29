@@ -32,6 +32,7 @@ export default function ConfirmFinalMasterAddDialog({
   const [canonicalStage, setCanonicalStage] = useState(stage);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [wasSaved, setWasSaved] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -41,6 +42,8 @@ export default function ConfirmFinalMasterAddDialog({
     setMobile('');
     setGroup(kind === 'assignee' ? 'Account Payable' : '');
     setCanonicalStage(stage);
+    setLoading(false);
+    setWasSaved(false);
     setError('');
     if (!['customer', 'item'].includes(kind)) return () => { active = false; };
     setLoading(true);
@@ -77,6 +80,7 @@ export default function ConfirmFinalMasterAddDialog({
       setError('Mobile must contain exactly 10 digits.');
       return;
     }
+    if (wasSaved) return; // avoid submitting a second master if selection-refresh failed
     setBusy(true);
     setError('');
     try {
@@ -102,8 +106,9 @@ export default function ConfirmFinalMasterAddDialog({
         });
         saved = data?.result || null;
       }
-      // The parent reloads only the relevant dropdown and selects the saved
-      // record by its UUID/ID where available. Preserve every other form field.
+      // The parent reloads only the relevant dropdown. Never POST twice if
+      // the save succeeds but its subsequent list-refresh fails.
+      setWasSaved(true);
       await onCreated?.({ kind, name: label, saved, canonicalStage });
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not add this record.');
@@ -172,7 +177,7 @@ export default function ConfirmFinalMasterAddDialog({
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="contained" disabled={busy || loading || !name.trim() ||
+        <Button variant="contained" disabled={busy || loading || wasSaved || !name.trim() ||
           (['customer', 'item'].includes(kind) && !group) ||
           (kind === 'stage' && !canonicalStage)}
           startIcon={busy ? <CircularProgress size={14} /> : <AddRoundedIcon />}

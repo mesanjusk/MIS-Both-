@@ -9,6 +9,8 @@ const sopHandoverSchema = new mongoose.Schema({
   assignedTo: { type: String, default: 'Manager', trim: true },
   createdBy: { type: String, default: '' },
   reviewStatus: { type: String, enum: ['pending', 'reviewed'], default: 'pending' },
+  reviewedAt: { type: Date, default: null },
+  reviewedBy: { type: String, default: '' },
 }, { timestamps: true });
 
 // Exception records are employee-specific: a colleague's handover never

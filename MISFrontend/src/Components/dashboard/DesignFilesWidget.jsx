@@ -74,6 +74,8 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
+import ArchiveQuickOrderDialog from './ArchiveQuickOrderDialog';
+import { canQuickCreateMisOrder } from './archiveOrderEligibility';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
 import { usePageToggles } from '../../hooks/usePageToggles';
@@ -444,6 +446,21 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
+// The quick + is available beside every eligible unlinked Final archive file.
+function ArchiveQuickAddButton({ file, onQuickConfirm }) {
+  if (!onQuickConfirm || !canQuickCreateMisOrder(file)) return null;
+  return (
+    <Tooltip title="Quick create MIS order">
+      <IconButton size="small"
+        aria-label={`Quick create MIS order for ${file.fileName}`}
+        onClick={(event) => { event.stopPropagation(); onQuickConfirm(file); }}
+        sx={{ p: 0.25, color: 'primary.main', border: '1px solid', borderColor: 'primary.light', borderRadius: 1 }}>
+        <AddRoundedIcon sx={{ fontSize: 15 }} />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
 // ─── List row ─────────────────────────────────────────────────────────────────
 /** A file confirmed as a real MIS order — not a draft, not a temp order. */
 function isConfirmedOrder(file) {
@@ -471,7 +488,7 @@ function rowColors(file, checked) {
 // hideStageChip skips the per-file stage chip entirely — used by the
 // Design Board, where every card in a column already shares one stage, so
 // repeating it on every card added noise without adding information.
-function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
+function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, onQuickConfirm, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover } = rowColors(file, checked);
   const subText = file.isDraft
@@ -525,7 +542,8 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         </Tooltip>
 
         {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
-        <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
+        <ArchiveQuickAddButton file={file} onQuickConfirm={onQuickConfirm} />
+          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
       </Stack>
 
       {subText && (
@@ -542,7 +560,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
 }
 
 // ─── Card view ────────────────────────────────────────────────────────────────
-function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
+function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, onQuickConfirm, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg } = rowColors(file, checked);
   const subText = file.isDraft
@@ -580,6 +598,7 @@ function FileCard({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJ
           )}
           {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
           <Box sx={{ flex: 1 }} />
+          <ArchiveQuickAddButton file={file} onQuickConfirm={onQuickConfirm} />
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
         </Stack>
 
@@ -1521,7 +1540,7 @@ function DeliverDialog({ open, file, onClose, onSuccess }) {
 }
 
 // ─── Archive panel ────────────────────────────────────────────────────────────
-function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
+function ArchiveDateSection({ section, onConfirm, onQuickConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   if (!section.files?.length) return null;
   const isActionable = section.stageNumber === 5 || section.stageNumber === 6;
@@ -1551,6 +1570,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                   checked={isActionable && selectedIds?.has(file.fileId)}
                   onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                   onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
+                  onQuickConfirm={section.stageNumber === 5 ? onQuickConfirm : undefined}
                   onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                   onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                   onRelink={isActionable ? onRelink : undefined}
@@ -1571,6 +1591,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
                 checked={isActionable && selectedIds?.has(file.fileId)}
                 onToggle={isActionable && onToggle ? () => onToggle(file) : undefined}
                 onConfirm={section.stageNumber === 5 ? onConfirm : undefined}
+                  onQuickConfirm={section.stageNumber === 5 ? onQuickConfirm : undefined}
                 onCreatePrintJob={section.stageNumber === 6 && file.printJobNumber == null ? onCreatePrintJob : undefined}
                 onEditPrintJob={section.stageNumber === 6 && file.printJobId ? onEditPrintJob : undefined}
                 onRelink={isActionable ? onRelink : undefined}
@@ -1585,7 +1606,7 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
   );
 }
 
-function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
+function ArchiveDateGroup({ dateGroup, onConfirm, onQuickConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <Box sx={{ mb: 0.75 }}>
@@ -1608,7 +1629,7 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
         <Stack spacing={0.6} sx={{ px: 1, pt: 0.6 }}>
           {dateGroup.sections.map((section, i) => (
             <ArchiveDateSection key={i} section={section}
-              onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
+              onConfirm={onConfirm} onQuickConfirm={onQuickConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob}
               selectedIds={selectedIds} onToggle={onToggle} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} viewMode={viewMode}
             />
           ))}
@@ -1640,7 +1661,7 @@ function FolderTile({ name, caption, onOpen }) {
   );
 }
 
-function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
+function ArchivePanel({ onConfirm, onArchiveUpdated, refreshKey = 0, onEditPrintJob, viewMode }) {
   const { userName } = useAuth();
   const [archiveData, setArchiveData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1657,8 +1678,9 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
   const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
+  const [quickOrderFile, setQuickOrderFile] = useState(null);
 
-  const loadArchive = useCallback(async () => {
+  const loadArchive = useCallback(async (preservePath = false) => {
     setLoading(true); setError('');
     try {
       const res = await axios.get('/api/design-files/scan-archive');
@@ -1673,12 +1695,17 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
         .filter((d) => d.fileCount > 0);
       setArchiveData({ ...data, dates });
       setLoaded(true);
-      setBrowsePath([]);
+      if (preservePath !== true) setBrowsePath([]);
       setSelectedMap({});
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
   }, []);
+
+  // Parent Confirm Final changes the archive while this date folder stays open.
+  useEffect(() => {
+    if (refreshKey > 0 && loaded) loadArchive(true);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSelect = useCallback((file) => {
     setSelectedMap((prev) => {
@@ -1885,6 +1912,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
                       key={i}
                       section={section}
                       onConfirm={onConfirm}
+                      onQuickConfirm={setQuickOrderFile}
                       onCreatePrintJob={handleSinglePrintJob}
                       onEditPrintJob={onEditPrintJob}
                       selectedIds={selectedIds}
@@ -1910,6 +1938,7 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
                 key={dateGroup.dateFolderId}
                 dateGroup={dateGroup}
                 onConfirm={onConfirm}
+                onQuickConfirm={setQuickOrderFile}
                 onCreatePrintJob={handleSinglePrintJob}
                 onEditPrintJob={onEditPrintJob}
                 selectedIds={selectedIds}
@@ -1963,6 +1992,19 @@ function ArchivePanel({ onConfirm, onEditPrintJob, viewMode }) {
           </Stack>
         </>
       )}
+
+      {/* Quick creation for one archive Final file. Reload the same date and
+          the parent workflow scan without navigating away. */}
+      <ArchiveQuickOrderDialog
+        open={!!quickOrderFile} file={quickOrderFile}
+        onClose={() => setQuickOrderFile(null)}
+        onSuccess={(message) => {
+          setArchiveToast({ message, severity: 'success' });
+          setQuickOrderFile(null);
+          loadArchive(true);
+          onArchiveUpdated?.();
+        }}
+      />
 
       {/* Archive-internal dialogs */}
       <LinkOrderDialog
@@ -2724,6 +2766,7 @@ export default function DesignFilesWidget() {
   // List/grid toggle removed by request — grid is the only view now.
   const viewMode = 'grid';
   const [confirmFile, setConfirmFile] = useState(null);
+  const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkFile, setRelinkFile] = useState(null);
@@ -3070,7 +3113,13 @@ export default function DesignFilesWidget() {
           </Box>
         ) : activeTab === 'archive' ? (
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
-            <ArchivePanel onConfirm={setConfirmFile} onEditPrintJob={setEditPrintJobFile} viewMode={viewMode} />
+            <ArchivePanel
+              onConfirm={setConfirmFile}
+              onArchiveUpdated={load}
+              refreshKey={archiveRefreshKey}
+              onEditPrintJob={setEditPrintJobFile}
+              viewMode={viewMode}
+            />
           </Box>
         ) : (
           /* File list / grid */
@@ -3187,7 +3236,12 @@ export default function DesignFilesWidget() {
         open={!!confirmFile} file={confirmFile}
         fromArchive={activeTab === 'archive'}
         onClose={() => setConfirmFile(null)}
-        onSuccess={(msg, severity = 'success') => { setToast({ message: msg, severity }); setConfirmFile(null); load(); }}
+        onSuccess={(msg, severity = 'success') => {
+          setToast({ message: msg, severity });
+          setConfirmFile(null);
+          if (activeTab === 'archive') setArchiveRefreshKey((value) => value + 1);
+          load();
+        }}
       />
       <EditPrintJobDialog
         open={!!editPrintJobFile} file={editPrintJobFile}

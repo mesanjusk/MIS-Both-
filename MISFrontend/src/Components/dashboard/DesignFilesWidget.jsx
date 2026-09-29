@@ -648,7 +648,7 @@ function MasterFieldAdd({ label, onClick, disabled }) {
 }
 
 // ─── Confirm Final Dialog ─────────────────────────────────────────────────────
-function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
+export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
   const [customer, setCustomer] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customerInput, setCustomerInput] = useState('');

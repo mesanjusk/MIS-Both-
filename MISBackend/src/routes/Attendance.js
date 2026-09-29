@@ -12,6 +12,7 @@ const logger = require('../utils/logger');
 const { tierFor } = require('../utils/roleHierarchy');
 const { businessDateString } = require('../utils/businessDay');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
+const { ensureSopClockOut } = require('../services/employeeSopDayService');
 
 const toLower = (value = "") => String(value || "").trim().toLowerCase();
 
@@ -153,6 +154,26 @@ router.post('/addAttendance', (req, res, next) => {
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (Type === 'Out') {
+      try {
+        if (req.headers['x-internal-key'] && req.body.sopEmergencyReason) {
+          return res.status(403).json({ success: false, message: 'Emergency SOP clock-out requires the employee dashboard.' });
+        }
+        await ensureSopClockOut(user, {
+          emergencyReason: req.body.sopEmergencyReason || '',
+          source: 'dashboard',
+        });
+      } catch (error) {
+        if (error.code === 'SOP_PENDING') {
+          return res.status(409).json({
+            success: false, code: error.code, message: error.message,
+            blockingTasks: error.blockingTasks || [],
+          });
+        }
+        throw error;
+      }
     }
 
     let todayAttendance = await Attendance.findOne({
@@ -370,6 +391,21 @@ router.post('/setAttendanceState', requireAuth, async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    if (['Out', 'Completed'].includes(State)) {
+      try {
+        await ensureSopClockOut(user, {
+          emergencyReason: req.body.sopEmergencyReason || '',
+          source: 'attendance_state',
+        });
+      } catch (error) {
+        if (error.code === 'SOP_PENDING') return res.status(409).json({
+          success: false, code: error.code, message: error.message,
+          blockingTasks: error.blockingTasks || [],
+        });
+        throw error;
+      }
     }
 
     const currentDate = businessDateString();

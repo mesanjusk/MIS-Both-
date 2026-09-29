@@ -6,6 +6,7 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   Divider,
   IconButton,
   Menu,
@@ -33,6 +34,7 @@ import { useModuleConfig } from '../hooks/useModuleConfig';
 import { visibleSectionItems } from '../constants/navVisibility';
 import { useDashboardCustomize } from '../Pages/Layout';
 import AttendanceStatus from './dashboard/AttendanceStatus';
+import { LIVE_RELEASE } from '../utils/liveRelease';
 
 export function shouldShowGlobalBack(pathname) {
   return ![ROUTES.HOME, ROUTES.DASHBOARD].includes(pathname);
@@ -347,6 +349,9 @@ export default function TopNavbar() {
             <Typography noWrap sx={{ fontSize: '0.62rem', color: 'text.secondary', lineHeight: 1 }}>
               {userGroup || 'User'}
             </Typography>
+            <Typography noWrap sx={{ fontSize: '0.6rem', color: 'success.dark', fontWeight: 800, lineHeight: 1.2, mt: 0.25 }}>
+              Live · {LIVE_RELEASE.label}
+            </Typography>
           </Box>
           <KeyboardArrowDownRoundedIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0, display: { xs: 'none', sm: 'block' } }} />
         </Stack>
@@ -365,6 +370,16 @@ export default function TopNavbar() {
           <Box sx={{ px: 2, py: 1 }}>
             <Typography variant="subtitle2">{userName || 'Guest'}</Typography>
             <Typography variant="caption" color="text.secondary">{userGroup || 'Unknown role'}</Typography>
+            <Box sx={{ pt: 1 }}>
+              <Chip size="small" variant="outlined" color="success"
+                label={`Live frontend · ${LIVE_RELEASE.label}`}
+                sx={{ fontWeight: 800, fontSize: 11 }} />
+              {LIVE_RELEASE.sha && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
+                  Build: {LIVE_RELEASE.sha}
+                </Typography>
+              )}
+            </Box>
           </Box>
 
           <Divider />

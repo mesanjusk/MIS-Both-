@@ -451,7 +451,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 
 // Shares the same Admin → Network Files resolver and Windows misfile://
 // opener used by Orders. Opens the selected Drive file's containing folder.
-function FileLocalFolderButton({ file }) {
+export function FileLocalFolderButton({ file }) {
   const [opening, setOpening] = useState(false);
   if (!file?.fileId) return null;
 

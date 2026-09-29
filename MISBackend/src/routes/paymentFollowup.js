@@ -21,7 +21,6 @@ const logger = require('../utils/logger');
 const router = express.Router();
 const norm = (value) => String(value ?? '').trim();
 const REMINDER_COOLDOWN_MS = 48 * 60 * 60 * 1000;
-const REMINDER_LOCK_MS = 5 * 60 * 1000;
 
 const parseDate = (input, fallback = new Date()) => {
   if (!input) return fallback;
@@ -242,7 +241,7 @@ async function dispatchReminder(id, actor) {
       { $or: [{ last_reminder: null }, { last_reminder: { $lte: cutoff } }] },
       { $or: [{ Last_Reminder: null }, { Last_Reminder: { $lte: cutoff } }] },
     ],
-  }, { $set: { reminder_lock_until: new Date(now.getTime() + REMINDER_LOCK_MS) } }, { new: true });
+  }, { $set: { reminder_lock_until: new Date(now.getTime() + REMINDER_COOLDOWN_MS) } }, { new: true });
   if (!claim) return { status: 429, message: 'Reminder already sent or currently being processed' };
 
   const dateKey = indiaDay(row.followup_date);
@@ -253,12 +252,14 @@ async function dispatchReminder(id, actor) {
     asDateLabel(row.followup_date),
     row.title || row.remark || '-',
   ].map((value) => ({ type: 'text', text: String(value) }));
+  let providerAccepted = false;
   try {
     await sanjusk.sendTemplate({
       phone, template, language: 'en_US',
       components: [{ type: 'body', parameters: params }],
       requireEnabled: true,
     });
+    providerAccepted = true;
     await PaymentFollowup.updateOne({ _id: id }, {
       $set: { last_reminder: now, Last_Reminder: now, reminder_lock_until: null },
       $inc: { reminder_count: 1, Reminder_Count: 1 },
@@ -267,10 +268,16 @@ async function dispatchReminder(id, actor) {
     });
     return { status: 200, message: 'Reminder sent', template };
   } catch (error) {
-    await PaymentFollowup.updateOne({ _id: id }, { $set: { reminder_lock_until: null } })
-      .catch((releaseError) => logger.error({ err: releaseError.message }, 'Reminder claim release failed'));
-    logger.error({ err: error.message, followupId: id }, 'Payment follow-up reminder failed');
-    return { status: 502, message: 'WhatsApp reminder failed; check the SanjuSK integration and approved templates' };
+    // If provider accepted the message but history persistence failed, retain
+    // the 48-hour claim; allowing immediate retry would charge twice.
+    if (!providerAccepted) {
+      await PaymentFollowup.updateOne({ _id: id }, { $set: { reminder_lock_until: null } })
+        .catch((releaseError) => logger.error({ err: releaseError.message }, 'Reminder claim release failed'));
+    }
+    logger.error({ err: error.message, followupId: id, providerAccepted }, 'Payment follow-up reminder failed');
+    return providerAccepted
+      ? { status: 202, message: 'Provider accepted the reminder; history update failed. A cooldown lock remains active.' }
+      : { status: 502, message: 'WhatsApp reminder failed; check the SanjuSK integration and approved templates' };
   }
 }
 
@@ -281,7 +288,7 @@ router.post('/:id/send-reminder', async (req, res) => {
     success: false, message: 'Confirm reminder delivery explicitly',
   });
   const result = await dispatchReminder(req.params.id, userLabel(req));
-  return res.status(result.status).json({ success: result.status === 200, ...result });
+  return res.status(result.status).json({ success: [200, 202].includes(result.status), ...result });
 });
 
 // Legacy bulk route: opt-in only, deliberately NOT registered with a scheduler.

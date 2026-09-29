@@ -104,6 +104,16 @@ describe('accounting routes separate posting from deleting', () => {
     expect(res.status).toBe(403);
   });
 
+  test('description-only edits require canEditTransactions and cannot bypass the ledger guard', async () => {
+    mockPermissions({ canViewAccounts: true, canEditTransactions: false });
+    const res = await request(app)
+      .patch('/api/transactions/some-uuid/description')
+      .set('Authorization', `Bearer ${tokenFor('office user')}`)
+      .send({ Description: 'Updated narration' });
+    expect(res.status).toBe(403);
+    expect(Transaction.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   test('a delete allowed by permissions proceeds past the guard', async () => {
     mockPermissions({ canViewAccounts: true, canDeleteTransactions: true });
     const res = await request(app)

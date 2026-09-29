@@ -5,6 +5,9 @@ import Home from './home';
 import PaymentFollowupHome from './PaymentFollowupHome';
 
 const get = vi.hoisted(() => vi.fn((url) => {
+  if (url.includes('/paymentfollowup/balance/')) return Promise.resolve({ data: {
+    success: true, result: { outstanding: 2000 },
+  } });
   if (url.includes('/paymentfollowup/list')) return Promise.resolve({ data: {
     success: true, result: [{
       _id: 'followup-1', customer_name: 'Customer One', customer_uuid: 'customer-1',
@@ -36,6 +39,14 @@ describe('Home payment follow-up integration', () => {
     const tabs = await screen.findAllByRole('tab');
     const names = tabs.map((tab) => tab.textContent.trim());
     expect(names[names.indexOf('Rate Calculator') + 1]).toBe('Payment Follow-up');
+  });
+
+  it('preselects a customer passed from Home Outstanding by UUID', async () => {
+    render(<PaymentFollowupHome initialCustomerUuid="customer-1" prefillKey="outstanding-nav" />);
+    await waitFor(() => expect(get).toHaveBeenCalledWith(
+      '/api/paymentfollowup/balance/customer-1', expect.objectContaining({ cache: false }),
+    ));
+    expect(screen.getByRole('combobox', { name: /Customer/i })).toHaveValue('Customer One');
   });
 
   it('shows actual follow-ups, remaining balance and management controls', async () => {

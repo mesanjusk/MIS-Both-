@@ -14,6 +14,7 @@ const {
 } = require('../services/sopService');
 const { OWNERSHIP_FIELDS } = require('../constants/ownership');
 const User = require('../repositories/users');
+const SOPHandover = require('../repositories/sopHandover');
 const {
   getEmployeeDailyStatus, saveEmployeeCompletion, saveSopHandover,
 } = require('../services/employeeSopDayService');
@@ -174,6 +175,40 @@ router.post('/handover', requireAuth, async (req, res) => {
     });
     return res.json({ success: true, result });
   } catch (error) { return respondSopError(res, error); }
+});
+
+// Pending SOP exceptions are visible to managers rather than disappearing
+// when an employee is allowed to leave. Read and review require an admin role.
+router.get('/handovers', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const records = await SOPHandover.find({ reviewStatus: 'pending' })
+      .sort({ createdAt: -1 }).limit(100).lean();
+    const [tasks, people] = await Promise.all([
+      SOPTask.find({ sop_uuid: { $in: records.map((item) => item.sop_uuid) } })
+        .select('sop_uuid title').lean(),
+      User.find({ User_uuid: { $in: records.map((item) => item.employee_uuid) } })
+        .select('User_uuid User_name').lean(),
+    ]);
+    const titles = new Map(tasks.map((item) => [item.sop_uuid, item.title]));
+    const names = new Map(people.map((item) => [item.User_uuid, item.User_name]));
+    return res.json({ success: true, result: records.map((record) => ({
+      ...record, taskTitle: titles.get(record.sop_uuid) || record.sop_uuid,
+      employeeName: names.get(record.employee_uuid) || record.createdBy || 'Employee',
+    })) });
+  } catch (error) { return next(error); }
+});
+
+router.patch('/handovers/:id/review', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const record = await SOPHandover.findOneAndUpdate({
+      _id: req.params.id, reviewStatus: 'pending',
+    }, { $set: {
+      reviewStatus: 'reviewed', reviewedAt: new Date(),
+      reviewedBy: req.user?.userName || req.user?.User_name || 'Manager',
+    } }, { new: true, runValidators: true });
+    if (!record) return res.status(404).json({ success: false, message: 'Pending handover not found' });
+    return res.json({ success: true, result: record });
+  } catch (error) { return next(error); }
 });
 
 // POST /api/sop/seed — seed default tasks (admin, only when collection is empty)

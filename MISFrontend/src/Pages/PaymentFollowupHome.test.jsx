@@ -46,7 +46,7 @@ describe('Home payment follow-up integration', () => {
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/api/paymentfollowup/balance/customer-1', expect.objectContaining({ cache: false }),
     ));
-    expect(screen.getByRole('combobox', { name: /Customer/i })).toHaveValue('Customer One');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /Customer/i })).toHaveValue('Customer One'));
   });
 
   it('shows actual follow-ups, remaining balance and management controls', async () => {

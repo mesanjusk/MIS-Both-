@@ -75,6 +75,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import TagRoundedIcon from '@mui/icons-material/TagRounded';
 import axios from '../../apiClient';
 import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
+import { archiveFolderSummary, archiveFolderStatusSx, isConfirmedArchiveOrder } from './archiveFolderStatus';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
 import { usePageToggles } from '../../hooks/usePageToggles';
@@ -448,7 +449,7 @@ function FileActions({ file, onRename, onConfirm, onCreatePrintJob, onEditPrintJ
 // ─── List row ─────────────────────────────────────────────────────────────────
 /** A file confirmed as a real MIS order — not a draft, not a temp order. */
 function isConfirmedOrder(file) {
-  return Boolean(file?.matched && !file?.isDraft && !file?.isTemporaryOrder);
+  return isConfirmedArchiveOrder(file);
 }
 
 function rowColors(file, checked) {
@@ -1698,12 +1699,16 @@ function ArchiveDateSection({ section, onConfirm, onCreatePrintJob, onEditPrintJ
 
 function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJob, selectedIds, onToggle, onRelink, onAssign, onDeliver, viewMode }) {
   const [expanded, setExpanded] = useState(true);
+  const folderSummary = archiveFolderSummary([dateGroup]);
+  const folderColor = archiveFolderStatusSx[folderSummary.status];
   return (
     <Box sx={{ mb: 0.75 }}>
       <Stack
         direction="row" alignItems="center" spacing={1}
         onClick={() => setExpanded((v) => !v)}
-        sx={{ py: 0.6, px: 1.5, cursor: 'pointer', bgcolor: 'action.hover', borderRadius: 1.5, '&:hover': { bgcolor: 'action.selected' } }}
+         sx={{ py: 0.6, px: 1.5, cursor: 'pointer', bgcolor: folderColor.bgcolor, color: folderColor.color,
+          border: '1px solid', borderColor: folderColor.borderColor, borderRadius: 1.5,
+          '&:hover': { bgcolor: folderColor.hoverBg } }}
       >
         {expanded ? <ExpandLessRoundedIcon sx={{ fontSize: 14, color: 'text.secondary' }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 14, color: 'text.secondary' }} />}
         <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -1712,6 +1717,9 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1 }}>{dateGroup.monthName}</Typography>
           )}
         </Box>
+        <Chip label={folderSummary.pending ? `${folderSummary.pending} pending` : 'All confirmed'}
+          size="small" color={folderSummary.pending ? 'warning' : 'success'}
+          sx={{ fontWeight: 700, fontSize: 10, height: 20, '& .MuiChip-label': { px: 0.75 } }} />
         <Chip label={`${dateGroup.fileCount} file${dateGroup.fileCount !== 1 ? 's' : ''}`} size="small"
           sx={{ fontSize: 10, height: 18, bgcolor: 'background.paper', '& .MuiChip-label': { px: 0.75 } }} />
       </Stack>
@@ -1731,7 +1739,9 @@ function ArchiveDateGroup({ dateGroup, onConfirm, onCreatePrintJob, onEditPrintJ
 
 // "By Type" view — flat rows per type, grouped by date
 /** One folder in the archive browser — month or date. */
-function FolderTile({ name, caption, onOpen }) {
+function FolderTile({ name, caption, onOpen, summary }) {
+  const folderColor = archiveFolderStatusSx[summary?.status || 'empty'];
+  const hasFiles = (summary?.total || 0) > 0;
   return (
     <Paper
       variant="outlined"
@@ -1739,13 +1749,18 @@ function FolderTile({ name, caption, onOpen }) {
       sx={{
         p: 1, borderRadius: 2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1,
         minWidth: 0, transition: 'background-color .12s, box-shadow .12s',
-        '&:hover': { bgcolor: 'action.hover', boxShadow: 1 },
+        bgcolor: folderColor.bgcolor, borderColor: folderColor.borderColor,
+        '&:hover': { bgcolor: folderColor.hoverBg, boxShadow: 1 },
       }}
     >
-      <FolderRoundedIcon sx={{ color: 'warning.main', fontSize: 26, flexShrink: 0 }} />
-      <Box sx={{ minWidth: 0 }}>
+      <FolderRoundedIcon sx={{ color: folderColor.iconColor, fontSize: 26, flexShrink: 0 }} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography variant="body2" fontWeight={700} noWrap sx={{ fontSize: 12.5 }}>{name}</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10.5 }}>{caption}</Typography>
+        {hasFiles && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontSize: 10,
+          fontWeight: 800, color: folderColor.color }}>
+          {summary.pending ? `⚠ ${summary.pending} pending confirmation` : '✓ All confirmed'}
+        </Typography>}
       </Box>
     </Paper>
   );
@@ -1772,7 +1787,7 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
   const loadArchive = useCallback(async (preservePath = false) => {
     setLoading(true); setError('');
     try {
-      const res = await axios.get('/api/design-files/scan-archive');
+      const res = await axios.get('/api/design-files/scan-archive', { cache: false });
       // Printing folders are hidden here for now — this tab lists design
       // files only.
       const data = res.data || {};
@@ -1846,13 +1861,16 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
     const map = new Map();
     (archiveData?.dates || []).forEach((d) => {
       const key = d.monthName || 'Other';
-      const cur = map.get(key) || { name: key, dates: 0, files: 0 };
+      const cur = map.get(key) || { name: key, dates: 0, files: 0, dateGroups: [] };
       cur.dates += 1;
       cur.files += d.fileCount || 0;
+      cur.dateGroups.push(d);
       map.set(key, cur);
     });
     // Newest month first, matching how the date list is already sorted.
-    return [...map.values()].sort((a, b) => order.indexOf(b.name) - order.indexOf(a.name));
+    return [...map.values()]
+      .map(({ dateGroups, ...month }) => ({ ...month, summary: archiveFolderSummary(dateGroups) }))
+      .sort((a, b) => order.indexOf(b.name) - order.indexOf(a.name));
   })();
 
   const openMonth = browsePath[0] || null;
@@ -1972,6 +1990,7 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
                     <FolderTile
                       name={m.name}
                       caption={`${m.dates} date${m.dates === 1 ? '' : 's'} · ${m.files} file${m.files === 1 ? '' : 's'}`}
+                      summary={m.summary}
                       onOpen={() => setBrowsePath([m.name])}
                     />
                   </Grid>
@@ -1986,6 +2005,7 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
                     <FolderTile
                       name={d.dateName}
                       caption={`${d.fileCount} file${d.fileCount === 1 ? '' : 's'}`}
+                      summary={archiveFolderSummary([d])}
                       onOpen={() => setBrowsePath([openMonth, d.dateName])}
                     />
                   </Grid>

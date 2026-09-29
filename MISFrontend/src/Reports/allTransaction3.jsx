@@ -7,6 +7,8 @@ import { saveAs } from 'file-saver';
 import AddOrder1 from '../Pages/addOrder1';
 import UpdateDelivery from '../Pages/updateDelivery';
 import TransactionEditModal from '../Components/TransactionEditModal';
+import StatementDescriptionEditModal from '../Components/StatementDescriptionEditModal';
+import { formatStatementDescription } from '../utils/statementDescription';
 import TransactionDocumentModal from '../Components/TransactionDocumentModal';
 import StatementModal from '../Components/StatementModal';
 import ExportGuard from '../Components/ExportGuard';
@@ -35,6 +37,8 @@ const AllTransaction3 = () => {
   const [userRole, setUserRole] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingTxn, setEditingTxn] = useState(null);
+  const [descriptionEdit, setDescriptionEdit] = useState(null);
+  const [invoiceItemDetails, setInvoiceItemDetails] = useState({});
   const [invoiceEdit, setInvoiceEdit] = useState(null);
   const [loadingInvoiceFor, setLoadingInvoiceFor] = useState(null);
   const [docRow, setDocRow] = useState(null);
@@ -47,7 +51,7 @@ const AllTransaction3 = () => {
 
   const refreshTransactions = useCallback(async () => {
     try {
-      const res = await axios.get('/api/transaction');
+      const res = await axios.get('/api/transaction', { cache: false });
       if (res.data?.success) setTransactions(res.data.result || []);
     } catch (error) { console.error('Error refreshing transactions:', error); }
   }, []);
@@ -63,7 +67,7 @@ const AllTransaction3 = () => {
       try {
         setLoading(true);
         const [transRes, custRes, acctRes] = await Promise.all([
-          axios.get('/api/transaction'),
+          axios.get('/api/transaction', { cache: false }),
           axios.get('/api/customers/GetCustomersList'),
           axios.get('/api/accounts'),
         ]);
@@ -93,6 +97,34 @@ const AllTransaction3 = () => {
   }, [customers, customerUuid]);
 
   const customerTransactions = useMemo(() => transactions.filter(t => getCustomerLedgerLegs(t, customerUuid).length > 0), [transactions, customerUuid]);
+
+  // Fetch invoice line details in bounded batches rather than loading whole
+  // order collections or performing a separate API request per statement row.
+  // Receipts/payments already store their voucher narration in Description.
+  useEffect(() => {
+    const ids = [...new Set(customerTransactions
+      .filter(isSalesInvoiceTransaction).map((txn) => txn.Transaction_uuid).filter(Boolean))];
+    if (!ids.length) { setInvoiceItemDetails({}); return undefined; }
+    let active = true;
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+    Promise.all(chunks.map((transactionUuids) =>
+      axios.post('/api/transaction/statement-invoice-details', { transactionUuids })
+    )).then((responses) => {
+      if (!active) return;
+      setInvoiceItemDetails(Object.assign({}, ...responses.map((r) => r.data?.result || {})));
+    }).catch((error) => {
+      // During a split frontend/backend rollout, the old statement and
+      // voucher descriptions remain available rather than failing the page.
+      console.warn('Invoice item details could not be loaded:', error);
+      if (active) setInvoiceItemDetails({});
+    });
+    return () => { active = false; };
+  }, [customerTransactions]);
+
+  const descriptionFor = useCallback((txn) => formatStatementDescription(
+    txn, invoiceItemDetails[txn.Transaction_uuid], customerName
+  ), [invoiceItemDetails, customerName]);
   const counterFor = useCallback((transaction) => {
     const legs = transaction.Journal_entry || [];
     const own = new Set(getCustomerLedgerLegs(transaction, customerUuid).filter(e => legs.includes(e)));
@@ -134,8 +166,9 @@ const AllTransaction3 = () => {
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
     if (sortConfig.key === 'Transaction_date') return (new Date(a.Transaction_date) - new Date(b.Transaction_date)) * dir;
     if (sortConfig.key === 'Name') return counterFor(a).name.localeCompare(counterFor(b).name) * dir;
+    if (sortConfig.key === 'Description') return descriptionFor(a).localeCompare(descriptionFor(b)) * dir;
     return String(a[sortConfig.key] || '').localeCompare(String(b[sortConfig.key] || '')) * dir;
-  }), [filteredTransactions, sortConfig, counterFor]);
+  }), [filteredTransactions, sortConfig, counterFor, descriptionFor]);
 
   const ledgerRows = useMemo(() => {
     let running = openingBalance;
@@ -166,23 +199,42 @@ const AllTransaction3 = () => {
   const statementPayload = useMemo(() => ({
     partyUuid: customerUuid, partyName: customerName, periodFrom: fmtDMY(startDate), periodTo: fmtDMY(endDate), generatedOn: new Date().toLocaleDateString('en-GB'),
     openingBalance, totalDebit: totals.debit, totalCredit: totals.credit, closingBalance: totals.total,
-    rows: ledgerRows.map(r => ({ txnNo: r.transaction.Transaction_id ?? '', voucherNo: r.voucher.display, voucherType: r.voucher.label, dateStr: new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB'), particulars: r.counterName, description: r.transaction.Description || '', debit: r.debit, credit: r.credit, balance: r.balance })),
-  }), [customerUuid, customerName, startDate, endDate, openingBalance, totals, ledgerRows]);
+    rows: ledgerRows.map(r => ({ txnNo: r.transaction.Transaction_id ?? '', voucherNo: r.voucher.display, voucherType: r.voucher.label, dateStr: new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB'), particulars: r.counterName, description: descriptionFor(r.transaction), debit: r.debit, credit: r.credit, balance: r.balance })),
+  }), [customerUuid, customerName, startDate, endDate, openingBalance, totals, ledgerRows, descriptionFor]);
 
   const handleExportExcel = () => {
     const rows = [{ TransactionNo: '', VoucherNo: '', VoucherType: '', Date: '', Name: 'Opening Balance', Description: '', Debit: '', Credit: '', Balance: Number(openingBalance.toFixed(2)) },
-      ...ledgerRows.map(r => ({ TransactionNo: r.transaction.Transaction_id, VoucherNo: r.voucher.display, VoucherType: r.voucher.label, Date: new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB'), Name: r.counterName, Description: r.transaction.Description, Debit: r.debit || '', Credit: r.credit || '', Balance: Number(r.balance.toFixed(2)) })),
+      ...ledgerRows.map(r => ({ TransactionNo: r.transaction.Transaction_id, VoucherNo: r.voucher.display, VoucherType: r.voucher.label, Date: new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB'), Name: r.counterName, Description: descriptionFor(r.transaction), Debit: r.debit || '', Credit: r.credit || '', Balance: Number(r.balance.toFixed(2)) })),
       { TransactionNo: '', VoucherNo: '', VoucherType: '', Date: '', Name: 'Closing Balance', Description: '', Debit: Number(totals.debit.toFixed(2)), Credit: Number(totals.credit.toFixed(2)), Balance: Number(totals.total.toFixed(2)) }];
     const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
     saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/octet-stream' }), 'transactions.xlsx');
   };
 
-  const openEdit = async transaction => {
+  const openEdit = transaction => setDescriptionEdit(transaction);
+
+  const openFullEdit = async transaction => {
+    setDescriptionEdit(null);
     if (isSalesInvoiceTransaction(transaction)) {
       const ref = transaction.Order_uuid || transaction.Order_number; setLoadingInvoiceFor(transaction.Transaction_uuid);
       try { const res = await axios.get(`/order/${encodeURIComponent(ref)}`); const order = res.data?.result || res.data; if (order && (order._id || order.Order_uuid)) { setInvoiceEdit({ transaction, order: { ...order, Customer_name: lookupName(order.Customer_uuid) || customerName } }); return; } } catch (e) { console.error(e); toast.error('Could not load the invoice — editing ledger entry instead'); } finally { setLoadingInvoiceFor(null); }
     }
     setEditingTxn(transaction); setShowEditModal(true);
+  };
+  const saveEditedDescription = async (description) => {
+    if (!descriptionEdit?.Transaction_uuid) throw new Error('No transaction selected');
+    // Updates narration only: no journal, totals or accounts are re-posted.
+    const response = await axios.patch(
+      `/api/transaction/${encodeURIComponent(descriptionEdit.Transaction_uuid)}/description`,
+      { Description: description }
+    );
+    if (!response.data?.success) throw new Error(response.data?.message || 'Description update failed');
+    setTransactions((current) => current.map((txn) =>
+      txn.Transaction_uuid === descriptionEdit.Transaction_uuid
+        ? { ...txn, Description: response.data.result.Description }
+        : txn
+    ));
+    setDescriptionEdit(null);
+    toast.success('Statement description updated');
   };
   const saveEditedTransaction = async payload => {
     if (!editingTxn) return;
@@ -217,10 +269,20 @@ const AllTransaction3 = () => {
       <p>Total Credit: ₹{totals.credit.toFixed(2)} | Total Debit: ₹{totals.debit.toFixed(2)} | Closing Balance: ₹{totals.total.toFixed(2)}</p>
       {loading ? <div className="text-center py-12 text-lg">Loading transactions...</div> : <div className="overflow-x-auto"><table className="min-w-full border-collapse"><thead className="bg-gray-200"><tr><th className="py-2 px-4">Txn No</th><th className="py-2 px-4">Voucher No</th><th className="py-2 px-4 cursor-pointer" onClick={() => sortTable('Transaction_date')}>Date {sortConfig.key === 'Transaction_date' && (sortConfig.direction === 'asc' ? '▲' : '▼')}</th><th className="py-2 px-4 cursor-pointer" onClick={() => sortTable('Name')}>Name {sortConfig.key === 'Name' && (sortConfig.direction === 'asc' ? '▲' : '▼')}</th><th className="py-2 px-4 cursor-pointer" onClick={() => sortTable('Description')}>Description</th><th className="py-2 px-4">Debit</th><th className="py-2 px-4">Credit</th><th className="py-2 px-4">Balance</th>{userRole === 'Admin User' && <th className="py-2 px-4">Actions</th>}</tr></thead><tbody>
         <tr className="bg-yellow-100 font-semibold"><td colSpan={3} /><td className="py-2 px-4">Opening Balance</td><td colSpan={3} /><td className="py-2 px-4">{openingBalance.toFixed(2)}</td>{userRole === 'Admin User' && <td />}</tr>
-        {ledgerRows.map((r, i) => <tr key={`${r.transaction.Transaction_uuid || r.transaction.Transaction_id}-${i}`} className="border-t hover:bg-gray-50"><td className="py-2 px-4">{r.transaction.Transaction_id}</td><td className="py-2 px-4"><button type="button" onClick={() => setDocRow({ transaction: r.transaction, entry: r.entry, counterAccountName: r.counterName, counterIsCashOrBank: r.counterIsCashOrBank })} className="text-blue-600 font-semibold hover:underline">{r.voucher.display || '—'}</button></td><td className="py-2 px-4">{new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB')}</td><td className="py-2 px-4">{r.counterName}</td><td className="py-2 px-4">{r.transaction.Description}</td><td className="py-2 px-4">{r.debit || ''}</td><td className="py-2 px-4">{r.credit || ''}</td><td className={`py-2 px-4 ${r.balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{r.balance.toFixed(2)}</td>{userRole === 'Admin User' && <td className="py-2 px-4 whitespace-nowrap"><button disabled={loadingInvoiceFor === r.transaction.Transaction_uuid} onClick={() => openEdit(r.transaction)} className="text-blue-600 mr-3">{loadingInvoiceFor === r.transaction.Transaction_uuid ? 'Opening…' : 'Edit'}</button><button onClick={() => handleDelete(r.transaction)} className="text-red-600">Delete</button></td>}</tr>)}
+        {ledgerRows.map((r, i) => <tr key={`${r.transaction.Transaction_uuid || r.transaction.Transaction_id}-${i}`} className="border-t hover:bg-gray-50"><td className="py-2 px-4">{r.transaction.Transaction_id}</td><td className="py-2 px-4"><button type="button" onClick={() => setDocRow({ transaction: r.transaction, entry: r.entry, counterAccountName: r.counterName, counterIsCashOrBank: r.counterIsCashOrBank })} className="text-blue-600 font-semibold hover:underline">{r.voucher.display || '—'}</button></td><td className="py-2 px-4">{new Date(r.transaction.Transaction_date).toLocaleDateString('en-GB')}</td><td className="py-2 px-4">{r.counterName}</td><td className="py-2 px-4" style={{ minWidth: 220, maxWidth: 450, whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+          title={descriptionFor(r.transaction)}>{descriptionFor(r.transaction)}</td><td className="py-2 px-4">{r.debit || ''}</td><td className="py-2 px-4">{r.credit || ''}</td><td className={`py-2 px-4 ${r.balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{r.balance.toFixed(2)}</td>{userRole === 'Admin User' && <td className="py-2 px-4 whitespace-nowrap"><button disabled={loadingInvoiceFor === r.transaction.Transaction_uuid} onClick={() => openEdit(r.transaction)} className="text-blue-600 mr-3">{loadingInvoiceFor === r.transaction.Transaction_uuid ? 'Opening…' : 'Edit'}</button><button onClick={() => handleDelete(r.transaction)} className="text-red-600">Delete</button></td>}</tr>)}
         <tr className="bg-blue-100 font-semibold"><td colSpan={3} /><td className="py-2 px-4">Closing Balance</td><td /><td className="py-2 px-4">{totals.debit.toFixed(2)}</td><td className="py-2 px-4">{totals.credit.toFixed(2)}</td><td className="py-2 px-4">{totals.total.toFixed(2)}</td>{userRole === 'Admin User' && <td />}</tr>
       </tbody></table></div>}
     </div>
+    <StatementDescriptionEditModal
+      transaction={userRole === 'Admin User' ? descriptionEdit : null}
+      invoiceDetails={descriptionEdit ? invoiceItemDetails[descriptionEdit.Transaction_uuid] : null}
+      partyName={customerName}
+      isInvoice={isSalesInvoiceTransaction(descriptionEdit)}
+      onClose={() => setDescriptionEdit(null)}
+      onSave={saveEditedDescription}
+      onFullEdit={() => { if (descriptionEdit) openFullEdit(descriptionEdit); }}
+    />
     <TransactionEditModal open={userRole === 'Admin User' && showEditModal} onClose={() => { setShowEditModal(false); setEditingTxn(null); }} onSave={saveEditedTransaction} initialData={editingTxn ? (() => { const credit = (editingTxn.Journal_entry || []).find(e => String(e.Type).toLowerCase() === 'credit'); const debit = (editingTxn.Journal_entry || []).find(e => String(e.Type).toLowerCase() === 'debit'); return { Transaction_id: editingTxn.Transaction_id, Transaction_uuid: editingTxn.Transaction_uuid, Transaction_date: editingTxn.Transaction_date, Amount: Number(credit?.Amount || debit?.Amount || 0), Description: editingTxn.Description || '', Credit_id: credit?.Account_id || '', Debit_id: debit?.Account_id || '' }; })() : null} accountOptions={accountOptions} />
     <TransactionDocumentModal open={!!docRow} onClose={() => setDocRow(null)} transaction={docRow?.transaction} entry={docRow?.entry} partyName={customerName} customerMobile={customerMobile} counterAccountName={docRow?.counterAccountName || ''} counterIsCashOrBank={!!docRow?.counterIsCashOrBank} />
     {invoiceEdit && <UpdateDelivery mode="edit" order={invoiceEdit.order} invoiceTxn={invoiceEdit.transaction} onClose={() => { setInvoiceEdit(null); refreshTransactions(); }} onSaved={refreshTransactions} />}

@@ -65,8 +65,10 @@ describe('existing archive Confirm as MIS Order form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/items/addItem',
       expect.objectContaining({ Item_name: 'Premium Card' })));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add Item to Master' })).not.toBeInTheDocument());
+    // MUI keeps the parent dialog aria-hidden until the nested modal finishes
+    // its exit transition. Wait for the original controls to become accessible.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument());
     expect(screen.getByText('Confirm Final File → Create Order')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Premium Card')).toBeInTheDocument();
   });
 });

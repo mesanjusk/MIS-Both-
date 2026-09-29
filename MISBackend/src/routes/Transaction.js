@@ -7,6 +7,7 @@ const Transaction = require('../repositories/transaction');
 const TransactionAudit = require('../repositories/transactionAudit');
 const transactionNumber = require('../services/transactionNumberService');
 const Orders      = require('../repositories/order');
+const { getStatementInvoiceDetails } = require('../services/statementInvoiceDetailsService');
 const { refreshOrderPaymentStatus }    = require('../services/businessWorkflowService');
 const { validateBalancedJournal }      = require('../services/accountingPostingService');
 const { resolve: resolveAccount, isUuid, applyBalanceMovement } = require('../services/accountRegistry');
@@ -405,6 +406,58 @@ router.get('/distinctPaymentModes', async (req, res) => {
   } catch (error) {
     logger.error('Error in GET /transactions/distinctPaymentModes:', error);
     return res.status(500).json({ success: false, message: 'Failed to fetch modes' });
+  }
+});
+
+// Read-only batch lookup for actual invoice item details in the Statement.
+// Only authenticated users with canViewAccounts can reach this router.
+// Source transaction IDs are reloaded from the database; clients cannot send
+// arbitrary order lines. Receipt/payment rows retain their voucher narration.
+router.post('/statement-invoice-details', async (req, res) => {
+  try {
+    const supplied = req.body?.transactionUuids;
+    if (!Array.isArray(supplied) || supplied.length > 100 ||
+        supplied.some((id) => typeof id !== 'string' || !id.trim() || id.length > 100)) {
+      return res.status(400).json({ success: false, message: 'Supply up to 100 valid transaction UUIDs' });
+    }
+    const ids = [...new Set(supplied.map((id) => id.trim()))];
+    if (!ids.length) return res.json({ success: true, result: {} });
+    const transactions = await Transaction.find({ Transaction_uuid: { $in: ids } }, {
+      Transaction_uuid: 1, Order_uuid: 1, Order_number: 1, Source: 1, Journal_entry: 1,
+    }).lean();
+    const result = await getStatementInvoiceDetails(transactions);
+    return res.json({ success: true, result });
+  } catch (error) {
+    logger.error('Failed loading statement invoice details:', error);
+    return res.status(500).json({ success: false, message: 'Could not load invoice items for statement' });
+  }
+});
+
+// Edit only the ledger/voucher narration. NEVER send a posting through PUT
+// just to change text: that reverses/reapplies journal balance movements.
+// Already-issued PDFs remain historical snapshots; editing this text does not
+// amend quantities, debit/credit amounts, linked invoices or receipt posting.
+router.patch('/:uuid/description', requirePermission('canEditTransactions'), async (req, res) => {
+  try {
+    const description = req.body?.Description;
+    if (typeof description !== 'string' || !description.trim() || description.trim().length > 2000) {
+      return res.status(400).json({ success: false, message: 'Description must contain 1–2000 characters' });
+    }
+    const key = String(req.params.uuid || '').trim();
+    if (!key || key.length > 100) return res.status(400).json({ success: false, message: 'Invalid transaction ID' });
+    const before = await Transaction.findOne({ Transaction_uuid: key }).lean();
+    if (!before) return res.status(404).json({ success: false, message: 'Transaction not found' });
+    const updated = await Transaction.findOneAndUpdate(
+      { Transaction_uuid: key },
+      { $set: { Description: description.trim() } },
+      { new: true, runValidators: true }
+    );
+    if (!updated) return res.status(404).json({ success: false, message: 'Transaction not found' });
+    await recordAudit(req, { action: 'edit', transaction: updated, before, after: updated });
+    return res.json({ success: true, result: updated, message: 'Description updated' });
+  } catch (error) {
+    logger.error('Failed to update transaction narration:', error);
+    return res.status(500).json({ success: false, message: 'Could not update description' });
   }
 });
 

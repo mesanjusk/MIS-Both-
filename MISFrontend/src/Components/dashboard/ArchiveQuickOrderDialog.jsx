@@ -4,6 +4,7 @@ import {
   DialogContent, DialogTitle, ListSubheader, MenuItem, Stack, TextField, Typography,
 } from '@mui/material';
 import axios from '../../apiClient';
+import { canQuickCreateMisOrder } from './archiveOrderEligibility';
 import { fetchAssignees } from '../../services/assigneeService';
 import {
   WORKFLOW_GROUPS, WORKFLOW_SECTIONS, STAGE_TO_CAPABILITY, CAPABILITY_LABELS,
@@ -71,7 +72,7 @@ export default function ArchiveQuickOrderDialog({ open, file, onClose, onSuccess
   }, [assigneeId, assigneeOptions]);
 
   const canSubmit = !loading && !submitting && customer?.Customer_uuid && newItem.trim() && file?.fileId
-    && !file?.matched && !file?.orderUuid && !file?.isTemporaryOrder && file?.stageNumber === 5;
+    && canQuickCreateMisOrder(file);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;

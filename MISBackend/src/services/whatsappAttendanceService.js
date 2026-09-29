@@ -365,7 +365,7 @@ async function executeAttendanceCommand({ config, command, employee, payload, se
         name: employee.name || employee.User_name || 'User',
         command: sourceLabel,
       }) + (attendanceType === 'In'
-        ? '\\nReview your morning SOP in MIS → My SOP: https://dash.sanjusk.in/home'
+        ? '\nReview your morning SOP in MIS → My SOP: https://dash.sanjusk.in/home'
         : ''),
     });
   }

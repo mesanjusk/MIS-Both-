@@ -245,58 +245,30 @@ export default function WorkflowWidget() {
 
       <Divider sx={{ my: 1.5 }} />
 
-      {/* Title, live stage-count chips, unassigned badge, and refresh all
-          share one row — the chip strip scrolls sideways on its own
-          (flex: 1, overflowX: auto) if it's too long, while the title and
-          action icons stay fixed at the edges. */}
+      {/* Compact board toolbar: keep the information needed to operate the
+          board, but remove the duplicated per-stage text strip. The columns
+          below already show stage names and live counts. */}
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
         <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>Workflow</Typography>
-        {stageBreakdown.length > 0 && (
-          <Box
-            sx={{
-              flex: 1,
-              minWidth: 0,
-              overflowX: 'auto',
-              bgcolor: 'action.hover',
-              borderRadius: 2,
-              px: 1,
-              py: 0.45,
-              '&::-webkit-scrollbar': { height: 5 },
-            }}
-          >
-            <Stack
-              direction="row"
-              divider={<Divider orientation="vertical" flexItem />}
-              spacing={1.25}
-              sx={{ width: 'max-content', minWidth: '100%' }}
-            >
-              {stageBreakdown.map(({ label, count }) => (
-                <Stack key={label} direction="row" spacing={0.5} alignItems="baseline" sx={{ flexShrink: 0 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
-                    {label}
-                  </Typography>
-                  <Typography variant="caption" fontWeight={800} sx={{ fontSize: 12 }}>
-                    {count}
-                  </Typography>
-                </Stack>
-              ))}
-            </Stack>
-          </Box>
-        )}
-        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0, ml: 'auto' }}>
-          {overview?.unassignedCount > 0 && (
-            <Chip size="small" color="warning" label={`${overview.unassignedCount} unassigned`} />
-          )}
-          {/* Board = today's live pipeline view, unchanged. By User = every
-              team member's pending work grouped by person then by stage, so
-              anyone can see who's holding what without leaving Workflow. */}
+        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+          {stageBreakdown.reduce((sum, item) => sum + item.count, 0)} active jobs
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0 }}>
           <ToggleButtonGroup
             size="small"
             exclusive
             value={tab}
             onChange={(_, next) => next && setTab(next)}
             sx={{
-              '& .MuiToggleButton-root': { px: 1, py: 0.35, textTransform: 'none', fontWeight: 600, lineHeight: 1.2 },
+              '& .MuiToggleButton-root': {
+                px: 1,
+                py: 0.35,
+                textTransform: 'none',
+                fontWeight: 600,
+                lineHeight: 1.2,
+                borderColor: 'divider',
+              },
             }}
           >
             <ToggleButton value="board">
@@ -307,10 +279,6 @@ export default function WorkflowWidget() {
               <PeopleAltRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
               By User
             </ToggleButton>
-            {/* The action queues that used to live on their own page. Admin
-                only: these buttons receive customer payments and move money,
-                which is not work an ordinary staff account may do — the API
-                enforces that too. */}
             {canSeeActionQueues && (
               <ToggleButton value="needsAction">
                 <PlaylistAddCheckRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
@@ -318,9 +286,6 @@ export default function WorkflowWidget() {
               </ToggleButton>
             )}
           </ToggleButtonGroup>
-          {/* The board defaults to the whole pipeline. This narrows it to the
-              orders assigned to you — the view non-admins used to be given
-              with no way back out to the shop floor. */}
           {tab === 'board' && (
             <Tooltip title={onlyMine ? 'Showing only orders assigned to you' : 'Showing the whole pipeline'}>
               <FormControlLabel

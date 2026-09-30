@@ -487,6 +487,7 @@ export default function OrderTaskList({
                         size="small"
                         label={truncate(stageLabel, stageChars)}
                         sx={{
+                          display: compact ? 'none' : 'inline-flex',
                           flexShrink: 1,
                           minWidth: 44,
                           height: compact ? 18 : 20,

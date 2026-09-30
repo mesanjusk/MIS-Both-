@@ -1,7 +1,14 @@
 require('../helpers/mongoSetup');
 const { v4: uuid } = require('uuid');
 const DiaryDraft = require('../../src/repositories/diaryDraft');
-const { autoMatchEntries } = require('../../src/routes/BankStatement');
+const Transaction = require('../../src/repositories/transaction');
+const Customer = require('../../src/repositories/customer');
+const {
+  autoMatchEntries,
+  autoLinkExistingLedgerTransactions,
+  inferStatementBankLedgerFromPendingEntries,
+  resolveStatementBankLedgerEvidence,
+} = require('../../src/routes/BankStatement');
 
 const makeDiary = (diaryDate, entries) =>
   DiaryDraft.create({
@@ -19,10 +26,129 @@ const stmtEntry = (overrides = {}) => ({
   debit: 0,
   direction: 'in',
   match_status: 'unmatched',
+  entry_status: 'pending',
+  ...overrides,
+});
+
+const makeTransaction = (date, overrides = {}) => Transaction.create({
+  Transaction_uuid: uuid(),
+  Transaction_id: Math.floor(Math.random() * 1000000),
+  Transaction_date: date,
+  Description: 'Existing ledger posting',
+  Total_Debit: 5000,
+  Total_Credit: 5000,
+  Payment_mode: 'Bank',
+  Created_by: 'tester',
+  Source: 'diary:day-1:entry-1',
+  Journal_entry: [
+    { Account_id: '11111111-1111-4111-8111-111111111111', Account_name: 'UPI Sanju Sk', Type: 'Debit', Amount: 5000 },
+    { Account_id: '22222222-2222-4222-8222-222222222222', Account_name: 'Acme Corp', Type: 'Credit', Amount: 5000 },
+  ],
   ...overrides,
 });
 
 describe('BankStatement.autoMatchEntries', () => {
+  test.each([
+    ['before', '2026-03-03T00:00:00.000Z'],
+    ['after', '2026-03-07T00:00:00.000Z'],
+  ])('auto-links an already-entered bank transaction two days %s the statement date', async (_label, date) => {
+    const transaction = await makeTransaction(new Date(date));
+    const statement = { entries: [stmtEntry({ account_assigned: '' })] };
+
+    const result = await autoLinkExistingLedgerTransactions(statement, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+
+    expect(result).toMatchObject({ linked: 1, ambiguous: 0 });
+    expect(statement.entries[0]).toMatchObject({
+      account_assigned: 'Acme Corp',
+      transaction_uuid: transaction.Transaction_uuid,
+      entry_status: 'confirmed',
+      match_status: 'manual',
+      matched_party: 'Acme Corp',
+    });
+  });
+
+  test('repairs legacy confirmed rows that have no linked transaction UUID', async () => {
+    const transaction = await makeTransaction(new Date('2026-03-04T00:00:00.000Z'));
+    const statement = { entries: [stmtEntry({ entry_status: 'confirmed', account_assigned: '' })] };
+
+    const result = await autoLinkExistingLedgerTransactions(statement, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+
+    expect(result.linked).toBe(1);
+    expect(statement.entries[0].transaction_uuid).toBe(transaction.Transaction_uuid);
+    expect(statement.entries[0].entry_status).toBe('confirmed');
+  });
+
+  test('infers the bank ledger from an existing posting when the statement account mapping is absent', async () => {
+    const bank = await Customer.create({
+      Customer_uuid: '11111111-1111-4111-8111-111111111111',
+      Customer_name: 'UPI Sanju Sk',
+      Customer_group: 'Bank and Account',
+    });
+    await Customer.create({
+      Customer_uuid: '33333333-3333-4333-8333-333333333333',
+      Customer_name: 'HDFC Business',
+      Customer_group: 'Bank and Account',
+    });
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    const statement = { account_name: 'Business Account', entries: [stmtEntry()] };
+
+    const inferred = await inferStatementBankLedgerFromPendingEntries(statement, [
+      { Customer_uuid: bank.Customer_uuid, Customer_name: bank.Customer_name },
+      { Customer_uuid: '33333333-3333-4333-8333-333333333333', Customer_name: 'HDFC Business' },
+    ]);
+
+    expect(inferred).toEqual({ uuid: bank.Customer_uuid, name: bank.Customer_name });
+  });
+
+  test('replaces a stale automatic bank ledger mapping when existing transactions identify the right ledger', async () => {
+    const correctBank = await Customer.create({
+      Customer_uuid: '11111111-1111-4111-8111-111111111111',
+      Customer_name: 'UPI Sanju Sk',
+      Customer_group: 'Bank and Account',
+    });
+    await Customer.create({
+      Customer_uuid: '33333333-3333-4333-8333-333333333333',
+      Customer_name: 'HDFC Business',
+      Customer_group: 'Bank and Account',
+    });
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    const statement = {
+      account_name: 'Business Account',
+      ledger_account_uuid: '33333333-3333-4333-8333-333333333333',
+      entries: [stmtEntry()],
+    };
+
+    const evidence = await resolveStatementBankLedgerEvidence(statement);
+
+    expect(evidence).toEqual({ uuid: correctBank.Customer_uuid, name: correctBank.Customer_name });
+  });
+
+  test('does not auto-link beyond the two-day date window or reuse ambiguous postings', async () => {
+    await makeTransaction(new Date('2026-03-02T00:00:00.000Z'));
+    const outsideWindow = { entries: [stmtEntry({ account_assigned: '' })] };
+    await autoLinkExistingLedgerTransactions(outsideWindow, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+    expect(outsideWindow.entries[0].entry_status).toBe('pending');
+
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    const ambiguous = { entries: [stmtEntry({ account_assigned: '' })] };
+    const result = await autoLinkExistingLedgerTransactions(ambiguous, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+    expect(result.ambiguous).toBe(1);
+    expect(ambiguous.entries[0].entry_status).toBe('pending');
+  });
+
   test('matches on same amount + direction + same-day date, with a party-name bonus', async () => {
     await makeDiary(new Date('2026-03-05'), [{ party: 'Acme Corp', amount: 5000, direction: 'in' }]);
 

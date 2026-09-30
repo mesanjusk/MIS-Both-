@@ -64,7 +64,7 @@ function MatchChip({ status, score }) {
   if (status === 'manual') return (
     <Chip
       icon={<LinkRoundedIcon sx={{ fontSize: '14px !important' }} />}
-      label="Reconciled"
+      label="Already Entered"
       size="small" color="success" variant="filled"
     />
   );

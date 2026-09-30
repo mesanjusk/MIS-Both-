@@ -20,6 +20,7 @@ const stmtEntry = (overrides = {}) => ({
   debit: 0,
   direction: 'in',
   match_status: 'unmatched',
+  entry_status: 'pending',
   ...overrides,
 });
 

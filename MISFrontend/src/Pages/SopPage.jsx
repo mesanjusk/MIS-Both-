@@ -276,7 +276,7 @@ export default function SopPage() {
   return (
     <PageContainer
       title="SOP Task Manager"
-      subtitle="Standard Operating Procedure — define, assign and track daily work duties by group"
+      subtitle="Standard Operating Procedure — assign daily work by Responsibility (Primary + Backup 1–4) or by team group"
     >
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1 }}>{success}</Alert>}

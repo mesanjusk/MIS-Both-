@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import SopPage from './SopPage';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
@@ -47,7 +47,8 @@ describe('SOP Responsibility assignment UI', () => {
     await screen.findByText('No SOP tasks found.');
     fireEvent.click(screen.getByRole('button', { name: 'Add Task' }));
 
-    const select = screen.getByRole('combobox', { name: 'Responsibility' });
+    const dialog = screen.getByRole('dialog', { name: 'Add SOP Task' });
+    const select = within(dialog).getAllByRole('combobox')[3];
     fireEvent.mouseDown(select);
     const option = await screen.findByRole('option', { name: /Customer Design Proof/ });
     expect(option).toHaveTextContent('Harshita');
@@ -57,7 +58,7 @@ describe('SOP Responsibility assignment UI', () => {
     expect(screen.getByText('Backup 1: Harshita')).toBeInTheDocument();
     expect(screen.getByText('Backup 2: Asha')).toBeInTheDocument();
     expect(screen.getByText('Effective owner now: Harshita · Backup 1')).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: 'Primary Group *' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Primary Group *')).not.toBeInTheDocument();
   });
 
   it('saves Responsibility mode without duplicate group/fallback assignment', async () => {
@@ -67,7 +68,8 @@ describe('SOP Responsibility assignment UI', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Title *' }), {
       target: { value: 'Send customer proof' },
     });
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Responsibility' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add SOP Task' });
+    fireEvent.mouseDown(within(dialog).getAllByRole('combobox')[3]);
     fireEvent.click(await screen.findByRole('option', { name: /Customer Design Proof/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 

@@ -6,11 +6,10 @@ let redirectingToLogin = false;
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // If VITE_API_SERVER accidentally has /api suffix, strip it to prevent /api/api/... double prefix.
 //
-// IMPORTANT: dash.sanjusk.in must use the backend that is deployed from this
-// repository's main branch. The previous long-running backend
-// (misbackend-e078.onrender.com) was no longer receiving current backend fixes,
-// so the UI could deploy successfully while live accounting routes remained old.
-const PRODUCTION_SERVER = "https://mis-both.onrender.com";
+// IMPORTANT: dash.sanjusk.in must use the MISBackend service deployed from
+// this repository's main branch. VITE_API_SERVER in .env.production points to
+// the same active Render service; keep this override in sync with that value.
+const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "").replace(/\/$/, "") : url);
 

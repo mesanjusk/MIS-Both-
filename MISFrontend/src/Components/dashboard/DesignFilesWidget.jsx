@@ -578,7 +578,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
           <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
       </Stack>
 
-      {subText && (
+      {!hideStageChip && subText && (
         <Typography
           variant="caption"
           sx={{ display: 'block', fontSize: 9.5, pl: onToggle ? 4 : 2.75, color: isUnmatched ? 'warning.700' : 'text.disabled' }}
@@ -586,7 +586,22 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
           {subText}
         </Typography>
       )}
-      <StatusBadges file={file} sx={{ pl: onToggle ? 4 : 2.75, mt: 0.25 }} />
+      {hideStageChip ? (
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pl: 2.75, mt: 0.2, minWidth: 0 }}>
+          {formatCreatedDate(file.createdTime) && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 9.5, flexShrink: 0 }}>
+              {formatCreatedDate(file.createdTime)}
+            </Typography>
+          )}
+          {file.assignedToName && (
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: 9.5, minWidth: 0 }}>
+              {file.assignedToName}
+            </Typography>
+          )}
+        </Stack>
+      ) : (
+        <StatusBadges file={file} sx={{ pl: onToggle ? 4 : 2.75, mt: 0.25 }} />
+      )}
     </Box>
   );
 }

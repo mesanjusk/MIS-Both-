@@ -572,6 +572,29 @@ async function resolveStatementBankLedger(stmt) {
   return fallback;
 }
 
+async function resolveStatementBankLedgerEvidence(stmt) {
+  const docs = await Customer.find(
+    { Customer_group: 'Bank and Account' },
+    { Customer_name: 1, Customer_uuid: 1 }
+  ).lean();
+
+  if (stmt?.ledger_account_locked && stmt?.ledger_account_uuid) {
+    const locked = docs.find((doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid));
+    if (locked) return { uuid: locked.Customer_uuid, name: locked.Customer_name };
+  }
+
+  const inferred = await inferStatementBankLedgerFromLinkedTransactions(stmt, docs);
+  if (inferred) return { uuid: inferred.Customer_uuid, name: inferred.Customer_name };
+
+  if (stmt?.ledger_account_uuid) {
+    const existing = docs.find((doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid));
+    if (existing) return { uuid: existing.Customer_uuid, name: existing.Customer_name };
+  }
+
+  const confident = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: false });
+  return confident ? { uuid: confident.Customer_uuid, name: confident.Customer_name } : null;
+}
+
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 
 const escapeRegexLiteral = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -682,6 +705,68 @@ function transactionMatchesBankEntry(transaction, entry, bankLedger, assignedAcc
   return true;
 }
 
+function utcDayDistance(leftValue, rightValue) {
+  const left = new Date(leftValue);
+  const right = new Date(rightValue);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) return null;
+  const leftDay = Date.UTC(left.getUTCFullYear(), left.getUTCMonth(), left.getUTCDate());
+  const rightDay = Date.UTC(right.getUTCFullYear(), right.getUTCMonth(), right.getUTCDate());
+  return Math.round(Math.abs(leftDay - rightDay) / 86400000);
+}
+
+function counterpartyLineForBankEntry(transaction, entry, bankLedger) {
+  const amount = roundMoney(entry?.credit > 0 ? entry.credit : entry?.debit);
+  if (!(amount > 0)) return { line: null, ambiguous: false };
+
+  const bankType = entry.direction === 'in' ? 'Debit' : 'Credit';
+  const counterType = entry.direction === 'in' ? 'Credit' : 'Debit';
+  const bankIds = [bankLedger?.uuid, bankLedger?.name];
+  const counterIds = [entry.account_assigned].filter(Boolean);
+  const lines = Array.isArray(transaction?.Journal_entry) ? transaction.Journal_entry : [];
+  const hasBankLeg = lines.some((line) =>
+    lineMatchesAccount(line, bankIds) &&
+    String(line?.Type || '') === bankType &&
+    roundMoney(line?.Amount) === amount
+  );
+  if (!hasBankLeg) return { line: null, ambiguous: false };
+
+  const counterparties = lines.filter((line) =>
+    !lineMatchesAccount(line, bankIds) &&
+    String(line?.Type || '') === counterType &&
+    roundMoney(line?.Amount) === amount &&
+    (!counterIds.length || lineMatchesAccount(line, counterIds)) &&
+    (line?.Account_id || line?.Account_name)
+  );
+
+  const unique = new Map();
+  counterparties.forEach((line) => {
+    const key = String(line.Account_id || line.Account_name).trim().toLowerCase();
+    if (!unique.has(key)) unique.set(key, line);
+  });
+  if (unique.size !== 1) return { line: null, ambiguous: unique.size > 1 };
+  return { line: [...unique.values()][0], ambiguous: false };
+}
+
+function selectClosestLedgerMatch(candidates, referenceNo = '') {
+  if (!candidates.length) return { transaction: null, ambiguous: false, matches: [] };
+
+  if (referenceNo) {
+    const normalizedRef = String(referenceNo).replace(/\s+/g, '').toLowerCase();
+    const referenceMatches = candidates.filter((candidate) =>
+      String(candidate.transaction?.Upi_reference || '').replace(/\s+/g, '').toLowerCase() === normalizedRef
+    );
+    if (referenceMatches.length === 1) {
+      return { ...referenceMatches[0], ambiguous: false, matches: referenceMatches };
+    }
+    if (referenceMatches.length > 1) candidates = referenceMatches;
+  }
+
+  const closestDays = Math.min(...candidates.map((candidate) => candidate.daysDiff));
+  const closest = candidates.filter((candidate) => candidate.daysDiff === closestDays);
+  if (closest.length !== 1) return { transaction: null, ambiguous: true, matches: closest };
+  return { ...closest[0], ambiguous: false, matches: closest };
+}
+
 async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, excludeTransactionUuid }) {
   const txnDate = entry?.txn_date ? new Date(entry.txn_date) : null;
   if (!txnDate || Number.isNaN(txnDate.getTime())) {
@@ -690,31 +775,112 @@ async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, 
 
   const dayStart = new Date(txnDate);
   dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const rangeStart = new Date(dayStart);
+  rangeStart.setUTCDate(rangeStart.getUTCDate() - 2);
+  const rangeEnd = new Date(dayStart);
+  rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 3);
 
   const dayTransactions = await Transaction.find({
-    Transaction_date: { $gte: dayStart, $lt: dayEnd },
+    Transaction_date: { $gte: rangeStart, $lt: rangeEnd },
   }).sort({ Transaction_id: 1 }).lean();
 
-  let matches = dayTransactions.filter((txn) =>
-    String(txn.Transaction_uuid || '') !== String(excludeTransactionUuid || '') &&
-    transactionMatchesBankEntry(txn, entry, bankLedger, assignedAcct)
-  );
+  const matches = dayTransactions
+    .filter((txn) =>
+      String(txn.Transaction_uuid || '') !== String(excludeTransactionUuid || '') &&
+      transactionMatchesBankEntry(txn, entry, bankLedger, assignedAcct)
+    )
+    .map((transaction) => ({
+      transaction,
+      daysDiff: utcDayDistance(entry.txn_date, transaction.Transaction_date),
+    }))
+    .filter((candidate) => candidate.daysDiff !== null && candidate.daysDiff <= 2);
 
-  if (matches.length > 1 && entry.ref_no) {
-    const ref = String(entry.ref_no).replace(/\s+/g, '').toLowerCase();
-    const refMatches = matches.filter(
-      (txn) => String(txn.Upi_reference || '').replace(/\s+/g, '').toLowerCase() === ref
-    );
-    if (refMatches.length === 1) matches = refMatches;
-  }
+  const selected = selectClosestLedgerMatch(matches, entry.ref_no);
 
   return {
-    transaction: matches.length === 1 ? matches[0] : null,
-    ambiguous: matches.length > 1,
-    matches,
+    transaction: selected.transaction,
+    ambiguous: selected.ambiguous,
+    matches: selected.matches.map((candidate) => candidate.transaction),
   };
+}
+
+async function autoLinkExistingLedgerTransactions(stmt, bankLedger) {
+  const pendingEntries = (stmt?.entries || []).filter(
+    (entry) => entry.entry_status === 'pending' && entry.txn_date
+  );
+  if (!pendingEntries.length || !bankLedger?.uuid) {
+    return { linkedEntryUuids: [], linked: 0, ambiguous: 0 };
+  }
+
+  const validDates = pendingEntries
+    .map((entry) => new Date(entry.txn_date))
+    .filter((date) => !Number.isNaN(date.getTime()));
+  if (!validDates.length) return { linkedEntryUuids: [], linked: 0, ambiguous: 0 };
+
+  const firstDate = new Date(Math.min(...validDates.map((date) => date.getTime())));
+  const lastDate = new Date(Math.max(...validDates.map((date) => date.getTime())));
+  firstDate.setUTCHours(0, 0, 0, 0);
+  firstDate.setUTCDate(firstDate.getUTCDate() - 2);
+  lastDate.setUTCHours(0, 0, 0, 0);
+  lastDate.setUTCDate(lastDate.getUTCDate() + 3);
+
+  const transactions = await Transaction.find({
+    Transaction_date: { $gte: firstDate, $lt: lastDate },
+  }).sort({ Transaction_id: 1 }).lean();
+
+  const usedTransactionUuids = new Set(
+    (stmt.entries || [])
+      .filter((entry) => entry.entry_status === 'confirmed' && entry.transaction_uuid)
+      .map((entry) => String(entry.transaction_uuid))
+  );
+  const linkedEntryUuids = [];
+  let ambiguous = 0;
+
+  for (const entry of pendingEntries) {
+    const candidates = [];
+    for (const transaction of transactions) {
+      const transactionUuid = String(transaction.Transaction_uuid || '');
+      const source = String(transaction.Source || '');
+      if (!transactionUuid || usedTransactionUuids.has(transactionUuid)) continue;
+      if (source === BUSINESS_SOURCES.BANK_STATEMENT || source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) continue;
+
+      const daysDiff = utcDayDistance(entry.txn_date, transaction.Transaction_date);
+      if (daysDiff === null || daysDiff > 2) continue;
+
+      const counterparty = counterpartyLineForBankEntry(transaction, entry, bankLedger);
+      if (counterparty.ambiguous) continue;
+      if (!counterparty.line) continue;
+      candidates.push({ transaction, counterpartyLine: counterparty.line, daysDiff });
+    }
+
+    const selected = selectClosestLedgerMatch(candidates, entry.ref_no);
+    if (selected.ambiguous) {
+      ambiguous += 1;
+      continue;
+    }
+    if (!selected.transaction) continue;
+
+    const linkedTransaction = selected.transaction;
+    const partyLine = selected.counterpartyLine;
+    const party = String(partyLine.Account_name || partyLine.Account_id || '').trim();
+    if (!party) continue;
+
+    entry.account_assigned = party;
+    entry.transaction_uuid = linkedTransaction.Transaction_uuid;
+    entry.entry_status = 'confirmed';
+    entry.match_status = 'manual';
+    entry.matched_party = party;
+    const diaryLink = diaryLinkFromSource(linkedTransaction.Source);
+    if (diaryLink) {
+      entry.matched_diary_uuid = diaryLink.diaryUuid;
+      entry.matched_diary_entry_uuid = diaryLink.entryUuid;
+    }
+
+    usedTransactionUuids.add(String(linkedTransaction.Transaction_uuid));
+    linkedEntryUuids.push(entry.entry_uuid);
+  }
+
+  return { linkedEntryUuids, linked: linkedEntryUuids.length, ambiguous };
 }
 
 function diaryLinkFromSource(source) {
@@ -768,9 +934,8 @@ async function ensureBankEntryInLedger({ stmt, entry, actor }) {
   }
 
   // Before creating or moving a bank-statement-owned posting, look for the
-  // same date + amount + direction + counter-account in the actual bank ledger.
-  // This catches rows that already exist from Diary/manual entry and prevents
-  // the duplicate hidden posting that caused the reported mismatch.
+  // same amount + direction + counter-account on the actual bank ledger within
+  // two calendar days. Bank and diary dates can differ by a day or two.
   const candidate = await findExistingLedgerTransaction({
     entry,
     bankLedger,
@@ -1051,8 +1216,17 @@ router.put('/:uuid/ledger-account', async (req, res) => {
     stmt.ledger_account_locked = true;
 
     const stats = { verified: 0, linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    const autoLinked = await autoLinkExistingLedgerTransactions(stmt, {
+      uuid: bankDoc.Customer_uuid,
+      name: bankDoc.Customer_name,
+    });
+    stats.linked += autoLinked.linked;
+    stats.ambiguous += autoLinked.ambiguous;
+    const autoLinkedEntryUuids = new Set(autoLinked.linkedEntryUuids);
+
     for (const entry of stmt.entries || []) {
       if (entry.entry_status !== 'confirmed') continue;
+      if (autoLinkedEntryUuids.has(entry.entry_uuid)) continue;
 
       const result = await ensureBankEntryInLedger({
         stmt,
@@ -1309,8 +1483,21 @@ router.post('/:uuid/sync-ledger', async (req, res) => {
     if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
 
     const stats = { verified: 0, linked: 0, created: 0, reposted: 0, ambiguous: 0, skipped: 0 };
+    const bankLedgerEvidence = await resolveStatementBankLedgerEvidence(stmt);
+    const autoLinked = bankLedgerEvidence
+      ? await autoLinkExistingLedgerTransactions(stmt, bankLedgerEvidence)
+      : { linkedEntryUuids: [], linked: 0, ambiguous: 0 };
+    if (bankLedgerEvidence) {
+      stmt.ledger_account_uuid = bankLedgerEvidence.uuid;
+      stmt.ledger_account_name = bankLedgerEvidence.name;
+    }
+    stats.linked += autoLinked.linked;
+    stats.ambiguous += autoLinked.ambiguous;
+    const autoLinkedEntryUuids = new Set(autoLinked.linkedEntryUuids);
+
     for (const entry of stmt.entries || []) {
       if (entry.entry_status !== 'confirmed') continue;
+      if (autoLinkedEntryUuids.has(entry.entry_uuid)) continue;
 
       const result = await ensureBankEntryInLedger({
         stmt,
@@ -1375,3 +1562,8 @@ module.exports.inferStatementBankLedgerFromLinkedTransactions = inferStatementBa
 module.exports.repairConfirmedBankStatementsWithEvidence = repairConfirmedBankStatementsWithEvidence;
 module.exports.transactionJournalMatchesBankEntry = transactionJournalMatchesBankEntry;
 module.exports.transactionMatchesBankEntry = transactionMatchesBankEntry;
+module.exports.utcDayDistance = utcDayDistance;
+module.exports.counterpartyLineForBankEntry = counterpartyLineForBankEntry;
+module.exports.selectClosestLedgerMatch = selectClosestLedgerMatch;
+module.exports.findExistingLedgerTransaction = findExistingLedgerTransaction;
+module.exports.autoLinkExistingLedgerTransactions = autoLinkExistingLedgerTransactions;

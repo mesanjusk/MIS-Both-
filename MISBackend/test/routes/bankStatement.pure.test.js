@@ -8,6 +8,9 @@ const {
   scoreBankLedgerName,
   transactionJournalMatchesBankEntry,
   transactionMatchesBankEntry,
+  utcDayDistance,
+  counterpartyLineForBankEntry,
+  selectClosestLedgerMatch,
 } = require('../../src/routes/BankStatement');
 
 describe('BankStatement.toAmt', () => {
@@ -161,6 +164,34 @@ describe('BankStatement bank ledger name matching', () => {
 });
 
 describe('BankStatement bank-ledger reconciliation helpers', () => {
+  test('calculates calendar-day distance and accepts the two-day statement-date window', () => {
+    expect(utcDayDistance('2026-03-05T00:00:00.000Z', '2026-03-03T00:00:00.000Z')).toBe(2);
+    expect(utcDayDistance('invalid', '2026-03-03T00:00:00.000Z')).toBeNull();
+  });
+
+  test('finds the counterparty only when the bank ledger, direction, and amount match', () => {
+    const transaction = {
+      Journal_entry: [
+        { Account_id: 'bank-uuid', Account_name: 'UPI Sanju Sk', Type: 'Debit', Amount: 4500 },
+        { Account_id: 'party-uuid', Account_name: 'Sk Sai', Type: 'Credit', Amount: 4500 },
+      ],
+    };
+    const entry = { direction: 'in', credit: 4500, debit: 0 };
+    const bankLedger = { uuid: 'bank-uuid', name: 'UPI Sanju Sk' };
+
+    expect(counterpartyLineForBankEntry(transaction, entry, bankLedger).line.Account_name).toBe('Sk Sai');
+    expect(counterpartyLineForBankEntry(transaction, { ...entry, credit: 4501 }, bankLedger).line).toBeNull();
+    expect(counterpartyLineForBankEntry(transaction, { ...entry, direction: 'out' }, bankLedger).line).toBeNull();
+  });
+
+  test('chooses the nearest dated transaction and leaves same-day ties ambiguous', () => {
+    const farther = { transaction: { Transaction_uuid: 'far' }, daysDiff: 2 };
+    const closer = { transaction: { Transaction_uuid: 'close' }, daysDiff: 1 };
+    expect(selectClosestLedgerMatch([farther, closer]).transaction.Transaction_uuid).toBe('close');
+    expect(selectClosestLedgerMatch([closer, { transaction: { Transaction_uuid: 'tie' }, daysDiff: 1 }]))
+      .toMatchObject({ transaction: null, ambiguous: true });
+  });
+
   test('chooses the configured non-cash bank ledger and ignores cash ledgers', () => {
     const docs = [
       { Customer_uuid: 'cash-uuid', Customer_name: 'Office Cash' },

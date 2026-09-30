@@ -1,7 +1,8 @@
 require('../helpers/mongoSetup');
 const { v4: uuid } = require('uuid');
 const DiaryDraft = require('../../src/repositories/diaryDraft');
-const { autoMatchEntries } = require('../../src/routes/BankStatement');
+const Transaction = require('../../src/repositories/transaction');
+const { autoMatchEntries, autoLinkExistingLedgerTransactions } = require('../../src/routes/BankStatement');
 
 const makeDiary = (diaryDate, entries) =>
   DiaryDraft.create({
@@ -22,7 +23,66 @@ const stmtEntry = (overrides = {}) => ({
   ...overrides,
 });
 
+const makeTransaction = (date, overrides = {}) => Transaction.create({
+  Transaction_uuid: uuid(),
+  Transaction_id: Math.floor(Math.random() * 1000000),
+  Transaction_date: date,
+  Description: 'Existing ledger posting',
+  Total_Debit: 5000,
+  Total_Credit: 5000,
+  Payment_mode: 'Bank',
+  Created_by: 'tester',
+  Source: 'diary:day-1:entry-1',
+  Journal_entry: [
+    { Account_id: '11111111-1111-4111-8111-111111111111', Account_name: 'UPI Sanju Sk', Type: 'Debit', Amount: 5000 },
+    { Account_id: '22222222-2222-4222-8222-222222222222', Account_name: 'Acme Corp', Type: 'Credit', Amount: 5000 },
+  ],
+  ...overrides,
+});
+
 describe('BankStatement.autoMatchEntries', () => {
+  test.each([
+    ['before', '2026-03-03T00:00:00.000Z'],
+    ['after', '2026-03-07T00:00:00.000Z'],
+  ])('auto-links an already-entered bank transaction two days %s the statement date', async (_label, date) => {
+    const transaction = await makeTransaction(new Date(date));
+    const statement = { entries: [stmtEntry({ account_assigned: '' })] };
+
+    const result = await autoLinkExistingLedgerTransactions(statement, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+
+    expect(result).toMatchObject({ linked: 1, ambiguous: 0 });
+    expect(statement.entries[0]).toMatchObject({
+      account_assigned: 'Acme Corp',
+      transaction_uuid: transaction.Transaction_uuid,
+      entry_status: 'confirmed',
+      match_status: 'manual',
+      matched_party: 'Acme Corp',
+    });
+  });
+
+  test('does not auto-link beyond the two-day date window or reuse ambiguous postings', async () => {
+    await makeTransaction(new Date('2026-03-02T00:00:00.000Z'));
+    const outsideWindow = { entries: [stmtEntry({ account_assigned: '' })] };
+    await autoLinkExistingLedgerTransactions(outsideWindow, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+    expect(outsideWindow.entries[0].entry_status).toBe('pending');
+
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    await makeTransaction(new Date('2026-03-05T00:00:00.000Z'));
+    const ambiguous = { entries: [stmtEntry({ account_assigned: '' })] };
+    const result = await autoLinkExistingLedgerTransactions(ambiguous, {
+      uuid: '11111111-1111-4111-8111-111111111111',
+      name: 'UPI Sanju Sk',
+    });
+    expect(result.ambiguous).toBe(1);
+    expect(ambiguous.entries[0].entry_status).toBe('pending');
+  });
+
   test('matches on same amount + direction + same-day date, with a party-name bonus', async () => {
     await makeDiary(new Date('2026-03-05'), [{ party: 'Acme Corp', amount: 5000, direction: 'in' }]);
 

@@ -523,6 +523,7 @@ function rowColors(file, checked) {
 function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePrintJob, onEditPrintJob, onRelink, onAssign, onDeliver, onMoveToPrint, viewOnly, hideStageChip }) {
   const isUnmatched = !file.matched && !file.isDraft;
   const { bg, bgHover } = rowColors(file, checked);
+  const isDesignBoardRow = !!hideStageChip;
   const subText = file.isDraft
     ? (file.assignedToName ? `Assigned: ${file.assignedToName}` : '')
     : isUnmatched
@@ -535,7 +536,9 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
     <Box
       onClick={() => onToggle && onToggle(file.fileId)}
       sx={{
-        py: 0.5, px: 0.65, borderRadius: 1.5,
+        py: isDesignBoardRow ? 0.65 : 0.5,
+        px: 0.7,
+        borderRadius: 1.5,
         border: 'none',
         bgcolor: bg === 'transparent' ? 'background.paper' : bg,
         boxShadow: '0 1px 2px rgba(15,23,42,0.05)',
@@ -544,41 +547,111 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
         cursor: onToggle ? 'pointer' : 'default',
       }}
     >
-      <Stack direction="row" alignItems="center" spacing={0.5}>
+      <Stack direction="row" alignItems="flex-start" spacing={0.5}>
         {onToggle && (
           <Checkbox
-            size="small" checked={!!checked}
+            size="small"
+            checked={!!checked}
             onChange={() => onToggle(file.fileId)}
             onClick={(e) => e.stopPropagation()}
-            sx={{ p: 0.2, flexShrink: 0 }}
+            sx={{ p: 0.2, flexShrink: 0, mt: 0.1 }}
           />
         )}
 
-        <Box sx={{ flexShrink: 0, display: 'flex' }}>
-          {file.stageNumber === 6
-            ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
-            : file.stageNumber === 5
-            ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
-            : isUnmatched
-            ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
-            : <DesignServicesRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
+        {!isDesignBoardRow && (
+          <Box sx={{ flexShrink: 0, display: 'flex', mt: 0.15 }}>
+            {file.stageNumber === 6
+              ? <LocalPrintshopRoundedIcon sx={{ fontSize: 13, color: 'error.400' }} />
+              : file.stageNumber === 5
+              ? <DoneAllRoundedIcon sx={{ fontSize: 13, color: 'success.500' }} />
+              : isUnmatched
+              ? <ErrorOutlineRoundedIcon sx={{ fontSize: 13, color: 'warning.600' }} />
+              : <DesignServicesRoundedIcon sx={{ fontSize: 13, color: 'text.disabled' }} />}
+          </Box>
+        )}
+
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Tooltip title={file.fileName}>
+            <Typography
+              variant="body2"
+              fontWeight={700}
+              sx={isDesignBoardRow ? {
+                fontSize: 12,
+                lineHeight: 1.3,
+                whiteSpace: 'normal',
+                overflow: 'hidden',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflowWrap: 'anywhere',
+                color: 'text.primary',
+              } : {
+                fontSize: 12,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {file.fileName}
+            </Typography>
+          </Tooltip>
+
+          {isDesignBoardRow && (
+            <Stack
+              direction="row"
+              spacing={0.65}
+              alignItems="center"
+              sx={{ mt: 0.35, minWidth: 0 }}
+            >
+              {formatCreatedDate(file.createdTime) && (
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: 9.5, flexShrink: 0 }}>
+                  {formatCreatedDate(file.createdTime)}
+                </Typography>
+              )}
+              <FileLocalFolderButton file={file} />
+              {file.assignedToName && (
+                <Tooltip title={file.assignedToName}>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      minWidth: 0,
+                      lineHeight: 1.2,
+                      whiteSpace: 'normal',
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {file.assignedToName}
+                  </Typography>
+                </Tooltip>
+              )}
+            </Stack>
+          )}
         </Box>
 
-        <Tooltip title={file.fileName}>
-          <Typography
-            variant="body2" fontWeight={600}
-            sx={{ flex: 1, minWidth: 0, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {file.fileName}
-          </Typography>
-        </Tooltip>
-
         {!hideStageChip && file.stageLabel && <StageChip stageLabel={file.stageLabel} stageColor={file.stageColor} />}
-          <FileLocalFolderButton file={file} />
-          <FileActions file={file} onRename={onRename} onConfirm={onConfirm} onCreatePrintJob={onCreatePrintJob} onEditPrintJob={onEditPrintJob} onRelink={onRelink} onAssign={onAssign} onDeliver={onDeliver} onMoveToPrint={onMoveToPrint} viewOnly={viewOnly} />
+        {!isDesignBoardRow && <FileLocalFolderButton file={file} />}
+        <FileActions
+          file={file}
+          onRename={onRename}
+          onConfirm={onConfirm}
+          onCreatePrintJob={onCreatePrintJob}
+          onEditPrintJob={onEditPrintJob}
+          onRelink={onRelink}
+          onAssign={onAssign}
+          onDeliver={onDeliver}
+          onMoveToPrint={onMoveToPrint}
+          viewOnly={viewOnly}
+        />
       </Stack>
 
-      {!hideStageChip && subText && (
+      {!isDesignBoardRow && subText && (
         <Typography
           variant="caption"
           sx={{ display: 'block', fontSize: 9.5, pl: onToggle ? 4 : 2.75, color: isUnmatched ? 'warning.700' : 'text.disabled' }}
@@ -586,20 +659,7 @@ function FileListRow({ file, checked, onToggle, onRename, onConfirm, onCreatePri
           {subText}
         </Typography>
       )}
-      {hideStageChip ? (
-        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ pl: 2.75, mt: 0.2, minWidth: 0 }}>
-          {formatCreatedDate(file.createdTime) && (
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: 9.5, flexShrink: 0 }}>
-              {formatCreatedDate(file.createdTime)}
-            </Typography>
-          )}
-          {file.assignedToName && (
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ fontSize: 9.5, minWidth: 0 }}>
-              {file.assignedToName}
-            </Typography>
-          )}
-        </Stack>
-      ) : (
+      {!isDesignBoardRow && (
         <StatusBadges file={file} sx={{ pl: onToggle ? 4 : 2.75, mt: 0.25 }} />
       )}
     </Box>

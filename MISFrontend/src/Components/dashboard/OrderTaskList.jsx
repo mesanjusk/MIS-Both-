@@ -362,7 +362,6 @@ export default function OrderTaskList({
     // into the title tooltip rather than taking a row of its own.
     const compact = view === 'stack';
     const stageChars = compact ? 10 : 18;
-    const assigneeChars = compact ? 8 : 14;
     const gridSx = compact
       ? { display: 'flex', flexDirection: 'column', gap: 0.4 }
       : {
@@ -416,9 +415,17 @@ export default function OrderTaskList({
                         <Typography
                           variant="caption"
                           fontWeight={700}
-                          noWrap
                           display="block"
-                          sx={{ fontSize: compact ? 12 : 13, lineHeight: 1.35 }}
+                          sx={{
+                            fontSize: compact ? 12 : 13,
+                            lineHeight: 1.3,
+                            whiteSpace: 'normal',
+                            overflow: 'hidden',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflowWrap: 'anywhere',
+                          }}
                         >
                           {cardTitle}
                         </Typography>
@@ -501,7 +508,7 @@ export default function OrderTaskList({
                       />
                     </Tooltip>
                     <Tooltip title={isUnassigned ? 'Unassigned' : `Assigned to ${task.assignedTo}${task.assignedBy ? ` by ${task.assignedBy}` : ''}`}>
-                      <Stack direction="row" spacing={0.4} alignItems="center" sx={{ minWidth: 0, ml: 'auto' }}>
+                      <Stack direction="row" spacing={0.4} alignItems="flex-start" sx={{ minWidth: 0, flex: 1, ml: compact ? 0 : 'auto' }}>
                         <Avatar
                           sx={{
                             width: compact ? 16 : 18,
@@ -519,10 +526,19 @@ export default function OrderTaskList({
                           <Typography
                             variant="caption"
                             color="text.secondary"
-                            noWrap
-                            sx={{ fontSize: compact ? 10 : 11, minWidth: 0 }}
+                            sx={{
+                              fontSize: compact ? 10 : 11,
+                              minWidth: 0,
+                              lineHeight: 1.2,
+                              whiteSpace: 'normal',
+                              overflow: 'hidden',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflowWrap: 'anywhere',
+                            }}
                           >
-                            {truncate(task.assignedTo, assigneeChars)}
+                            {task.assignedTo}
                           </Typography>
                         )}
                       </Stack>

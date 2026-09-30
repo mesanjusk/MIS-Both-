@@ -192,6 +192,12 @@ describe('BankStatement bank-ledger reconciliation helpers', () => {
       .toMatchObject({ transaction: null, ambiguous: true });
   });
 
+  test('uses the statement narration party as a suggestion when dates differ', () => {
+    const nearer = { transaction: { Transaction_uuid: 'near' }, daysDiff: 0, descriptionScore: 0 };
+    const suggested = { transaction: { Transaction_uuid: 'suggested' }, daysDiff: 2, descriptionScore: 20 };
+    expect(selectClosestLedgerMatch([nearer, suggested]).transaction.Transaction_uuid).toBe('suggested');
+  });
+
   test('chooses the configured non-cash bank ledger and ignores cash ledgers', () => {
     const docs = [
       { Customer_uuid: 'cash-uuid', Customer_name: 'Office Cash' },

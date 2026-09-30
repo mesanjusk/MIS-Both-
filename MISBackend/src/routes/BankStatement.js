@@ -586,13 +586,18 @@ async function resolveStatementBankLedgerEvidence(stmt) {
   const inferred = await inferStatementBankLedgerFromLinkedTransactions(stmt, docs);
   if (inferred) return { uuid: inferred.Customer_uuid, name: inferred.Customer_name };
 
+  const confident = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: false });
+  if (confident) return { uuid: confident.Customer_uuid, name: confident.Customer_name };
+
+  const inferredFromPending = await inferStatementBankLedgerFromPendingEntries(stmt, docs);
+  if (inferredFromPending) return inferredFromPending;
+
   if (stmt?.ledger_account_uuid) {
     const existing = docs.find((doc) => String(doc.Customer_uuid) === String(stmt.ledger_account_uuid));
     if (existing) return { uuid: existing.Customer_uuid, name: existing.Customer_name };
   }
 
-  const confident = chooseBankLedgerDoc(stmt?.account_name, docs, { allowFallback: false });
-  return confident ? { uuid: confident.Customer_uuid, name: confident.Customer_name } : null;
+  return null;
 }
 
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
@@ -747,6 +752,21 @@ function counterpartyLineForBankEntry(transaction, entry, bankLedger) {
   return { line: [...unique.values()][0], ambiguous: false };
 }
 
+function partyDescriptionScore(description, partyName) {
+  const ignoredTokens = new Set([
+    'from', 'to', 'upi', 'neft', 'rtgs', 'imps', 'payment', 'transfer', 'txn', 'transaction',
+    'ref', 'reference', 'credit', 'debit', 'bank', 'account', 'online', 'paid', 'received',
+  ]);
+  const meaningfulTokens = (value) => normalizeLedgerName(value)
+    .split(' ')
+    .filter((token) => token.length > 2 && !ignoredTokens.has(token));
+  const descriptionTokens = meaningfulTokens(description);
+  const partyTokens = meaningfulTokens(partyName);
+  if (!descriptionTokens.length || !partyTokens.length) return 0;
+  const descriptionSet = new Set(descriptionTokens);
+  return partyTokens.some((token) => descriptionSet.has(token)) ? 20 : 0;
+}
+
 function selectClosestLedgerMatch(candidates, referenceNo = '') {
   if (!candidates.length) return { transaction: null, ambiguous: false, matches: [] };
 
@@ -759,6 +779,11 @@ function selectClosestLedgerMatch(candidates, referenceNo = '') {
       return { ...referenceMatches[0], ambiguous: false, matches: referenceMatches };
     }
     if (referenceMatches.length > 1) candidates = referenceMatches;
+  }
+
+  const descriptionScore = Math.max(...candidates.map((candidate) => candidate.descriptionScore || 0));
+  if (descriptionScore > 0) {
+    candidates = candidates.filter((candidate) => (candidate.descriptionScore || 0) === descriptionScore);
   }
 
   const closestDays = Math.min(...candidates.map((candidate) => candidate.daysDiff));
@@ -792,6 +817,10 @@ async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, 
     .map((transaction) => ({
       transaction,
       daysDiff: utcDayDistance(entry.txn_date, transaction.Transaction_date),
+      descriptionScore: partyDescriptionScore(
+        entry.description,
+        counterpartyLineForBankEntry(transaction, entry, assignedAcct)?.line?.Account_name
+      ),
     }))
     .filter((candidate) => candidate.daysDiff !== null && candidate.daysDiff <= 2);
 
@@ -806,7 +835,7 @@ async function findExistingLedgerTransaction({ entry, bankLedger, assignedAcct, 
 
 async function autoLinkExistingLedgerTransactions(stmt, bankLedger) {
   const pendingEntries = (stmt?.entries || []).filter(
-    (entry) => entry.entry_status === 'pending' && entry.txn_date
+    (entry) => entry.entry_status !== 'rejected' && !entry.transaction_uuid && entry.txn_date
   );
   if (!pendingEntries.length || !bankLedger?.uuid) {
     return { linkedEntryUuids: [], linked: 0, ambiguous: 0 };
@@ -850,7 +879,12 @@ async function autoLinkExistingLedgerTransactions(stmt, bankLedger) {
       const counterparty = counterpartyLineForBankEntry(transaction, entry, bankLedger);
       if (counterparty.ambiguous) continue;
       if (!counterparty.line) continue;
-      candidates.push({ transaction, counterpartyLine: counterparty.line, daysDiff });
+      candidates.push({
+        transaction,
+        counterpartyLine: counterparty.line,
+        daysDiff,
+        descriptionScore: partyDescriptionScore(entry.description, counterparty.line.Account_name),
+      });
     }
 
     const selected = selectClosestLedgerMatch(candidates, entry.ref_no);
@@ -881,6 +915,75 @@ async function autoLinkExistingLedgerTransactions(stmt, bankLedger) {
   }
 
   return { linkedEntryUuids, linked: linkedEntryUuids.length, ambiguous };
+}
+
+async function inferStatementBankLedgerFromPendingEntries(stmt, docs = []) {
+  const bankDocs = (docs || []).filter(
+    (doc) => doc?.Customer_uuid && doc?.Customer_name && !/cash/i.test(doc.Customer_name)
+  );
+  const candidates = (stmt?.entries || []).filter(
+    (entry) => entry.entry_status !== 'rejected' && !entry.transaction_uuid && entry.txn_date
+  );
+  if (!bankDocs.length || !candidates.length) return null;
+
+  const dates = candidates.map((entry) => new Date(entry.txn_date)).filter((date) => !Number.isNaN(date.getTime()));
+  if (!dates.length) return null;
+  const rangeStart = new Date(Math.min(...dates.map((date) => date.getTime())));
+  const rangeEnd = new Date(Math.max(...dates.map((date) => date.getTime())));
+  rangeStart.setUTCHours(0, 0, 0, 0);
+  rangeStart.setUTCDate(rangeStart.getUTCDate() - 2);
+  rangeEnd.setUTCHours(0, 0, 0, 0);
+  rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 3);
+
+  const transactions = await Transaction.find({
+    Transaction_date: { $gte: rangeStart, $lt: rangeEnd },
+  }).lean();
+  const ledgerCandidates = new Map();
+
+  for (const entry of candidates) {
+    for (const transaction of transactions) {
+      const source = String(transaction.Source || '');
+      if (source === BUSINESS_SOURCES.BANK_STATEMENT || source.startsWith(`${BUSINESS_SOURCES.BANK_STATEMENT}:`)) continue;
+      const daysDiff = utcDayDistance(entry.txn_date, transaction.Transaction_date);
+      if (daysDiff === null || daysDiff > 2) continue;
+
+      for (const doc of bankDocs) {
+        const counterparty = counterpartyLineForBankEntry(transaction, entry, {
+          uuid: doc.Customer_uuid,
+          name: doc.Customer_name,
+        });
+        if (!counterparty.line) continue;
+        const score = partyDescriptionScore(entry.description, counterparty.line.Account_name);
+        const current = ledgerCandidates.get(String(doc.Customer_uuid)) || { doc, score: 0, count: 0 };
+        current.score += score;
+        current.count += 1;
+        ledgerCandidates.set(String(doc.Customer_uuid), current);
+      }
+    }
+  }
+
+  if (!ledgerCandidates.size) return null;
+  const ranked = [...ledgerCandidates.values()].sort((a, b) => b.score - a.score || b.count - a.count);
+  if (ranked.length === 1) {
+    return { uuid: ranked[0].doc.Customer_uuid, name: ranked[0].doc.Customer_name };
+  }
+
+  const named = ranked
+    .map((candidate) => ({
+      ...candidate,
+      nameScore: scoreBankLedgerName(stmt?.account_name, candidate.doc.Customer_name),
+    }))
+    .sort((a, b) => b.nameScore - a.nameScore);
+  if (named[0].nameScore >= 70 && named[0].nameScore > named[1].nameScore) {
+    return { uuid: named[0].doc.Customer_uuid, name: named[0].doc.Customer_name };
+  }
+
+  // If the statement name is generic, a unique counterparty-name signal from
+  // the narration can still identify the bank ledger like Day Book suggestions.
+  if (ranked[0].score > 0 && ranked[0].score > ranked[1].score) {
+    return { uuid: ranked[0].doc.Customer_uuid, name: ranked[0].doc.Customer_name };
+  }
+  return null;
 }
 
 function diaryLinkFromSource(source) {
@@ -1567,3 +1670,5 @@ module.exports.counterpartyLineForBankEntry = counterpartyLineForBankEntry;
 module.exports.selectClosestLedgerMatch = selectClosestLedgerMatch;
 module.exports.findExistingLedgerTransaction = findExistingLedgerTransaction;
 module.exports.autoLinkExistingLedgerTransactions = autoLinkExistingLedgerTransactions;
+module.exports.inferStatementBankLedgerFromPendingEntries = inferStatementBankLedgerFromPendingEntries;
+module.exports.resolveStatementBankLedgerEvidence = resolveStatementBankLedgerEvidence;

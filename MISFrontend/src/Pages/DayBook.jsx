@@ -41,6 +41,7 @@ import axios from '../apiClient';
 import { getVoucherInfo } from '../utils/voucher';
 import { ROUTES } from '../constants/routes';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
+import AddCustomer from './addCustomer';
 
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
@@ -53,8 +54,9 @@ function statusChip(status) {
 }
 
 // --- single entry row with inline account assignment ---
-function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
+function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [], onCustomerAdded }) {
   const [editing, setEditing] = useState(false);
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
   const [saving, setSaving]   = useState(false);
   const [editingAmount, setEditingAmount] = useState(false);
@@ -193,7 +195,14 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
               onInputChange={(_, v) => setAcct(v)}
               onChange={(_, v) => setAcct(v || '')}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select or type account" sx={{ width: 190 }} />
+                <Stack direction="row" spacing={0.25} alignItems="center">
+                  <TextField {...params} placeholder="Select or type account" sx={{ width: 190 }} />
+                  <Tooltip title="Add customer / account">
+                    <IconButton size="small" aria-label="Add customer account" onClick={() => setCreateCustomerOpen(true)}>
+                      <AddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
               )}
             />
             <IconButton size="small" color="success" onClick={() => save()} disabled={saving || !acct}>
@@ -268,6 +277,21 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
         )}
       </TableCell>
 
+      <Dialog open={createCustomerOpen} onClose={() => setCreateCustomerOpen(false)} maxWidth="sm" fullWidth scroll="paper">
+        <DialogTitle fontWeight={700}>Add Customer / Account</DialogTitle>
+        <DialogContent dividers sx={{ p: { xs: 1, sm: 2 } }}>
+          <AddCustomer
+            embedded
+            onClose={() => setCreateCustomerOpen(false)}
+            onCreated={({ Customer_name }) => {
+              setAcct(Customer_name);
+              setEditing(true);
+              onCustomerAdded?.(Customer_name);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
       {/* Status + reject toggle */}
       <TableCell align="center" sx={{ width: 90 }}>
         <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center">
@@ -286,7 +310,7 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [] }) {
 }
 
 // --- section table (cash receipts / cash payments / bank) ---
-function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAccounts }) {
+function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAccounts, onCustomerAdded }) {
   if (!entries.length) return null;
   const total = entries.reduce((s, e) => s + (e.entry_status !== 'rejected' ? e.amount : 0), 0);
   return (
@@ -309,7 +333,7 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
           </TableHead>
           <TableBody>
             {entries.map((e) => (
-              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} ledgerAccounts={ledgerAccounts} />
+              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} ledgerAccounts={ledgerAccounts} onCustomerAdded={onCustomerAdded} />
             ))}
           </TableBody>
         </Table>
@@ -478,8 +502,9 @@ function LedgerDayView({ txns, date, cashAccounts = [], cashNames = [], bankAcco
 }
 
 // =================== BANK STATEMENT ENTRIES (unmatched, from uploaded bank statement) ===================
-function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts = [] }) {
+function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts = [], onCustomerAdded }) {
   const [editing, setEditing] = useState(false);
+  const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
   const [saving, setSaving]   = useState(false);
 
@@ -529,7 +554,14 @@ function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts
               onInputChange={(_, v) => setAcct(v)}
               onChange={(_, v) => setAcct(v || '')}
               renderInput={(params) => (
-                <TextField {...params} placeholder="Select account (e.g. UPI Sanju SK)" sx={{ width: 200 }} />
+                <Stack direction="row" spacing={0.25} alignItems="center">
+                  <TextField {...params} placeholder="Select account (e.g. UPI Sanju SK)" sx={{ width: 200 }} />
+                  <Tooltip title="Add customer / account">
+                    <IconButton size="small" aria-label="Add customer account" onClick={() => setCreateCustomerOpen(true)}>
+                      <AddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
               )}
             />
             <IconButton size="small" color="success" onClick={() => save()} disabled={saving || !acct}>
@@ -561,6 +593,20 @@ function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts
           )
         )}
       </TableCell>
+      <Dialog open={createCustomerOpen} onClose={() => setCreateCustomerOpen(false)} maxWidth="sm" fullWidth scroll="paper">
+        <DialogTitle fontWeight={700}>Add Customer / Account</DialogTitle>
+        <DialogContent dividers sx={{ p: { xs: 1, sm: 2 } }}>
+          <AddCustomer
+            embedded
+            onClose={() => setCreateCustomerOpen(false)}
+            onCreated={({ Customer_name }) => {
+              setAcct(Customer_name);
+              setEditing(true);
+              onCustomerAdded?.(Customer_name);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
       <TableCell align="center" sx={{ width: 130 }}>
         {entry.entry_status === 'confirmed' ? (
           <Chip label="✓ Confirmed" color="success" size="small" />
@@ -598,7 +644,7 @@ function BankStmtEntryRow({ entry, onAssign, onConfirm, onReject, ledgerAccounts
   );
 }
 
-function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccounts }) {
+function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccounts, onCustomerAdded }) {
   if (!entries.length) return null;
   const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
@@ -636,6 +682,7 @@ function BankStmtSection({ entries, onAssign, onConfirm, onReject, ledgerAccount
                   onConfirm={onConfirm}
                   onReject={onReject}
                   ledgerAccounts={ledgerAccounts}
+                  onCustomerAdded={onCustomerAdded}
                 />
               ))}
             </TableBody>
@@ -806,6 +853,34 @@ export default function DayBook() {
         setLedgerAccounts(names);
       })
       .catch(() => {});
+  }, []);
+
+  const handleCustomerAdded = useCallback(async (customerName) => {
+    try {
+      const [custRes, acctRes] = await Promise.all([
+        axios.get('/api/customers/GetCustomersList'),
+        axios.get('/api/accounts'),
+      ]);
+      const all = Array.isArray(custRes.data?.result) ? custRes.data.result : [];
+      const customerNames = all.map((customer) => customer.Customer_name).filter(Boolean).sort();
+      const customerNamesMap = {};
+      all.forEach((customer) => {
+        if (customer.Customer_uuid) customerNamesMap[customer.Customer_uuid] = customer.Customer_name;
+      });
+      const accounts = Array.isArray(acctRes.data?.accounts) ? acctRes.data.accounts : [];
+      const accountNamesMap = {};
+      accounts.forEach((account) => {
+        if (account.Account_uuid) accountNamesMap[account.Account_uuid] = account.Account_name;
+      });
+      setLedgerAccounts(customerNames);
+      setCustomerMap(customerNamesMap);
+      setAccountsMap(accountNamesMap);
+      if (!customerNames.includes(customerName)) {
+        setLedgerAccounts((previous) => [...new Set([...previous, customerName])].sort());
+      }
+    } catch {
+      setLedgerAccounts((previous) => [...new Set([...previous, customerName])].sort());
+    }
   }, []);
 
   const handleSelectDiary = (uid) => {
@@ -1219,6 +1294,7 @@ export default function DayBook() {
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
                   ledgerAccounts={ledgerAccounts}
+                  onCustomerAdded={handleCustomerAdded}
                 />
               </Box>
               <Box sx={{ flex: 1 }}>
@@ -1229,6 +1305,7 @@ export default function DayBook() {
                   diaryStatus={diary.status}
                   onUpdate={handleUpdateEntry}
                   ledgerAccounts={ledgerAccounts}
+                  onCustomerAdded={handleCustomerAdded}
                 />
               </Box>
             </Stack>
@@ -1263,6 +1340,7 @@ export default function DayBook() {
                       diaryStatus={diary.status}
                       onUpdate={handleUpdateEntry}
                       ledgerAccounts={ledgerAccounts}
+                      onCustomerAdded={handleCustomerAdded}
                     />
                   </Box>
                   <Box sx={{ flex: 1 }}>
@@ -1273,6 +1351,7 @@ export default function DayBook() {
                       diaryStatus={diary.status}
                       onUpdate={handleUpdateEntry}
                       ledgerAccounts={ledgerAccounts}
+                      onCustomerAdded={handleCustomerAdded}
                     />
                   </Box>
                 </Stack>
@@ -1286,6 +1365,7 @@ export default function DayBook() {
               onConfirm={handleBsConfirm}
               onReject={handleBsReject}
               ledgerAccounts={ledgerAccounts}
+              onCustomerAdded={handleCustomerAdded}
             />
           </>
         )}

@@ -25,7 +25,7 @@ import { CAPABILITY_LABELS, isAccountPayableGroup } from '../constants/orderStag
 
 const CAPABILITY_OPTIONS = Object.keys(CAPABILITY_LABELS);
 
-export default function AddCustomer({ onClose }) {
+export default function AddCustomer({ onClose, onCreated, embedded = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const returnTo = location.state?.returnTo || location.state?.from || '/home';
@@ -146,6 +146,7 @@ export default function AddCustomer({ onClose }) {
 
       if (res.data.success) {
         toast.success('Customer added successfully');
+        onCreated?.({ Customer_name: payload.Customer_name });
         if (onClose) onClose();
         else {
           navigate(returnTo, {
@@ -212,6 +213,7 @@ export default function AddCustomer({ onClose }) {
         submitLabel="Save Party"
         cancelLabel="Close"
         disableSubmit={!canSubmit}
+        embedded={embedded}
       >
         <Paper sx={compactCardSx}>
           <Stack spacing={1.2}>

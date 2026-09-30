@@ -15,6 +15,7 @@ const {
 const { OWNERSHIP_FIELDS } = require('../constants/ownership');
 const User = require('../repositories/users');
 const SOPHandover = require('../repositories/sopHandover');
+const Responsibility = require('../repositories/responsibility');
 const {
   getEmployeeDailyStatus, saveEmployeeCompletion, saveSopHandover,
 } = require('../services/employeeSopDayService');
@@ -51,8 +52,21 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       responsibility_uuid,
       scheduledTime, durationMinutes, weekDays, category, autoVerifyKey,
     } = req.body;
-    if (!title || !primaryGroup) {
-      return res.status(400).json({ success: false, message: 'title and primaryGroup are required' });
+    const responsibilityUuid = String(responsibility_uuid || '').trim();
+    const group = String(primaryGroup || '').trim();
+    if (!title || (!group && !responsibilityUuid)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title and either a Responsibility or Primary Group are required',
+      });
+    }
+    if (responsibilityUuid) {
+      const responsibility = await Responsibility.findOne({
+        responsibility_uuid: responsibilityUuid, isActive: true,
+      }).lean();
+      if (!responsibility) {
+        return res.status(400).json({ success: false, message: 'Select an active Responsibility' });
+      }
     }
     const task = await SOPTask.create({
       sop_uuid: randomUUID(),
@@ -61,15 +75,20 @@ router.post('/tasks', requireAuth, async (req, res, next) => {
       section: section?.trim() || '',
       frequency: frequency || 'daily',
       timeOfDay: timeOfDay || 'any',
-      primaryGroup: primaryGroup.trim(),
+      primaryGroup: group,
       fallbackGroups: Array.isArray(fallbackGroups) ? fallbackGroups.filter(Boolean) : [],
       isSkippable: Boolean(isSkippable),
       isActive: isActive !== false,
       sortOrder: Number(sortOrder) || 0,
       kpi: kpi?.trim() || '',
-      responsibility_uuid: responsibility_uuid?.trim() || '',
+      responsibility_uuid: responsibilityUuid,
+      // A linked responsibility owns the live Primary → Backup 1–4 chain.
+      // Clear any stale direct overrides so later responsibility reassignments
+      // automatically flow into this SOP.
       ...Object.fromEntries(
-        OWNERSHIP_FIELDS.map((field) => [field, req.body[field]?.trim() || ''])
+        OWNERSHIP_FIELDS.map((field) => [
+          field, responsibilityUuid ? '' : (req.body[field]?.trim() || ''),
+        ])
       ),
       scheduledTime: scheduledTime?.trim() || '',
       durationMinutes: Number(durationMinutes) || 0,
@@ -99,7 +118,34 @@ router.put('/tasks/:id', requireAuth, async (req, res, next) => {
     if (update.fallbackGroups && !Array.isArray(update.fallbackGroups)) {
       update.fallbackGroups = [];
     }
-    const task = await SOPTask.findByIdAndUpdate(id, update, { new: true }).lean();
+
+    const existing = await SOPTask.findById(id).lean();
+    if (!existing) return res.status(404).json({ success: false, message: 'Task not found' });
+    const finalResponsibilityUuid = String(
+      update.responsibility_uuid !== undefined ? update.responsibility_uuid : existing.responsibility_uuid || ''
+    ).trim();
+    const finalPrimaryGroup = String(
+      update.primaryGroup !== undefined ? update.primaryGroup : existing.primaryGroup || ''
+    ).trim();
+    const finalTitle = String(update.title !== undefined ? update.title : existing.title || '').trim();
+    if (!finalTitle || (!finalPrimaryGroup && !finalResponsibilityUuid)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title and either a Responsibility or Primary Group are required',
+      });
+    }
+    if (finalResponsibilityUuid) {
+      const responsibility = await Responsibility.findOne({
+        responsibility_uuid: finalResponsibilityUuid, isActive: true,
+      }).lean();
+      if (!responsibility) {
+        return res.status(400).json({ success: false, message: 'Select an active Responsibility' });
+      }
+      update.responsibility_uuid = finalResponsibilityUuid;
+      for (const field of OWNERSHIP_FIELDS) update[field] = '';
+    }
+    if (update.primaryGroup !== undefined) update.primaryGroup = finalPrimaryGroup;
+    const task = await SOPTask.findByIdAndUpdate(id, update, { new: true, runValidators: true }).lean();
     if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
     res.json({ success: true, result: task });
   } catch (err) {

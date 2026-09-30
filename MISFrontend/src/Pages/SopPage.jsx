@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControl, FormControlLabel, Grid, IconButton, InputLabel, MenuItem,
@@ -12,6 +12,8 @@ import { PageContainer, SectionCard } from '../Components/ui';
 import axios from '../apiClient';
 import { FEATURE_TOGGLE_KEYS } from '../constants/featureToggles';
 import { usePageToggles } from '../hooks/usePageToggles';
+import { fetchResponsibilities } from '../services/operationsService';
+import { OWNERSHIP_SLOTS, ownerRoleLabel } from '../constants/operations';
 
 const FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const TIMES = ['morning', 'during_day', 'evening', 'any'];
@@ -56,6 +58,7 @@ const EMPTY_FORM = {
   frequency: 'daily',
   timeOfDay: 'any',
   autoVerifyKey: '',
+  responsibility_uuid: '',
   primaryGroup: '',
   fallbackGroups: ['', '', ''],
   isSkippable: false,
@@ -69,6 +72,7 @@ export default function SopPage() {
   const seedEnabled = togglesLoaded && !isApiDisabled(FEATURE_TOGGLE_KEYS.SOP_SEED);
   const [tasks, setTasks] = useState([]);
   const [userGroups, setUserGroups] = useState([]);
+  const [responsibilities, setResponsibilities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -107,6 +111,15 @@ export default function SopPage() {
     }
   }, []);
 
+  const fetchResponsibilityOptions = useCallback(async () => {
+    try {
+      const response = await fetchResponsibilities();
+      setResponsibilities(response.data?.result || []);
+    } catch {
+      setResponsibilities([]);
+    }
+  }, []);
+
   const fetchHandovers = useCallback(async () => {
     try {
       const { data } = await axios.get('/api/sop/handovers', { cache: false });
@@ -122,8 +135,9 @@ export default function SopPage() {
   useEffect(() => {
     fetchTasks();
     fetchGroups();
+    fetchResponsibilityOptions();
     fetchHandovers();
-  }, [fetchTasks, fetchGroups, fetchHandovers]);
+  }, [fetchTasks, fetchGroups, fetchResponsibilityOptions, fetchHandovers]);
 
   const reviewHandover = async (record) => {
     setReviewing(record._id); setError('');
@@ -152,6 +166,7 @@ export default function SopPage() {
       frequency: task.frequency || 'daily',
       timeOfDay: task.timeOfDay || 'any',
       autoVerifyKey: task.autoVerifyKey || '',
+      responsibility_uuid: task.responsibility_uuid || '',
       primaryGroup: task.primaryGroup || '',
       fallbackGroups: fallbacks,
       isSkippable: task.isSkippable || false,
@@ -163,8 +178,8 @@ export default function SopPage() {
   };
 
   const handleSave = async () => {
-    if (!form.title.trim() || !form.primaryGroup) {
-      setError('Title and Primary Group are required');
+    if (!form.title.trim() || (!form.responsibility_uuid && !form.primaryGroup)) {
+      setError('Title and either Responsibility or Primary Group are required');
       return;
     }
     setSaving(true);
@@ -172,7 +187,10 @@ export default function SopPage() {
     try {
       const payload = {
         ...form,
-        fallbackGroups: form.fallbackGroups.filter(Boolean),
+        // Responsibility mode owns the SOP through the live Primary → Backup
+        // chain. Group/fallback mode remains untouched for legacy/team SOPs.
+        primaryGroup: form.responsibility_uuid ? '' : form.primaryGroup,
+        fallbackGroups: form.responsibility_uuid ? [] : form.fallbackGroups.filter(Boolean),
       };
       if (editId) {
         await axios.put(`/api/sop/tasks/${editId}`, payload);
@@ -218,6 +236,17 @@ export default function SopPage() {
       setSeeding(false);
     }
   };
+
+  const selectedResponsibility = useMemo(
+    () => responsibilities.find((item) => item.responsibility_uuid === form.responsibility_uuid) || null,
+    [responsibilities, form.responsibility_uuid],
+  );
+
+  const responsibilityOptions = useMemo(
+    () => responsibilities.filter((item) => item.isActive !== false ||
+      item.responsibility_uuid === form.responsibility_uuid),
+    [responsibilities, form.responsibility_uuid],
+  );
 
   const setFallback = (index, value) => {
     setForm((f) => {
@@ -377,7 +406,13 @@ export default function SopPage() {
                         </Typography>
                       )}
                       <Stack direction="row" spacing={0.4} flexWrap="wrap" useFlexGap>
-                        <Chip label={task.primaryGroup} size="small" sx={{ fontSize: '0.6rem', height: 16, bgcolor: 'primary.light', color: 'primary.contrastText' }} />
+                        {task.responsibility_uuid ? (
+                        <Chip label={responsibilities.find((item) => item.responsibility_uuid === task.responsibility_uuid)?.name || 'Responsibility'}
+                          size="small" color="secondary" sx={{ fontSize: '0.6rem', height: 16 }} />
+                      ) : (
+                        <Chip label={task.primaryGroup} size="small"
+                          sx={{ fontSize: '0.6rem', height: 16, bgcolor: 'primary.light', color: 'primary.contrastText' }} />
+                      )}
                         <Chip label={task.frequency} size="small" color="primary" variant="outlined" sx={{ fontSize: '0.6rem', height: 16 }} />
                         <Chip label={task.isSkippable ? 'Optional' : 'Must'} size="small" color={task.isSkippable ? 'default' : 'error'} variant="outlined" sx={{ fontSize: '0.6rem', height: 16 }} />
                         {!task.isActive && <Chip label="Off" size="small" sx={{ fontSize: '0.6rem', height: 16 }} />}
@@ -425,6 +460,52 @@ export default function SopPage() {
               </FormControl>
             </Stack>
             <FormControl size="small" fullWidth>
+              <InputLabel>Responsibility</InputLabel>
+              <Select
+                value={form.responsibility_uuid || ''}
+                label="Responsibility"
+                onChange={(event) => setForm((oldForm) => ({
+                  ...oldForm,
+                  responsibility_uuid: event.target.value,
+                  ...(event.target.value ? { primaryGroup: '', fallbackGroups: ['', '', ''] } : {}),
+                }))}
+              >
+                <MenuItem value="">— Team / Group assignment —</MenuItem>
+                {responsibilityOptions.map((item) => (
+                  <MenuItem key={item.responsibility_uuid} value={item.responsibility_uuid}
+                    disabled={item.isActive === false}>
+                    {item.name}
+                    {item.resolution?.currentOwner?.userName
+                      ? ` — now: ${item.resolution.currentOwner.userName} (${ownerRoleLabel(item.resolution.currentOwner.role)})`
+                      : item.isActive === false ? ' — inactive' : ' — no available owner'}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {selectedResponsibility && (
+              <Box sx={{ border: '1px solid', borderColor: selectedResponsibility.resolution?.currentOwner ? 'success.light' : 'warning.light',
+                borderRadius: 1.5, p: 1 }}>
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                  This SOP follows the live responsibility chain. Reassigning the responsibility later automatically updates this SOP.
+                </Typography>
+                <Stack direction="row" gap={0.5} flexWrap="wrap">
+                  {(selectedResponsibility.resolution?.chain || []).filter((slot) => slot.configured).map((slot) => (
+                    <Chip key={slot.role} size="small"
+                      color={selectedResponsibility.resolution?.currentOwner?.userUuid === slot.userUuid ? 'success' : 'default'}
+                      variant={selectedResponsibility.resolution?.currentOwner?.userUuid === slot.userUuid ? 'filled' : 'outlined'}
+                      label={`${ownerRoleLabel(slot.role)}: ${slot.userName || 'Unknown'}`} />
+                  ))}
+                </Stack>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.75, fontWeight: 800 }}
+                  color={selectedResponsibility.resolution?.currentOwner ? 'success.main' : 'warning.main'}>
+                  {selectedResponsibility.resolution?.currentOwner
+                    ? `Effective owner now: ${selectedResponsibility.resolution.currentOwner.userName} · ${ownerRoleLabel(selectedResponsibility.resolution.currentOwner.role)}`
+                    : 'No effective owner is currently available in this chain.'}
+                </Typography>
+              </Box>
+            )}
+
+            <FormControl size="small" fullWidth>
               <InputLabel>Automatic verification</InputLabel>
               <Select value={form.autoVerifyKey || ''} label="Automatic verification"
                 onChange={(event) => setForm((oldForm) => ({ ...oldForm, autoVerifyKey: event.target.value }))}>
@@ -432,24 +513,31 @@ export default function SopPage() {
                 <MenuItem value="attendance_in">Verified by today's Punch In</MenuItem>
               </Select>
             </FormControl>
-            <FormControl size="small" fullWidth>
-              <InputLabel>Primary Group *</InputLabel>
-              <Select value={form.primaryGroup} label="Primary Group *" onChange={(e) => setForm((f) => ({ ...f, primaryGroup: e.target.value }))}>
-                {userGroups.map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <Divider>
-              <Typography variant="caption" color="text.secondary">Fallback Groups (in order)</Typography>
-            </Divider>
-            {[0, 1, 2].map((i) => (
-              <FormControl key={i} size="small" fullWidth>
-                <InputLabel>Fallback {i + 1} (if group unavailable)</InputLabel>
-                <Select value={form.fallbackGroups[i]} label={`Fallback ${i + 1} (if group unavailable)`} onChange={(e) => setFallback(i, e.target.value)}>
-                  <MenuItem value="">— None —</MenuItem>
-                  {userGroups.filter((g) => g !== form.primaryGroup).map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
-                </Select>
-              </FormControl>
-            ))}
+            {!form.responsibility_uuid && (
+              <>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Primary Group *</InputLabel>
+                  <Select value={form.primaryGroup} label="Primary Group *"
+                    onChange={(e) => setForm((f) => ({ ...f, primaryGroup: e.target.value }))}>
+                    {userGroups.map((g) => <MenuItem key={g} value={g}>{g}</MenuItem>)}
+                  </Select>
+                </FormControl>
+                <Divider>
+                  <Typography variant="caption" color="text.secondary">Fallback Groups (in order)</Typography>
+                </Divider>
+                {[0, 1, 2].map((i) => (
+                  <FormControl key={i} size="small" fullWidth>
+                    <InputLabel>Fallback {i + 1} (if group unavailable)</InputLabel>
+                    <Select value={form.fallbackGroups[i]} label={`Fallback ${i + 1} (if group unavailable)`}
+                      onChange={(e) => setFallback(i, e.target.value)}>
+                      <MenuItem value="">— None —</MenuItem>
+                      {userGroups.filter((g) => g !== form.primaryGroup).map((g) =>
+                        <MenuItem key={g} value={g}>{g}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                ))}
+              </>
+            )}
             <Divider />
             <Stack direction="row" spacing={2}>
               <FormControlLabel

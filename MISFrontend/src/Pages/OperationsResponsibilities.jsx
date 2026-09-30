@@ -87,11 +87,11 @@ SlotSelect.propTypes = {
 // Each chain column holds one name in a dropdown. 118px fits the names this
 // business actually uses and keeps all five slots on screen; anything longer
 // ellipsizes rather than stretching the table.
-const SLOT_COL_WIDTH = 118;
+const SLOT_COL_WIDTH = 110;
 
 // 150 + 96 + (5 x 118) + 132 + 76. Below this the table scrolls inside its own
 // wrapper rather than squashing the dropdowns into unusability.
-const COMPACT_TABLE_MIN_WIDTH = 1044;
+const COMPACT_TABLE_MIN_WIDTH = 1110;
 
 // Chips at their default size cost more vertical and horizontal room than the
 // one word they carry.
@@ -280,7 +280,7 @@ export default function OperationsResponsibilities() {
   return (
     <PageContainer
       title="Responsibilities"
-      subtitle="Settings → Operations → Responsibilities. Primary and Backups 1–4 are stored as operators — staff, the owner, or the AI assistant — so re-assigning a priority never re-points a responsibility."
+      subtitle="Assign a primary owner and backup chain for every recurring responsibility. Current ownership updates automatically from availability."
       actions={(
         <>
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
@@ -309,27 +309,56 @@ export default function OperationsResponsibilities() {
                 1400px and off the side of the screen. Names now ellipsize
                 inside their column instead of widening it, and the full text
                 stays available on hover. */}
-            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: COMPACT_TABLE_MIN_WIDTH }}>
+            <Table
+              size="small"
+              stickyHeader
+              sx={{
+                tableLayout: 'fixed',
+                minWidth: COMPACT_TABLE_MIN_WIDTH,
+                '& .MuiTableCell-head': {
+                  bgcolor: 'grey.50',
+                  color: 'text.secondary',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.45,
+                  py: 1,
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                },
+                '& .MuiTableRow-root:nth-of-type(even) td': { bgcolor: 'grey.25' },
+                '& .MuiTableRow-root:hover td': { bgcolor: 'action.hover' },
+              }}
+            >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: 150 }}>Responsibility</TableCell>
-                  <TableCell sx={{ width: 96 }}>Category</TableCell>
+                  <TableCell sx={{ width: 260 }}>Responsibility</TableCell>
+                  <TableCell sx={{ width: 90 }}>Category</TableCell>
                   {OWNERSHIP_SLOTS.map((slot) => (
                     <TableCell key={slot.field} sx={{ width: SLOT_COL_WIDTH, px: 0.75 }}>
                       {slot.label}
                     </TableCell>
                   ))}
-                  <TableCell sx={{ width: 132 }}>Owner Now</TableCell>
-                  <TableCell align="right" sx={{ width: 76, px: 0.5 }}>Actions</TableCell>
+                  <TableCell sx={{ width: 120 }}>Owner Now</TableCell>
+                  <TableCell align="right" sx={{ width: 70, px: 0.5 }}>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {rows.map((row) => (
-                  <TableRow key={row.responsibility_uuid} hover>
-                    <TableCell sx={{ overflow: 'hidden' }}>
-                      <Tooltip title={row.name}>
-                        <Typography variant="body2" noWrap>{row.name}</Typography>
-                      </Tooltip>
+                  <TableRow key={row.responsibility_uuid} hover sx={{ '& td': { py: 0.8, verticalAlign: 'middle' } }}>
+                    <TableCell sx={{ pr: 1.5 }}>
+                      <Typography
+                        variant="body2"
+                        fontWeight={600}
+                        sx={{
+                          whiteSpace: 'normal',
+                          overflowWrap: 'anywhere',
+                          lineHeight: 1.35,
+                          color: 'text.primary',
+                        }}
+                      >
+                        {row.name}
+                      </Typography>
                       {/* The flags sit under the name rather than beside it —
                           side by side they were the reason this column needed
                           180px for a name that fits in 150. */}
@@ -340,8 +369,23 @@ export default function OperationsResponsibilities() {
                         </Stack>
                       ) : null}
                     </TableCell>
-                    <TableCell sx={{ overflow: 'hidden' }}>
-                      <Typography variant="body2" noWrap>{categoryLabel(row.category)}</Typography>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={categoryLabel(row.category)}
+                        sx={{
+                          height: 22,
+                          maxWidth: '100%',
+                          bgcolor: 'background.paper',
+                          '& .MuiChip-label': {
+                            px: 0.8,
+                            fontSize: '0.68rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          },
+                        }}
+                      />
                     </TableCell>
                     {OWNERSHIP_SLOTS.map((slot) => (
                       <TableCell key={slot.field} sx={{ px: 0.75 }}>
@@ -365,7 +409,18 @@ export default function OperationsResponsibilities() {
                           <Chip
                             size="small"
                             color="success"
-                            sx={{ maxWidth: '100%' }}
+                            variant="outlined"
+                            sx={{
+                              maxWidth: '100%',
+                              height: 24,
+                              bgcolor: 'success.50',
+                              fontWeight: 700,
+                              '& .MuiChip-label': {
+                                px: 0.9,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              },
+                            }}
                             label={row.resolution.currentOwner.userName}
                           />
                         </Tooltip>

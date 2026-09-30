@@ -6,6 +6,7 @@ import {
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import axios from '../../apiClient';
+import { ownerRoleLabel } from '../../constants/operations';
 
 const PHASES = [
   ['morning', 'Morning'],
@@ -135,7 +136,20 @@ export default function EmployeeSopDialog({ open, mode = 'day', onClose, onPunch
                     <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 0.5 }}>
                       <Chip size="small" label={task.isSkippable ? 'Optional' : 'Mandatory'}
                         color={task.isSkippable ? 'default' : 'warning'} variant="outlined" />
-                      <Chip size="small" label={task.scope === 'group' ? 'Team task' : task.transferred ? 'Backup responsibility' : 'My responsibility'} variant="outlined" />
+                      {task.scope === 'group' ? (
+                        <Chip size="small" label="Team task" variant="outlined" />
+                      ) : (
+                        <>
+                          <Chip size="small" color="secondary" variant="outlined"
+                            label={task.responsibilityName || 'Responsibility'} />
+                          <Chip size="small"
+                            color={task.transferred ? 'warning' : 'success'}
+                            variant={task.transferred ? 'filled' : 'outlined'}
+                            label={task.effectiveOwner?.userName
+                              ? `Owner now: ${task.effectiveOwner.userName} · ${ownerRoleLabel(task.effectiveOwner.role)}`
+                              : task.transferred ? 'Backup responsibility' : 'My responsibility'} />
+                        </>
+                      )}
                       {completion && <Chip size="small" color="success" icon={<CheckCircleRoundedIcon />}
                         label={completion.autoVerified ? 'Auto-verified · Punch In'
                           : completion.skipped ? 'Not applicable' : 'Completed'} />}

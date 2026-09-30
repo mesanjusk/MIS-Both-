@@ -105,7 +105,18 @@ async function getDailyStatusForUser(userUuid) {
     }
 
     if (owner?.uuid === userUuid) {
-      mine.push({ ...task, ownerRole: owner.role, transferred: owner.role !== 'primary' });
+      const ownerUser = users.find((user) => user.User_uuid === owner.uuid);
+      mine.push({
+        ...task,
+        ownerRole: owner.role,
+        transferred: owner.role !== 'primary',
+        responsibilityName: responsibility?.name || '',
+        effectiveOwner: {
+          userUuid: owner.uuid,
+          userName: ownerUser?.User_name || owner.uuid,
+          role: owner.role,
+        },
+      });
     }
   }
 

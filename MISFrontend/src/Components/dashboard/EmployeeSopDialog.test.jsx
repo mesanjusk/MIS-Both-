@@ -15,7 +15,9 @@ const status = {
     { sop_uuid: 'punch', title: 'Mark attendance & login to MIS',
       timeOfDay: 'morning', scope: 'group', isSkippable: false },
     { sop_uuid: 'files', title: 'Save active design files',
-      timeOfDay: 'evening', scope: 'personal', isSkippable: false },
+      timeOfDay: 'evening', scope: 'personal', isSkippable: false,
+      responsibilityName: 'Design File Closing', transferred: true,
+      effectiveOwner: { userUuid: 'emp-1', userName: 'Asha', role: 'backup1' } },
     { sop_uuid: 'quote', title: 'Send quotation if needed',
       timeOfDay: 'during_day', scope: 'group', isSkippable: true },
   ],
@@ -34,6 +36,8 @@ describe('employee morning and closing SOP popup', () => {
     expect(screen.queryByText('Save active design files')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Closing' }));
     expect(screen.getByText('Save active design files')).toBeInTheDocument();
+    expect(screen.getByText('Design File Closing')).toBeInTheDocument();
+    expect(screen.getByText('Owner now: Asha · Backup 1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Blocked / Handover' })).toBeInTheDocument();
   });
 

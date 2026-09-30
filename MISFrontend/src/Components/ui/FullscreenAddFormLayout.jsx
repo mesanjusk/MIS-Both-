@@ -12,8 +12,10 @@ export default function FullscreenAddFormLayout({
   disableSubmit = false,
   busy = false,
   submitType = 'submit',
+  embedded = false,
 }) {
   useEffect(() => {
+    if (embedded) return undefined;
     const previousBodyOverflow = document.body.style.overflow;
     const previousHtmlOverflow = document.documentElement.style.overflow;
 
@@ -24,7 +26,21 @@ export default function FullscreenAddFormLayout({
       document.body.style.overflow = previousBodyOverflow;
       document.documentElement.style.overflow = previousHtmlOverflow;
     };
-  }, []);
+  }, [embedded]);
+
+  if (embedded) {
+    return (
+      <Box component="form" onSubmit={onSubmit} sx={{ width: '100%' }}>
+        <Stack spacing={1}>{children}</Stack>
+        <Paper elevation={0} sx={{ position: 'sticky', bottom: 0, mt: 1, p: 1, zIndex: 1 }}>
+          <Stack direction="row" spacing={1}>
+            <Button type="button" variant="outlined" fullWidth startIcon={<CloseRoundedIcon />} onClick={onClose}>{cancelLabel}</Button>
+            <Button type={submitType} variant="contained" fullWidth disabled={disableSubmit || busy}>{submitLabel}</Button>
+          </Stack>
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box
@@ -103,4 +119,5 @@ FullscreenAddFormLayout.propTypes = {
   disableSubmit: PropTypes.bool,
   busy: PropTypes.bool,
   submitType: PropTypes.string,
+  embedded: PropTypes.bool,
 };

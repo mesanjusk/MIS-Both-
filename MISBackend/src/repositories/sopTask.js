@@ -8,7 +8,8 @@ const SOPTaskSchema = new mongoose.Schema(
     section: { type: String, default: '', trim: true },
     frequency: { type: String, enum: ['daily', 'weekly', 'monthly'], default: 'daily' },
     timeOfDay: { type: String, enum: ['morning', 'during_day', 'evening', 'any'], default: 'any' },
-    primaryGroup: { type: String, required: true, trim: true },
+    // Group ownership stays supported; responsibility-owned SOPs may leave this empty.
+    primaryGroup: { type: String, default: '', trim: true },
     fallbackGroups: [{ type: String, trim: true }],
     // When set, ownership resolves through the user-level responsibility chain
     // (Responsibility → primary → backup 1..4 → escalation) instead of

@@ -12,6 +12,7 @@ jest.mock('../../src/repositories/users');
 jest.mock('../../src/repositories/sopHandover');
 jest.mock('../../src/services/employeeSopDayService', () => ({
   getEmployeeDailyStatus: jest.fn(), saveEmployeeCompletion: jest.fn(), saveSopHandover: jest.fn(),
+  getTeamDailyOverview: jest.fn(),
 }));
 jest.mock('../../src/services/sopService', () => ({
   getDailyStatus: jest.fn(), getDailyStatusForUser: jest.fn(), markComplete: jest.fn(),
@@ -24,6 +25,7 @@ jest.mock('../../src/services/sopService', () => ({
 }));
 
 const Responsibility = require('../../src/repositories/responsibility');
+const { getTeamDailyOverview } = require('../../src/services/employeeSopDayService');
 const { SOPTask } = require('../../src/services/sopService');
 const app = express();
 app.use(express.json());
@@ -47,6 +49,22 @@ beforeEach(() => {
 });
 
 describe('SOP Responsibility assignment', () => {
+  test('exposes team day-end progress through the manager overview endpoint', async () => {
+    const overview = {
+      date: '2026-10-01T00:00:00.000Z',
+      totals: { employees: 1, started: 1, closed: 0, pending: 1, exceptions: 0 },
+      employees: [{ employeeUuid: 'emp-1', employeeName: 'Asha', dayStatus: 'SOP pending',
+        pendingTasks: [{ sop_uuid: 'cash', title: 'Cash reconciliation' }] }],
+    };
+    getTeamDailyOverview.mockResolvedValue(overview);
+
+    const response = await request(app).get('/api/sop/daily/overview');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ success: true, ...overview });
+    expect(getTeamDailyOverview).toHaveBeenCalledTimes(1);
+  });
+
   test('creates an employee-owned SOP with no duplicate required group and clears direct slot overrides', async () => {
     const response = await request(app).post('/api/sop/tasks').send({
       title: 'Send customer proof',

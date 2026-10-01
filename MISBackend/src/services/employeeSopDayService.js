@@ -99,7 +99,8 @@ async function getTeamDailyOverview(now = new Date()) {
   }).select('User_uuid User_name User_group operations.active').sort({ User_name: 1 }).lean();
   // The endpoint is already manager-only. Keep the report focused on staff;
   // omit owner/admin/manager accounts from employee accountability totals.
-  const employees = users.filter((user) => tierFor(user.User_group) < 3);
+  const employees = users.filter((user) => tierFor(user.User_group) < 3 &&
+    !String(user.User_group || '').toLowerCase().includes('vendor'));
   const rows = await Promise.all(employees.map(async (employee) => {
     const status = await getEmployeeDailyStatus(employee, now);
     const exceptions = status.exceptions.map((task) => ({

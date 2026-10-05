@@ -132,6 +132,16 @@ function sourceEventKey(collectionName, legacyId) {
   return 'legacy:' + collectionName + ':' + String(legacyId);
 }
 
+function legacyEventPrefix(collectionName) {
+  return 'legacy:' + collectionName + ':';
+}
+
+function legacyIdFromEventKey(collectionName, eventKey) {
+  const prefix = legacyEventPrefix(collectionName);
+  const value = String(eventKey || '');
+  return value.startsWith(prefix) ? value.slice(prefix.length) : null;
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
@@ -259,9 +269,34 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
   const sampleLimit = options.sampleLimit || 50;
   const collection = mongoose.connection.db.collection(collectionName);
   const rows = await collection.find({}).toArray();
+  const importedRows = await Transaction.find(
+    { Event_key: { $regex: '^' + escapeRegex(legacyEventPrefix(collectionName)) } },
+    { Event_key: 1, Transaction_id: 1, Transaction_date: 1, Total_Debit: 1, Total_Credit: 1, Description: 1 }
+  ).lean();
+
+  const sourceIds = new Set(rows.map((row) => String(row._id)));
+  const importedByLegacyId = new Map();
+  const orphanImports = [];
+
+  for (const imported of importedRows) {
+    const legacyId = legacyIdFromEventKey(collectionName, imported.Event_key);
+    if (!legacyId || !sourceIds.has(legacyId)) {
+      orphanImports.push({
+        transactionId: imported.Transaction_id || null,
+        eventKey: imported.Event_key || '',
+        date: isoDay(imported.Transaction_date),
+        debit: Number(imported.Total_Debit || 0),
+        credit: Number(imported.Total_Credit || 0),
+        description: imported.Description || '',
+      });
+      continue;
+    }
+    importedByLegacyId.set(legacyId, imported);
+  }
 
   let eligible = 0;
   let valid = 0;
+  let migratedLinkedEligible = 0;
   let ignoredOutsideFinancialYear = 0;
   let ignoredZeroValuePlaceholders = 0;
   let blockers = 0;
@@ -344,6 +379,14 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
         }
       }
 
+      if (importedByLegacyId.has(String(row._id)) && !isZeroValuePlaceholder(row)) {
+        const currentJournal = inspectJournal(row);
+        const spilloverDuplicates = !inExpectedRange(date, source)
+          ? duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, collectionName, row))
+          : [];
+        if (currentJournal.valid && spilloverDuplicates.length === 0) migratedLinkedEligible += 1;
+      }
+
       if (!minDate || date < minDate) minDate = date;
       if (!maxDate || date > maxDate) maxDate = date;
     }
@@ -359,7 +402,8 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
     }
   }
 
-  const migrated = await Transaction.countDocuments({ Event_key: { $regex: '^legacy:' + escapeRegex(collectionName) + ':' } });
+  const migratedRaw = importedRows.length;
+  const orphanImportCount = orphanImports.length;
 
   return {
     key: source.key,
@@ -375,8 +419,11 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
     ignoredZeroValuePlaceholders,
     blockers,
     warnings,
-    migrated,
-    remaining: Math.max(eligible - ignoredZeroValuePlaceholders - migrated, 0),
+    migrated: migratedLinkedEligible,
+    migratedRaw,
+    orphanImportCount,
+    orphanImports: orphanImports.slice(0, 50),
+    remaining: Math.max(valid - migratedLinkedEligible, 0),
     minDate: isoDay(minDate),
     maxDate: isoDay(maxDate),
     totalDebit: Number(totalDebit.toFixed(2)),
@@ -418,7 +465,7 @@ async function auditLegacyTransactions() {
     if (!source.collectionName) {
       sources.push({
         ...source,
-        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, ignoredZeroValuePlaceholders: 0, blockers: 1, warnings: 0, migrated: 0, remaining: 0,
+        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, ignoredZeroValuePlaceholders: 0, blockers: 1, warnings: 0, migrated: 0, migratedRaw: 0, orphanImportCount: 0, orphanImports: [], remaining: 0,
         minDate: null, maxDate: null, totalDebit: 0, totalCredit: 0,
         issues: [{ legacyId: null, issues: [{ severity: 'blocker', message: 'Legacy collection not found in this database' }] }],
       });
@@ -427,11 +474,15 @@ async function auditLegacyTransactions() {
     }
   }
 
-  const blockers = sources.reduce((sum, source) => sum + source.blockers, 0);
+  const structuralBlockers = sources.reduce((sum, source) => sum + source.blockers, 0);
+  const orphanImportCount = sources.reduce((sum, source) => sum + Number(source.orphanImportCount || 0), 0);
+  const blockers = structuralBlockers + orphanImportCount;
   return {
     generatedAt: new Date().toISOString(),
     canMigrate: blockers === 0,
     blockers,
+    structuralBlockers,
+    orphanImportCount,
     sources,
     unifiedByFinancialYear: await financialYearSummary(),
   };
@@ -505,62 +556,72 @@ async function migrateLegacyTransactions() {
     throw err;
   }
 
+  const discovered = await discoverLegacyCollections();
+  const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
   const results = [];
+  const batchSize = 200;
+
   for (const source of audit.sources) {
     const collection = mongoose.connection.db.collection(source.collectionName);
-    const cursor = collection.find({});
     let inserted = 0;
     let skipped = 0;
     let ignoredOutsideFinancialYear = 0;
     let ignoredZeroValuePlaceholders = 0;
     const failures = [];
+    let lastId = null;
 
-    while (await cursor.hasNext()) {
-      const row = await cursor.next();
-      const date = parseDate(row);
+    while (true) {
+      const query = lastId ? { _id: { $gt: lastId } } : {};
+      const batch = await collection.find(query).sort({ _id: 1 }).limit(batchSize).toArray();
+      if (!batch.length) break;
 
-      if (!date) {
-        failures.push({ legacyId: String(row._id), message: 'Missing or invalid transaction date' });
-        break;
-      }
+      for (const row of batch) {
+        lastId = row._id;
+        const date = parseDate(row);
 
-      if (!inFinancialYear2025_26(date)) {
-        ignoredOutsideFinancialYear += 1;
-        continue;
-      }
+        if (!date) {
+          failures.push({ legacyId: String(row._id), message: 'Missing or invalid transaction date' });
+          break;
+        }
 
-      if (isZeroValuePlaceholder(row)) {
-        ignoredZeroValuePlaceholders += 1;
-        continue;
-      }
+        if (!inFinancialYear2025_26(date)) {
+          ignoredOutsideFinancialYear += 1;
+          continue;
+        }
 
-      if (!inExpectedRange(date, source)) {
-        const discovered = await discoverLegacyCollections();
-        const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
-        const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, source.collectionName, row));
-        if (duplicates.length) {
-          failures.push({
-            legacyId: String(row._id),
-            message: 'Spillover row duplicates another legacy source and cannot be migrated automatically.',
-          });
+        if (isZeroValuePlaceholder(row)) {
+          ignoredZeroValuePlaceholders += 1;
+          continue;
+        }
+
+        if (!inExpectedRange(date, source)) {
+          const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, source.collectionName, row));
+          if (duplicates.length) {
+            failures.push({
+              legacyId: String(row._id),
+              message: 'Spillover row duplicates another legacy source and cannot be migrated automatically.',
+            });
+            break;
+          }
+        }
+
+        const eventKey = sourceEventKey(source.collectionName, row._id);
+        if (await Transaction.exists({ Event_key: eventKey })) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const doc = await normalizeForMigration(row, source.collectionName);
+          await Transaction.create(doc);
+          inserted += 1;
+        } catch (error) {
+          failures.push({ legacyId: String(row._id), message: error.message });
           break;
         }
       }
 
-      const eventKey = sourceEventKey(source.collectionName, row._id);
-      if (await Transaction.exists({ Event_key: eventKey })) {
-        skipped += 1;
-        continue;
-      }
-
-      try {
-        const doc = await normalizeForMigration(row, source.collectionName);
-        await Transaction.create(doc);
-        inserted += 1;
-      } catch (error) {
-        failures.push({ legacyId: String(row._id), message: error.message });
-        break;
-      }
+      if (failures.length || batch.length < batchSize) break;
     }
 
     results.push({

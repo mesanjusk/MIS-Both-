@@ -121,10 +121,7 @@ function sourceEventKey(collectionName, legacyId) {
 }
 
 function escapeRegex(value) {
-  return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\function escapeRegex(value) {
   return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
-}
-');
 }
 
 function transactionFingerprint(row) {

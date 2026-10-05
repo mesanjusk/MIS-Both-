@@ -51,13 +51,20 @@ export default function LegacyTransactionMigration() {
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [cleanupConfirmation, setCleanupConfirmation] = useState('');
+  const [cleaningDuplicates, setCleaningDuplicates] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectLoading, setInspectLoading] = useState(false);
   const [inspectData, setInspectData] = useState(null);
 
-  const canMigrate = Boolean(report?.canMigrate) && confirmation === 'MIGRATE 2025-26' && !migrating;
+  const canMigrate = Boolean(report?.canMigrate) && confirmation === 'MIGRATE 2025-26' && !migrating && !cleaningDuplicates;
+  const canCleanupDuplicates = Number(report?.duplicateImportCount || 0) > 0
+    && Number(report?.unsafeDuplicateGroupCount || 0) === 0
+    && cleanupConfirmation === 'CLEAN DUPLICATE IMPORTS'
+    && !cleaningDuplicates
+    && !migrating;
   const totalLegacy = useMemo(
     () => (report?.sources || []).reduce((sum, source) => sum + Number(source.count || 0), 0),
     [report]
@@ -78,6 +85,23 @@ export default function LegacyTransactionMigration() {
       if (err.response?.data?.result) setReport(err.response.data.result);
     } finally {
       setLoadingAudit(false);
+    }
+  }
+
+  async function cleanupDuplicates() {
+    if (!canCleanupDuplicates) return;
+    setCleaningDuplicates(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await axios.post('/api/admin/legacy-transactions/cleanup-duplicates', { confirmation: cleanupConfirmation });
+      setReport(response.data.result?.verification || null);
+      setCleanupConfirmation('');
+      setMessage('Duplicate cleanup completed. One canonical import was kept per Event_key and uniqueness was enforced.');
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Duplicate cleanup failed');
+    } finally {
+      setCleaningDuplicates(false);
     }
   }
 
@@ -132,7 +156,7 @@ export default function LegacyTransactionMigration() {
         {message && <Alert severity={report?.canMigrate ? 'success' : 'warning'}>{message}</Alert>}
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-          <Button variant="contained" onClick={runAudit} disabled={loadingAudit || migrating}>
+          <Button variant="contained" onClick={runAudit} disabled={loadingAudit || migrating || cleaningDuplicates}>
             {loadingAudit ? <CircularProgress size={20} /> : '1. Run Fresh Audit'}
           </Button>
           <TextField
@@ -142,7 +166,7 @@ export default function LegacyTransactionMigration() {
             onChange={(event) => setConfirmation(event.target.value)}
             placeholder="MIGRATE 2025-26"
             sx={{ minWidth: 260 }}
-            disabled={!report?.canMigrate || migrating}
+            disabled={!report?.canMigrate || migrating || cleaningDuplicates}
           />
           <Button color="warning" variant="contained" onClick={runMigration} disabled={!canMigrate}>
             {migrating ? <CircularProgress size={20} /> : '2. Migrate 2025-26'}
@@ -155,6 +179,7 @@ export default function LegacyTransactionMigration() {
               <Chip label={'Legacy rows: ' + totalLegacy} />
               <Chip label={'Blockers: ' + (report.blockers || 0)} color={report.blockers ? 'error' : 'success'} />
               <Chip label={'Orphan imports: ' + (report.orphanImportCount || 0)} color={report.orphanImportCount ? 'error' : 'success'} />
+              <Chip label={'Duplicate imports: ' + (report.duplicateImportCount || 0)} color={report.duplicateImportCount ? 'error' : 'success'} />
               <Chip label={report.canMigrate ? 'Ready to migrate' : 'Migration locked'} color={report.canMigrate ? 'success' : 'warning'} />
               <Typography variant="caption" color="text.secondary">
                 Audit: {report.generatedAt ? new Date(report.generatedAt).toLocaleString() : '—'}
@@ -208,6 +233,53 @@ export default function LegacyTransactionMigration() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {Number(report.duplicateImportCount || 0) > 0 && (
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" fontWeight={800} gutterBottom>Duplicate imported transactions</Typography>
+                  <Alert severity={Number(report.unsafeDuplicateGroupCount || 0) > 0 ? 'error' : 'warning'} sx={{ mb: 1.5 }}>
+                    {Number(report.unsafeDuplicateGroupCount || 0) > 0
+                      ? 'Some duplicate Event_key groups contain different accounting data. Automatic cleanup is blocked.'
+                      : 'Extra copies were found for the same legacy Event_key. Cleanup keeps one canonical copy and deletes only accounting-identical extras.'}
+                  </Alert>
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+                    <TextField
+                      size="small"
+                      label="Cleanup confirmation"
+                      value={cleanupConfirmation}
+                      onChange={(event) => setCleanupConfirmation(event.target.value)}
+                      placeholder="CLEAN DUPLICATE IMPORTS"
+                      sx={{ minWidth: 280 }}
+                      disabled={cleaningDuplicates || Number(report.unsafeDuplicateGroupCount || 0) > 0}
+                    />
+                    <Button
+                      color="error"
+                      variant="contained"
+                      onClick={cleanupDuplicates}
+                      disabled={!canCleanupDuplicates}
+                    >
+                      {cleaningDuplicates ? <CircularProgress size={20} /> : 'Clean duplicate imports'}
+                    </Button>
+                  </Stack>
+
+                  <Stack spacing={1}>
+                    {(report.sources || []).flatMap((source) =>
+                      (source.duplicateImportGroups || []).slice(0, 20).map((group, index) => (
+                        <Alert key={source.key + '-dup-' + index} severity={group.consistent ? 'warning' : 'error'}>
+                          <strong>{source.label}</strong>
+                          {' · ' + group.eventKey}
+                          {' · copies ' + group.count}
+                          {' · extra ' + group.extraCopies}
+                          {' · ' + (group.consistent ? 'accounting-identical' : 'DIFFERENT accounting data')}
+                        </Alert>
+                      ))
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
 
             {(report.sources || []).some((source) => source.orphanImports?.length) && (
               <Card variant="outlined">

@@ -108,7 +108,7 @@ function SummaryCards({ opening, receipts, payments, closing, prefix }) {
 }
 
 export default function AllTransaction() {
-  const [selectedDate, setSelectedDate] = useState(todayStr());\n  const [financialYear, setFinancialYear] = useState('2026-27');
+  const [selectedDate, setSelectedDate] = useState(todayStr());
   const [activeBook, setActiveBook] = useState('cash');
   const [transactions, setTransactions] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -117,7 +117,7 @@ export default function AllTransaction() {
 
   useEffect(() => {
     Promise.all([
-      axios.get('/api/transaction', { params: { financialYear }, cache: false }),
+      axios.get('/api/transaction'),
       axios.get('/api/customers/GetCustomersList'),
       axios.get('/api/accounts'),
     ])

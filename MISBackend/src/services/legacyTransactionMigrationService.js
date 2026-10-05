@@ -505,62 +505,72 @@ async function migrateLegacyTransactions() {
     throw err;
   }
 
+  const discovered = await discoverLegacyCollections();
+  const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
   const results = [];
+  const batchSize = 200;
+
   for (const source of audit.sources) {
     const collection = mongoose.connection.db.collection(source.collectionName);
-    const cursor = collection.find({});
     let inserted = 0;
     let skipped = 0;
     let ignoredOutsideFinancialYear = 0;
     let ignoredZeroValuePlaceholders = 0;
     const failures = [];
+    let lastId = null;
 
-    while (await cursor.hasNext()) {
-      const row = await cursor.next();
-      const date = parseDate(row);
+    while (true) {
+      const query = lastId ? { _id: { $gt: lastId } } : {};
+      const batch = await collection.find(query).sort({ _id: 1 }).limit(batchSize).toArray();
+      if (!batch.length) break;
 
-      if (!date) {
-        failures.push({ legacyId: String(row._id), message: 'Missing or invalid transaction date' });
-        break;
-      }
+      for (const row of batch) {
+        lastId = row._id;
+        const date = parseDate(row);
 
-      if (!inFinancialYear2025_26(date)) {
-        ignoredOutsideFinancialYear += 1;
-        continue;
-      }
+        if (!date) {
+          failures.push({ legacyId: String(row._id), message: 'Missing or invalid transaction date' });
+          break;
+        }
 
-      if (isZeroValuePlaceholder(row)) {
-        ignoredZeroValuePlaceholders += 1;
-        continue;
-      }
+        if (!inFinancialYear2025_26(date)) {
+          ignoredOutsideFinancialYear += 1;
+          continue;
+        }
 
-      if (!inExpectedRange(date, source)) {
-        const discovered = await discoverLegacyCollections();
-        const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
-        const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, source.collectionName, row));
-        if (duplicates.length) {
-          failures.push({
-            legacyId: String(row._id),
-            message: 'Spillover row duplicates another legacy source and cannot be migrated automatically.',
-          });
+        if (isZeroValuePlaceholder(row)) {
+          ignoredZeroValuePlaceholders += 1;
+          continue;
+        }
+
+        if (!inExpectedRange(date, source)) {
+          const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, source.collectionName, row));
+          if (duplicates.length) {
+            failures.push({
+              legacyId: String(row._id),
+              message: 'Spillover row duplicates another legacy source and cannot be migrated automatically.',
+            });
+            break;
+          }
+        }
+
+        const eventKey = sourceEventKey(source.collectionName, row._id);
+        if (await Transaction.exists({ Event_key: eventKey })) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const doc = await normalizeForMigration(row, source.collectionName);
+          await Transaction.create(doc);
+          inserted += 1;
+        } catch (error) {
+          failures.push({ legacyId: String(row._id), message: error.message });
           break;
         }
       }
 
-      const eventKey = sourceEventKey(source.collectionName, row._id);
-      if (await Transaction.exists({ Event_key: eventKey })) {
-        skipped += 1;
-        continue;
-      }
-
-      try {
-        const doc = await normalizeForMigration(row, source.collectionName);
-        await Transaction.create(doc);
-        inserted += 1;
-      } catch (error) {
-        failures.push({ legacyId: String(row._id), message: error.message });
-        break;
-      }
+      if (failures.length || batch.length < batchSize) break;
     }
 
     results.push({

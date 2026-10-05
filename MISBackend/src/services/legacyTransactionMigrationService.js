@@ -60,6 +60,18 @@ function rawJournal(row) {
   return Array.isArray(lines) ? lines : [];
 }
 
+function storedTotals(row) {
+  return {
+    debit: toAmount(firstValue(row, ['Total_Debit', 'total_debit', 'TotalDebit'])),
+    credit: toAmount(firstValue(row, ['Total_Credit', 'total_credit', 'TotalCredit'])),
+  };
+}
+
+function isZeroValuePlaceholder(row) {
+  const totals = storedTotals(row);
+  return rawJournal(row).length < 2 && totals.debit === 0 && totals.credit === 0;
+}
+
 function inspectJournal(row) {
   const lines = rawJournal(row);
   if (lines.length < 2) return { valid: false, reason: 'Journal has fewer than 2 lines', lines: [] };
@@ -251,6 +263,7 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
   let eligible = 0;
   let valid = 0;
   let ignoredOutsideFinancialYear = 0;
+  let ignoredZeroValuePlaceholders = 0;
   let blockers = 0;
   let warnings = 0;
   let totalDebit = 0;
@@ -278,7 +291,15 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
 
       const journal = inspectJournal(row);
       const spillover = !inExpectedRange(date, source);
-      if (spillover) {
+
+      if (isZeroValuePlaceholder(row)) {
+        ignoredZeroValuePlaceholders += 1;
+        warnings += 1;
+        rowIssues.push({
+          severity: 'warning',
+          message: 'Ignored zero-value placeholder: stored Debit/Credit are 0 and journal has fewer than 2 lines.',
+        });
+      } else if (spillover) {
         const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, collectionName, row));
         if (duplicates.length) {
           blockers += 1;
@@ -351,10 +372,11 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
     eligible,
     valid,
     ignoredOutsideFinancialYear,
+    ignoredZeroValuePlaceholders,
     blockers,
     warnings,
     migrated,
-    remaining: Math.max(eligible - migrated, 0),
+    remaining: Math.max(eligible - ignoredZeroValuePlaceholders - migrated, 0),
     minDate: isoDay(minDate),
     maxDate: isoDay(maxDate),
     totalDebit: Number(totalDebit.toFixed(2)),
@@ -396,7 +418,7 @@ async function auditLegacyTransactions() {
     if (!source.collectionName) {
       sources.push({
         ...source,
-        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, blockers: 1, warnings: 0, migrated: 0, remaining: 0,
+        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, ignoredZeroValuePlaceholders: 0, blockers: 1, warnings: 0, migrated: 0, remaining: 0,
         minDate: null, maxDate: null, totalDebit: 0, totalCredit: 0,
         issues: [{ legacyId: null, issues: [{ severity: 'blocker', message: 'Legacy collection not found in this database' }] }],
       });
@@ -490,6 +512,7 @@ async function migrateLegacyTransactions() {
     let inserted = 0;
     let skipped = 0;
     let ignoredOutsideFinancialYear = 0;
+    let ignoredZeroValuePlaceholders = 0;
     const failures = [];
 
     while (await cursor.hasNext()) {
@@ -503,6 +526,11 @@ async function migrateLegacyTransactions() {
 
       if (!inFinancialYear2025_26(date)) {
         ignoredOutsideFinancialYear += 1;
+        continue;
+      }
+
+      if (isZeroValuePlaceholder(row)) {
+        ignoredZeroValuePlaceholders += 1;
         continue;
       }
 
@@ -541,6 +569,7 @@ async function migrateLegacyTransactions() {
       inserted,
       skipped,
       ignoredOutsideFinancialYear,
+      ignoredZeroValuePlaceholders,
       failures,
     });
 

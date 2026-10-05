@@ -125,7 +125,7 @@ export default function LegacyTransactionMigration() {
         </Box>
 
         <Alert severity="info">
-          Step 1 runs a read-only audit. Rows outside FY 2025-26 are ignored, not migrated. Step 2 becomes available only when there are zero blockers inside FY 2025-26. Re-running migration is safe because every old row gets a unique migration fingerprint.
+          Step 1 runs a read-only audit. Rows outside FY 2025-26 and zero-value placeholder rows are ignored, not migrated. Any malformed row carrying a non-zero amount still blocks migration. Step 2 becomes available only when there are zero blockers inside FY 2025-26.
         </Alert>
 
         {error && <Alert severity="error">{error}</Alert>}
@@ -187,7 +187,7 @@ export default function LegacyTransactionMigration() {
                       <TableCell>{source.expectedStart} → {source.expectedEnd}</TableCell>
                       <TableCell align="right">{source.count || 0}</TableCell>
                       <TableCell align="right">{source.eligible || 0}</TableCell>
-                      <TableCell align="right">{source.ignoredOutsideFinancialYear || 0}</TableCell>
+                      <TableCell align="right">{Number(source.ignoredOutsideFinancialYear || 0) + Number(source.ignoredZeroValuePlaceholders || 0)}</TableCell>
                       <TableCell align="right">{source.valid || 0}</TableCell>
                       <TableCell align="right">{source.migrated || 0}</TableCell>
                       <TableCell align="right">{source.remaining || 0}</TableCell>

@@ -101,6 +101,15 @@ function isoDay(date) {
   return date ? new Date(date).toISOString().slice(0, 10) : null;
 }
 
+const FY_2025_26_START = '2025-04-01';
+const FY_2025_26_END = '2026-03-31';
+
+function inFinancialYear2025_26(date) {
+  if (!date) return false;
+  const day = isoDay(date);
+  return day >= FY_2025_26_START && day <= FY_2025_26_END;
+}
+
 function inExpectedRange(date, source) {
   if (!date) return false;
   const day = isoDay(date);
@@ -120,7 +129,9 @@ async function summarizeCollection(collectionName, source, options = {}) {
   const collection = mongoose.connection.db.collection(collectionName);
   const rows = await collection.find({}).toArray();
 
+  let eligible = 0;
   let valid = 0;
+  let ignoredOutsideFinancialYear = 0;
   let blockers = 0;
   let warnings = 0;
   let totalDebit = 0;
@@ -131,26 +142,49 @@ async function summarizeCollection(collectionName, source, options = {}) {
 
   for (const row of rows) {
     const date = parseDate(row);
-    const journal = inspectJournal(row);
     const rowIssues = [];
 
-    if (!date) rowIssues.push({ severity: 'blocker', message: 'Missing or invalid transaction date' });
-    else if (!inExpectedRange(date, source)) rowIssues.push({ severity: 'blocker', message: 'Date ' + isoDay(date) + ' is outside expected ' + source.expectedStart + ' to ' + source.expectedEnd });
+    if (!date) {
+      blockers += 1;
+      rowIssues.push({ severity: 'blocker', message: 'Missing or invalid transaction date' });
+    } else if (!inFinancialYear2025_26(date)) {
+      ignoredOutsideFinancialYear += 1;
+      warnings += 1;
+      rowIssues.push({
+        severity: 'warning',
+        message: 'Ignored: date ' + isoDay(date) + ' is outside FY 2025-26 (' + FY_2025_26_START + ' to ' + FY_2025_26_END + ')',
+      });
+    } else {
+      eligible += 1;
 
-    if (!journal.valid) rowIssues.push({ severity: 'blocker', message: journal.reason });
-    else if (journal.unresolvedAccountNames) rowIssues.push({ severity: 'warning', message: journal.unresolvedAccountNames + ' journal account name(s) will be resolved to UUID during migration' });
+      if (!inExpectedRange(date, source)) {
+        blockers += 1;
+        rowIssues.push({
+          severity: 'blocker',
+          message: 'FY 2025-26 row is outside this source\'s expected period ' + source.expectedStart + ' to ' + source.expectedEnd + '. Review before migration.',
+        });
+      } else {
+        const journal = inspectJournal(row);
+        if (!journal.valid) {
+          blockers += 1;
+          rowIssues.push({ severity: 'blocker', message: journal.reason });
+        } else {
+          valid += 1;
+          totalDebit += journal.debit;
+          totalCredit += journal.credit;
 
-    if (rowIssues.some((issue) => issue.severity === 'blocker')) blockers += 1;
-    else valid += 1;
-    warnings += rowIssues.filter((issue) => issue.severity === 'warning').length;
+          if (journal.unresolvedAccountNames) {
+            warnings += 1;
+            rowIssues.push({
+              severity: 'warning',
+              message: journal.unresolvedAccountNames + ' journal account name(s) will be resolved to UUID during migration',
+            });
+          }
+        }
+      }
 
-    if (date) {
       if (!minDate || date < minDate) minDate = date;
       if (!maxDate || date > maxDate) maxDate = date;
-    }
-    if (journal.valid) {
-      totalDebit += journal.debit;
-      totalCredit += journal.credit;
     }
 
     if (rowIssues.length && issues.length < sampleLimit) {
@@ -174,11 +208,13 @@ async function summarizeCollection(collectionName, source, options = {}) {
     expectedStart: source.expectedStart,
     expectedEnd: source.expectedEnd,
     count: rows.length,
+    eligible,
     valid,
+    ignoredOutsideFinancialYear,
     blockers,
     warnings,
     migrated,
-    remaining: Math.max(rows.length - migrated, 0),
+    remaining: Math.max(eligible - migrated, 0),
     minDate: isoDay(minDate),
     maxDate: isoDay(maxDate),
     totalDebit: Number(totalDebit.toFixed(2)),
@@ -219,7 +255,7 @@ async function auditLegacyTransactions() {
     if (!source.collectionName) {
       sources.push({
         ...source,
-        count: 0, valid: 0, blockers: 1, warnings: 0, migrated: 0, remaining: 0,
+        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, blockers: 1, warnings: 0, migrated: 0, remaining: 0,
         minDate: null, maxDate: null, totalDebit: 0, totalCredit: 0,
         issues: [{ legacyId: null, issues: [{ severity: 'blocker', message: 'Legacy collection not found in this database' }] }],
       });
@@ -312,15 +348,37 @@ async function migrateLegacyTransactions() {
     const cursor = collection.find({});
     let inserted = 0;
     let skipped = 0;
+    let ignoredOutsideFinancialYear = 0;
     const failures = [];
 
     while (await cursor.hasNext()) {
       const row = await cursor.next();
+      const date = parseDate(row);
+
+      if (!date) {
+        failures.push({ legacyId: String(row._id), message: 'Missing or invalid transaction date' });
+        break;
+      }
+
+      if (!inFinancialYear2025_26(date)) {
+        ignoredOutsideFinancialYear += 1;
+        continue;
+      }
+
+      if (!inExpectedRange(date, source)) {
+        failures.push({
+          legacyId: String(row._id),
+          message: 'FY 2025-26 row is outside expected source period: ' + isoDay(date),
+        });
+        break;
+      }
+
       const eventKey = sourceEventKey(source.collectionName, row._id);
       if (await Transaction.exists({ Event_key: eventKey })) {
         skipped += 1;
         continue;
       }
+
       try {
         const doc = await normalizeForMigration(row, source.collectionName);
         await Transaction.create(doc);
@@ -331,7 +389,15 @@ async function migrateLegacyTransactions() {
       }
     }
 
-    results.push({ key: source.key, collectionName: source.collectionName, inserted, skipped, failures });
+    results.push({
+      key: source.key,
+      collectionName: source.collectionName,
+      inserted,
+      skipped,
+      ignoredOutsideFinancialYear,
+      failures,
+    });
+
     if (failures.length) {
       const err = new Error('Migration stopped because ' + source.collectionName + ' had a write failure');
       err.statusCode = 409;

@@ -20,7 +20,7 @@ export default function AllTransaction5() {
   const [searchName,   setSearchName]   = useState('');
   const [searchAmount, setSearchAmount] = useState('');
   const [startDate,    setStartDate]    = useState('');
-  const [endDate,      setEndDate]      = useState('');
+  const [endDate,      setEndDate]      = useState('');\n  const [financialYear, setFinancialYear] = useState('2026-27');
   const [sortConfig,   setSortConfig]   = useState({ key: 'Transaction_date', direction: 'desc' });
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -38,17 +38,17 @@ export default function AllTransaction5() {
 
   const refreshTransactions = useCallback(async () => {
     try {
-      const res = await axios.get('/api/transaction');
+      const res = await axios.get('/api/transaction', { params: { financialYear }, cache: false });
       if (res.data?.success) setTransactions(res.data.result || []);
     } catch (err) {
       console.error('Error refreshing transactions:', err);
     }
-  }, []);
+  }, [financialYear]);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      axios.get('/api/transaction'),
+      axios.get('/api/transaction', { params: { financialYear }, cache: false }),
       axios.get('/api/customers/GetCustomersList'),
       axios.get('/api/accounts'),
     ])

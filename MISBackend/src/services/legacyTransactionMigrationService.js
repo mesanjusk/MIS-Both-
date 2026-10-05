@@ -203,19 +203,17 @@ function buildImportedDuplicateGroups(importedRows) {
   return groups;
 }
 
-async function ensureUniqueEventKeyIndex() {
+async function ensureUniqueLegacyEventKeyIndex() {
   const collection = Transaction.collection;
   const indexes = await collection.indexes();
-  const existing = indexes.find((index) => index?.key && Object.keys(index.key).length === 1 && index.key.Event_key === 1);
+  const existing = indexes.find((index) => index?.key && Object.keys(index.key).length === 1 && index.key.Legacy_event_key === 1);
   if (existing && existing.unique) return { status: 'already-unique', name: existing.name };
 
-  if (existing && !existing.unique) {
-    await collection.dropIndex(existing.name);
-  }
+  if (existing) await collection.dropIndex(existing.name);
 
   const name = await collection.createIndex(
-    { Event_key: 1 },
-    { unique: true, partialFilterExpression: { Event_key: { $type: 'string' } } }
+    { Legacy_event_key: 1 },
+    { unique: true, sparse: true }
   );
   return { status: 'created', name };
 }
@@ -631,6 +629,7 @@ async function normalizeForMigration(row, collectionName) {
     Upi_response_raw: firstValue(row, ['Upi_response_raw', 'upi_response_raw']) || null,
     Source: 'legacy-migration:' + collectionName,
     Event_key: sourceEventKey(collectionName, row._id),
+    Legacy_event_key: sourceEventKey(collectionName, row._id),
     createdAt: firstValue(row, ['createdAt', 'CreatedAt']) || date,
     updatedAt: firstValue(row, ['updatedAt', 'UpdatedAt']) || date,
   };
@@ -675,7 +674,22 @@ async function cleanupDuplicateLegacyImports() {
     });
   }
 
-  const index = await ensureUniqueEventKeyIndex();
+  const importedLegacyRows = await Transaction.find(
+    { Event_key: { $regex: '^legacy:' } },
+    { _id: 1, Event_key: 1, Legacy_event_key: 1 }
+  ).lean();
+
+  if (importedLegacyRows.length) {
+    const operations = importedLegacyRows.map((row) => ({
+      updateOne: {
+        filter: { _id: row._id },
+        update: { $set: { Legacy_event_key: row.Event_key } },
+      },
+    }));
+    await Transaction.bulkWrite(operations, { ordered: false });
+  }
+
+  const index = await ensureUniqueLegacyEventKeyIndex();
   return {
     completedAt: new Date().toISOString(),
     duplicateGroups: allGroups.length,
@@ -745,7 +759,7 @@ async function migrateLegacyTransactions() {
         }
 
         const eventKey = sourceEventKey(source.collectionName, row._id);
-        if (await Transaction.exists({ Event_key: eventKey })) {
+        if (await Transaction.exists({ $or: [{ Legacy_event_key: eventKey }, { Event_key: eventKey }] })) {
           skipped += 1;
           continue;
         }

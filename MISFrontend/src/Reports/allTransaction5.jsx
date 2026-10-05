@@ -20,7 +20,8 @@ export default function AllTransaction5() {
   const [searchName,   setSearchName]   = useState('');
   const [searchAmount, setSearchAmount] = useState('');
   const [startDate,    setStartDate]    = useState('');
-  const [endDate,      setEndDate]      = useState('');\n  const [financialYear, setFinancialYear] = useState('2026-27');
+  const [endDate,      setEndDate]      = useState('');
+  const [financialYear, setFinancialYear] = useState('2026-27');
   const [sortConfig,   setSortConfig]   = useState({ key: 'Transaction_date', direction: 'desc' });
 
   const [showEditModal, setShowEditModal] = useState(false);
@@ -59,7 +60,7 @@ export default function AllTransaction5() {
       })
       .catch(() => toast.error('Failed to load transactions'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [financialYear]);
 
   const customerMap = useMemo(() => {
     const m = {};
@@ -282,8 +283,23 @@ export default function AllTransaction5() {
           <h2 className="text-xl font-bold text-gray-800">All Transactions</h2>
           <p className="text-sm text-gray-500">Complete ledger — all journal entries</p>
         </div>
-        <div className="text-sm text-gray-600 font-medium">
-          Showing <span className="text-blue-600 font-bold">{filtered.length}</span> of {transactions.length} entries
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-xs font-medium text-gray-600">Financial Year</label>
+          <select
+            value={financialYear}
+            onChange={(e) => {
+              setFinancialYear(e.target.value);
+              setStartDate('');
+              setEndDate('');
+            }}
+            className="border rounded-lg px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="2026-27">2026-27</option>
+            <option value="2025-26">2025-26</option>
+          </select>
+          <div className="text-sm text-gray-600 font-medium">
+            Showing <span className="text-blue-600 font-bold">{filtered.length}</span> of {transactions.length} entries
+          </div>
         </div>
       </div>
 

@@ -142,6 +142,84 @@ function legacyIdFromEventKey(collectionName, eventKey) {
   return value.startsWith(prefix) ? value.slice(prefix.length) : null;
 }
 
+function importedAccountingSignature(row) {
+  const journal = Array.isArray(row?.Journal_entry)
+    ? row.Journal_entry.map((line) => ({
+        Account_id: String(line?.Account_id || ''),
+        Account_name: String(line?.Account_name || ''),
+        Type: String(line?.Type || ''),
+        Amount: Number(line?.Amount || 0),
+      })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    : [];
+
+  return JSON.stringify({
+    Transaction_date: isoDay(row?.Transaction_date),
+    Description: String(row?.Description || ''),
+    Total_Debit: Number(row?.Total_Debit || 0),
+    Total_Credit: Number(row?.Total_Credit || 0),
+    Payment_mode: String(row?.Payment_mode || ''),
+    Created_by: String(row?.Created_by || ''),
+    Source: String(row?.Source || ''),
+    Customer_uuid: row?.Customer_uuid || null,
+    Order_uuid: row?.Order_uuid || null,
+    Order_number: row?.Order_number || null,
+    Journal_entry: journal,
+  });
+}
+
+function buildImportedDuplicateGroups(importedRows) {
+  const byEventKey = new Map();
+  for (const row of importedRows) {
+    const key = String(row?.Event_key || '');
+    if (!key) continue;
+    const list = byEventKey.get(key) || [];
+    list.push(row);
+    byEventKey.set(key, list);
+  }
+
+  const groups = [];
+  for (const [eventKey, rows] of byEventKey.entries()) {
+    if (rows.length < 2) continue;
+    const signatures = new Set(rows.map(importedAccountingSignature));
+    const sorted = [...rows].sort((a, b) => String(a._id).localeCompare(String(b._id)));
+    groups.push({
+      eventKey,
+      count: rows.length,
+      extraCopies: rows.length - 1,
+      consistent: signatures.size === 1,
+      keepId: String(sorted[0]._id),
+      duplicateIds: sorted.slice(1).map((row) => String(row._id)),
+      transactions: sorted.slice(0, 10).map((row) => ({
+        id: String(row._id),
+        transactionId: row.Transaction_id || null,
+        transactionUuid: row.Transaction_uuid || '',
+        date: isoDay(row.Transaction_date),
+        debit: Number(row.Total_Debit || 0),
+        credit: Number(row.Total_Credit || 0),
+        description: row.Description || '',
+      })),
+    });
+  }
+  return groups;
+}
+
+async function ensureUniqueEventKeyIndex() {
+  const collection = Transaction.collection;
+  const indexes = await collection.indexes();
+  const existing = indexes.find((index) => index?.key && Object.keys(index.key).length === 1 && index.key.Event_key === 1);
+  if (existing && existing.unique) return { status: 'already-unique', name: existing.name };
+
+  if (existing && !existing.unique) {
+    await collection.dropIndex(existing.name);
+  }
+
+  const name = await collection.createIndex(
+    { Event_key: 1 },
+    { unique: true, partialFilterExpression: { Event_key: { $type: 'string' } } }
+  );
+  return { status: 'created', name };
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
@@ -271,12 +349,15 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
   const rows = await collection.find({}).toArray();
   const importedRows = await Transaction.find(
     { Event_key: { $regex: '^' + escapeRegex(legacyEventPrefix(collectionName)) } },
-    { Event_key: 1, Transaction_id: 1, Transaction_date: 1, Total_Debit: 1, Total_Credit: 1, Description: 1 }
+    { Event_key: 1, Transaction_id: 1, Transaction_uuid: 1, Transaction_date: 1, Total_Debit: 1, Total_Credit: 1, Description: 1, Payment_mode: 1, Created_by: 1, Source: 1, Customer_uuid: 1, Order_uuid: 1, Order_number: 1, Journal_entry: 1, createdAt: 1 }
   ).lean();
 
   const sourceIds = new Set(rows.map((row) => String(row._id)));
   const importedByLegacyId = new Map();
   const orphanImports = [];
+  const duplicateImportGroups = buildImportedDuplicateGroups(importedRows);
+  const duplicateImportCount = duplicateImportGroups.reduce((sum, group) => sum + group.extraCopies, 0);
+  const unsafeDuplicateGroupCount = duplicateImportGroups.filter((group) => !group.consistent).length;
 
   for (const imported of importedRows) {
     const legacyId = legacyIdFromEventKey(collectionName, imported.Event_key);
@@ -423,6 +504,10 @@ async function summarizeCollection(collectionName, source, duplicateIndex, optio
     migratedRaw,
     orphanImportCount,
     orphanImports: orphanImports.slice(0, 50),
+    duplicateImportCount,
+    duplicateGroupCount: duplicateImportGroups.length,
+    unsafeDuplicateGroupCount,
+    duplicateImportGroups: duplicateImportGroups.slice(0, 50),
     remaining: Math.max(valid - migratedLinkedEligible, 0),
     minDate: isoDay(minDate),
     maxDate: isoDay(maxDate),
@@ -465,7 +550,7 @@ async function auditLegacyTransactions() {
     if (!source.collectionName) {
       sources.push({
         ...source,
-        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, ignoredZeroValuePlaceholders: 0, blockers: 1, warnings: 0, migrated: 0, migratedRaw: 0, orphanImportCount: 0, orphanImports: [], remaining: 0,
+        count: 0, eligible: 0, valid: 0, ignoredOutsideFinancialYear: 0, ignoredZeroValuePlaceholders: 0, blockers: 1, warnings: 0, migrated: 0, migratedRaw: 0, orphanImportCount: 0, orphanImports: [], duplicateImportCount: 0, duplicateGroupCount: 0, unsafeDuplicateGroupCount: 0, duplicateImportGroups: [], remaining: 0,
         minDate: null, maxDate: null, totalDebit: 0, totalCredit: 0,
         issues: [{ legacyId: null, issues: [{ severity: 'blocker', message: 'Legacy collection not found in this database' }] }],
       });
@@ -476,13 +561,17 @@ async function auditLegacyTransactions() {
 
   const structuralBlockers = sources.reduce((sum, source) => sum + source.blockers, 0);
   const orphanImportCount = sources.reduce((sum, source) => sum + Number(source.orphanImportCount || 0), 0);
-  const blockers = structuralBlockers + orphanImportCount;
+  const duplicateImportCount = sources.reduce((sum, source) => sum + Number(source.duplicateImportCount || 0), 0);
+  const unsafeDuplicateGroupCount = sources.reduce((sum, source) => sum + Number(source.unsafeDuplicateGroupCount || 0), 0);
+  const blockers = structuralBlockers + orphanImportCount + duplicateImportCount;
   return {
     generatedAt: new Date().toISOString(),
     canMigrate: blockers === 0,
     blockers,
     structuralBlockers,
     orphanImportCount,
+    duplicateImportCount,
+    unsafeDuplicateGroupCount,
     sources,
     unifiedByFinancialYear: await financialYearSummary(),
   };
@@ -544,6 +633,56 @@ async function normalizeForMigration(row, collectionName) {
     Event_key: sourceEventKey(collectionName, row._id),
     createdAt: firstValue(row, ['createdAt', 'CreatedAt']) || date,
     updatedAt: firstValue(row, ['updatedAt', 'UpdatedAt']) || date,
+  };
+}
+
+async function cleanupDuplicateLegacyImports() {
+  const discovered = await discoverLegacyCollections();
+  const allGroups = [];
+
+  for (const source of discovered) {
+    if (!source.collectionName) continue;
+    const importedRows = await Transaction.find(
+      { Event_key: { $regex: '^' + escapeRegex(legacyEventPrefix(source.collectionName)) } },
+      { Event_key: 1, Transaction_id: 1, Transaction_uuid: 1, Transaction_date: 1, Total_Debit: 1, Total_Credit: 1, Description: 1, Payment_mode: 1, Created_by: 1, Source: 1, Customer_uuid: 1, Order_uuid: 1, Order_number: 1, Journal_entry: 1, createdAt: 1 }
+    ).lean();
+
+    for (const group of buildImportedDuplicateGroups(importedRows)) {
+      allGroups.push({ ...group, sourceKey: source.key, collectionName: source.collectionName });
+    }
+  }
+
+  const unsafe = allGroups.filter((group) => !group.consistent);
+  if (unsafe.length) {
+    const err = new Error('Duplicate cleanup blocked because some Event_key groups contain inconsistent accounting data.');
+    err.statusCode = 409;
+    err.unsafeGroups = unsafe.slice(0, 50);
+    throw err;
+  }
+
+  let deleted = 0;
+  const cleanedGroups = [];
+  for (const group of allGroups) {
+    const ids = group.duplicateIds.map((id) => new mongoose.Types.ObjectId(id));
+    if (!ids.length) continue;
+    const result = await Transaction.deleteMany({ _id: { $in: ids }, Event_key: group.eventKey });
+    deleted += Number(result.deletedCount || 0);
+    cleanedGroups.push({
+      eventKey: group.eventKey,
+      keptId: group.keepId,
+      requestedDeletes: ids.length,
+      deleted: Number(result.deletedCount || 0),
+    });
+  }
+
+  const index = await ensureUniqueEventKeyIndex();
+  return {
+    completedAt: new Date().toISOString(),
+    duplicateGroups: allGroups.length,
+    deleted,
+    index,
+    cleanedGroups: cleanedGroups.slice(0, 100),
+    verification: await auditLegacyTransactions(),
   };
 }
 
@@ -646,4 +785,4 @@ async function migrateLegacyTransactions() {
   return { completedAt: new Date().toISOString(), results, verification: await auditLegacyTransactions() };
 }
 
-module.exports = { LEGACY_SOURCES, auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary, getLegacyTransactionDetail };
+module.exports = { LEGACY_SOURCES, auditLegacyTransactions, migrateLegacyTransactions, cleanupDuplicateLegacyImports, financialYearSummary, getLegacyTransactionDetail };

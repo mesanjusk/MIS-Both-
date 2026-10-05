@@ -154,6 +154,7 @@ export default function LegacyTransactionMigration() {
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
               <Chip label={'Legacy rows: ' + totalLegacy} />
               <Chip label={'Blockers: ' + (report.blockers || 0)} color={report.blockers ? 'error' : 'success'} />
+              <Chip label={'Orphan imports: ' + (report.orphanImportCount || 0)} color={report.orphanImportCount ? 'error' : 'success'} />
               <Chip label={report.canMigrate ? 'Ready to migrate' : 'Migration locked'} color={report.canMigrate ? 'success' : 'warning'} />
               <Typography variant="caption" color="text.secondary">
                 Audit: {report.generatedAt ? new Date(report.generatedAt).toLocaleString() : '—'}
@@ -171,6 +172,8 @@ export default function LegacyTransactionMigration() {
                     <TableCell align="right">Ignored</TableCell>
                     <TableCell align="right">Valid</TableCell>
                     <TableCell align="right">Migrated</TableCell>
+                    <TableCell align="right">Raw imports</TableCell>
+                    <TableCell align="right">Orphans</TableCell>
                     <TableCell align="right">Remaining</TableCell>
                     <TableCell align="right">Blockers</TableCell>
                     <TableCell align="right">Debit</TableCell>
@@ -190,6 +193,10 @@ export default function LegacyTransactionMigration() {
                       <TableCell align="right">{Number(source.ignoredOutsideFinancialYear || 0) + Number(source.ignoredZeroValuePlaceholders || 0)}</TableCell>
                       <TableCell align="right">{source.valid || 0}</TableCell>
                       <TableCell align="right">{source.migrated || 0}</TableCell>
+                      <TableCell align="right">{source.migratedRaw || 0}</TableCell>
+                      <TableCell align="right">
+                        <Chip size="small" label={source.orphanImportCount || 0} color={source.orphanImportCount ? 'error' : 'success'} />
+                      </TableCell>
                       <TableCell align="right">{source.remaining || 0}</TableCell>
                       <TableCell align="right">
                         <Chip size="small" label={source.blockers || 0} color={source.blockers ? 'error' : 'success'} />
@@ -201,6 +208,31 @@ export default function LegacyTransactionMigration() {
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {(report.sources || []).some((source) => source.orphanImports?.length) && (
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" fontWeight={800} gutterBottom>Orphan imported transactions</Typography>
+                  <Alert severity="error" sx={{ mb: 1.5 }}>
+                    These imported Event_key values do not map back to a current row in their legacy source collection. Migration stays locked until they are reviewed.
+                  </Alert>
+                  <Stack spacing={1}>
+                    {(report.sources || []).flatMap((source) =>
+                      (source.orphanImports || []).map((row, index) => (
+                        <Alert key={source.key + '-orphan-' + index} severity="error">
+                          <strong>{source.label}</strong>
+                          {' · Transaction ' + (row.transactionId ?? '—')}
+                          {row.date ? ' · ' + row.date : ''}
+                          {' · ' + row.eventKey}
+                          {' · Debit ' + money(row.debit) + ' / Credit ' + money(row.credit)}
+                          {row.description ? ' · ' + row.description : ''}
+                        </Alert>
+                      ))
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
 
             {(report.sources || []).some((source) => source.issues?.length) && (
               <Card variant="outlined">

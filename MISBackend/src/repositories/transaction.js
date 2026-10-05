@@ -44,6 +44,7 @@ const TransactionSchema = new mongoose.Schema(
     Upi_response_raw: { type: mongoose.Schema.Types.Mixed, default: null },
     Source: { type: String, default: '', index: true },
     Event_key: { type: String, default: undefined },
+    Legacy_event_key: { type: String, default: undefined },
   },
   { timestamps: true }
 );
@@ -109,10 +110,8 @@ TransactionSchema.index({ Created_by: 1 });
 TransactionSchema.index({ Customer_uuid: 1 });
 TransactionSchema.index({ Upi_reference: 1 });
 TransactionSchema.index({ Transaction_date: -1, Created_by: 1 });
-TransactionSchema.index(
-  { Event_key: 1 },
-  { unique: true, partialFilterExpression: { Event_key: { $type: 'string' } } }
-);
+TransactionSchema.index({ Event_key: 1 });
+TransactionSchema.index({ Legacy_event_key: 1 }, { unique: true, sparse: true });
 TransactionSchema.index({ 'Journal_entry.Account_id': 1 });
 
 const Transaction = mongoose.model('Transaction', TransactionSchema);

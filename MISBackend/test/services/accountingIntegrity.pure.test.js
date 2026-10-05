@@ -223,16 +223,18 @@ describe('buildEventKey', () => {
 describe('Transaction schema Event_key index', () => {
   const Transaction = jest.requireActual('../../src/repositories/transaction');
 
-  test('is unique only over rows that carry a key', () => {
-    // Sparse would not do: an unguarded posting stores no key, and a *null* is
-    // a value a sparse unique index still indexes — so the second such posting
-    // would collide with the first. The index must be partial.
-    const [, options] = Transaction.schema.indexes()
+  test('uses Event_key as a normal index and Legacy_event_key as the migration-specific unique key', () => {
+    const eventIndex = Transaction.schema.indexes()
       .find(([fields]) => Object.keys(fields)[0] === 'Event_key');
+    const legacyIndex = Transaction.schema.indexes()
+      .find(([fields]) => Object.keys(fields)[0] === 'Legacy_event_key');
 
-    expect(options.unique).toBe(true);
-    expect(options.partialFilterExpression).toEqual({ Event_key: { $type: 'string' } });
-    expect(options.sparse).toBeUndefined();
+    expect(eventIndex).toBeTruthy();
+    expect(eventIndex[1].unique).toBeUndefined();
+
+    expect(legacyIndex).toBeTruthy();
+    expect(legacyIndex[1].unique).toBe(true);
+    expect(legacyIndex[1].sparse).toBe(true);
   });
 
   test('a posting with no business key stores no Event_key field at all', () => {

@@ -103,7 +103,7 @@ export default function LegacyTransactionMigration() {
         </Box>
 
         <Alert severity="info">
-          Step 1 runs a read-only audit. Step 2 becomes available only when there are zero blockers. Re-running migration is safe because every old row gets a unique migration fingerprint.
+          Step 1 runs a read-only audit. Rows outside FY 2025-26 are ignored, not migrated. Step 2 becomes available only when there are zero blockers inside FY 2025-26. Re-running migration is safe because every old row gets a unique migration fingerprint.
         </Alert>
 
         {error && <Alert severity="error">{error}</Alert>}
@@ -145,6 +145,8 @@ export default function LegacyTransactionMigration() {
                     <TableCell>Source collection</TableCell>
                     <TableCell>Expected period</TableCell>
                     <TableCell align="right">Rows</TableCell>
+                    <TableCell align="right">FY Eligible</TableCell>
+                    <TableCell align="right">Ignored</TableCell>
                     <TableCell align="right">Valid</TableCell>
                     <TableCell align="right">Migrated</TableCell>
                     <TableCell align="right">Remaining</TableCell>
@@ -162,6 +164,8 @@ export default function LegacyTransactionMigration() {
                       </TableCell>
                       <TableCell>{source.expectedStart} → {source.expectedEnd}</TableCell>
                       <TableCell align="right">{source.count || 0}</TableCell>
+                      <TableCell align="right">{source.eligible || 0}</TableCell>
+                      <TableCell align="right">{source.ignoredOutsideFinancialYear || 0}</TableCell>
                       <TableCell align="right">{source.valid || 0}</TableCell>
                       <TableCell align="right">{source.migrated || 0}</TableCell>
                       <TableCell align="right">{source.remaining || 0}</TableCell>
@@ -179,7 +183,7 @@ export default function LegacyTransactionMigration() {
             {(report.sources || []).some((source) => source.issues?.length) && (
               <Card variant="outlined">
                 <CardContent>
-                  <Typography variant="h6" fontWeight={800} gutterBottom>Audit issues</Typography>
+                  <Typography variant="h6" fontWeight={800} gutterBottom>Audit issues & ignored rows</Typography>
                   <Stack spacing={1}>
                     {(report.sources || []).flatMap((source) =>
                       (source.issues || []).map((row, index) => (

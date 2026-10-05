@@ -3,7 +3,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
-const { auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary } = require('../services/legacyTransactionMigrationService');
+const { auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary, getLegacyTransactionDetail } = require('../services/legacyTransactionMigrationService');
 
 router.use(requireAuth);
 router.use(requireAdminOrOwner);
@@ -21,6 +21,15 @@ router.get('/financial-years', async (_req, res) => {
     return res.json({ success: true, result: await financialYearSummary() });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message || 'Could not load financial-year summary' });
+  }
+});
+
+router.get('/inspect/:sourceKey/:legacyId', async (req, res) => {
+  try {
+    const result = await getLegacyTransactionDetail(req.params.sourceKey, req.params.legacyId);
+    return res.json({ success: true, result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Could not inspect legacy transaction' });
   }
 });
 

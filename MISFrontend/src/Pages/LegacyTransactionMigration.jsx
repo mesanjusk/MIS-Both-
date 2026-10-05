@@ -8,6 +8,11 @@ import {
   Chip,
   CircularProgress,
   Grid,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
   Stack,
   Table,
   TableBody,
@@ -48,6 +53,9 @@ export default function LegacyTransactionMigration() {
   const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectData, setInspectData] = useState(null);
 
   const canMigrate = Boolean(report?.canMigrate) && confirmation === 'MIGRATE 2025-26' && !migrating;
   const totalLegacy = useMemo(
@@ -70,6 +78,20 @@ export default function LegacyTransactionMigration() {
       if (err.response?.data?.result) setReport(err.response.data.result);
     } finally {
       setLoadingAudit(false);
+    }
+  }
+
+  async function inspectRow(sourceKey, legacyId) {
+    setInspectLoading(true);
+    setInspectOpen(true);
+    setInspectData(null);
+    try {
+      const response = await axios.get('/api/admin/legacy-transactions/inspect/' + encodeURIComponent(sourceKey) + '/' + encodeURIComponent(legacyId), { cache: false });
+      setInspectData(response.data.result);
+    } catch (err) {
+      setInspectData({ error: err.response?.data?.message || err.message || 'Could not inspect row' });
+    } finally {
+      setInspectLoading(false);
     }
   }
 
@@ -196,6 +218,16 @@ export default function LegacyTransactionMigration() {
                           {row.date ? ' · ' + row.date : ''}
                           {' — '}
                           {(row.issues || []).map((issue) => issue.message).join('; ')}
+                          {row.legacyId && (row.issues || []).some((issue) => issue.severity === 'blocker') && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              sx={{ ml: 1 }}
+                              onClick={() => inspectRow(source.key, row.legacyId)}
+                            >
+                              Inspect
+                            </Button>
+                          )}
                         </Alert>
                       ))
                     )}
@@ -218,6 +250,39 @@ export default function LegacyTransactionMigration() {
           </>
         )}
       </Stack>
+
+      <Dialog open={inspectOpen} onClose={() => setInspectOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Legacy Transaction Inspector</DialogTitle>
+        <DialogContent dividers>
+          {inspectLoading && <CircularProgress size={24} />}
+          {!inspectLoading && inspectData?.error && <Alert severity="error">{inspectData.error}</Alert>}
+          {!inspectLoading && inspectData && !inspectData.error && (
+            <Stack spacing={1.5}>
+              <Typography><strong>Source:</strong> {inspectData.sourceLabel} ({inspectData.collectionName})</Typography>
+              <Typography><strong>Legacy ID:</strong> {inspectData.legacyId}</Typography>
+              <Typography><strong>Date:</strong> {inspectData.transactionDate || '—'}</Typography>
+              <Typography><strong>Description:</strong> {inspectData.description || '—'}</Typography>
+              <Typography><strong>Payment mode:</strong> {inspectData.paymentMode || '—'}</Typography>
+              <Typography><strong>Transaction ID:</strong> {inspectData.transactionId ?? '—'}</Typography>
+              <Typography><strong>Transaction UUID:</strong> {inspectData.transactionUuid || '—'}</Typography>
+              <Typography><strong>Order:</strong> {inspectData.orderNumber || inspectData.orderUuid || '—'}</Typography>
+              <Typography><strong>Customer UUID:</strong> {inspectData.customerUuid || '—'}</Typography>
+              <Typography><strong>Stored totals:</strong> Debit {String(inspectData.totalDebit ?? '—')} · Credit {String(inspectData.totalCredit ?? '—')}</Typography>
+              <Divider />
+              <Typography variant="h6" fontWeight={800}>Journal lines ({inspectData.journalEntry?.length || 0})</Typography>
+              <Box component="pre" sx={{ m: 0, p: 1.5, bgcolor: 'grey.100', borderRadius: 1, overflow: 'auto', fontSize: 12 }}>
+                {JSON.stringify(inspectData.journalEntry || [], null, 2)}
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                Available legacy fields: {(inspectData.availableFields || []).join(', ')}
+              </Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInspectOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

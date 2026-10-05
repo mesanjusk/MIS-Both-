@@ -124,7 +124,126 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
 
-async function summarizeCollection(collectionName, source, options = {}) {
+function transactionFingerprint(row) {
+  const date = parseDate(row);
+  const journal = inspectJournal(row);
+  if (!date || !journal.valid) return null;
+  const description = String(firstValue(row, ['Description', 'description', 'Narration', 'narration']) || '').trim().toLowerCase();
+  const paymentMode = String(firstValue(row, ['Payment_mode', 'payment_mode', 'PaymentMode']) || '').trim().toLowerCase();
+  const journalSignature = journal.lines
+    .map((line) => [String(line.Account_id || '').trim().toLowerCase(), line.Type, Number(line.Amount || 0).toFixed(2)].join('|'))
+    .sort()
+    .join('||');
+  return [
+    isoDay(date),
+    description,
+    paymentMode,
+    Number(journal.debit || 0).toFixed(2),
+    Number(journal.credit || 0).toFixed(2),
+    journalSignature,
+  ].join('::');
+}
+
+async function buildLegacyDuplicateIndex(discovered) {
+  const byUuid = new Map();
+  const byFingerprint = new Map();
+
+  function add(map, key, ref) {
+    if (!key) return;
+    const list = map.get(key) || [];
+    list.push(ref);
+    map.set(key, list);
+  }
+
+  for (const source of discovered) {
+    if (!source.collectionName) continue;
+    const rows = await mongoose.connection.db.collection(source.collectionName).find({}).toArray();
+    for (const row of rows) {
+      const date = parseDate(row);
+      if (!date || !inFinancialYear2025_26(date)) continue;
+      const ref = {
+        sourceKey: source.key,
+        collectionName: source.collectionName,
+        legacyId: String(row._id),
+        date: isoDay(date),
+      };
+      const transactionUuid = String(firstValue(row, ['Transaction_uuid', 'transaction_uuid']) || '').trim();
+      if (UUID_RE.test(transactionUuid)) add(byUuid, transactionUuid.toLowerCase(), ref);
+      add(byFingerprint, transactionFingerprint(row), ref);
+    }
+  }
+
+  return { byUuid, byFingerprint };
+}
+
+function duplicateMatches(row, duplicateIndex) {
+  const matches = [];
+  const seen = new Set();
+  const transactionUuid = String(firstValue(row, ['Transaction_uuid', 'transaction_uuid']) || '').trim();
+  const fingerprint = transactionFingerprint(row);
+  const candidates = [];
+
+  if (UUID_RE.test(transactionUuid)) candidates.push(...(duplicateIndex.byUuid.get(transactionUuid.toLowerCase()) || []));
+  if (fingerprint) candidates.push(...(duplicateIndex.byFingerprint.get(fingerprint) || []));
+
+  for (const match of candidates) {
+    const key = match.collectionName + ':' + match.legacyId;
+    if (!seen.has(key)) {
+      seen.add(key);
+      matches.push(match);
+    }
+  }
+  return matches;
+}
+
+function isSameLegacyRow(match, collectionName, row) {
+  return match.collectionName === collectionName && match.legacyId === String(row._id);
+}
+
+function safeLegacyDetail(row, source) {
+  return {
+    sourceKey: source.key,
+    sourceLabel: source.label,
+    collectionName: source.collectionName,
+    legacyId: String(row._id),
+    transactionUuid: String(firstValue(row, ['Transaction_uuid', 'transaction_uuid']) || ''),
+    transactionId: firstValue(row, ['Transaction_id', 'transaction_id']) || null,
+    transactionDate: isoDay(parseDate(row)),
+    description: String(firstValue(row, ['Description', 'description', 'Narration', 'narration']) || ''),
+    paymentMode: String(firstValue(row, ['Payment_mode', 'payment_mode', 'PaymentMode']) || ''),
+    createdBy: String(firstValue(row, ['Created_by', 'created_by', 'CreatedBy']) || ''),
+    orderUuid: firstValue(row, ['Order_uuid', 'order_uuid']) || null,
+    orderNumber: firstValue(row, ['Order_number', 'Order_Number', 'order_number']) || null,
+    customerUuid: firstValue(row, ['Customer_uuid', 'customer_uuid']) || null,
+    totalDebit: firstValue(row, ['Total_Debit', 'total_debit', 'TotalDebit']) ?? null,
+    totalCredit: firstValue(row, ['Total_Credit', 'total_credit', 'TotalCredit']) ?? null,
+    journalEntry: rawJournal(row),
+    availableFields: Object.keys(row).filter((key) => !['_id', '__v'].includes(key)).sort(),
+  };
+}
+
+async function getLegacyTransactionDetail(sourceKey, legacyId) {
+  const discovered = await discoverLegacyCollections();
+  const source = discovered.find((item) => item.key === sourceKey);
+  if (!source || !source.collectionName) {
+    const err = new Error('Legacy source not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  let lookupId = legacyId;
+  if (mongoose.Types.ObjectId.isValid(legacyId)) lookupId = new mongoose.Types.ObjectId(legacyId);
+  const row = await mongoose.connection.db.collection(source.collectionName).findOne({ _id: lookupId });
+  if (!row) {
+    const err = new Error('Legacy transaction not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return safeLegacyDetail(row, source);
+}
+
+async function summarizeCollection(collectionName, source, duplicateIndex, options = {}) {
   const sampleLimit = options.sampleLimit || 50;
   const collection = mongoose.connection.db.collection(collectionName);
   const rows = await collection.find({}).toArray();
@@ -157,22 +276,28 @@ async function summarizeCollection(collectionName, source, options = {}) {
     } else {
       eligible += 1;
 
-      if (!inExpectedRange(date, source)) {
-        blockers += 1;
-        rowIssues.push({
-          severity: 'blocker',
-          message: 'FY 2025-26 row is outside this source\'s expected period ' + source.expectedStart + ' to ' + source.expectedEnd + '. Review before migration.',
-        });
-      } else {
-        const journal = inspectJournal(row);
-        if (!journal.valid) {
+      const journal = inspectJournal(row);
+      const spillover = !inExpectedRange(date, source);
+      if (spillover) {
+        const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, collectionName, row));
+        if (duplicates.length) {
+          blockers += 1;
+          rowIssues.push({
+            severity: 'blocker',
+            message: 'Spillover row matches another legacy row (' + duplicates.map((match) => match.collectionName + '/' + match.legacyId).join(', ') + '). Review duplicate before migration.',
+          });
+        } else if (!journal.valid) {
           blockers += 1;
           rowIssues.push({ severity: 'blocker', message: journal.reason });
         } else {
           valid += 1;
           totalDebit += journal.debit;
           totalCredit += journal.credit;
-
+          warnings += 1;
+          rowIssues.push({
+            severity: 'warning',
+            message: 'Unique FY 2025-26 spillover row; it will migrate despite being outside this source\'s expected period.',
+          });
           if (journal.unresolvedAccountNames) {
             warnings += 1;
             rowIssues.push({
@@ -180,6 +305,21 @@ async function summarizeCollection(collectionName, source, options = {}) {
               message: journal.unresolvedAccountNames + ' journal account name(s) will be resolved to UUID during migration',
             });
           }
+        }
+      } else if (!journal.valid) {
+        blockers += 1;
+        rowIssues.push({ severity: 'blocker', message: journal.reason });
+      } else {
+        valid += 1;
+        totalDebit += journal.debit;
+        totalCredit += journal.credit;
+
+        if (journal.unresolvedAccountNames) {
+          warnings += 1;
+          rowIssues.push({
+            severity: 'warning',
+            message: journal.unresolvedAccountNames + ' journal account name(s) will be resolved to UUID during migration',
+          });
         }
       }
 
@@ -249,6 +389,7 @@ async function financialYearSummary() {
 
 async function auditLegacyTransactions() {
   const discovered = await discoverLegacyCollections();
+  const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
   const sources = [];
 
   for (const source of discovered) {
@@ -260,7 +401,7 @@ async function auditLegacyTransactions() {
         issues: [{ legacyId: null, issues: [{ severity: 'blocker', message: 'Legacy collection not found in this database' }] }],
       });
     } else {
-      sources.push(await summarizeCollection(source.collectionName, source));
+      sources.push(await summarizeCollection(source.collectionName, source, duplicateIndex));
     }
   }
 
@@ -366,11 +507,16 @@ async function migrateLegacyTransactions() {
       }
 
       if (!inExpectedRange(date, source)) {
-        failures.push({
-          legacyId: String(row._id),
-          message: 'FY 2025-26 row is outside expected source period: ' + isoDay(date),
-        });
-        break;
+        const discovered = await discoverLegacyCollections();
+        const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
+        const duplicates = duplicateMatches(row, duplicateIndex).filter((match) => !isSameLegacyRow(match, source.collectionName, row));
+        if (duplicates.length) {
+          failures.push({
+            legacyId: String(row._id),
+            message: 'Spillover row duplicates another legacy source and cannot be migrated automatically.',
+          });
+          break;
+        }
       }
 
       const eventKey = sourceEventKey(source.collectionName, row._id);
@@ -410,4 +556,4 @@ async function migrateLegacyTransactions() {
   return { completedAt: new Date().toISOString(), results, verification: await auditLegacyTransactions() };
 }
 
-module.exports = { LEGACY_SOURCES, auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary };
+module.exports = { LEGACY_SOURCES, auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary, getLegacyTransactionDetail };

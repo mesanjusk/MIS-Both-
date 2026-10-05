@@ -332,7 +332,7 @@ router.post('/addTransaction', requirePermission('canPostTransactions'), boundRe
 
 router.get('/', async (req, res) => {
   try {
-    const { fromDate, toDate, paymentMode, createdBy, customerUuid, orderUuid, accountFilter, limit } = req.query;
+    const { fromDate, toDate, financialYear, paymentMode, createdBy, customerUuid, orderUuid, accountFilter, limit } = req.query;
 
     const filter = {};
 

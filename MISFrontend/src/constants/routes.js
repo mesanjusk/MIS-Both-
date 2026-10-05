@@ -133,6 +133,7 @@ export const ROUTES = {
   DRIVE_FOLDER_REPORT: '/admin/drive-folder-report',
   DATABASE_INTEGRITY: '/admin/database-integrity',
   WORKFLOW_AUDIT: '/admin/workflow-audit',
+  LEGACY_TRANSACTION_MIGRATION: '/admin/legacy-transaction-migration',
 };
 
 export const ROUTE_ALIASES = {

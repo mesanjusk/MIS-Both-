@@ -97,6 +97,7 @@ const AdminGroupPermissions = lazy(() => import('./Pages/AdminGroupPermissions')
 const WhatsAppActionLogPage = lazy(() => import('./Pages/WhatsAppActionLog'));
 const DriveFolderReport = lazy(() => import('./Pages/DriveFolderReport'));
 const DatabaseIntegrity = lazy(() => import('./Pages/DatabaseIntegrity'));
+const LegacyTransactionMigration = lazy(() => import('./Pages/LegacyTransactionMigration'));
 const SopPage = lazy(() => import('./Pages/SopPage'));
 const TeamOperations = lazy(() => import('./Pages/TeamOperations'));
 const MyOperations = lazy(() => import('./Pages/MyOperations'));
@@ -277,6 +278,7 @@ export default function App() {
             <Route path={ROUTES.WHATSAPP_ACTION_LOG} element={adminOnly(<WhatsAppActionLogPage />)} />
             <Route path={ROUTES.DRIVE_FOLDER_REPORT} element={adminOnly(<DriveFolderReport />)} />
             <Route path={ROUTES.DATABASE_INTEGRITY} element={adminOnly(<DatabaseIntegrity />)} />
+            <Route path={ROUTES.LEGACY_TRANSACTION_MIGRATION} element={adminOnly(<LegacyTransactionMigration />)} />
             <Route path={ROUTES.SOP} element={withSuspense(<SopPage />)} />
 
             <Route path={ROUTES.OPERATIONS} element={adminOnly(<TeamOperations />)} />

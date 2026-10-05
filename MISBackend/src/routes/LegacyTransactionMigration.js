@@ -3,7 +3,7 @@ const router = express.Router();
 
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
-const { auditLegacyTransactions, migrateLegacyTransactions, financialYearSummary, getLegacyTransactionDetail } = require('../services/legacyTransactionMigrationService');
+const { auditLegacyTransactions, migrateLegacyTransactions, cleanupDuplicateLegacyImports, financialYearSummary, getLegacyTransactionDetail } = require('../services/legacyTransactionMigrationService');
 
 router.use(requireAuth);
 router.use(requireAdminOrOwner);
@@ -30,6 +30,22 @@ router.get('/inspect/:sourceKey/:legacyId', async (req, res) => {
     return res.json({ success: true, result });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Could not inspect legacy transaction' });
+  }
+});
+
+router.post('/cleanup-duplicates', async (req, res) => {
+  try {
+    if (!req.body || req.body.confirmation !== 'CLEAN DUPLICATE IMPORTS') {
+      return res.status(400).json({ success: false, message: 'Type CLEAN DUPLICATE IMPORTS exactly to start duplicate cleanup.' });
+    }
+    const result = await cleanupDuplicateLegacyImports();
+    return res.json({ success: true, message: 'Duplicate legacy imports cleaned and Event_key uniqueness enforced.', result });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Duplicate cleanup failed',
+      result: error.unsafeGroups || null,
+    });
   }
 });
 

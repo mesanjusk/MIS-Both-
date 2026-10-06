@@ -57,7 +57,7 @@ router.post('/migrate', async (req, res) => {
     if (!req.body || req.body.confirmation !== 'MIGRATE 2025-26') {
       return res.status(400).json({ success: false, message: 'Type MIGRATE 2025-26 exactly to start the migration.' });
     }
-    const result = await migrateLegacyTransactions();
+    const result = await migrateLegacyTransactions({ maxWrites: 50 });
     return res.json({ success: true, message: 'Legacy transactions migrated into the unified transactions collection.', result });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || 'Migration failed', result: error.audit || error.results || null });

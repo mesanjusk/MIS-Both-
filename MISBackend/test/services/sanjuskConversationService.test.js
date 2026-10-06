@@ -59,7 +59,7 @@ describe('getRecentMessages', () => {
     expect(rows.map((row) => row.id)).toEqual(['m496', 'm497', 'm498', 'm499', 'm500']);
   });
 
-  it('walks history once, then costs a single request per refresh', async () => {
+  it('walks history once, then collapses rapid refreshes inside the freshness window', async () => {
     buildProvider(1000);
 
     await conversation.getRecentMessages({ limit: 100 });
@@ -70,11 +70,15 @@ describe('getRecentMessages', () => {
     await conversation.getRecentMessages({ limit: 100 });
     await conversation.getRecentMessages({ limit: 100 });
 
-    // One per poll, the same cost as the version that returned stale rows.
-    expect(mockListMessages).toHaveBeenCalledTimes(2);
+    // Rapid UI/background polls share the warm tail without another provider call.
+    expect(mockListMessages).not.toHaveBeenCalled();
   });
 
-  it('picks up a message that arrives after the first read', async () => {
+  it('picks up a message that arrives after the freshness window', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    const baseNow = 1_800_000_000_000;
+    nowSpy.mockReturnValue(baseNow);
+
     const all = buildProvider(300);
     await conversation.getRecentMessages({ limit: 10 });
 
@@ -84,7 +88,9 @@ describe('getRecentMessages', () => {
       createdAt: new Date(Date.UTC(2026, 0, 1) + 300 * 60_000).toISOString(),
     });
 
+    nowSpy.mockReturnValue(baseNow + conversation.MIN_REFRESH_INTERVAL_MS + 1);
     const { rows } = await conversation.getRecentMessages({ limit: 10 });
+    nowSpy.mockRestore();
 
     expect(rows[rows.length - 1].id).toBe('m301');
   });
@@ -103,7 +109,11 @@ describe('getRecentMessages', () => {
       hasMore: false,
     }));
 
+    const nowSpy = jest.spyOn(Date, 'now');
+    const currentNow = Date.now();
+    nowSpy.mockReturnValue(currentNow + conversation.MIN_REFRESH_INTERVAL_MS + 1);
     const { rows } = await conversation.getRecentMessages({ limit: 50 });
+    nowSpy.mockRestore();
 
     expect(rows.filter((row) => row.id === 'm50')).toHaveLength(1);
     expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);

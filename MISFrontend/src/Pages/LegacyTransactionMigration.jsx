@@ -123,16 +123,38 @@ export default function LegacyTransactionMigration() {
     if (!canMigrate) return;
     setMigrating(true);
     setError('');
-    setMessage('');
+    setMessage('Migration is running in short resumable batches. Keep this page open.');
+    let latestReport = report;
+
     try {
-      const response = await axios.post('/api/admin/legacy-transactions/migrate', { confirmation });
-      setReport(response.data.result?.verification || null);
-      setConfirmation('');
-      setMessage('Migration completed. The verification below is a fresh post-migration audit.');
+      for (let batchNumber = 1; batchNumber <= 30; batchNumber += 1) {
+        const response = await axios.post('/api/admin/legacy-transactions/migrate', { confirmation });
+        const result = response.data.result || {};
+        latestReport = result.verification || latestReport;
+        if (latestReport) setReport(latestReport);
+
+        if (result.completed) {
+          setConfirmation('');
+          setMessage('Migration completed. The verification below is a fresh post-migration audit.');
+          return;
+        }
+
+        setMessage(
+          'Migration batch ' + batchNumber + ' completed · '
+          + Number(result.insertedThisBatch || 0) + ' added · '
+          + Number(result.remaining || 0) + ' remaining. Continuing automatically…'
+        );
+      }
+
+      setMessage('Migration paused after 30 safe batches. Run Fresh Audit and continue if anything remains.');
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Migration failed');
+      setError(
+        (err.response?.data?.message || err.message || 'Migration request interrupted')
+        + '. Progress already committed is safe. Run Fresh Audit, then click Migrate again to resume.'
+      );
       const result = err.response?.data?.result;
       if (result?.sources) setReport(result);
+      else if (latestReport) setReport(latestReport);
     } finally {
       setMigrating(false);
     }
@@ -149,7 +171,7 @@ export default function LegacyTransactionMigration() {
         </Box>
 
         <Alert severity="info">
-          Step 1 runs a read-only audit. Rows outside FY 2025-26 and zero-value placeholder rows are ignored, not migrated. Any malformed row carrying a non-zero amount still blocks migration. Step 2 becomes available only when there are zero blockers inside FY 2025-26.
+          Step 1 runs a read-only audit. Rows outside FY 2025-26 and zero-value placeholder rows are ignored, not migrated. Any malformed row carrying a non-zero amount still blocks migration. Step 2 runs short resumable batches so a browser/network interruption can safely continue without duplicates.
         </Alert>
 
         {error && <Alert severity="error">{error}</Alert>}

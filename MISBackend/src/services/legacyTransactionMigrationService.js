@@ -700,7 +700,8 @@ async function cleanupDuplicateLegacyImports() {
   };
 }
 
-async function migrateLegacyTransactions() {
+async function migrateLegacyTransactions(options = {}) {
+  const maxWrites = Math.max(1, Math.min(Number(options.maxWrites || 100), 200));
   const audit = await auditLegacyTransactions();
   if (!audit.canMigrate) {
     const err = new Error('Migration blocked. Run audit and resolve every blocker first.');
@@ -711,8 +712,25 @@ async function migrateLegacyTransactions() {
 
   const discovered = await discoverLegacyCollections();
   const duplicateIndex = await buildLegacyDuplicateIndex(discovered);
+  const existingRows = await Transaction.find(
+    {
+      $or: [
+        { Legacy_event_key: { $regex: '^legacy:' } },
+        { Event_key: { $regex: '^legacy:' } },
+      ],
+    },
+    { Legacy_event_key: 1, Event_key: 1 }
+  ).lean();
+
+  const existingKeys = new Set();
+  for (const row of existingRows) {
+    if (row.Legacy_event_key) existingKeys.add(String(row.Legacy_event_key));
+    if (row.Event_key) existingKeys.add(String(row.Event_key));
+  }
+
   const results = [];
-  const batchSize = 200;
+  let totalInserted = 0;
+  let stoppedForBatchLimit = false;
 
   for (const source of audit.sources) {
     const collection = mongoose.connection.db.collection(source.collectionName);
@@ -725,7 +743,7 @@ async function migrateLegacyTransactions() {
 
     while (true) {
       const query = lastId ? { _id: { $gt: lastId } } : {};
-      const batch = await collection.find(query).sort({ _id: 1 }).limit(batchSize).toArray();
+      const batch = await collection.find(query).sort({ _id: 1 }).limit(200).toArray();
       if (!batch.length) break;
 
       for (const row of batch) {
@@ -759,7 +777,7 @@ async function migrateLegacyTransactions() {
         }
 
         const eventKey = sourceEventKey(source.collectionName, row._id);
-        if (await Transaction.exists({ $or: [{ Legacy_event_key: eventKey }, { Event_key: eventKey }] })) {
+        if (existingKeys.has(eventKey)) {
           skipped += 1;
           continue;
         }
@@ -767,14 +785,21 @@ async function migrateLegacyTransactions() {
         try {
           const doc = await normalizeForMigration(row, source.collectionName);
           await Transaction.create(doc);
+          existingKeys.add(eventKey);
           inserted += 1;
+          totalInserted += 1;
         } catch (error) {
           failures.push({ legacyId: String(row._id), message: error.message });
           break;
         }
+
+        if (totalInserted >= maxWrites) {
+          stoppedForBatchLimit = true;
+          break;
+        }
       }
 
-      if (failures.length || batch.length < batchSize) break;
+      if (failures.length || stoppedForBatchLimit || batch.length < 200) break;
     }
 
     results.push({
@@ -793,10 +818,23 @@ async function migrateLegacyTransactions() {
       err.results = results;
       throw err;
     }
+
+    if (stoppedForBatchLimit) break;
   }
 
   await transactionNumber.ensureSeeded();
-  return { completedAt: new Date().toISOString(), results, verification: await auditLegacyTransactions() };
+  const verification = await auditLegacyTransactions();
+  const remaining = verification.sources.reduce((sum, source) => sum + Number(source.remaining || 0), 0);
+
+  return {
+    completedAt: new Date().toISOString(),
+    batchLimit: maxWrites,
+    insertedThisBatch: totalInserted,
+    completed: remaining === 0,
+    remaining,
+    results,
+    verification,
+  };
 }
 
 module.exports = { LEGACY_SOURCES, auditLegacyTransactions, migrateLegacyTransactions, cleanupDuplicateLegacyImports, financialYearSummary, getLegacyTransactionDetail };

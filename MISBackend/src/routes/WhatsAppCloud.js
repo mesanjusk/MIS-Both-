@@ -42,6 +42,14 @@ const messagingLimiter = createRateLimiter({
   maxRequests: 30,
 });
 
+// High-frequency inbox reads are authenticated before this limiter, so they are
+// keyed per user instead of grouping every office tab behind one public IP.
+const sanjuskReadLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  message: 'Too many inbox refresh requests. Please wait a moment.',
+});
+
 // memory storage (best for cloudinary)
 // Unbounded before. WhatsApp caps documents at 100 MB and video at 16 MB, so
 // this is the largest media the platform would accept anyway.
@@ -211,12 +219,38 @@ const processFreshPolledAttendance = async (rows = []) => {
   }
 };
 
+const SANJUSK_STATUS_CACHE_MS = 30 * 1000;
+const SANJUSK_STATUS_STALE_MS = 5 * 60 * 1000;
+let sanjuskStatusCache = { value: null, fetchedAt: 0 };
+
+const getCachedSanjuskStatus = async () => {
+  const age = Date.now() - sanjuskStatusCache.fetchedAt;
+  if (sanjuskStatusCache.value && age < SANJUSK_STATUS_CACHE_MS) {
+    return sanjuskStatusCache.value;
+  }
+
+  try {
+    const data = await sanjusk.getStatus({ requireEnabled: false });
+    const value = data?.data || data || {};
+    sanjuskStatusCache = { value, fetchedAt: Date.now() };
+    return value;
+  } catch (error) {
+    // Keep the dashboard usable during a transient provider throttle/outage.
+    if (sanjuskStatusCache.value && age < SANJUSK_STATUS_STALE_MS) {
+      logger.warn({ err: error?.message || error }, '[sanjusk-inbox] serving stale cached status');
+      return sanjuskStatusCache.value;
+    }
+    throw error;
+  }
+};
+
 router.get(
   '/sanjusk/status',
   requireAuth,
+  sanjuskReadLimiter,
   asyncHandler(async (_req, res) => {
-    const data = await sanjusk.getStatus({ requireEnabled: false });
-    res.json({ success: true, data: data?.data || data || {} });
+    const data = await getCachedSanjuskStatus();
+    res.json({ success: true, data });
   })
 );
 
@@ -234,6 +268,7 @@ router.get(
 router.get(
   '/sanjusk/messages',
   requireAuth,
+  sanjuskReadLimiter,
   asyncHandler(async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 100));
 

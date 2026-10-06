@@ -34,9 +34,10 @@ const normalizeIp = (ip = '') => {
  * Pass a `store` (Redis, or another express-rate-limit store) when a limit has
  * to hold across restarts or across more than one instance.
  */
-const createRateLimiter = ({ windowMs, maxRequests, message, store }) => {
+const createRateLimiter = ({ windowMs, maxRequests, message, store, skip }) => {
   return rateLimit({
     ...(store ? { store } : {}),
+    ...(skip ? { skip } : {}),
     windowMs,
     max: maxRequests,
     standardHeaders: true,
@@ -61,7 +62,21 @@ const createRateLimiter = ({ windowMs, maxRequests, message, store }) => {
 
 const whatsappLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, message: 'Too many WhatsApp requests.' });
 const authLimiter     = createRateLimiter({ windowMs: 5 * 60_000, maxRequests: 5, message: 'Too many login attempts. Try again in 5 minutes.' });
-const generalLimiter  = createRateLimiter({ windowMs: 60_000, maxRequests: 100 });
+const isHighFrequencySanjuskRead = (req) => {
+  if (String(req.method || '').toUpperCase() !== 'GET') return false;
+  const path = String(req.originalUrl || req.url || '').split('?')[0];
+  return path === '/api/whatsapp/sanjusk/status' || path === '/api/whatsapp/sanjusk/messages';
+};
+
+// These two authenticated polling reads have their own per-user limiter inside
+// the WhatsApp router. Skipping them here prevents all office tabs behind the
+// same public IP from exhausting the global /api bucket before requireAuth has
+// had a chance to identify each user.
+const generalLimiter  = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 100,
+  skip: isHighFrequencySanjuskRead,
+});
 
 module.exports = {
   createRateLimiter,
@@ -70,4 +85,5 @@ module.exports = {
   generalLimiter,
   normalizePath,
   normalizeIp,
+  isHighFrequencySanjuskRead,
 };

@@ -4,7 +4,7 @@
  * which behind a proxy is the proxy, and on IPv6 is one address out of a /64
  * the client already controls.
  */
-const { normalizePath, normalizeIp } = require('../../src/middleware/rateLimit');
+const { normalizePath, normalizeIp, isHighFrequencySanjuskRead } = require('../../src/middleware/rateLimit');
 
 describe('normalizePath', () => {
   test('collapses a uuid segment', () => {
@@ -51,5 +51,15 @@ describe('normalizeIp', () => {
   test('different /64s remain different keys', () => {
     expect(normalizeIp('2001:db8:1111:2222::1'))
       .not.toBe(normalizeIp('2001:db8:3333:4444::1'));
+  });
+});
+
+
+describe('isHighFrequencySanjuskRead', () => {
+  test('skips only the two authenticated SanjuSK polling GET routes from the global bucket', () => {
+    expect(isHighFrequencySanjuskRead({ method: 'GET', originalUrl: '/api/whatsapp/sanjusk/status' })).toBe(true);
+    expect(isHighFrequencySanjuskRead({ method: 'GET', originalUrl: '/api/whatsapp/sanjusk/messages?limit=100' })).toBe(true);
+    expect(isHighFrequencySanjuskRead({ method: 'POST', originalUrl: '/api/whatsapp/sanjusk/send-text' })).toBe(false);
+    expect(isHighFrequencySanjuskRead({ method: 'GET', originalUrl: '/api/transaction' })).toBe(false);
   });
 });

@@ -227,8 +227,17 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
   }, [appendMessage]);
 
   useEffect(() => {
-    const interval = setInterval(loadMessages, 5000);
-    return () => clearInterval(interval);
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') loadMessages();
+    };
+
+    const interval = setInterval(refreshIfVisible, 15000);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
   }, [loadMessages]);
 
   const orderedMessages = useMemo(

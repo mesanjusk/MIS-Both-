@@ -35,10 +35,16 @@ const MAX_WALK_PAGES = 50;
 // How many messages to keep in memory. The UI asks for at most 100.
 const TAIL_SIZE = 500;
 
+// Multiple Home tabs plus the attendance worker can ask for the same tail in
+// quick succession. A short freshness window collapses those reads into one
+// provider request while keeping the inbox/attendance near-real-time.
+const MIN_REFRESH_INTERVAL_MS = 10 * 1000;
+
 let tail = [];
 let cursor = null;
 let warmed = false;
 let inFlight = null;
+let lastRefreshAt = 0;
 
 const rowsOf = (payload) => {
   if (Array.isArray(payload?.data)) return payload.data;
@@ -133,14 +139,17 @@ const catchUp = async () => {
  */
 const refresh = async () => {
   if (inFlight) return inFlight;
+  if (warmed && Date.now() - lastRefreshAt < MIN_REFRESH_INTERVAL_MS) return;
 
   inFlight = (async () => {
     if (warmed) {
       await catchUp();
+      lastRefreshAt = Date.now();
       return;
     }
     await walkToEnd();
     warmed = true;
+    lastRefreshAt = Date.now();
   })()
     .catch((error) => {
       // A failed warm must not latch: leave `warmed` false so the next call
@@ -171,9 +180,10 @@ const resetCache = () => {
   cursor = null;
   warmed = false;
   inFlight = null;
+  lastRefreshAt = 0;
 };
 
-module.exports = { getRecentMessages, resetCache, PROVIDER_MAX_LIMIT, MAX_WALK_PAGES, TAIL_SIZE };
+module.exports = { getRecentMessages, resetCache, PROVIDER_MAX_LIMIT, MAX_WALK_PAGES, TAIL_SIZE, MIN_REFRESH_INTERVAL_MS };
 
 // WhatsApp attendance must not depend on Home → Inbox being open. This module
 // is loaded by the WhatsApp routes on every backend process, so start the

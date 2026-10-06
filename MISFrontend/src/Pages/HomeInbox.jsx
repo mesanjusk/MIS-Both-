@@ -51,12 +51,18 @@ export default function HomeInbox() {
       }
     };
 
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') refreshConnectionStatus();
+    };
+
     refreshConnectionStatus();
-    const interval = setInterval(refreshConnectionStatus, 15000);
+    const interval = setInterval(refreshIfVisible, 60000);
+    document.addEventListener('visibilitychange', refreshIfVisible);
 
     return () => {
       active = false;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
     };
   }, []);
 

@@ -189,9 +189,28 @@ const refresh = async () => {
  * the same order the provider returns, so nothing downstream changes.
  */
 const getRecentMessages = async ({ limit = 100 } = {}) => {
-  await refresh();
   const size = Math.min(Math.max(1, Number(limit) || 100), TAIL_SIZE);
-  return { rows: tail.slice(-size), nextSince: cursor };
+  try {
+    await refresh();
+    return { rows: tail.slice(-size), nextSince: cursor, degraded: false };
+  } catch (error) {
+    const isRateLimited =
+      Number(error?.statusCode || error?.status) === 429 ||
+      /rate limit/i.test(String(error?.message || ''));
+
+    if (isRateLimited) {
+      // A provider throttle is an availability issue, not a user-action error.
+      // Serve the last known tail (or an empty inbox on first load) so opening
+      // Dashboard never produces a blocking "Rate limit exceeded" popup.
+      logger.warn(
+        { cachedRows: tail.length },
+        '[sanjusk-inbox] provider throttled; serving cached inbox data'
+      );
+      return { rows: tail.slice(-size), nextSince: cursor, degraded: true };
+    }
+
+    throw error;
+  }
 };
 
 /** Test seam. */

@@ -249,8 +249,19 @@ router.get(
   requireAuth,
   sanjuskReadLimiter,
   asyncHandler(async (_req, res) => {
-    const data = await getCachedSanjuskStatus();
-    res.json({ success: true, data });
+    try {
+      const data = await getCachedSanjuskStatus();
+      res.json({ success: true, data });
+    } catch (error) {
+      const isRateLimited =
+        Number(error?.statusCode || error?.status) === 429 ||
+        /rate limit/i.test(String(error?.message || ''));
+      if (isRateLimited) {
+        logger.warn('[sanjusk-inbox] status throttled; returning degraded status');
+        return res.json({ success: true, data: {}, degraded: true });
+      }
+      throw error;
+    }
   })
 );
 
@@ -273,13 +284,14 @@ router.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 100));
 
     if (!req.query.since) {
-      const { rows, nextSince } = await sanjuskConversation.getRecentMessages({ limit });
+      const { rows, nextSince, degraded } = await sanjuskConversation.getRecentMessages({ limit });
       await processFreshPolledAttendance(rows);
       return res.json({
         success: true,
         data: rows.map(normalizeSanjuskMessage),
         nextSince: nextSince || null,
         hasMore: false,
+        degraded: Boolean(degraded),
       });
     }
 

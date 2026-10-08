@@ -38,13 +38,16 @@ const TAIL_SIZE = 500;
 // Multiple Home tabs plus the attendance worker can ask for the same tail in
 // quick succession. A short freshness window collapses those reads into one
 // provider request while keeping the inbox/attendance near-real-time.
-const MIN_REFRESH_INTERVAL_MS = 10 * 1000;
+const MIN_REFRESH_INTERVAL_MS = 30 * 1000;
+const COLD_START_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const RATE_LIMIT_BACKOFF_MS = 2 * 60 * 1000;
 
 let tail = [];
 let cursor = null;
 let warmed = false;
 let inFlight = null;
 let lastRefreshAt = 0;
+let rateLimitedUntil = 0;
 
 const rowsOf = (payload) => {
   if (Array.isArray(payload?.data)) return payload.data;
@@ -96,7 +99,11 @@ const advanceCursor = (payload, rows) => {
 /** Cold start: page forward until the provider says there is no more. */
 const walkToEnd = async () => {
   let pages = 0;
-  let since = null;
+  // The provider supports an arbitrary `since` cursor. Starting at the
+  // beginning of all history is unnecessary for the live inbox and can burn
+  // the request budget before recent messages are reached. Warm from the last
+  // 24 hours, and resume from the saved cursor after a partial/failed walk.
+  let since = cursor || new Date(Date.now() - COLD_START_LOOKBACK_MS).toISOString();
 
   for (;;) {
     const payload = await fetchPage(since);
@@ -139,6 +146,7 @@ const catchUp = async () => {
  */
 const refresh = async () => {
   if (inFlight) return inFlight;
+  if (Date.now() < rateLimitedUntil) return;
   if (warmed && Date.now() - lastRefreshAt < MIN_REFRESH_INTERVAL_MS) return;
 
   inFlight = (async () => {
@@ -152,9 +160,21 @@ const refresh = async () => {
     lastRefreshAt = Date.now();
   })()
     .catch((error) => {
-      // A failed warm must not latch: leave `warmed` false so the next call
-      // retries the walk instead of serving an empty tail forever.
-      logger.error({ err: error.message }, '[sanjusk-inbox] refresh failed');
+      // Keep the cursor already reached so the next attempt resumes instead of
+      // restarting from old history. Back off hard on provider 429s so Inbox
+      // cannot starve operational attendance sends.
+      const isRateLimited =
+        Number(error?.statusCode || error?.status) === 429 ||
+        /rate limit/i.test(String(error?.message || ''));
+      if (isRateLimited) {
+        rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+        logger.warn(
+          { retryAfterMs: RATE_LIMIT_BACKOFF_MS },
+          '[sanjusk-inbox] provider rate limited; backing off'
+        );
+      } else {
+        logger.error({ err: error.message }, '[sanjusk-inbox] refresh failed');
+      }
       throw error;
     })
     .finally(() => {
@@ -181,6 +201,7 @@ const resetCache = () => {
   warmed = false;
   inFlight = null;
   lastRefreshAt = 0;
+  rateLimitedUntil = 0;
 };
 
 module.exports = { getRecentMessages, resetCache, PROVIDER_MAX_LIMIT, MAX_WALK_PAGES, TAIL_SIZE, MIN_REFRESH_INTERVAL_MS };

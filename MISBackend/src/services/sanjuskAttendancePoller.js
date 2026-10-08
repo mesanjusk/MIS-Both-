@@ -1,5 +1,4 @@
 const sanjusk = require('./sanjuskApiService');
-const sanjuskConversation = require('./sanjuskConversationService');
 const Message = require('../repositories/Message');
 const {
   processWhatsAppAttendanceCommand,
@@ -7,11 +6,14 @@ const {
 } = require('./whatsappAttendanceService');
 const logger = require('../utils/logger');
 
-const DEFAULT_POLL_INTERVAL_MS = 15 * 1000;
+const DEFAULT_POLL_INTERVAL_MS = 30 * 1000;
 const DEFAULT_MAX_AGE_MS = 10 * 60 * 1000;
+const MAX_PAGES_PER_POLL = 3;
 
 let timer = null;
 let running = false;
+let pollCursor = null;
+let rateLimitedUntil = 0;
 
 const normalizeRow = (row = {}) => {
   const direction = String(row.direction || '').toLowerCase();
@@ -118,15 +120,52 @@ async function processRows(rows = [], { maxAgeMs = DEFAULT_MAX_AGE_MS } = {}) {
 
 async function pollOnce() {
   if (running) return 0;
+  if (Date.now() < rateLimitedUntil) return 0;
   running = true;
 
   try {
-    const { rows } = await sanjuskConversation.getRecentMessages({ limit: 100 });
-    const handled = await processRows(rows);
+    // Attendance only needs fresh inbound commands. Do not warm the full Inbox
+    // history here: walking thousands of old messages can exhaust the provider
+    // rate limit before we ever reach a new START/HI message.
+    let since = pollCursor || new Date(Date.now() - DEFAULT_MAX_AGE_MS).toISOString();
+    let handled = 0;
+
+    for (let page = 0; page < MAX_PAGES_PER_POLL; page += 1) {
+      const payload = await sanjusk.listMessages({
+        since,
+        limit: 200,
+        requireEnabled: false,
+      });
+      const rows = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+
+      handled += await processRows(rows);
+
+      const nextSince = payload?.nextSince;
+      const lastRow = rows[rows.length - 1];
+      const lastStamp = lastRow?.createdAt || lastRow?.timestamp || lastRow?.created_at || lastRow?.time;
+
+      if (nextSince) since = nextSince;
+      else if (lastStamp) since = new Date(lastStamp).toISOString();
+
+      pollCursor = since;
+
+      if (!payload?.hasMore || !rows.length) break;
+    }
+
+    rateLimitedUntil = 0;
     if (handled) logger.info({ handled }, '[sanjusk-attendance-poller] poll completed');
     return handled;
   } catch (error) {
-    logger.error({ err: error?.message || error }, '[sanjusk-attendance-poller] poll failed');
+    const isRateLimited = Number(error?.statusCode || error?.status) === 429 || /rate limit/i.test(String(error?.message || ''));
+    if (isRateLimited) {
+      rateLimitedUntil = Date.now() + 2 * 60 * 1000;
+      logger.warn(
+        { retryAfterMs: 2 * 60 * 1000 },
+        '[sanjusk-attendance-poller] provider rate limited; backing off'
+      );
+    } else {
+      logger.error({ err: error?.message || error }, '[sanjusk-attendance-poller] poll failed');
+    }
     return 0;
   } finally {
     running = false;
@@ -151,6 +190,8 @@ function stopSanjuskAttendancePoller() {
   if (timer) clearInterval(timer);
   timer = null;
   running = false;
+  pollCursor = null;
+  rateLimitedUntil = 0;
 }
 
 module.exports = {

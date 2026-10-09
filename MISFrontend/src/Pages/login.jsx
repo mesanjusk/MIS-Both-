@@ -119,7 +119,7 @@ export default function Login() {
     }
   }
 
-  if (hasStoredSession) {
+  if (hasStoredSession && !errorText) {
     return (
       <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <CircularProgress size={32} />

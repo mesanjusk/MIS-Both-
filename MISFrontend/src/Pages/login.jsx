@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -16,7 +16,6 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios from '../apiClient.js';
-import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
@@ -44,41 +43,6 @@ export default function Login() {
   const [errorText, setErrorText] = useState('');
   const { setAuthData, userName, userGroup } = useAuth();
   const hasStoredSession = Boolean(userName && getStoredToken());
-
-  const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
-    const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
-
-    try {
-      const statusRes = await axios.get('/api/google-drive/status', { params: { check: 1 } });
-      const status = statusRes?.data || {};
-
-      if (!status.oauthConfigured || status.configurationRequired) {
-        setErrorText('Google Drive is mandatory, but Google OAuth is not configured on the server. Please contact the administrator.');
-        return false;
-      }
-
-      if (status.connected && !status.reconnectRequired) {
-        navigate(target, { replace: true });
-        return true;
-      }
-
-      // Do not duplicate backend role logic here. Stored roles include aliases
-      // such as "Admin User" / "Super Admin"; requireAdmin on /auth-url is the
-      // source of truth and already resolves those aliases correctly.
-      const returnTo = `${window.location.origin}${target}`;
-      const redirecting = await startGoogleDriveConnect(returnTo);
-      if (!redirecting) {
-        setErrorText(
-          'Google Drive connection is mandatory. If you are an administrator, please try again; otherwise an Admin/Owner/Manager must reconnect Google Drive.'
-        );
-      }
-      return redirecting;
-    } catch (error) {
-      console.error('Mandatory Google Drive check failed:', error);
-      setErrorText(error?.response?.data?.message || 'Google Drive is mandatory and its connection could not be verified. Please try again.');
-      return false;
-    }
-  }, [navigate]);
 
   useEffect(() => {
     if (!hasStoredSession) return;
@@ -109,8 +73,10 @@ export default function Login() {
         mobileNumber: data.userMobile || data.userMob || '',
         permissions: data.permissions || {},
       });
-      toast.success('Login successful. Verifying Google Drive...');
-      await ensureMandatoryGoogleDrive(data.userGroup);
+      // MIS sign-in is independent of optional Google Drive connectivity.
+      // Do not make a Drive status/OAuth failure invalidate a valid MIS session.
+      toast.success('Login successful.');
+      navigate(data.userGroup === 'Vendor' ? '/vendorHome' : '/home', { replace: true });
     } catch (error) {
       console.error('Login error:', error);
       setErrorText('An error occurred during login. Please try again.');

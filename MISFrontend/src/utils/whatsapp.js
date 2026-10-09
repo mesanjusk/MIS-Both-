@@ -4,8 +4,6 @@ import {
   buildTemplateBodyParameters,
 } from '../constants/whatsappTemplates';
 
-const ADMIN_ALERT_PHONE = '919372333633';
-
 export const extractPhoneNumber = (data = {}) => {
   if (!data || typeof data !== 'object') return '';
 
@@ -151,20 +149,7 @@ export const sendTemplateWithTextFallback = async ({
   }
 };
 
-export const sendAdminAlertText = async ({
-  axiosInstance,
-  message,
-  phone = ADMIN_ALERT_PHONE,
-}) => {
-  if (!message) return null;
-
-  try {
-    return await sendWhatsAppText({
-      axiosInstance,
-      phone,
-      message,
-    });
-  } catch {
-    return null;
-  }
-};
+// Temporarily disable every owner/admin WhatsApp alert (including transaction
+// create/update notifications). Customer-facing messages remain available.
+// Keep this helper as a safe no-op so existing call sites cannot send alerts.
+export const sendAdminAlertText = async () => null;

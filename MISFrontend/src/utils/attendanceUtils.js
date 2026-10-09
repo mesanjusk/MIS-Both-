@@ -37,7 +37,8 @@ export const processAttendanceDataRange = (records, userLookup, startISO, endISO
     if (!recDate) return; const dateISO = indiaDateISO(recDate); if (!dateISO || (startISO && dateISO < startISO) || (endISO && dateISO > endISO)) return;
     const employeeUuid = (Employee_uuid || "").trim(); const user = userLookup[employeeUuid] || {}; const name = user.name || "Unknown"; if (forcedUserName && name !== forcedUserName) return;
     const identity = user.uuid || employeeUuid || name; const key = `${identity}-${dateISO}`;
-    const recordSource = recordSourceUpper || recordSourceLower || "";\n    if (!grouped.has(key)) grouped.set(key, { DateISO: dateISO, Date: formatDateDMY(dateISO), User_uuid: user.uuid || employeeUuid, User_name: name, User_group: user.group || "", Amount: Number(user.amount || 0), AccountID: user.accountId || "", In: "N/A", Break: "N/A", Start: "N/A", Out: "N/A", TotalHours: "0.00", Late: false, HalfDay: false, Source: (recordSource || "").trim() || "" });
+    const recordSource = recordSourceUpper || recordSourceLower || "";
+    if (!grouped.has(key)) grouped.set(key, { DateISO: dateISO, Date: formatDateDMY(dateISO), User_uuid: user.uuid || employeeUuid, User_name: name, User_group: user.group || "", Amount: Number(user.amount || 0), AccountID: user.accountId || "", In: "N/A", Break: "N/A", Start: "N/A", Out: "N/A", TotalHours: "0.00", Late: false, HalfDay: false, Source: (recordSource || "").trim() || "" });
     const ref = grouped.get(key);
     const normalizeSource = (value) => { const s = (value || "").toLowerCase(); if (s.includes("whatsapp") || s.includes("wa")) return "WhatsApp"; if (s.includes("dashboard")) return "Dashboard"; return ""; };
     const entryWithSource = (User || []).find((u) => normalizeSource(u?.Source || u?.source)); const resolvedSource = normalizeSource(entryWithSource?.Source || entryWithSource?.source || recordSource || ref.Source); if (resolvedSource) ref.Source = resolvedSource;

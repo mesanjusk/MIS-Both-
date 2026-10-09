@@ -42,6 +42,7 @@ export default function Login() {
   const [Password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
+  const [googleCheckStarted, setGoogleCheckStarted] = useState(false);
   const { setAuthData, userName, userGroup } = useAuth();
   const hasStoredSession = Boolean(userName && getStoredToken());
 
@@ -81,16 +82,14 @@ export default function Login() {
   }, [navigate]);
 
   useEffect(() => {
-    if (!hasStoredSession) return;
+    if (!hasStoredSession || googleCheckStarted) return;
 
-    // A persisted MIS session must not be held on the login screen by an
-    // unrelated Google Drive availability/reconnect check. The bearer token is
-    // already stored in localStorage and the API will validate it on the first
-    // protected request. If it has genuinely expired/revoked, apiClient's 401
-    // handler sends the user back here. Otherwise go straight to the dashboard.
-    const target = userGroup === 'Vendor' ? '/vendorHome' : '/home';
-    navigate(target, { replace: true });
-  }, [hasStoredSession, navigate, userGroup]);
+    // A dashboard redirect must wait until the mandatory shared Drive check
+    // succeeds. Otherwise dashboard requests can start while Drive is still
+    // being verified and a 401 can send a valid login back to this page.
+    setGoogleCheckStarted(true);
+    void ensureMandatoryGoogleDrive(userGroup);
+  }, [ensureMandatoryGoogleDrive, googleCheckStarted, hasStoredSession, userGroup]);
 
   async function submit(e) {
     e.preventDefault();
@@ -103,6 +102,7 @@ export default function Login() {
       if (data.status === 'invalid') { setErrorText('Invalid credentials. Please check username and password.'); setLoading(false); return; }
       if (!data.token) { setErrorText('Login succeeded but token was not received from the server.'); setLoading(false); return; }
       setStoredToken(data.token);
+      setGoogleCheckStarted(true);
       setAuthData({
         userName: User_name,
         userGroup: data.userGroup,
@@ -119,7 +119,7 @@ export default function Login() {
     }
   }
 
-  if (hasStoredSession) {
+  if (hasStoredSession && !errorText) {
     return (
       <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <CircularProgress size={32} />

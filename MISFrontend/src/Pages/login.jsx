@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -16,6 +16,7 @@ import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
 import axios from '../apiClient.js';
+import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
@@ -41,20 +42,54 @@ export default function Login() {
   const [Password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
+  const [googleCheckStarted, setGoogleCheckStarted] = useState(false);
   const { setAuthData, userName, userGroup } = useAuth();
   const hasStoredSession = Boolean(userName && getStoredToken());
 
-  useEffect(() => {
-    if (!hasStoredSession) return;
+  const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
+    const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
 
-    // A persisted MIS session must not be held on the login screen by an
-    // unrelated Google Drive availability/reconnect check. The bearer token is
-    // already stored in localStorage and the API will validate it on the first
-    // protected request. If it has genuinely expired/revoked, apiClient's 401
-    // handler sends the user back here. Otherwise go straight to the dashboard.
-    const target = userGroup === 'Vendor' ? '/vendorHome' : '/home';
-    navigate(target, { replace: true });
-  }, [hasStoredSession, navigate, userGroup]);
+    try {
+      const statusRes = await axios.get('/api/google-drive/status', { params: { check: 1 } });
+      const status = statusRes?.data || {};
+
+      if (!status.oauthConfigured || status.configurationRequired) {
+        setErrorText('Google Drive is mandatory, but Google OAuth is not configured on the server. Please contact the administrator.');
+        return false;
+      }
+
+      if (status.connected && !status.reconnectRequired) {
+        navigate(target, { replace: true });
+        return true;
+      }
+
+      // Do not duplicate backend role logic here. Stored roles include aliases
+      // such as "Admin User" / "Super Admin"; requireAdmin on /auth-url is the
+      // source of truth and already resolves those aliases correctly.
+      const returnTo = `${window.location.origin}${target}`;
+      const redirecting = await startGoogleDriveConnect(returnTo);
+      if (!redirecting) {
+        setErrorText(
+          'Google Drive connection is mandatory. If you are an administrator, please try again; otherwise an Admin/Owner/Manager must reconnect Google Drive.'
+        );
+      }
+      return redirecting;
+    } catch (error) {
+      console.error('Mandatory Google Drive check failed:', error);
+      setErrorText(error?.response?.data?.message || 'Google Drive is mandatory and its connection could not be verified. Please try again.');
+      return false;
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!hasStoredSession || googleCheckStarted) return;
+
+    // A dashboard redirect must wait until the mandatory shared Drive check
+    // succeeds. Otherwise dashboard requests can start while Drive is still
+    // being verified and a 401 can send a valid login back to this page.
+    setGoogleCheckStarted(true);
+    void ensureMandatoryGoogleDrive(userGroup);
+  }, [ensureMandatoryGoogleDrive, googleCheckStarted, hasStoredSession, userGroup]);
 
   async function submit(e) {
     e.preventDefault();
@@ -67,16 +102,15 @@ export default function Login() {
       if (data.status === 'invalid') { setErrorText('Invalid credentials. Please check username and password.'); setLoading(false); return; }
       if (!data.token) { setErrorText('Login succeeded but token was not received from the server.'); setLoading(false); return; }
       setStoredToken(data.token);
+      setGoogleCheckStarted(true);
       setAuthData({
         userName: User_name,
         userGroup: data.userGroup,
         mobileNumber: data.userMobile || data.userMob || '',
         permissions: data.permissions || {},
       });
-      // MIS sign-in is independent of optional Google Drive connectivity.
-      // Do not make a Drive status/OAuth failure invalidate a valid MIS session.
-      toast.success('Login successful.');
-      navigate(data.userGroup === 'Vendor' ? '/vendorHome' : '/home', { replace: true });
+      toast.success('Login successful. Verifying Google Drive...');
+      await ensureMandatoryGoogleDrive(data.userGroup);
     } catch (error) {
       console.error('Login error:', error);
       setErrorText('An error occurred during login. Please try again.');

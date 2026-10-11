@@ -99,7 +99,7 @@ describe('getRecentMessages', () => {
   });
 
   it('does not duplicate rows when a page is served twice', async () => {
-    buildProvider(50);
+    const all = buildProvider(50);
     await conversation.getRecentMessages({ limit: 50 });
 
     // Replay the whole history as though the cursor had not advanced.

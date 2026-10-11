@@ -866,7 +866,6 @@ router.post('/create-file', canManageDesignFiles, async (req, res) => {
     const response = await drive.files.copy({
       fileId: templateFileId,
       supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
       requestBody: { name: finalName, parents: [newDesignFolder.id] },
       fields: 'id,name,parents,webViewLink',
     });

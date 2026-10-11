@@ -15,10 +15,13 @@ const conversation = require('../../src/services/sanjuskConversationService');
 // A fake provider: holds every message, answers ascending-after-`since`,
 // exactly as the real endpoint does.
 const buildProvider = (total) => {
+  // Keep fixtures within the service's 24-hour cold-start lookback regardless
+  // of when this suite runs.
+  const firstMessageAt = Date.now() - 18 * 60 * 60 * 1000;
   const all = Array.from({ length: total }, (_, index) => ({
     id: `m${index + 1}`,
     text: `message ${index + 1}`,
-    createdAt: new Date(Date.UTC(2026, 0, 1) + index * 60_000).toISOString(),
+    createdAt: new Date(firstMessageAt + index * 60_000).toISOString(),
   }));
 
   mockListMessages.mockImplementation(async ({ since, limit }) => {
@@ -85,7 +88,7 @@ describe('getRecentMessages', () => {
     all.push({
       id: 'm301',
       text: 'brand new',
-      createdAt: new Date(Date.UTC(2026, 0, 1) + 300 * 60_000).toISOString(),
+      createdAt: new Date(Date.parse(all[all.length - 1].createdAt) + 60_000).toISOString(),
     });
 
     nowSpy.mockReturnValue(baseNow + conversation.MIN_REFRESH_INTERVAL_MS + 1);
@@ -96,15 +99,12 @@ describe('getRecentMessages', () => {
   });
 
   it('does not duplicate rows when a page is served twice', async () => {
-    buildProvider(50);
+    const all = buildProvider(50);
     await conversation.getRecentMessages({ limit: 50 });
 
     // Replay the whole history as though the cursor had not advanced.
     mockListMessages.mockImplementation(async () => ({
-      data: [
-        { id: 'm49', text: 'message 49', createdAt: new Date(Date.UTC(2026, 0, 1) + 48 * 60_000).toISOString() },
-        { id: 'm50', text: 'message 50', createdAt: new Date(Date.UTC(2026, 0, 1) + 49 * 60_000).toISOString() },
-      ],
+      data: all.slice(-2),
       nextSince: null,
       hasMore: false,
     }));

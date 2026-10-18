@@ -4,6 +4,7 @@ const express = require('express');
 const router  = express.Router();
 
 const Transaction = require('../repositories/transaction');
+const { getOutstandingSummary } = require('../services/outstandingReportService');
 const TransactionAudit = require('../repositories/transactionAudit');
 const transactionNumber = require('../services/transactionNumberService');
 const Orders      = require('../repositories/order');
@@ -323,6 +324,22 @@ router.post('/addTransaction', requirePermission('canPostTransactions'), boundRe
   } catch (error) {
     logger.error('Error in /addTransaction:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /outstanding-summary – aggregate party balances in MongoDB
+// ---------------------------------------------------------------------------
+router.get('/outstanding-summary', async (req, res) => {
+  try {
+    const result = await getOutstandingSummary(Transaction, req.query.asOf);
+    return res.json({ success: true, result });
+  } catch (error) {
+    if (error.statusCode === 400) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    logger.error('Error in GET /transactions/outstanding-summary:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch outstanding summary' });
   }
 });
 

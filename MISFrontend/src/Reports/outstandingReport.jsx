@@ -35,13 +35,7 @@ import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 import DeliveryDateSidebar from '../Components/reports/DeliveryDateSidebar';
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const toISODate = (value) => {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-};
+const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const fmtDate = (value) => {
   if (!value) return '—';
   const d = new Date(value);
@@ -51,7 +45,10 @@ const fmtDate = (value) => {
 const OutstandingReport = () => {
   const navigate = useNavigate();
 
-  const [transactions, setTransactions] = useState([]);
+  const [partyBalances, setPartyBalances] = useState([]);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [dateCountMap, setDateCountMap] = useState({});
+  const [allCount, setAllCount] = useState(0);
   const [customers, setCustomers] = useState([]);
   const [customerGroups, setCustomerGroups] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -89,65 +86,56 @@ const OutstandingReport = () => {
   }, []);
 
   useEffect(() => {
-    const fetchTransactions = async () => {
+    let active = true;
+    const fetchOutstandingSummary = async () => {
       setLoading(true);
       try {
-        const res = await axios.get('/api/transaction');
-        if (res.data?.success) setTransactions(res.data.result || []);
+        const res = await axios.get('/api/transaction/outstanding-summary', {
+          params: { asOf: selectedDate || undefined },
+        });
+        if (!active) return;
+        if (res.data?.success) {
+          const summary = res.data.result || {};
+          setPartyBalances(Array.isArray(summary.balances) ? summary.balances : []);
+          setAvailableDates(Array.isArray(summary.availableDates) ? summary.availableDates : []);
+          setDateCountMap(summary.dateCountMap || {});
+          setAllCount(Number(summary.allCount) || 0);
+        } else {
+          toast.error(res.data?.message || 'Unable to load outstanding balances.');
+        }
       } catch (error) {
-        console.error('Error fetching transactions:', error);
-        toast.error('Unable to load transactions.');
+        console.error('Error fetching outstanding summary:', error);
+        toast.error('Unable to load outstanding balances.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    fetchTransactions();
-  }, []);
+    fetchOutstandingSummary();
+    return () => { active = false; };
+  }, [selectedDate]);
 
-  const availableDates = useMemo(() => {
-    const set = new Set((transactions || []).map((tx) => toISODate(tx?.Transaction_date)).filter(Boolean));
-    return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [transactions]);
+  const balanceByAccount = useMemo(
+    () => new Map(partyBalances.map((item) => [
+      item.accountId,
+      { debit: Number(item.debit || 0), credit: Number(item.credit || 0) },
+    ])),
+    [partyBalances]
+  );
 
-  const dateCountMap = useMemo(() => {
-    const map = {};
-    (transactions || []).forEach((tx) => {
-      const date = toISODate(tx?.Transaction_date);
-      if (date) map[date] = (map[date] || 0) + 1;
-    });
-    return map;
-  }, [transactions]);
-
-  const effectiveTransactions = useMemo(() => {
-    if (!selectedDate) return transactions || [];
-    return (transactions || []).filter((tx) => toISODate(tx?.Transaction_date) === selectedDate);
-  }, [transactions, selectedDate]);
-
-  // Party-wise outstanding balance for the selected date range.
-  const outstandingReport = useMemo(() => {
-    return customers.map((cust) => {
-      let debit = 0;
-      let credit = 0;
-      (effectiveTransactions || []).forEach((tx) => {
-        (tx?.Journal_entry || []).forEach((entry) => {
-          if (entry?.Account_id === cust?.Customer_uuid) {
-            if (entry?.Type === 'Debit') debit += Number(entry?.Amount || 0);
-            if (entry?.Type === 'Credit') credit += Number(entry?.Amount || 0);
-          }
-        });
-      });
-
-      return {
-        uuid: cust?.Customer_uuid,
-        name: cust?.Customer_name || 'Unnamed',
-        mobile: cust?.Mobile_number || 'No phone number',
-        group: cust?.Customer_group || 'Others',
-        debit,
-        credit,
-        balance: debit - credit,
-      };
-    });
-  }, [effectiveTransactions, customers]);
+  // Cumulative through-date balances come from a server-side aggregate, so the
+  // browser does not download or scan every transaction row.
+  const outstandingReport = useMemo(() => customers.map((cust) => {
+    const totals = balanceByAccount.get(cust?.Customer_uuid) || { debit: 0, credit: 0 };
+    return {
+      uuid: cust?.Customer_uuid,
+      name: cust?.Customer_name || 'Unnamed',
+      mobile: cust?.Mobile_number || 'No phone number',
+      group: cust?.Customer_group || 'Others',
+      debit: totals.debit,
+      credit: totals.credit,
+      balance: totals.debit - totals.credit,
+    };
+  }), [balanceByAccount, customers]);
 
   const partyOptions = useMemo(
     () => Array.from(new Set(customers.map((c) => c?.Customer_name).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -242,7 +230,7 @@ const OutstandingReport = () => {
     navigate('/accounts/ledger?tab=statement', { state: { customer } });
   };
 
-  const rangeLabel = selectedDate ? fmtDate(selectedDate) : 'All Dates';
+  const rangeLabel = selectedDate ? `As of ${fmtDate(selectedDate)}` : 'All dates';
 
   const exportToExcel = () => {
     const data = sortedReport.map((item) => ({
@@ -285,7 +273,7 @@ const OutstandingReport = () => {
         onSelectDate={setSelectedDate}
         availableDates={availableDates}
         dateCountMap={dateCountMap}
-        allCount={transactions.length}
+        allCount={allCount}
         loading={loading}
         countLabel="transactions"
         formatDate={fmtDate}

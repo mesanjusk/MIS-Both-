@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/requirePermission');
 const { createRateLimiter } = require('../middleware/rateLimit');
 const { enforceWhatsApp24hWindow } = require('../middleware/whatsapp24hGuard');
 const asyncHandler = require('../utils/asyncHandler');
@@ -36,6 +37,10 @@ const {
 
 const { createUpload, limitRequestSize, MB } = require('../middleware/uploadLimits');
 
+// Only explicitly authorized staff can manually send outbound WhatsApp.
+// Automated attendance and webhook messages follow separate paths.
+const requireManualWhatsAppSend = requirePermission('canSendWhatsapp', { denyByDefault: true });
+
 // Rate limiter for sending messages
 const messagingLimiter = createRateLimiter({
   windowMs: 60 * 1000,
@@ -69,14 +74,15 @@ router.get('/status', getStatus);
 router.delete('/accounts/:id', requireAuth, deleteAccount);
 
 // ---------- Messaging routes ----------
-router.post('/send-text', requireAuth, messagingLimiter, enforceWhatsApp24hWindow, sendText);
-router.post('/send-template', requireAuth, messagingLimiter, enforceWhatsApp24hWindow, sendTemplate);
-router.post('/send-admin-alert', requireAuth, messagingLimiter, sendAdminAlert);
-router.post('/send-flow', requireAuth, messagingLimiter, enforceWhatsApp24hWindow, sendFlow);
+router.post('/send-text', requireAuth, requireManualWhatsAppSend, messagingLimiter, enforceWhatsApp24hWindow, sendText);
+router.post('/send-template', requireAuth, requireManualWhatsAppSend, messagingLimiter, enforceWhatsApp24hWindow, sendTemplate);
+router.post('/send-admin-alert', requireAuth, requireManualWhatsAppSend, messagingLimiter, sendAdminAlert);
+router.post('/send-flow', requireAuth, requireManualWhatsAppSend, messagingLimiter, enforceWhatsApp24hWindow, sendFlow);
 
 router.post(
   '/send-media',
   requireAuth,
+  requireManualWhatsAppSend,
   messagingLimiter,
   boundRequest,
   upload.single('file'),
@@ -84,7 +90,7 @@ router.post(
   sendMedia
 );
 
-router.post('/send-message', requireAuth, messagingLimiter, enforceWhatsApp24hWindow, sendMessage);
+router.post('/send-message', requireAuth, requireManualWhatsAppSend, messagingLimiter, enforceWhatsApp24hWindow, sendMessage);
 
 // ---------- Auto Reply ----------
 router.post('/auto-reply', requireAuth, createAutoReplyRule);
@@ -316,6 +322,7 @@ router.get(
 router.post(
   '/sanjusk/send-text',
   requireAuth,
+  requireManualWhatsAppSend,
   messagingLimiter,
   asyncHandler(async (req, res) => {
     const phone = String(req.body?.to || req.body?.phone || '').replace(/\D/g, '');
@@ -331,6 +338,7 @@ router.post(
 router.post(
   '/sanjusk/send-media',
   requireAuth,
+  requireManualWhatsAppSend,
   messagingLimiter,
   asyncHandler(async (req, res) => {
     const phone = String(req.body?.to || req.body?.phone || '').replace(/\D/g, '');

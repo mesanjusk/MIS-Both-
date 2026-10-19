@@ -21,7 +21,7 @@ router.use(requireAuth);
 router.get('/chatlist', async (_req, res) => {
   try {
     const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    const messages = await Message.find({ createdAt: { $gte: since } }).sort({ timestamp: -1, time: -1, createdAt: -1 }).lean();
+    const messages = await Message.find({ createdAt: { $gte: since }, source: { $nin: ['INSTAGRAM_DM', 'LEADS_CALL_IMPORT'] } }).sort({ timestamp: -1, time: -1, createdAt: -1 }).lean();
     const numberSet = new Set();
 
     messages.forEach((message) => {
@@ -55,6 +55,7 @@ router.get('/messages/:number', async (req, res) => {
   try {
     const variants = buildPhoneVariants(req.params.number);
     const messages = await Message.find({
+      source: { $nin: ['INSTAGRAM_DM', 'LEADS_CALL_IMPORT'] },
       $or: [{ from: { $in: variants } }, { to: { $in: variants } }],
     })
       .sort({ timestamp: 1, time: 1, createdAt: 1 })

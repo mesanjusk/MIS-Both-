@@ -16,6 +16,7 @@ const logger = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdminOrOwner } = require('../middleware/authorize');
 const { maskMobileNumbers } = require('../utils/mobileVisibility');
+const { tierFor } = require('../utils/roleHierarchy');
 
 async function validateUserAccountLink(accountId, excludeUserId = null) {
   const cleanAccountId = String(accountId || '').trim();
@@ -280,6 +281,12 @@ router.put('/updateUserPermissions/:id', requireAuth, requireAdminOrOwner, async
     logger.error('Error updating permissions:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
+});
+
+// Live, server-verified right. A change by admin does not require another login.
+router.get('/my-whatsapp-send-permission', requireAuth, (req, res) => {
+  const canSendWhatsapp = tierFor(req.user.userGroup) >= 4 || req._permissions?.canSendWhatsapp === true;
+  res.json({ success: true, canSendWhatsapp });
 });
 
 // GET LOGGED IN USER GROUP

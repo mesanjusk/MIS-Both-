@@ -9,6 +9,7 @@ const { decryptToken } = require('./social/socialTokenCrypto');
 const sanjuskConversation = require('./sanjuskConversationService');
 const { normalizePhone, groupLeadEvents, explicitlySharedPhone } = require('./leadIdentityService');
 const logger = require('../utils/logger');
+const { loadLeadDirectory, decorateLeads } = require('./leadContactDirectoryService');
 
 const LINK_SETTING = 'unified_leads_instagram_phone_links';
 const MAX_ROWS = 7500;
@@ -44,11 +45,12 @@ function messageToEvent(row) {
   };
 }
 
-async function collectLeads() {
-  const [messages, calls, links] = await Promise.all([
+async function collectLeads({ page = 1, limit = 25, search = '', channel = 'all' } = {}) {
+  const [messages, calls, links, directory] = await Promise.all([
     Message.find({}).sort({ _id: -1 }).limit(MAX_ROWS).lean(),
     CallLogs.find({}).limit(MAX_ROWS).lean(),
     AppSetting.getSetting(LINK_SETTING, {}),
+    loadLeadDirectory(),
   ]);
 
   const events = messages.map(messageToEvent).filter(Boolean);
@@ -93,10 +95,28 @@ async function collectLeads() {
       ? 'connected'
       : 'needs_messaging_permission';
 
-  const leads = groupLeadEvents(events, links && typeof links === 'object' ? links : {});
+  const leads = decorateLeads(groupLeadEvents(events, links && typeof links === 'object' ? links : {}), directory);
+  const keyword = String(search || '').trim().toLocaleLowerCase();
+  const allowedChannel = ['all', 'whatsapp', 'instagram', 'call', 'contacts'].includes(channel) ? channel : 'all';
+  const filtered = leads.filter(lead => {
+    if (allowedChannel === 'contacts' && !lead.directoryOnly) return false;
+    if (allowedChannel !== 'all' && allowedChannel !== 'contacts' && !lead.sources.includes(allowedChannel)) return false;
+    if (!keyword) return true;
+    return [lead.name, lead.phone, lead.leadName, lead.vcfName, lead.instagramHandle,
+      lead.instagramId, lead.lastContact?.detail].some(value => String(value || '').toLocaleLowerCase().includes(keyword));
+  });
+  filtered.sort((a, b) => {
+    if (a.lastContact && !b.lastContact) return -1;
+    if (!a.lastContact && b.lastContact) return 1;
+    if (a.lastContact && b.lastContact) return b.lastContact.at.localeCompare(a.lastContact.at);
+    return a.name.localeCompare(b.name);
+  });
+  const safePage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 25));
   return {
-    leads,
-    total: leads.length,
+    leads: filtered.slice((safePage - 1) * safeLimit, safePage * safeLimit),
+    total: filtered.length,
+    pagination: { page: safePage, limit: safeLimit, pages: Math.ceil(filtered.length / safeLimit) },
     status: { whatsapp: whatsappStatus, instagram: instagramStatus, call: 'stored' },
     limits: { storedMessages: MAX_ROWS, storedCalls: MAX_ROWS, instagramSyncConversations: MAX_CONVERSATIONS_PER_ACCOUNT },
   };

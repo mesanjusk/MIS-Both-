@@ -13,6 +13,11 @@ const contactSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    // Lead labels are separate from WhatsApp contact.name and customer ledger names.
+    // Import only updates vcfName; manual edits only update leadName.
+    leadName: { type: String, default: '', trim: true },
+    vcfName: { type: String, default: '', trim: true },
+    leadLastImportedAt: { type: Date, default: null },
     tags: {
       type: [String],
       default: [],

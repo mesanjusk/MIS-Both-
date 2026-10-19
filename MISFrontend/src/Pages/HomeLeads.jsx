@@ -1,10 +1,14 @@
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Drawer,
   IconButton, Paper, Stack, TextField, Typography,
+  Dialog, DialogActions, DialogContent, DialogTitle,
 } from '@mui/material';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
+import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
+import ContactsRoundedIcon from '@mui/icons-material/ContactsRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
@@ -19,6 +23,7 @@ const CHANNEL = {
   whatsapp: { label: 'WhatsApp', color: 'success', Icon: WhatsAppIcon },
   instagram: { label: 'Instagram', color: 'secondary', Icon: InstagramIcon },
   call: { label: 'Call', color: 'info', Icon: CallRoundedIcon },
+  contacts: { label: 'Contacts', color: 'default', Icon: ContactsRoundedIcon },
 };
 const formatDate = (value) => {
   if (!value) return '—';
@@ -37,6 +42,7 @@ function ChannelChip({ source }) {
 export default function HomeLeads() {
   const { isSuperAdmin } = useAuth();
   const [leads, setLeads] = useState([]);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,15 +52,32 @@ export default function HomeLeads() {
   const [search, setSearch] = useState('');
   const [channel, setChannel] = useState('all');
   const [page, setPage] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [newLeadName, setNewLeadName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [leadName, setLeadName] = useState('');
   const [selected, setSelected] = useState(null);
   const [linkPhone, setLinkPhone] = useState('');
   const [linking, setLinking] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 350);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const { data } = await apiClient.get('/api/leads');
+      const { data } = await apiClient.get('/api/leads', {
+        params: { page: page + 1, limit: 25, search: debouncedSearch, channel },
+        cache: false,
+      });
       setLeads(Array.isArray(data.leads) ? data.leads : []);
+      setTotal(Number(data.total) || 0);
       setStatus(data.status || {});
       setError('');
     } catch (err) {
@@ -63,7 +86,7 @@ export default function HomeLeads() {
       setBusy(false);
       setLoaded(true);
     }
-  }, []);
+  }, [page, debouncedSearch, channel]);
   useEffect(() => { load(); }, [load]);
 
   const syncInstagram = async () => {
@@ -102,16 +125,70 @@ export default function HomeLeads() {
     }
   };
 
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      if (channel !== 'all' && !lead.sources.includes(channel)) return false;
-      if (!needle) return true;
-      return [lead.name, lead.phone, lead.instagramHandle, lead.instagramId, lead.lastContact?.detail]
-        .some((field) => String(field || '').toLowerCase().includes(needle));
-    });
-  }, [leads, search, channel]);
-  const shown = filtered.slice(page * 25, (page + 1) * 25);
+  const shown = leads;
+
+  const importVcf = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!/\.vcf$/i.test(file.name) || file.size > 20 * 1024 * 1024) {
+      setError('Choose a .vcf file smaller than 20 MB.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    setUploading(true);
+    setError('');
+    try {
+      const { data } = await apiClient.post('/api/leads/import-vcf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180000,
+      });
+      setNote('VCF imported: ' + data.uniquePhones + ' unique numbers; ' + data.added +
+        ' new and ' + data.updated + ' existing. Customer Names and manual Lead Names were untouched.');
+      setPage(0);
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Could not import VCF contacts.'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const addLead = async () => {
+    setAdding(true);
+    try {
+      await apiClient.post('/api/leads/manual', { phone: newPhone, name: newLeadName });
+      setAddOpen(false);
+      setNewPhone('');
+      setNewLeadName('');
+      setNote('Lead saved independently of Customer Name.');
+      setPage(0);
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Unable to add lead.'));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const saveLeadName = async () => {
+    if (!selected) return;
+    setEditingName(true);
+    try {
+      await apiClient.patch('/api/leads/name', {
+        ...(selected.phone ? { phone: selected.phone } : { instagramId: selected.instagramId }),
+        name: leadName,
+      });
+      setSelected(null);
+      setNote('Lead Name saved. Customer Name was not modified.');
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Unable to save Lead Name.'));
+    } finally {
+      setEditingName(false);
+    }
+  };
 
   return (
     <Stack spacing={2}>
@@ -122,9 +199,18 @@ export default function HomeLeads() {
             <Typography variant="h6" fontWeight={800}>Unified Leads</Typography>
             <Typography variant="caption" color="text.secondary">One person, one lead across WhatsApp, Instagram and calls</Typography>
           </Box>
-          <Chip size="small" label={loaded ? `${leads.length} leads` : 'Loading'} />
+          <Chip size="small" label={loaded ? `${total.toLocaleString('en-IN')} contacts / leads` : 'Loading'} />
         </Stack>
         <Stack direction="row" gap={1} flexWrap="wrap">
+          {isSuperAdmin && (
+            <Button size="small" variant="outlined" component="label" disabled={uploading}
+              startIcon={uploading ? <CircularProgress size={16} /> : <UploadFileRoundedIcon />}>
+              {uploading ? 'Importing...' : 'Upload VCF'}
+              <input hidden type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={importVcf} />
+            </Button>
+          )}
+          <Button size="small" variant="contained" startIcon={<PersonAddAlt1RoundedIcon />}
+            onClick={() => setAddOpen(true)}>Add Lead</Button>
           {isSuperAdmin && <Button size="small" variant="outlined" disabled={syncing} startIcon={syncing ? <CircularProgress size={16} /> : <InstagramIcon />} onClick={syncInstagram}>Sync Instagram</Button>}
           <Button size="small" variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={busy} onClick={load}>Refresh</Button>
         </Stack>
@@ -136,14 +222,15 @@ export default function HomeLeads() {
       {status.instagram === 'needs_messaging_permission' && <Alert severity="warning">Instagram publishing is connected, but DM reading needs the Meta <strong>instagram_manage_messages</strong> permission and account reconnection. WhatsApp and call leads remain available.</Alert>}
       {status.whatsapp === 'stored_only' && <Alert severity="warning">Live WhatsApp history is temporarily unavailable; showing saved messages.</Alert>}
       <Typography variant="caption" color="text.secondary">
-        Call records include saved calls and dates imported through Call Logs. Two channels are merged only when they share a phone number or an admin links the Instagram identity; names alone are not treated as proof.
+        Lead Name and Customer Name are separate. A VCF import never overwrites manually entered Lead Names.
+        Contacts with no interactions remain marked as directory-only.
       </Typography>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField size="small" fullWidth label="Search name, phone, Instagram or message" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
         <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
-          {['all', 'whatsapp', 'instagram', 'call'].map((id) => (
+          {['all', 'whatsapp', 'instagram', 'call', 'contacts'].map((id) => (
             <Chip key={id} clickable color={channel === id ? 'primary' : 'default'}
               variant={channel === id ? 'filled' : 'outlined'}
               label={id === 'all' ? 'All' : CHANNEL[id].label}
@@ -153,12 +240,12 @@ export default function HomeLeads() {
       </Stack>
 
       {busy && !loaded ? <CircularProgress size={24} sx={{ alignSelf: 'center' }} /> : null}
-      {!busy && loaded && filtered.length === 0 && (
-        <Alert severity="info">No matching leads yet. They appear here when a customer messages the connected WhatsApp or Instagram account, or call history is imported.</Alert>
+      {!busy && loaded && total === 0 && (
+        <Alert severity="info">No matching leads. Import a VCF, add a lead, or receive new messages or calls.</Alert>
       )}
       <Stack spacing={0.75}>
         {shown.map((lead) => (
-          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLinkPhone(lead.phone || ''); }}
+          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLeadName(lead.leadName || ''); setLinkPhone(lead.phone || ''); }}
             sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}>
             <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
               <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -166,24 +253,24 @@ export default function HomeLeads() {
                 <Typography variant="caption" color="text.secondary">
                   {[lead.phone, lead.instagramHandle ? '@' + lead.instagramHandle : ''].filter(Boolean).join(' · ') || 'Instagram account ID ' + lead.instagramId}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || 'Contact received'}</Typography>
+                <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || (lead.directoryOnly ? 'Saved contact · No conversation yet' : 'Contact received')}</Typography>
               </Box>
               <Stack spacing={0.5} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
                 <Stack direction="row" spacing={0.5} flexWrap="wrap">
                   {lead.sources.map((source) => <ChannelChip key={source} source={source} />)}
                 </Stack>
-                <Typography variant="caption" color="text.secondary">First: {lead.firstContact?.source} · {formatDate(lead.firstContact?.at)}</Typography>
+                <Typography variant="caption" color="text.secondary">{lead.firstContact ? `First: ${lead.firstContact.source} · ${formatDate(lead.firstContact.at)}` : 'Contact directory only'}</Typography>
                 <Typography variant="caption" color="text.secondary">Latest: {formatDate(lead.lastContact?.at)} · {lead.interactions} interactions</Typography>
               </Stack>
             </Stack>
           </Paper>
         ))}
       </Stack>
-      {filtered.length > 25 && (
+      {total > 25 && (
         <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1}>
-          <Typography variant="caption" color="text.secondary">{page * 25 + 1}–{Math.min((page + 1) * 25, filtered.length)} of {filtered.length}</Typography>
+          <Typography variant="caption" color="text.secondary">{page * 25 + 1}–{Math.min((page + 1) * 25, total)} of {total}</Typography>
           <Button size="small" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-          <Button size="small" disabled={(page + 1) * 25 >= filtered.length} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          <Button size="small" disabled={(page + 1) * 25 >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </Stack>
       )}
 
@@ -195,10 +282,21 @@ export default function HomeLeads() {
             <IconButton onClick={() => setSelected(null)}><CloseRoundedIcon /></IconButton>
           </Stack>
           <Typography variant="body2">{selected.phone || 'No linked mobile number'}</Typography>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+            <Stack spacing={1}>
+              <Typography fontWeight={700} variant="subtitle2">Lead Name (separate from Customer Name)</Typography>
+              {selected.vcfName && <Typography variant="caption" color="text.secondary">Imported VCF Name: {selected.vcfName}</Typography>}
+              <TextField size="small" label="Lead Name" placeholder={selected.vcfName || 'Enter Lead Name'}
+                helperText="Manual name takes priority over VCF. Clearing restores the imported name."
+                value={leadName} onChange={(e) => setLeadName(e.target.value)} inputProps={{ maxLength: 120 }} />
+              <Button variant="contained" size="small" disabled={editingName}
+                onClick={saveLeadName}>{editingName ? 'Saving...' : 'Save Lead Name'}</Button>
+            </Stack>
+          </Paper>
           {selected.instagramHandle && <Typography variant="body2">Instagram: @{selected.instagramHandle}</Typography>}
           <Stack direction="row" spacing={0.75}>{selected.sources.map((source) => <ChannelChip key={source} source={source} />)}</Stack>
           <Divider />
-          <Typography variant="subtitle2" fontWeight={700}>First contact: {formatDate(selected.firstContact?.at)} ({selected.firstContact?.source})</Typography>
+          <Typography variant="subtitle2" fontWeight={700}>{selected.firstContact ? `First contact: ${formatDate(selected.firstContact.at)} (${selected.firstContact.source})` : 'No calls or messages recorded yet'}</Typography>
           <Typography variant="caption" color="text.secondary">Recent interactions ({selected.interactions} recorded; showing latest 15)</Typography>
           {selected.history.map((event) => (
             <Box key={event.id} sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1 }}>
@@ -221,6 +319,26 @@ export default function HomeLeads() {
           )}
         </Stack>}
       </Drawer>
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add Lead</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Creates a lead-directory entry only. No customer ledger account is created or renamed.
+            </Typography>
+            <TextField label="Lead Name" required value={newLeadName}
+              onChange={(e) => setNewLeadName(e.target.value)} inputProps={{ maxLength: 120 }} />
+            <TextField label="Mobile / WhatsApp Number" required value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddOpen(false)} disabled={adding}>Cancel</Button>
+          <Button variant="contained" onClick={addLead} disabled={adding || !newPhone.trim() || !newLeadName.trim()}>
+            {adding ? 'Saving...' : 'Save Lead'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

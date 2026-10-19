@@ -12,6 +12,15 @@ function normalizePhone(value) {
   return '';
 }
 
+// Only link an Instagram DM to a phone if its sender explicitly identifies
+// their own contact number. Plain numbers in marketing copy are NOT identity.
+function explicitlySharedPhone(message) {
+  const content = String(message || '');
+  const marker = /(?:my\\s+(?:whatsapp|mobile|phone|contact|number)(?:\\s+number)?(?:\\s+is)?|(?:call|contact|whatsapp)\\s+me\\s+(?:at|on)?|मेरा\\s+(?:मोबाइल|नंबर))\\s*[:=-]?\\s*(\\+?\\d[\\d ()-]{8,18}\\d)/i;
+  const matched = content.match(marker);
+  return matched ? normalizePhone(matched[1]) : '';
+}
+
 function normalizedEvent(raw) {
   const source = String(raw.source || '').toLowerCase();
   if (!['whatsapp', 'instagram', 'call'].includes(source)) return null;
@@ -100,4 +109,4 @@ function groupLeadEvents(rawEvents, instagramPhoneLinks = {}) {
   return leads.sort((a, b) => b.lastContact.at.localeCompare(a.lastContact.at));
 }
 
-module.exports = { normalizePhone, normalizedEvent, groupLeadEvents };
+module.exports = { normalizePhone, explicitlySharedPhone, normalizedEvent, groupLeadEvents };

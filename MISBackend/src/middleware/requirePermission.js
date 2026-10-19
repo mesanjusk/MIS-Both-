@@ -57,11 +57,11 @@ const loadPermissions = async (req) => {
  * requirePermission(flag) — require the named permission flag to not be
  * explicitly false. Pass a flag key such as 'canCreateOrders'.
  */
-const requirePermission = (flag) => async (req, _res, next) => {
+const requirePermission = (flag, { denyByDefault = false } = {}) => async (req, _res, next) => {
   try {
     if (isTier4(req)) return next();
     const permissions = await loadPermissions(req);
-    if (permissions[flag] === false) {
+    if (denyByDefault ? permissions[flag] !== true : permissions[flag] === false) {
       return next(
         new AppError(`Access denied: you do not have the "${flag}" permission`, 403)
       );

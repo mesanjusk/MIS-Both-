@@ -32,6 +32,7 @@ export default function ChatWindow({
   getTimestampRaw,
   scrollRef,
   canSend,
+  canSendWhatsapp,
   canSendTemplateOnly,
   recipient,
   onSend,
@@ -104,6 +105,7 @@ export default function ChatWindow({
       <MessageInput
         disabled={!canSend}
         canSendTemplateOnly={canSendTemplateOnly}
+        canSendWhatsapp={canSendWhatsapp}
         recipient={recipient}
         onSend={onSend}
         onSendAttachment={onSendAttachment}
@@ -119,6 +121,7 @@ ChatWindow.propTypes = {
   getTimestampRaw: PropTypes.func.isRequired,
   scrollRef: PropTypes.shape({ current: PropTypes.any }),
   canSend: PropTypes.bool,
+  canSendWhatsapp: PropTypes.bool,
   canSendTemplateOnly: PropTypes.bool,
   recipient: PropTypes.string,
   onSend: PropTypes.func.isRequired,
@@ -130,6 +133,7 @@ ChatWindow.defaultProps = {
   messages: [],
   scrollRef: { current: null },
   canSend: true,
+  canSendWhatsapp: false,
   canSendTemplateOnly: false,
   recipient: '',
   onSendAttachment: undefined,

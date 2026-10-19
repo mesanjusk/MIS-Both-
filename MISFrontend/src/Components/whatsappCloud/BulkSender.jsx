@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { toast } from '../../Components';
 import { buildTemplatePayload, whatsappCloudService } from '../../services/whatsappCloudService';
 import TemplateSelector from './TemplateSelector';
+import { useWhatsappSendPermission } from '../../hooks/useWhatsappSendPermission';
 
 const splitNumbers = (rawValue) =>
   String(rawValue || '')
@@ -10,6 +11,7 @@ const splitNumbers = (rawValue) =>
     .filter(Boolean);
 
 export default function BulkSender() {
+  const canSendWhatsapp = useWhatsappSendPermission();
   const [numbersText, setNumbersText] = useState('');
   const [template, setTemplate] = useState(null);
   const [isSending, setIsSending] = useState(false);
@@ -27,6 +29,10 @@ export default function BulkSender() {
   };
 
   const sendBulkMessages = async () => {
+    if (!canSendWhatsapp) {
+      toast.error('WhatsApp sending is disabled for your account.');
+      return;
+    }
     if (numbers.length === 0) {
       toast.error('Please provide at least one recipient number.');
       return;
@@ -88,7 +94,7 @@ export default function BulkSender() {
           Recipient Numbers (one per line or comma separated)
           <textarea
             rows={4}
-            disabled={isSending}
+            disabled={isSending || !canSendWhatsapp}
             value={numbersText}
             onChange={(event) => setNumbersText(event.target.value)}
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
@@ -106,7 +112,7 @@ export default function BulkSender() {
         <button
           type="button"
           onClick={sendBulkMessages}
-          disabled={isSending || numbers.length === 0}
+          disabled={isSending || !canSendWhatsapp || numbers.length === 0}
           className="rounded-lg bg-green-600 px-4 py-2.5 font-medium text-white disabled:opacity-60"
         >
           {isSending ? 'Sending Bulk...' : 'Send Bulk Template'}

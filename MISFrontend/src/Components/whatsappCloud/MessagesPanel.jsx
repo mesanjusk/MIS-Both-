@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { io } from 'socket.io-client';
 import { getStoredToken } from '../../utils/authStorage';
+import { useWhatsappSendPermission } from '../../hooks/useWhatsappSendPermission';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Avatar, Box, Divider, Stack, Typography } from '@mui/material';
 import { toast } from '../../Components';
@@ -124,6 +125,7 @@ const toConversationFromContact = ({ contact, displayName, secondaryLabel }) => 
 
 export default function MessagesPanel({ search: externalSearch, service, showDetails }) {
   const messagingService = service || whatsappCloudService;
+  const canSendWhatsapp = useWhatsappSendPermission();
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -419,7 +421,7 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
 
   const handleSend = useCallback(
     async (body) => {
-      if (!activeConversation?.contact) return false;
+      if (!activeConversation?.contact || !canSendWhatsapp) return false;
 
       if (!conversationWindowOpen) {
         toast.error('24-hour session is closed. Use template messages only.');
@@ -441,12 +443,12 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
         setIsSending(false);
       }
     },
-    [activeConversation, conversationWindowOpen, loadMessages, messagingService]
+    [activeConversation, canSendWhatsapp, conversationWindowOpen, loadMessages, messagingService]
   );
 
   const handleSendAttachment = useCallback(
     async ({ file, type, caption }) => {
-      if (!activeConversation?.contact || !conversationWindowOpen) return false;
+      if (!activeConversation?.contact || !canSendWhatsapp || !conversationWindowOpen) return false;
 
       const optimisticId = `optimistic-${Date.now()}-${file.name}`;
       const previewUrl = URL.createObjectURL(file);
@@ -488,11 +490,12 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
         setIsSending(false);
       }
     },
-    [activeConversation, conversationWindowOpen, loadMessages, messagingService]
+    [activeConversation, canSendWhatsapp, conversationWindowOpen, loadMessages, messagingService]
   );
 
   const handleRetry = useCallback(
     async (message) => {
+      if (!canSendWhatsapp || !conversationWindowOpen) return false;
       try {
         setIsSending(true);
         await messagingService.sendTextMessage({
@@ -508,7 +511,7 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
         setIsSending(false);
       }
     },
-    [loadMessages, messagingService]
+    [canSendWhatsapp, conversationWindowOpen, loadMessages, messagingService]
   );
 
   const detailsPanel = activeConversation ? (
@@ -544,12 +547,13 @@ export default function MessagesPanel({ search: externalSearch, service, showDet
         getMessageDirection={getMessageDirection}
         getTimestampRaw={getTimestampRaw}
         scrollRef={messagesContainerRef}
-        canSend={Boolean(activeConversation) && !isSending && conversationWindowOpen}
+        canSend={canSendWhatsapp && Boolean(activeConversation) && !isSending && conversationWindowOpen}
+        canSendWhatsapp={canSendWhatsapp}
         canSendTemplateOnly={is24hExpired}
         recipient={activeConversation?.contact || ''}
         onSend={handleSend}
         onSendAttachment={handleSendAttachment}
-        onRetry={handleRetry}
+        onRetry={canSendWhatsapp ? handleRetry : undefined}
       />
     </Stack>
   ) : (

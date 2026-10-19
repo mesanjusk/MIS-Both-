@@ -142,6 +142,8 @@ const UsersSchema = new mongoose.Schema({
       // Governs the live WhatsApp message stream as well as the pages: every
       // authenticated socket used to receive every inbound message.
       canViewWhatsapp:       { type: Boolean, default: true },
+      // Explicit admin opt-in; existing accounts without this flag cannot send.
+      canSendWhatsapp:       { type: Boolean, default: false },
       // Allows this employee's registered WhatsApp number to create/update
       // attendance records through the WhatsApp attendance command flow.
       // Default true preserves existing behaviour until an admin turns it off.
@@ -172,6 +174,7 @@ const UsersSchema = new mongoose.Schema({
       canUseEmail: true,
       canManageDesignFiles: true,
       canViewWhatsapp: true,
+      canSendWhatsapp: false,
       canMarkAttendanceWhatsapp: true,
       dashboardCards: [],
       allowedWidgets: [],

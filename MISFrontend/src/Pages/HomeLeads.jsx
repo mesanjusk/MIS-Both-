@@ -282,6 +282,17 @@ export default function HomeLeads() {
             <IconButton onClick={() => setSelected(null)}><CloseRoundedIcon /></IconButton>
           </Stack>
           <Typography variant="body2">{selected.phone || 'No linked mobile number'}</Typography>
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+            <Stack spacing={1}>
+              <Typography fontWeight={700} variant="subtitle2">Lead Name (separate from Customer Name)</Typography>
+              {selected.vcfName && <Typography variant="caption" color="text.secondary">Imported VCF Name: {selected.vcfName}</Typography>}
+              <TextField size="small" label="Lead Name" placeholder={selected.vcfName || 'Enter Lead Name'}
+                helperText="Manual name takes priority over VCF. Clearing restores the imported name."
+                value={leadName} onChange={(e) => setLeadName(e.target.value)} inputProps={{ maxLength: 120 }} />
+              <Button variant="contained" size="small" disabled={editingName}
+                onClick={saveLeadName}>{editingName ? 'Saving...' : 'Save Lead Name'}</Button>
+            </Stack>
+          </Paper>
           {selected.instagramHandle && <Typography variant="body2">Instagram: @{selected.instagramHandle}</Typography>}
           <Stack direction="row" spacing={0.75}>{selected.sources.map((source) => <ChannelChip key={source} source={source} />)}</Stack>
           <Divider />
@@ -308,6 +319,26 @@ export default function HomeLeads() {
           )}
         </Stack>}
       </Drawer>
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add Lead</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="caption" color="text.secondary">
+              Creates a lead-directory entry only. No customer ledger account is created or renamed.
+            </Typography>
+            <TextField label="Lead Name" required value={newLeadName}
+              onChange={(e) => setNewLeadName(e.target.value)} inputProps={{ maxLength: 120 }} />
+            <TextField label="Mobile / WhatsApp Number" required value={newPhone}
+              onChange={(e) => setNewPhone(e.target.value)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddOpen(false)} disabled={adding}>Cancel</Button>
+          <Button variant="contained" onClick={addLead} disabled={adding || !newPhone.trim() || !newLeadName.trim()}>
+            {adding ? 'Saving...' : 'Save Lead'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

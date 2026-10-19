@@ -34,6 +34,24 @@ export default function CallLogs() {
 
             if (response.data.success) {
                 setLogs(response.data.logs);
+                // Persist fetched call events for Home → Leads. Repeated imports
+                // of the same day are idempotent on the server.
+                try {
+                    const rows = Array.isArray(response.data.logs) ? response.data.logs : [];
+                    for (let index = 0; index < rows.length; index += 200) {
+                        await axios.post('/api/leads/import-calls', {
+                            day: date,
+                            logs: rows.slice(index, index + 200).map((log, offset) => ({
+                                ...log,
+                                // Stable row position across repeated queries of a day.
+                                id: log.id || log._id || log.uuid || `${index + offset}`,
+                            })),
+                        });
+                    }
+                } catch (importError) {
+                    console.warn('Unable to include this date in unified leads:', importError);
+                    toast.error('Call logs loaded, but the Leads import failed.');
+                }
                 setCurrentPage(1); 
                 setShowForm(false);
             } else {

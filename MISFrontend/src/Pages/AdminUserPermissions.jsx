@@ -62,6 +62,7 @@ const HOME_WIDGETS = [
   { id: 'attendance',     label: 'Attendance',      color: '#2563eb', bg: '#dbeafe' },
   { id: 'rateCalculator', label: 'Rate Calculator', color: '#d97706', bg: '#fef3c7' },
   { id: 'dayBook',        label: 'Day Book',        color: '#475569', bg: '#f1f5f9' },
+  { id: 'leads',          label: 'Leads',           color: '#4f46e5', bg: '#e0e7ff' },
 ];
 
 const PERMISSION_LABELS = [

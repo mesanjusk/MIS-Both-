@@ -199,9 +199,18 @@ export default function HomeLeads() {
             <Typography variant="h6" fontWeight={800}>Unified Leads</Typography>
             <Typography variant="caption" color="text.secondary">One person, one lead across WhatsApp, Instagram and calls</Typography>
           </Box>
-          <Chip size="small" label={loaded ? `${leads.length} leads` : 'Loading'} />
+          <Chip size="small" label={loaded ? `${total.toLocaleString('en-IN')} contacts / leads` : 'Loading'} />
         </Stack>
         <Stack direction="row" gap={1} flexWrap="wrap">
+          {isSuperAdmin && (
+            <Button size="small" variant="outlined" component="label" disabled={uploading}
+              startIcon={uploading ? <CircularProgress size={16} /> : <UploadFileRoundedIcon />}>
+              {uploading ? 'Importing...' : 'Upload VCF'}
+              <input hidden type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={importVcf} />
+            </Button>
+          )}
+          <Button size="small" variant="contained" startIcon={<PersonAddAlt1RoundedIcon />}
+            onClick={() => setAddOpen(true)}>Add Lead</Button>
           {isSuperAdmin && <Button size="small" variant="outlined" disabled={syncing} startIcon={syncing ? <CircularProgress size={16} /> : <InstagramIcon />} onClick={syncInstagram}>Sync Instagram</Button>}
           <Button size="small" variant="outlined" startIcon={<RefreshRoundedIcon />} disabled={busy} onClick={load}>Refresh</Button>
         </Stack>
@@ -213,14 +222,15 @@ export default function HomeLeads() {
       {status.instagram === 'needs_messaging_permission' && <Alert severity="warning">Instagram publishing is connected, but DM reading needs the Meta <strong>instagram_manage_messages</strong> permission and account reconnection. WhatsApp and call leads remain available.</Alert>}
       {status.whatsapp === 'stored_only' && <Alert severity="warning">Live WhatsApp history is temporarily unavailable; showing saved messages.</Alert>}
       <Typography variant="caption" color="text.secondary">
-        Call records include saved calls and dates imported through Call Logs. Two channels are merged only when they share a phone number or an admin links the Instagram identity; names alone are not treated as proof.
+        Lead Name and Customer Name are separate. A VCF import never overwrites manually entered Lead Names.
+        Contacts with no interactions remain marked as directory-only.
       </Typography>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField size="small" fullWidth label="Search name, phone, Instagram or message" value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }} />
         <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
-          {['all', 'whatsapp', 'instagram', 'call'].map((id) => (
+          {['all', 'whatsapp', 'instagram', 'call', 'contacts'].map((id) => (
             <Chip key={id} clickable color={channel === id ? 'primary' : 'default'}
               variant={channel === id ? 'filled' : 'outlined'}
               label={id === 'all' ? 'All' : CHANNEL[id].label}
@@ -230,12 +240,12 @@ export default function HomeLeads() {
       </Stack>
 
       {busy && !loaded ? <CircularProgress size={24} sx={{ alignSelf: 'center' }} /> : null}
-      {!busy && loaded && filtered.length === 0 && (
-        <Alert severity="info">No matching leads yet. They appear here when a customer messages the connected WhatsApp or Instagram account, or call history is imported.</Alert>
+      {!busy && loaded && total === 0 && (
+        <Alert severity="info">No matching leads. Import a VCF, add a lead, or receive new messages or calls.</Alert>
       )}
       <Stack spacing={0.75}>
         {shown.map((lead) => (
-          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLinkPhone(lead.phone || ''); }}
+          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLeadName(lead.leadName || ''); setLinkPhone(lead.phone || ''); }}
             sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}>
             <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
               <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -243,24 +253,24 @@ export default function HomeLeads() {
                 <Typography variant="caption" color="text.secondary">
                   {[lead.phone, lead.instagramHandle ? '@' + lead.instagramHandle : ''].filter(Boolean).join(' · ') || 'Instagram account ID ' + lead.instagramId}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || 'Contact received'}</Typography>
+                <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || (lead.directoryOnly ? 'Saved contact · No conversation yet' : 'Contact received')}</Typography>
               </Box>
               <Stack spacing={0.5} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
                 <Stack direction="row" spacing={0.5} flexWrap="wrap">
                   {lead.sources.map((source) => <ChannelChip key={source} source={source} />)}
                 </Stack>
-                <Typography variant="caption" color="text.secondary">First: {lead.firstContact?.source} · {formatDate(lead.firstContact?.at)}</Typography>
+                <Typography variant="caption" color="text.secondary">{lead.firstContact ? `First: ${lead.firstContact.source} · ${formatDate(lead.firstContact.at)}` : 'Contact directory only'}</Typography>
                 <Typography variant="caption" color="text.secondary">Latest: {formatDate(lead.lastContact?.at)} · {lead.interactions} interactions</Typography>
               </Stack>
             </Stack>
           </Paper>
         ))}
       </Stack>
-      {filtered.length > 25 && (
+      {total > 25 && (
         <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1}>
-          <Typography variant="caption" color="text.secondary">{page * 25 + 1}–{Math.min((page + 1) * 25, filtered.length)} of {filtered.length}</Typography>
+          <Typography variant="caption" color="text.secondary">{page * 25 + 1}–{Math.min((page + 1) * 25, total)} of {total}</Typography>
           <Button size="small" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-          <Button size="small" disabled={(page + 1) * 25 >= filtered.length} onClick={() => setPage((p) => p + 1)}>Next</Button>
+          <Button size="small" disabled={(page + 1) * 25 >= total} onClick={() => setPage((p) => p + 1)}>Next</Button>
         </Stack>
       )}
 
@@ -275,7 +285,7 @@ export default function HomeLeads() {
           {selected.instagramHandle && <Typography variant="body2">Instagram: @{selected.instagramHandle}</Typography>}
           <Stack direction="row" spacing={0.75}>{selected.sources.map((source) => <ChannelChip key={source} source={source} />)}</Stack>
           <Divider />
-          <Typography variant="subtitle2" fontWeight={700}>First contact: {formatDate(selected.firstContact?.at)} ({selected.firstContact?.source})</Typography>
+          <Typography variant="subtitle2" fontWeight={700}>{selected.firstContact ? `First contact: ${formatDate(selected.firstContact.at)} (${selected.firstContact.source})` : 'No calls or messages recorded yet'}</Typography>
           <Typography variant="caption" color="text.secondary">Recent interactions ({selected.interactions} recorded; showing latest 15)</Typography>
           {selected.history.map((event) => (
             <Box key={event.id} sx={{ borderBottom: '1px solid', borderColor: 'divider', pb: 1 }}>

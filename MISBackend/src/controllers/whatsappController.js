@@ -1332,17 +1332,21 @@ const getMessages = asyncHandler(async (req, res) => {
     ? { timestamp: -1, time: -1, createdAt: -1 }
     : { timestamp: 1, time: 1, createdAt: 1 };
 
-  const messageQuery = Message.find({}).sort(sort);
+  // Leads stores Instagram/call activity in Message to avoid a new MongoDB
+  // collection. Keep those events out of WhatsApp-only inbox and unread counts.
+  const whatsappOnly = { source: { $nin: ['INSTAGRAM_DM', 'LEADS_CALL_IMPORT'] } };
+  const messageQuery = Message.find(whatsappOnly).sort(sort);
   if (hasPaging && limit) {
     messageQuery.skip(skip).limit(limit);
   }
 
   const [rawMessages, total, unreadCount] = await Promise.all([
     messageQuery.lean(),
-    Message.countDocuments({}),
+    Message.countDocuments(whatsappOnly),
     includeUnreadCount
       ? Message.countDocuments({
           $and: [
+            whatsappOnly,
             { $or: [{ direction: 'incoming' }, { fromMe: false }] },
             { status: { $ne: 'read' } },
           ],

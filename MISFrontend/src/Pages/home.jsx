@@ -9,6 +9,7 @@ import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded';
 import RequestQuoteRoundedIcon from '@mui/icons-material/RequestQuoteRounded';
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded';
 import ChatRoundedIcon from '@mui/icons-material/ChatRounded';
+import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
 import NotificationsActiveRoundedIcon from '@mui/icons-material/NotificationsActiveRounded';
 import { useAuth } from '../context/AuthContext';
 import WorkflowWidget from '../Components/dashboard/WorkflowWidget';
@@ -21,6 +22,7 @@ const loadRateCalculator = () => import('./RateCalculator');
 const loadPaymentFollowup = () => import('./PaymentFollowupHome');
 const loadDayBookLedger = () => import('../Reports/allTransaction4D');
 const loadHomeInbox = () => import('./HomeInbox');
+const loadHomeLeads = () => import('./HomeLeads');
 
 const OutstandingReport = lazy(loadOutstandingReport);
 const AllOrders = lazy(loadAllOrders);
@@ -30,6 +32,7 @@ const RateCalculator = lazy(loadRateCalculator);
 const PaymentFollowup = lazy(loadPaymentFollowup);
 const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
+const HomeLeads = lazy(loadHomeLeads);
 
 function AttendanceHome() {
   const navigate = useNavigate();
@@ -117,6 +120,7 @@ const HOME_TABS = [
   { id: 'payableAccount', label: 'Payable', icon: RequestQuoteRoundedIcon, Component: PayableAccount, requiresAccounts: true },
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
   { id: 'paymentFollowup', label: 'Payment Follow-up', icon: NotificationsActiveRoundedIcon, Component: PaymentFollowup, requiresAccounts: true },
+  { id: 'leads', label: 'Leads', icon: PeopleAltRoundedIcon, Component: HomeLeads, requiresWhatsApp: true },
 ];
 
 const HOME_TAB_PRELOADERS = [loadHomeInbox, loadDayBookLedger, loadAllAttandance, loadAllOrders, loadOutstandingReport, loadPayableAccount, loadRateCalculator, loadPaymentFollowup];
@@ -143,14 +147,14 @@ export default function Home() {
   const [mountedTabs, setMountedTabs] = useState(() => new Set([storedHomeTab()]));
 
   const visibleTabs = useMemo(() => {
-    const accountVisibleTabs = HOME_TABS.filter((tab) => !tab.requiresAccounts || permissions?.canViewAccounts !== false);
+    const accountVisibleTabs = HOME_TABS.filter((tab) => (!tab.requiresAccounts || permissions?.canViewAccounts !== false) && (!tab.requiresWhatsApp || permissions?.canViewWhatsapp !== false));
     const configured = permissions?.allowedWidgets || [];
     if (!configured.length) return accountVisibleTabs;
     const allowed = new Set(configured.map((id) => LEGACY_HOME_TAB_IDS[id] || id));
     // Newly introduced Accounts tab remains visible until widget configuration supports it.
-    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id) || tab.id === 'paymentFollowup');
+    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id) || tab.id === 'paymentFollowup' || tab.id === 'leads');
     return filtered.length ? filtered : accountVisibleTabs;
-  }, [permissions?.allowedWidgets, permissions?.canViewAccounts]);
+  }, [permissions?.allowedWidgets, permissions?.canViewAccounts, permissions?.canViewWhatsapp]);
 
   useEffect(() => {
     const user = location.state?.id || localStorage.getItem('User_name') || userName;

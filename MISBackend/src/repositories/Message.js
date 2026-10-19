@@ -26,6 +26,12 @@ const messageSchema = new mongoose.Schema(
     // attendance, scheduled) with which flow produced it, so automation traffic
     // is distinguishable from staff-typed replies in the inbox history.
     source: String,
+    // Shared message collection also tracks Instagram inbound DMs and imported
+    // call events without creating another Mongo collection.
+    instagramAccountId: String,
+    instagramUserId: String,
+    instagramHandle: String,
+    contactName: String,
 
     // NEW: interactive / flow support
     interactiveType: String,

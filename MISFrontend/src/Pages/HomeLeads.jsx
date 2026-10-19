@@ -127,6 +127,69 @@ export default function HomeLeads() {
 
   const shown = leads;
 
+  const importVcf = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!/\.vcf$/i.test(file.name) || file.size > 20 * 1024 * 1024) {
+      setError('Choose a .vcf file smaller than 20 MB.');
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    setUploading(true);
+    setError('');
+    try {
+      const { data } = await apiClient.post('/api/leads/import-vcf', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 180000,
+      });
+      setNote('VCF imported: ' + data.uniquePhones + ' unique numbers; ' + data.added +
+        ' new and ' + data.updated + ' existing. Customer Names and manual Lead Names were untouched.');
+      setPage(0);
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Could not import VCF contacts.'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const addLead = async () => {
+    setAdding(true);
+    try {
+      await apiClient.post('/api/leads/manual', { phone: newPhone, name: newLeadName });
+      setAddOpen(false);
+      setNewPhone('');
+      setNewLeadName('');
+      setNote('Lead saved independently of Customer Name.');
+      setPage(0);
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Unable to add lead.'));
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const saveLeadName = async () => {
+    if (!selected) return;
+    setEditingName(true);
+    try {
+      await apiClient.patch('/api/leads/name', {
+        ...(selected.phone ? { phone: selected.phone } : { instagramId: selected.instagramId }),
+        name: leadName,
+      });
+      setSelected(null);
+      setNote('Lead Name saved. Customer Name was not modified.');
+      await load();
+    } catch (err) {
+      setError(parseApiError(err, 'Unable to save Lead Name.'));
+    } finally {
+      setEditingName(false);
+    }
+  };
+
   return (
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={1}>

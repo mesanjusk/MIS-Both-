@@ -7,7 +7,7 @@ const { AppSetting } = require('../repositories/appSetting');
 const { graphGet } = require('./social/providers/metaGraphClient');
 const { decryptToken } = require('./social/socialTokenCrypto');
 const sanjuskConversation = require('./sanjuskConversationService');
-const { normalizePhone, groupLeadEvents } = require('./leadIdentityService');
+const { normalizePhone, groupLeadEvents, explicitlySharedPhone } = require('./leadIdentityService');
 const logger = require('../utils/logger');
 
 const LINK_SETTING = 'unified_leads_instagram_phone_links';
@@ -33,7 +33,7 @@ function messageToEvent(row) {
   return {
     id: source + ':' + (row.messageId || row._id || row.id || ''),
     source,
-    phone: isInstagram ? '' : (source === 'call' ? row.from : row.from || row.wa_id),
+    phone: isInstagram ? explicitlySharedPhone(row.message || row.body) : (source === 'call' ? row.from : row.from || row.wa_id),
     instagramId: isInstagram ? row.instagramUserId : '',
     instagramHandle: isInstagram ? row.instagramHandle : '',
     name: row.contactName || '',
@@ -152,7 +152,7 @@ async function syncInstagram() {
             imported += 1;
           }
         }
-        after = page.paging?.cursors?.after || null;
+        after = page.paging?.next ? (page.paging?.cursors?.after || null) : null;
         if (after && seenConversations >= MAX_CONVERSATIONS_PER_ACCOUNT) truncated = true;
       } while (after && seenConversations < MAX_CONVERSATIONS_PER_ACCOUNT);
     } catch (error) {

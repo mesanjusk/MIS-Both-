@@ -1,4 +1,4 @@
-const { normalizePhone, groupLeadEvents } = require('../../src/services/leadIdentityService');
+const { normalizePhone, groupLeadEvents, explicitlySharedPhone } = require('../../src/services/leadIdentityService');
 
 const event = (id, source, date, extra = {}) => ({
   id, source, at: date, ...extra,
@@ -41,6 +41,13 @@ describe('unified lead identity', () => {
     expect(joined[0].firstContact.source).toBe('instagram');
     expect(joined[0].instagramHandle).toBe('client_one');
     expect(joined[0].phone).toBe('9876543210');
+  });
+
+  test('only explicit self-described phone numbers can bridge Instagram automatically', () => {
+    expect(explicitlySharedPhone('My WhatsApp number is +91 98765 43210')).toBe('9876543210');
+    expect(explicitlySharedPhone('Call me at 9876543210')).toBe('9876543210');
+    expect(explicitlySharedPhone('Our shop: 9876543210')).toBe('');
+    expect(explicitlySharedPhone('Order number 9876543210')).toBe('');
   });
 
   test('same name alone never merges unrelated people', () => {

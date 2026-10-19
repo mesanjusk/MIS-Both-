@@ -59,6 +59,27 @@ describe('requirePermission', () => {
     expect(next).toHaveBeenCalledWith();
   });
 
+  test.each([undefined, {}, { canSendWhatsapp: false }])('denies outbound sending unless explicitly granted (%p)', async (permissions) => {
+    mockUser(permissions);
+    const next = jest.fn();
+    await requirePermission('canSendWhatsapp', { denyByDefault: true })(reqFor('Office User'), {}, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+  });
+
+  test('allows staff with explicit WhatsApp sending grant', async () => {
+    mockUser({ canSendWhatsapp: true });
+    const next = jest.fn();
+    await requirePermission('canSendWhatsapp', { denyByDefault: true })(reqFor('Office User'), {}, next);
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  test('admin bypasses the opt-in flag', async () => {
+    const next = jest.fn();
+    await requirePermission('canSendWhatsapp', { denyByDefault: true })(reqFor('Admin User'), {}, next);
+    expect(next).toHaveBeenCalledWith();
+    expect(Users.findById).not.toHaveBeenCalled();
+  });
+
   test('refuses when the user row is gone, rather than treating it as unrestricted', async () => {
     // A missing account used to read as an empty — and so permissive —
     // permissions object, which let a deleted user's token pass every flag.

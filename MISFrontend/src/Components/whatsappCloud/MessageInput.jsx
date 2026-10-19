@@ -23,6 +23,7 @@ export default function MessageInput({
   onSend,
   onSendAttachment,
   canSendTemplateOnly,
+  canSendWhatsapp = false,
   recipient,
 }) {
   const [value, setValue] = useState('');
@@ -97,7 +98,12 @@ export default function MessageInput({
         bgcolor: '#f0f2f5',
       }}
     >
-      {canSendTemplateOnly ? (
+      {!canSendWhatsapp ? (
+        <Alert severity="info" sx={{ mb: 1.2 }}>
+          WhatsApp sending is disabled for your account. Ask an administrator to enable Send WhatsApp Messages in User Permissions.
+        </Alert>
+      ) : null}
+      {canSendWhatsapp && canSendTemplateOnly ? (
         <>
           <Alert severity="warning" sx={{ mb: 1.2 }}>
             You are outside the 24-hour window. Only template messages can be sent.
@@ -143,7 +149,7 @@ export default function MessageInput({
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={disabled ? 'Text input disabled outside 24h window' : 'Type a message'}
-        disabled={disabled}
+        disabled={disabled || !canSendWhatsapp}
         size="small"
         sx={{
           '& .MuiOutlinedInput-root': {
@@ -187,6 +193,7 @@ MessageInput.propTypes = {
   onSend: PropTypes.func.isRequired,
   onSendAttachment: PropTypes.func,
   canSendTemplateOnly: PropTypes.bool,
+  canSendWhatsapp: PropTypes.bool,
   recipient: PropTypes.string,
 };
 
@@ -194,5 +201,6 @@ MessageInput.defaultProps = {
   disabled: false,
   onSendAttachment: undefined,
   canSendTemplateOnly: false,
+  canSendWhatsapp: false,
   recipient: '',
 };

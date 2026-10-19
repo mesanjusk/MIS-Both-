@@ -16,7 +16,7 @@ function normalizePhone(value) {
 // their own contact number. Plain numbers in marketing copy are NOT identity.
 function explicitlySharedPhone(message) {
   const content = String(message || '');
-  const marker = /(?:my\\s+(?:whatsapp|mobile|phone|contact|number)(?:\\s+number)?(?:\\s+is)?|(?:call|contact|whatsapp)\\s+me\\s+(?:at|on)?|मेरा\\s+(?:मोबाइल|नंबर))\\s*[:=-]?\\s*(\\+?\\d[\\d ()-]{8,18}\\d)/i;
+  const marker = /(?:my\s+(?:whatsapp|mobile|phone|contact|number)(?:\s+number)?(?:\s+is)?|(?:call|contact|whatsapp)\s+me\s+(?:at|on)?|मेरा\s+(?:मोबाइल|नंबर))\s*[:=-]?\s*(\+?\d[\d ()-]{8,18}\d)/i;
   const matched = content.match(marker);
   return matched ? normalizePhone(matched[1]) : '';
 }

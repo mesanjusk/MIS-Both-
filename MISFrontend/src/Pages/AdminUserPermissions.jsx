@@ -38,6 +38,7 @@ const DEFAULT_PERMISSIONS = {
   canUseEmail: true,
   canManageDesignFiles: true,
   canViewWhatsapp: true,
+  canSendWhatsapp: false,
   canMarkAttendanceWhatsapp: true,
   dashboardCards: [],
   allowedWidgets: [],
@@ -76,6 +77,7 @@ const PERMISSION_LABELS = [
   { key: 'canUseEmail',           label: 'Use Email',           desc: 'Can send mail and view email history' },
   { key: 'canManageDesignFiles',  label: 'Manage Design Files', desc: 'Can change Drive files and send proofs' },
   { key: 'canViewWhatsapp',       label: 'View WhatsApp',       desc: 'Can see WhatsApp chats and live messages' },
+  { key: 'canSendWhatsapp',       label: 'Send WhatsApp Messages', desc: 'Allow sending text, media, and templates. Disabled for staff by default.' },
   { key: 'canMarkAttendanceWhatsapp', label: 'WhatsApp Attendance', desc: 'Can mark attendance from the registered WhatsApp number' },
 ];
 

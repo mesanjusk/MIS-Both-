@@ -1,10 +1,14 @@
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Drawer,
   IconButton, Paper, Stack, TextField, Typography,
+  Dialog, DialogActions, DialogContent, DialogTitle,
 } from '@mui/material';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
+import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
+import ContactsRoundedIcon from '@mui/icons-material/ContactsRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
@@ -19,6 +23,7 @@ const CHANNEL = {
   whatsapp: { label: 'WhatsApp', color: 'success', Icon: WhatsAppIcon },
   instagram: { label: 'Instagram', color: 'secondary', Icon: InstagramIcon },
   call: { label: 'Call', color: 'info', Icon: CallRoundedIcon },
+  contacts: { label: 'Contacts', color: 'default', Icon: ContactsRoundedIcon },
 };
 const formatDate = (value) => {
   if (!value) return '—';
@@ -37,6 +42,7 @@ function ChannelChip({ source }) {
 export default function HomeLeads() {
   const { isSuperAdmin } = useAuth();
   const [leads, setLeads] = useState([]);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState({});
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,15 +52,32 @@ export default function HomeLeads() {
   const [search, setSearch] = useState('');
   const [channel, setChannel] = useState('all');
   const [page, setPage] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState('');
+  const [newLeadName, setNewLeadName] = useState('');
+  const [editingName, setEditingName] = useState(false);
+  const [leadName, setLeadName] = useState('');
   const [selected, setSelected] = useState(null);
   const [linkPhone, setLinkPhone] = useState('');
   const [linking, setLinking] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 350);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const { data } = await apiClient.get('/api/leads');
+      const { data } = await apiClient.get('/api/leads', {
+        params: { page: page + 1, limit: 25, search: debouncedSearch, channel },
+        cache: false,
+      });
       setLeads(Array.isArray(data.leads) ? data.leads : []);
+      setTotal(Number(data.total) || 0);
       setStatus(data.status || {});
       setError('');
     } catch (err) {
@@ -63,7 +86,7 @@ export default function HomeLeads() {
       setBusy(false);
       setLoaded(true);
     }
-  }, []);
+  }, [page, debouncedSearch, channel]);
   useEffect(() => { load(); }, [load]);
 
   const syncInstagram = async () => {
@@ -102,16 +125,7 @@ export default function HomeLeads() {
     }
   };
 
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return leads.filter((lead) => {
-      if (channel !== 'all' && !lead.sources.includes(channel)) return false;
-      if (!needle) return true;
-      return [lead.name, lead.phone, lead.instagramHandle, lead.instagramId, lead.lastContact?.detail]
-        .some((field) => String(field || '').toLowerCase().includes(needle));
-    });
-  }, [leads, search, channel]);
-  const shown = filtered.slice(page * 25, (page + 1) * 25);
+  const shown = leads;
 
   return (
     <Stack spacing={2}>

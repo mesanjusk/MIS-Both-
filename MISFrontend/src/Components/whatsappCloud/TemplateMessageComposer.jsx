@@ -5,6 +5,7 @@ import { toast } from '../../Components';
 import { buildTemplatePayload, whatsappCloudService } from '../../services/whatsappCloudService';
 import { parseApiError } from '../../utils/parseApiError';
 import TemplateSelector from './TemplateSelector';
+import { useWhatsappSendPermission } from '../../hooks/useWhatsappSendPermission';
 import PropTypes from 'prop-types';
 
 export default function TemplateMessageComposer({
@@ -14,10 +15,12 @@ export default function TemplateMessageComposer({
   disabled = false,
   onSent,
 }) {
+  const canSendWhatsapp = useWhatsappSendPermission();
   const [template, setTemplate] = useState(null);
   const [isSending, setIsSending] = useState(false);
 
   const handleSendTemplate = async () => {
+    if (!canSendWhatsapp) return;
     if (!recipient?.trim()) {
       toast.error('Recipient number is required.');
       return;
@@ -55,12 +58,12 @@ export default function TemplateMessageComposer({
       <TemplateSelector
         selectedTemplate={template}
         onTemplateChange={setTemplate}
-        disabled={disabled || isSending}
+        disabled={disabled || !canSendWhatsapp || isSending}
       />
       <Button
         type="button"
         onClick={handleSendTemplate}
-        disabled={disabled || isSending || !template}
+        disabled={disabled || !canSendWhatsapp || isSending || !template}
         variant="contained"
         startIcon={<SendRoundedIcon fontSize="small" />}
       >

@@ -9,11 +9,64 @@ const { normalizePhone } = require('../services/leadIdentityService');
 const { collectLeads, syncInstagram, importCallLogs, LINK_SETTING } = require('../services/unifiedLeadService');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
+const multer = require('multer');
+const { importVcf, updatePhoneLeadName, updateInstagramLeadName } = require('../services/leadContactDirectoryService');
+const vcfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+}).single('file');
+const receiveVcf = (req, res, next) => vcfUpload(req, res, error => {
+  if (error?.code === 'LIMIT_FILE_SIZE') return next(new AppError('VCF file must be 20 MB or smaller.', 413));
+  if (error) return next(new AppError('Unable to read the VCF file.', 400));
+  return next();
+});
 
 router.use(requireAuth);
-router.get('/', requirePermission('canViewWhatsapp'), asyncHandler(async (_req, res) => {
-  const result = await collectLeads();
+router.get('/', requirePermission('canViewWhatsapp'), asyncHandler(async (req, res) => {
+  const result = await collectLeads({
+    page: req.query.page, limit: req.query.limit,
+    search: req.query.search, channel: req.query.channel,
+  });
   return res.json({ success: true, ...result });
+}));
+
+// VCF import is admin-only and runs in bounded Mongo bulk updates. It never
+// updates Customers, WhatsApp Contact.name, or staff-entered leadName.
+router.post('/import-vcf', requireAdminOrOwner, receiveVcf, asyncHandler(async (req, res) => {
+  if (!req.file || !/\.vcf$/i.test(req.file.originalname || '')) {
+    throw new AppError('Choose a .vcf contacts file.', 400);
+  }
+  try {
+    const result = await importVcf(req.file.buffer);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error?.name === 'MongoBulkWriteError') throw error;
+    throw new AppError(error.message || 'VCF import failed.', 400);
+  }
+}));
+
+// Save a manually named lead, whether or not a message/call has occurred.
+router.post('/manual', requirePermission('canViewWhatsapp'), asyncHandler(async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    if (!name) throw new Error('Lead Name is required.');
+    const result = await updatePhoneLeadName(req.body?.phone, name);
+    return res.status(201).json({ success: true, ...result });
+  } catch (error) {
+    throw new AppError(error.message || 'Cannot add lead.', 400);
+  }
+}));
+
+// Rename lead only. Never mutate Customers.Customer_name or contact.name.
+router.patch('/name', requirePermission('canViewWhatsapp'), asyncHandler(async (req, res) => {
+  try {
+    const result = req.body?.phone
+      ? await updatePhoneLeadName(req.body.phone, req.body?.name)
+      : await updateInstagramLeadName(req.body?.instagramId, req.body?.name);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    throw new AppError(error.message || 'Unable to save Lead Name.', 400);
+  }
 }));
 
 // Meta DM permissions and social integration are admin-managed, never open to

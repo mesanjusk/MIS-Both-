@@ -1173,6 +1173,83 @@ async function repairConfirmedBankStatementsWithEvidence() {
 
 // --------------- routes ---------------
 
+
+/**
+ * Import overlap protection: reuse an already confirmed movement from a prior
+ * statement instead of posting it a second time. Amount alone is NOT unique:
+ * require the same bank, direction, date within two days, and independent
+ * reference or description+running-balance evidence.
+ */
+function sameImportedBank(a, b) {
+  const aId = String(a.ledger_account_uuid || '').trim();
+  const bId = String(b.ledger_account_uuid || '').trim();
+  if (aId && bId) return aId === bId;
+  const aName = normalizeLedgerName(a.ledger_account_name || a.account_name);
+  const bName = normalizeLedgerName(b.ledger_account_name || b.account_name);
+  return Boolean(aName && bName && aName === bName);
+}
+
+function sameStatementMovement(a, b) {
+  const amountA = roundMoney(a.credit > 0 ? a.credit : a.debit);
+  const amountB = roundMoney(b.credit > 0 ? b.credit : b.debit);
+  if (!(amountA > 0) || amountA !== amountB || a.direction !== b.direction) return false;
+  const diff = utcDayDistance(a.txn_date, b.txn_date);
+  if (diff === null || diff > 2) return false;
+  const refA = String(a.ref_no || '').trim().toUpperCase();
+  const refB = String(b.ref_no || '').trim().toUpperCase();
+  if (refA && refB) return refA === refB;
+  const descriptionA = String(a.description || '').replace(/\\s+/g, ' ').trim().toUpperCase();
+  const descriptionB = String(b.description || '').replace(/\\s+/g, ' ').trim().toUpperCase();
+  return Boolean(descriptionA && descriptionA.length >= 8 &&
+    descriptionA === descriptionB &&
+    Number(a.balance) === Number(b.balance));
+}
+
+async function findPreviouslyConfirmedStatementMovement(stmt, entry) {
+  if (!entry?.txn_date) return { match: null, ambiguous: false };
+  const start = new Date(entry.txn_date);
+  const end = new Date(entry.txn_date);
+  if (Number.isNaN(start.getTime())) return { match: null, ambiguous: false };
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCDate(start.getUTCDate() - 2);
+  end.setUTCHours(0, 0, 0, 0);
+  end.setUTCDate(end.getUTCDate() + 3);
+  const candidates = await BankStatement.find({
+    statement_uuid: { $ne: stmt.statement_uuid },
+    'entries.txn_date': { $gte: start, $lt: end },
+    'entries.entry_status': 'confirmed',
+  }).lean();
+  const matches = [];
+  for (const other of candidates) {
+    if (!sameImportedBank(stmt, other)) continue;
+    for (const prior of other.entries || []) {
+      if (prior.entry_status !== 'confirmed' || !prior.transaction_uuid) continue;
+      if (sameStatementMovement(entry, prior)) matches.push(prior);
+    }
+  }
+  const uniqueIds = [...new Set(matches.map((candidate) => String(candidate.transaction_uuid)))];
+  if (uniqueIds.length !== 1) return { match: null, ambiguous: uniqueIds.length > 1 };
+  const transaction = await Transaction.findOne({ Transaction_uuid: uniqueIds[0] }).lean();
+  return { match: transaction ? { transaction, previous: matches[0] } : null, ambiguous: false };
+}
+
+async function reuseOverlappingConfirmedEntries(statement) {
+  let reused = 0;
+  let ambiguous = 0;
+  for (const entry of statement.entries || []) {
+    const previous = await findPreviouslyConfirmedStatementMovement(statement, entry);
+    if (previous.ambiguous) { ambiguous += 1; continue; }
+    if (!previous.match) continue;
+    entry.transaction_uuid = previous.match.transaction.Transaction_uuid;
+    entry.entry_status = 'confirmed';
+    entry.match_status = 'manual';
+    entry.account_assigned = previous.match.previous.account_assigned || '';
+    entry.matched_party = previous.match.previous.matched_party || entry.account_assigned;
+    reused += 1;
+  }
+  return { reused, ambiguous };
+}
+
 // POST /api/bank-statement/upload-pdf
 router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
   try {
@@ -1215,9 +1292,10 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
       period_end:     dates[dates.length - 1],
       entries:        enriched,
     });
+    const overlap = await reuseOverlappingConfirmedEntries(statement);
     await statement.save();
 
-    return res.status(201).json({ success: true, message: 'PDF bank statement uploaded', result: statement });
+    return res.status(201).json({ success: true, message: 'PDF bank statement uploaded', result: statement, overlap });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/upload-pdf');
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -1252,9 +1330,10 @@ router.post('/upload-csv', async (req, res) => {
       period_end:     dates[dates.length - 1],
       entries:        enriched,
     });
+    const overlap = await reuseOverlappingConfirmedEntries(statement);
     await statement.save();
 
-    return res.status(201).json({ success: true, message: 'Bank statement uploaded', result: statement });
+    return res.status(201).json({ success: true, message: 'Bank statement uploaded', result: statement, overlap });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/upload-csv');
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -1508,6 +1587,22 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
 
     const entry = (stmt.entries || []).find((e) => e.entry_uuid === req.params.entryUuid);
     if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
+
+    // An overlapping TXT/CSV/PDF upload must never create another journal row.
+    const overlap = await findPreviouslyConfirmedStatementMovement(stmt, entry);
+    if (overlap.ambiguous) {
+      return res.status(409).json({ success: false,
+        message: 'Multiple older statement movements match this entry. Review before posting.' });
+    }
+    if (overlap.match) {
+      entry.transaction_uuid = overlap.match.transaction.Transaction_uuid;
+      entry.entry_status = 'confirmed';
+      entry.match_status = 'manual';
+      entry.account_assigned = overlap.match.previous.account_assigned || entry.account_assigned;
+      entry.matched_party = overlap.match.previous.matched_party || entry.matched_party;
+      await stmt.save();
+      return res.json({ success: true, message: 'Already present in a previous bank statement; existing ledger entry linked without posting again', result: stmt });
+    }
 
     // Prefer an already-confirmed Diary transaction when this row was matched to
     // one. This path predates the generic transaction-level reconciliation below

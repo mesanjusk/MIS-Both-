@@ -268,6 +268,7 @@ export default function BankReconciliation() {
   const [uploading, setUploading]     = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [stmtList, setStmtList]       = useState([]);
+  const [reconciliationStatus, setReconciliationStatus] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [stmt, setStmt]               = useState(null);
   const [loading, setLoading]         = useState(false);
@@ -283,9 +284,13 @@ export default function BankReconciliation() {
   const loadList = useCallback(async () => {
     setListLoading(true);
     try {
-      const res = await axios.get('/api/bank-statement');
+      const [res, statusRes] = await Promise.all([
+        axios.get('/api/bank-statement'),
+        axios.get('/api/bank-statement/reconciliation-status'),
+      ]);
       setStmtList(Array.isArray(res.data?.result) ? res.data.result : []);
-    } catch { setStmtList([]); }
+      setReconciliationStatus(Array.isArray(statusRes.data?.result) ? statusRes.data.result : []);
+    } catch { setStmtList([]); setReconciliationStatus([]); }
     finally { setListLoading(false); }
   }, []);
 
@@ -497,6 +502,9 @@ export default function BankReconciliation() {
 
   // Derived
   const entries = stmt?.entries || [];
+  const bankStatus = reconciliationStatus.find((status) =>
+    status.bank === (stmt?.ledger_account_name || stmt?.account_name)
+  );
   // "Unmatched" must mean action is still required. Confirmed rows with a real
   // ledger transaction are reconciled even when no Diary row existed.
   const reconciled = entries.filter(
@@ -669,6 +677,12 @@ export default function BankReconciliation() {
                   <Typography variant="subtitle1" fontWeight={700}>{stmt.account_name}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     {fmtDate(stmt.period_start)} – {fmtDate(stmt.period_end)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Last uploaded statement: {bankStatus?.latest_statement_date ? fmtDate(bankStatus.latest_statement_date) : '—'}
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700} color="success.main">
+                    Last confirmed ledger match: {bankStatus?.last_confirmed_date ? fmtDate(bankStatus.last_confirmed_date) : 'Not yet confirmed'}
                   </Typography>
                 </Box>
                 <Divider orientation="vertical" flexItem />

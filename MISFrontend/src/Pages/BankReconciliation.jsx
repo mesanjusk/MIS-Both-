@@ -429,11 +429,12 @@ export default function BankReconciliation() {
         { confirmed_by: loggedInUser },
       );
       setStmt(res.data?.result || stmt);
+      await loadList();
       setSuccessMsg(res.data?.message || 'Bank entry confirmed.');
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not confirm bank entry.');
     }
-  }, [stmt, loggedInUser]);
+  }, [stmt, loggedInUser, loadList]);
 
   const handleSyncLedger = useCallback(async () => {
     if (!stmt) return;

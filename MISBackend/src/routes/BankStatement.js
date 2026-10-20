@@ -1340,6 +1340,45 @@ router.post('/upload-csv', async (req, res) => {
   }
 });
 
+// Reconciliation coverage is computed from confirmed rows, not upload order.
+// An older statement upload must never move the reconciled-through date backward.
+router.get('/reconciliation-status', async (_req, res) => {
+  try {
+    const statements = await BankStatement.find({}, {
+      account_name: 1, ledger_account_uuid: 1, ledger_account_name: 1,
+      period_end: 1, entries: 1,
+    }).lean();
+    const byBank = new Map();
+    for (const statement of statements) {
+      const key = String(statement.ledger_account_uuid ||
+        normalizeLedgerName(statement.ledger_account_name || statement.account_name)).trim();
+      if (!key) continue;
+      const status = byBank.get(key) || {
+        bank: statement.ledger_account_name || statement.account_name,
+        latest_statement_date: null,
+        last_confirmed_date: null,
+        confirmed_entries: 0,
+      };
+      if (statement.period_end && (!status.latest_statement_date ||
+        new Date(statement.period_end) > new Date(status.latest_statement_date))) {
+        status.latest_statement_date = statement.period_end;
+      }
+      for (const entry of statement.entries || []) {
+        if (entry.entry_status !== 'confirmed' || !entry.transaction_uuid || !entry.txn_date) continue;
+        status.confirmed_entries += 1;
+        if (!status.last_confirmed_date || new Date(entry.txn_date) > new Date(status.last_confirmed_date)) {
+          status.last_confirmed_date = entry.txn_date;
+        }
+      }
+      byBank.set(key, status);
+    }
+    return res.json({ success: true, result: [...byBank.values()] });
+  } catch (err) {
+    logger.error({ err }, 'GET /bank-statement/reconciliation-status');
+    return res.status(500).json({ success: false, message: 'Could not retrieve reconciliation status' });
+  }
+});
+
 // GET /api/bank-statement  — list all, newest first
 router.get('/', async (req, res) => {
   try {

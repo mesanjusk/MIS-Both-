@@ -308,3 +308,38 @@ describe('BankStatement bank-ledger reconciliation helpers', () => {
     )).toBe(false);
   });
 });
+
+describe('Overlapping statement movement protection', () => {
+  const { sameStatementMovement, sameImportedBank } = require('../../src/routes/BankStatement');
+  const movement = (date, amount, extras = {}) => ({
+    txn_date: new Date(date), credit: amount, debit: 0, direction: 'in',
+    ref_no: 'UTR-ABC-123', description: 'TRANSFER FROM CUSTOMER',
+    balance: 12500, ...extras,
+  });
+
+  test('matches a previously entered value despite a two-day statement date difference', () => {
+    expect(sameStatementMovement(movement('2026-10-18', 500),
+      movement('2026-10-20', 500))).toBe(true);
+  });
+
+  test('does not confuse different amounts, directions, or a three-day difference', () => {
+    expect(sameStatementMovement(movement('2026-10-18', 500),
+      movement('2026-10-18', 600))).toBe(false);
+    expect(sameStatementMovement(movement('2026-10-18', 500),
+      movement('2026-10-18', 500, { direction: 'out', credit: 0, debit: 500 }))).toBe(false);
+    expect(sameStatementMovement(movement('2026-10-18', 500),
+      movement('2026-10-21', 500))).toBe(false);
+  });
+
+  test('requires reference or strong description and running-balance evidence', () => {
+    expect(sameStatementMovement(movement('2026-10-18', 500),
+      movement('2026-10-19', 500, { ref_no: 'DIFFERENT' }))).toBe(false);
+    expect(sameStatementMovement(movement('2026-10-18', 500, { ref_no: '' }),
+      movement('2026-10-19', 500, { ref_no: '', balance: 13500 }))).toBe(false);
+  });
+
+  test('prevents cross-bank matches', () => {
+    expect(sameImportedBank({ ledger_account_uuid: 'sbi' }, { ledger_account_uuid: 'hdfc' })).toBe(false);
+    expect(sameImportedBank({ account_name: 'SBI Main' }, { account_name: 'SBI Main' })).toBe(true);
+  });
+});

@@ -1198,8 +1198,8 @@ function sameStatementMovement(a, b) {
   const refA = String(a.ref_no || '').trim().toUpperCase();
   const refB = String(b.ref_no || '').trim().toUpperCase();
   if (refA && refB) return refA === refB;
-  const descriptionA = String(a.description || '').replace(/\\s+/g, ' ').trim().toUpperCase();
-  const descriptionB = String(b.description || '').replace(/\\s+/g, ' ').trim().toUpperCase();
+  const descriptionA = String(a.description || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const descriptionB = String(b.description || '').replace(/\s+/g, ' ').trim().toUpperCase();
   return Boolean(descriptionA && descriptionA.length >= 8 &&
     descriptionA === descriptionB &&
     Number(a.balance) === Number(b.balance));
@@ -1806,3 +1806,6 @@ module.exports.findExistingLedgerTransaction = findExistingLedgerTransaction;
 module.exports.autoLinkExistingLedgerTransactions = autoLinkExistingLedgerTransactions;
 module.exports.inferStatementBankLedgerFromPendingEntries = inferStatementBankLedgerFromPendingEntries;
 module.exports.resolveStatementBankLedgerEvidence = resolveStatementBankLedgerEvidence;
+
+module.exports.sameStatementMovement = sameStatementMovement;
+module.exports.sameImportedBank = sameImportedBank;

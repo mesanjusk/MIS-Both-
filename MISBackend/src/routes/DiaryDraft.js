@@ -44,6 +44,56 @@ function parseCsv(text) {
 
 const PAYMENT_MODE_MAP = { cash: 'Cash', cheque: 'Cheque', upi: 'UPI', neft: 'Bank', bank: 'Bank' };
 
+
+// Match a diary posting against the actual debit/credit journal, not amount alone.
+// A single strong match can be linked; multiple matches must be reviewed.
+const dayDistance = (a, b) => {
+  const x = new Date(a), y = new Date(b);
+  if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime())) return Infinity;
+  return Math.abs(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) -
+    Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate())) / 86400000;
+};
+const rounded = (amount) => Math.round(Number(amount || 0) * 100);
+function matchesDiaryJournal(txn, entry, ledgerUuid, accountUuid) {
+  const amount = rounded(entry.amount);
+  if (!(amount > 0)) return false;
+  const lines = txn.Journal_entry || [];
+  const type = entry.direction === 'in' ? 'Debit' : 'Credit';
+  const opposite = entry.direction === 'in' ? 'Credit' : 'Debit';
+  return lines.some((line) => String(line.Account_id) === String(ledgerUuid) &&
+      line.Type === type && rounded(line.Amount) === amount) &&
+    lines.some((line) => String(line.Account_id) === String(accountUuid) &&
+      line.Type === opposite && rounded(line.Amount) === amount);
+}
+async function findExistingDiaryPosting(draft, entry, ledgerUuid, accountUuid, reserved = new Set()) {
+  const date = new Date(draft.diary_date);
+  const from = new Date(date), to = new Date(date);
+  from.setUTCHours(0, 0, 0, 0);
+  from.setUTCDate(from.getUTCDate() - (entry.book === 'bank' ? 2 : 0));
+  to.setUTCHours(0, 0, 0, 0);
+  to.setUTCDate(to.getUTCDate() + (entry.book === 'bank' ? 3 : 1));
+  const transactions = await Transaction.find({
+    Transaction_date: { $gte: from, $lt: to },
+    Total_Debit: { $gte: Number(entry.amount) - 0.005, $lte: Number(entry.amount) + 0.005 },
+  }).lean();
+  const candidates = transactions.filter((txn) =>
+    !reserved.has(String(txn.Transaction_uuid)) &&
+    matchesDiaryJournal(txn, entry, ledgerUuid, accountUuid) &&
+    dayDistance(txn.Transaction_date, draft.diary_date) <= (entry.book === 'bank' ? 2 : 0));
+  if (!candidates.length) return { transaction: null, ambiguous: false };
+  const name = String(entry.party || '').trim().toLowerCase();
+  const evidence = candidates.filter((txn) =>
+    name.length >= 4 && String(txn.Description || '').toLowerCase().includes(name));
+  const prioritized = evidence.length ? evidence : candidates;
+  // Avoid silently pairing two identical amounts on the same account/day.
+  if (prioritized.length !== 1) return { transaction: null, ambiguous: true };
+  // A description/party hint or a bank-statement source is necessary to auto-link.
+  const selected = prioritized[0];
+  const bankOwned = String(selected.Source || '').startsWith('bank_statement');
+  if (!evidence.length && !bankOwned) return { transaction: null, ambiguous: true };
+  return { transaction: selected, ambiguous: false };
+}
+
 // --------------- account suggestion engine ---------------
 
 async function suggestAccountsForEntries(entries) {
@@ -464,12 +514,14 @@ router.post('/:uuid/reopen', async (req, res) => {
 
       const txnUuid = entry.transaction_uuid;
       if (txnUuid) {
-        await reverseAndDeleteTransaction({ Transaction_uuid: txnUuid });
+        const postedTxn = await Transaction.findOne({ Transaction_uuid: txnUuid }).lean();
+        const isOwned = String(postedTxn?.Source || '') === `diary:${draft.diary_uuid}:${entry.entry_uuid}`;
+        if (isOwned) await reverseAndDeleteTransaction({ Transaction_uuid: txnUuid });
 
         // A bank statement row may have been matched to this diary transaction.
         // Reopening the diary invalidates that confirmation too; keep the match
         // metadata, but clear the financial link so it can be reconfirmed later.
-        await BankStatement.updateMany(
+        if (isOwned) await BankStatement.updateMany(
           { 'entries.transaction_uuid': txnUuid },
           {
             $set: {
@@ -508,6 +560,10 @@ router.post('/:uuid/confirm', async (req, res) => {
     const bankUuid = bankAccounts[0] || 'Bank';
 
     let created = 0;
+    let linked = 0;
+    const reserved = new Set();
+    // Resolve all matches before writing: ambiguous rows must not cause partial posting.
+    const prepared = [];
     for (const entry of draft.entries) {
       if (entry.entry_status === 'rejected') continue;
       if (!entry.account_assigned) continue;
@@ -519,6 +575,23 @@ router.post('/:uuid/confirm', async (req, res) => {
         continue;
       }
 
+      const existing = await findExistingDiaryPosting(
+        draft, entry, ledgerAccountUuid, assignedAcct.uuid, reserved
+      );
+      if (existing.ambiguous) {
+        return res.status(409).json({ success: false,
+          message: `Possible duplicate for ${entry.party} (₹${entry.amount}). Review ledger transactions before confirming the diary.` });
+      }
+      if (existing.transaction) reserved.add(String(existing.transaction.Transaction_uuid));
+      prepared.push({ entry, ledgerAccountUuid, assignedAcct, existing: existing.transaction });
+    }
+    for (const { entry, ledgerAccountUuid, assignedAcct, existing } of prepared) {
+      if (existing) {
+        entry.transaction_uuid = existing.Transaction_uuid;
+        entry.entry_status = 'confirmed';
+        linked++;
+        continue;
+      }
       const paymentMode = PAYMENT_MODE_MAP[entry.mode] || 'Cash';
       const description = [entry.party, entry.notes].filter(Boolean).join(' - ') || 'Diary entry';
       const source = `diary:${draft.diary_uuid}:${entry.entry_uuid}`;
@@ -553,7 +626,7 @@ router.post('/:uuid/confirm', async (req, res) => {
     draft.status = 'confirmed';
     draft.markModified('entries');
     await draft.save();
-    return res.json({ success: true, message: `${created} transaction(s) created/updated`, result: draft });
+    return res.json({ success: true, message: `${created} transaction(s) created/updated; ${linked} existing ledger transaction(s) linked without duplicate posting`, result: draft });
   } catch (err) {
     logger.error({ err }, 'POST /diary/:uuid/confirm');
     return res.status(err?.statusCode || 500).json({ success: false, message: err.message || 'Internal server error' });
@@ -577,3 +650,5 @@ router.delete('/:uuid', async (req, res) => {
 });
 
 module.exports = router;
+
+module.exports.matchesDiaryJournal = matchesDiaryJournal;

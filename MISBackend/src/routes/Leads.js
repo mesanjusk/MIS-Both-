@@ -11,6 +11,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const multer = require('multer');
 const { importVcf, updatePhoneLeadName, updateInstagramLeadName } = require('../services/leadContactDirectoryService');
+const { classifyLeadConversation } = require('../services/leadAiService');
 const vcfUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, files: 1 },
@@ -28,6 +29,25 @@ router.get('/', requirePermission('canViewWhatsapp'), asyncHandler(async (req, r
     search: req.query.search, channel: req.query.channel,
   });
   return res.json({ success: true, ...result });
+}));
+
+// Read-only Gemini classification of a lead's recent chat plus linked MIS orders.
+router.post('/classify', requirePermission('canViewWhatsapp'), asyncHandler(async (req, res) => {
+  try {
+    const result = await classifyLeadConversation({ phone: req.body?.phone, instagramId: req.body?.instagramId });
+    if (result.ai?.status === 'not_configured') {
+      return res.status(503).json({ success: false, message: 'Gemini is not configured on the MIS backend.', ai: result.ai });
+    }
+    if (!result.classification) {
+      return res.status(503).json({ success: false, message: 'Gemini could not classify this conversation. Try again later.', ai: result.ai });
+    }
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    if (error.message === 'A valid lead phone or Instagram contact is required') {
+      throw new AppError(error.message, 400);
+    }
+    throw error;
+  }
 }));
 
 // VCF import is admin-only and runs in bounded Mongo bulk updates. It never

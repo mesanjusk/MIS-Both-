@@ -15,6 +15,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import CallRoundedIcon from '@mui/icons-material/CallRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import apiClient from '../apiClient';
 import { useAuth } from '../context/AuthContext';
 import { parseApiError } from '../utils/parseApiError';
@@ -63,6 +64,8 @@ export default function HomeLeads() {
   const [selected, setSelected] = useState(null);
   const [linkPhone, setLinkPhone] = useState('');
   const [linking, setLinking] = useState(false);
+  const [classifying, setClassifying] = useState(false);
+  const [classification, setClassification] = useState(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search), 350);
@@ -190,6 +193,33 @@ export default function HomeLeads() {
     }
   };
 
+  const classifyConversation = async () => {
+    if (!selected) return;
+    setClassifying(true);
+    setClassification(null);
+    try {
+      const { data } = await apiClient.post('/api/leads/classify', {
+        ...(selected.phone ? { phone: selected.phone } : {}),
+        ...(selected.instagramId ? { instagramId: selected.instagramId } : {}),
+      }, { timeout: 45000 });
+      setClassification(data);
+    } catch (err) {
+      setError(parseApiError(err, 'AI could not classify this conversation.'));
+    } finally {
+      setClassifying(false);
+    }
+  };
+
+  const classificationLabel = (value) => ({
+    existing_order_followup: 'Existing order follow-up',
+    new_lead: 'New lead / enquiry',
+    order_update: 'Existing order update',
+    payment_followup: 'Payment follow-up',
+    support_issue: 'Support issue',
+    general_question: 'General question',
+    not_enough_context: 'Needs staff review',
+  }[value] || 'Needs staff review');
+
   return (
     <Stack spacing={2}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} gap={1}>
@@ -245,7 +275,7 @@ export default function HomeLeads() {
       )}
       <Stack spacing={0.75}>
         {shown.map((lead) => (
-          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLeadName(lead.leadName || ''); setLinkPhone(lead.phone || ''); }}
+          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLeadName(lead.leadName || ''); setLinkPhone(lead.phone || ''); setClassification(null); }}
             sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}>
             <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
               <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -296,6 +326,31 @@ export default function HomeLeads() {
           {selected.instagramHandle && <Typography variant="body2">Instagram: @{selected.instagramHandle}</Typography>}
           <Stack direction="row" spacing={0.75}>{selected.sources.map((source) => <ChannelChip key={source} source={source} />)}</Stack>
           <Divider />
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+            <Stack spacing={1}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                <Typography variant="subtitle2" fontWeight={700}>AI chat understanding</Typography>
+                <Button size="small" variant="contained" startIcon={classifying ? <CircularProgress size={15} color="inherit" /> : <AutoAwesomeRoundedIcon />}
+                  disabled={classifying || (!selected.phone && !selected.instagramId)} onClick={classifyConversation}>
+                  {classifying ? 'Reading chat…' : classification ? 'Analyze again' : 'Analyze chat'}
+                </Button>
+              </Stack>
+              <Typography variant="caption" color="text.secondary">Uses recent messages and linked MIS orders. Suggestions are advisory; verify before acting.</Typography>
+              {classification?.classification && <>
+                <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
+                  <Chip size="small" color={classification.classification.confidence >= 0.7 ? 'primary' : 'warning'}
+                    label={classificationLabel(classification.classification.category)} />
+                  <Typography variant="caption" color="text.secondary">{Math.round(classification.classification.confidence * 100)}% confidence</Typography>
+                </Stack>
+                <Typography variant="body2">{classification.classification.reason}</Typography>
+                {classification.classification.relatedOrderNumbers?.length > 0 &&
+                  <Typography variant="caption" color="text.secondary">Related order(s): {classification.classification.relatedOrderNumbers.join(', ')}</Typography>}
+                {classification.classification.suggestedNextStep &&
+                  <Typography variant="body2"><strong>Suggested next step:</strong> {classification.classification.suggestedNextStep}</Typography>}
+                <Typography variant="caption" color="text.secondary">Based on {classification.conversationCount} recent message(s). AI does not update orders or send replies.</Typography>
+              </>}
+            </Stack>
+          </Paper>
           <Typography variant="subtitle2" fontWeight={700}>{selected.firstContact ? `First contact: ${formatDate(selected.firstContact.at)} (${selected.firstContact.source})` : 'No calls or messages recorded yet'}</Typography>
           <Typography variant="caption" color="text.secondary">Recent interactions ({selected.interactions} recorded; showing latest 15)</Typography>
           {selected.history.map((event) => (

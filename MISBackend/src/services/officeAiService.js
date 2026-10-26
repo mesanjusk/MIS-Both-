@@ -320,4 +320,5 @@ module.exports = {
   fallbackAnswer,
   generateOfficeBrief,
   answerOfficeQuestion,
+  callGemini,
 };

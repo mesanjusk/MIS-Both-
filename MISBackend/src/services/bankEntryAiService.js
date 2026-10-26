@@ -85,7 +85,9 @@ function validateSuggestion(item, context) {
   const diary = boundedConfidence >= 0.8
     ? context.diaryCandidates.find((candidate) => candidate.diaryEntryUuid === String(item.suggestedDiaryEntryUuid || ''))
     : null;
-  const account = context.accountCandidates.find((candidate) => candidate.uuid === String(item.suggestedAccountUuid || ''));
+  const account = boundedConfidence >= 0.8
+    ? context.accountCandidates.find((candidate) => candidate.uuid === String(item.suggestedAccountUuid || ''))
+    : null;
   return {
     entryUuid: context.entry.entry_uuid,
     category: item.category,
@@ -177,4 +179,65 @@ async function suggestBankEntryMatches({ entries = [], excludedDiaryEntryUuids =
   }
 }
 
-module.exports = { suggestBankEntryMatches };
+function assignmentType(group) {
+  const value = String(group || '').toLowerCase();
+  if (/vendor|supplier/.test(value)) return 'vendor';
+  if (/employee|staff/.test(value)) return 'employee';
+  if (/bank|account|ledger/.test(value)) return 'account';
+  return 'customer';
+}
+
+function attachBankSuggestions(entries = [], suggestions = []) {
+  const byEntry = new Map(suggestions.map((suggestion) => [String(suggestion.entryUuid), suggestion]));
+  return entries.map((entry) => {
+    const suggestion = byEntry.get(String(entry.entry_uuid));
+    if (!suggestion) return entry;
+    entry.ai_suggestion = suggestion;
+    const account = suggestion.suggestedAccount;
+    if (account && suggestion.confidence >= 0.8 && !entry.account_assigned) {
+      entry.account_assigned = account.name;
+      entry.account_assigned_uuid = account.uuid;
+      entry.account_assigned_name = account.name;
+      entry.account_assigned_type = assignmentType(account.group);
+      entry.auto_suggested = true;
+      entry.suggestion_source = `Gemini · ${suggestion.category.replace(/_/g, ' ')}`;
+    }
+    return entry;
+  });
+}
+
+async function suggestBankEntriesForUpload(entries = [], { maxEntries = 100 } = {}) {
+  const pending = (Array.isArray(entries) ? entries : []).filter(
+    (entry) => entry.entry_status !== 'confirmed' && entry.entry_status !== 'rejected'
+  );
+  const selected = pending.slice(0, Math.max(0, maxEntries));
+  if (!selected.length) return { ai: providerInfo(), suggestions: [], remainingCount: pending.length };
+
+  const excludedDiaryEntryUuids = pending.map((entry) => entry.matched_diary_entry_uuid).filter(Boolean).map(String);
+  const suggestions = [];
+  let status = aiConfigured() ? 'ready' : 'not_configured';
+  if (!aiConfigured()) return { ai: providerInfo(status), suggestions, remainingCount: pending.length };
+
+  for (let start = 0; start < selected.length; start += 25) {
+    const result = await suggestBankEntryMatches({
+      entries: selected.slice(start, start + 25),
+      excludedDiaryEntryUuids,
+    });
+    if (result.ai?.status === 'temporarily_unavailable' || result.ai?.status === 'empty_response') {
+      status = result.ai.status;
+      break;
+    }
+    suggestions.push(...(result.suggestions || []));
+    for (const suggestion of result.suggestions || []) {
+      if (suggestion.suggestedDiary?.diaryEntryUuid) excludedDiaryEntryUuids.push(suggestion.suggestedDiary.diaryEntryUuid);
+    }
+  }
+
+  return {
+    ai: providerInfo(status),
+    suggestions,
+    remainingCount: Math.max(0, pending.length - selected.length),
+  };
+}
+
+module.exports = { suggestBankEntryMatches, suggestBankEntriesForUpload, attachBankSuggestions };

@@ -224,18 +224,23 @@ function StmtRow({
             </IconButton>
           </Stack>
         ) : entry.account_assigned ? (
-          <Stack direction="row" alignItems="center" spacing={0.5}>
-            <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
-            {!isConfirmed && !isRejected && onAssign && (
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setAcct(entry.account_assigned);
-                  setEditing(true);
-                }}
-              >
-                <EditRoundedIcon fontSize="small" />
-              </IconButton>
+          <Stack spacing={0.25}>
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Chip label={entry.account_assigned} size="small" color="primary" variant="outlined" />
+              {!isConfirmed && !isRejected && onAssign && (
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setAcct(entry.account_assigned);
+                    setEditing(true);
+                  }}
+                >
+                  <EditRoundedIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Stack>
+            {entry.auto_suggested && !isConfirmed && !isRejected && (
+              <Typography variant="caption" color="info.dark">AI suggestion · review before posting</Typography>
             )}
           </Stack>
         ) : (
@@ -342,6 +347,10 @@ export default function BankReconciliation() {
   const [aiReviewProgress, setAiReviewProgress] = useState({ done: 0, total: 0 });
   const [aiReviewError, setAiReviewError] = useState('');
   const [aiReviewMessage, setAiReviewMessage] = useState('');
+  const [historicalAiLoading, setHistoricalAiLoading] = useState(false);
+  const [historicalAiProgress, setHistoricalAiProgress] = useState({ reviewed: 0, remaining: 0 });
+  const [historicalAiError, setHistoricalAiError] = useState('');
+  const [historicalAiMessage, setHistoricalAiMessage] = useState('');
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
 
@@ -371,13 +380,17 @@ export default function BankReconciliation() {
       const syncRes = await axios.post(`/api/bank-statement/${uid}/sync-ledger`, {
         synced_by: loggedInUser,
       });
-      setStmt(syncRes.data?.result || null);
+      const loaded = syncRes.data?.result || null;
+      setStmt(loaded);
+      setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion).map((entry) => [entry.entry_uuid, entry.ai_suggestion])));
     } catch (syncErr) {
       // Reconciliation should still be viewable even if a legacy row needs
       // manual review, so fall back to the normal read endpoint.
       try {
         const res = await axios.get(`/api/bank-statement/${uid}`);
-        setStmt(res.data?.result || null);
+        const loaded = res.data?.result || null;
+        setStmt(loaded);
+        setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion).map((entry) => [entry.entry_uuid, entry.ai_suggestion])));
         if (syncErr?.response?.status && syncErr.response.status !== 409) {
           setError(syncErr?.response?.data?.message || 'Could not synchronize confirmed entries with the ledger.');
         }
@@ -647,6 +660,47 @@ export default function BankReconciliation() {
     }
   }, [stmt, aiReviewLoading, aiSuggestions]);
 
+  const handleHistoricalAiReview = useCallback(async () => {
+    if (historicalAiLoading) return;
+    setHistoricalAiLoading(true);
+    setHistoricalAiError('');
+    setHistoricalAiMessage('');
+    setHistoricalAiProgress({ reviewed: 0, remaining: 0 });
+    let reviewedTotal = 0;
+    let remaining = 1;
+    let callsWithoutProgress = 0;
+
+    try {
+      while (remaining > 0) {
+        const response = await axios.post('/api/bank-statement/ai-review-existing', { limit: 100 });
+        const reviewed = Number(response.data?.reviewed || 0);
+        remaining = Number(response.data?.remainingCount || 0);
+        reviewedTotal += reviewed;
+        setHistoricalAiProgress({ reviewed: reviewedTotal, remaining });
+        callsWithoutProgress = reviewed ? 0 : callsWithoutProgress + 1;
+        if (!reviewed && remaining > 0) break;
+        if (callsWithoutProgress > 0) break;
+      }
+
+      if (selectedUuid) {
+        const current = await axios.get(`/api/bank-statement/${selectedUuid}`);
+        const loaded = current.data?.result || null;
+        setStmt(loaded);
+        setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion).map((entry) => [entry.entry_uuid, entry.ai_suggestion])));
+      }
+      await loadList();
+      if (remaining > 0 && !reviewedTotal) {
+        setHistoricalAiError('AI could not suggest any more entries. Check Gemini availability and retry.');
+      } else {
+        setHistoricalAiMessage(`AI updated ${reviewedTotal} existing bank entries${remaining ? `; ${remaining} remain for a retry.` : '; no pending historical entries remain.'}`);
+      }
+    } catch (err) {
+      setHistoricalAiError(err?.response?.data?.message || 'Could not review historical bank entries.');
+    } finally {
+      setHistoricalAiLoading(false);
+    }
+  }, [historicalAiLoading, selectedUuid, loadList]);
+
   // Derived
   const entries = stmt?.entries || [];
   const pending = entries.filter(
@@ -735,6 +789,22 @@ export default function BankReconciliation() {
               Upload SBI bank statement (PDF, CSV, or notepad TXT) — auto-matched against diary bank entries
             </Typography>
           </Box>
+          <Stack alignItems="flex-end" spacing={0.5}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={historicalAiLoading ? <CircularProgress size={14} /> : <AutoAwesomeRoundedIcon />}
+              onClick={handleHistoricalAiReview}
+              disabled={historicalAiLoading}
+              sx={{ whiteSpace: 'nowrap' }}
+            >
+              {historicalAiLoading
+                ? `AI updating ${historicalAiProgress.reviewed} · ${historicalAiProgress.remaining} left`
+                : 'AI review old statements'}
+            </Button>
+            {historicalAiMessage && <Typography variant="caption" color="success.dark">{historicalAiMessage}</Typography>}
+            {historicalAiError && <Typography variant="caption" color="error.main">{historicalAiError}</Typography>}
+          </Stack>
           <Button
             variant="outlined"
             size="small"
@@ -911,7 +981,7 @@ export default function BankReconciliation() {
                 <Box>
                   <Typography variant="subtitle2" fontWeight={700}>AI bank-entry review</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Gemini labels pending entries and suggests likely Diary matches or ledgers. Suggestions are advisory; they never post or reconcile entries automatically.
+                    Gemini labels pending entries, suggests likely Diary matches, and pre-fills high-confidence ledger choices. Review every suggestion; AI never posts to the ledger.
                   </Typography>
                   {aiReviewMessage && <Typography variant="caption" color="success.dark" display="block">{aiReviewMessage}</Typography>}
                   {aiReviewError && <Typography variant="caption" color="error.main" display="block">{aiReviewError}</Typography>}

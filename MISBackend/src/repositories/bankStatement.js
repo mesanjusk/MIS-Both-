@@ -26,6 +26,9 @@ const bankStatementEntrySchema = new mongoose.Schema({
     enum: ['', 'account', 'customer', 'vendor', 'employee'],
     default: '',
   },
+  auto_suggested:          { type: Boolean, default: false },
+  suggestion_source:       { type: String, default: '' },
+  ai_suggestion:           { type: mongoose.Schema.Types.Mixed, default: null },
   entry_status:              { type: String, enum: ['pending', 'confirmed', 'rejected'], default: 'pending' },
   transaction_uuid:          { type: String, default: null },
 });

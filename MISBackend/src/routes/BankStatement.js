@@ -17,6 +17,11 @@ const {
   reverseAndDeleteTransaction,
 } = require('../services/accountingPostingService');
 const { parseAmount } = require('../utils/money');
+const {
+  suggestBankEntryMatches,
+  suggestBankEntriesForUpload,
+  attachBankSuggestions,
+} = require('../services/bankEntryAiService');
 
 router.use(requireAuth);
 
@@ -398,6 +403,46 @@ async function autoMatchEntries(stmtEntries) {
   }
 
   return stmtEntries;
+}
+
+async function addUploadAiSuggestions(entries) {
+  try {
+    const result = await suggestBankEntriesForUpload(entries);
+    attachBankSuggestions(entries, result.suggestions);
+    return result;
+  } catch (err) {
+    logger.warn({ err }, 'Gemini bank-entry suggestions skipped; continuing statement upload');
+    return { ai: { provider: 'gemini', status: 'temporarily_unavailable' }, suggestions: [], remainingCount: entries.length };
+  }
+}
+
+async function persistBankAiSuggestion(statementUuid, entry, suggestion) {
+  const plainEntry = typeof entry?.toObject === 'function' ? entry.toObject() : { ...entry };
+  const staged = attachBankSuggestions([plainEntry], [suggestion])[0];
+  const entryUuid = String(entry.entry_uuid);
+  const pendingFilter = { 'e.entry_uuid': entryUuid, 'e.entry_status': { $nin: ['confirmed', 'rejected'] } };
+  const saved = await BankStatement.updateOne(
+    { statement_uuid: statementUuid, entries: { $elemMatch: { entry_uuid: entryUuid, entry_status: { $nin: ['confirmed', 'rejected'] } } } },
+    { $set: { 'entries.$[e].ai_suggestion': suggestion } },
+    { arrayFilters: [pendingFilter] }
+  );
+  if (!saved.modifiedCount) return false;
+
+  if (staged.auto_suggested && !plainEntry.account_assigned) {
+    await BankStatement.updateOne(
+      { statement_uuid: statementUuid },
+      { $set: {
+        'entries.$[e].account_assigned': staged.account_assigned,
+        'entries.$[e].account_assigned_uuid': staged.account_assigned_uuid,
+        'entries.$[e].account_assigned_name': staged.account_assigned_name,
+        'entries.$[e].account_assigned_type': staged.account_assigned_type,
+        'entries.$[e].auto_suggested': true,
+        'entries.$[e].suggestion_source': staged.suggestion_source,
+      } },
+      { arrayFilters: [{ ...pendingFilter, 'e.account_assigned': { $in: ['', null] } }] }
+    );
+  }
+  return true;
 }
 
 // --------------- bank-ledger reconciliation helpers ---------------
@@ -1282,6 +1327,7 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
     }
 
     const enriched = await autoMatchEntries(entries);
+    const aiReview = await addUploadAiSuggestions(enriched);
 
     const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
     const statement = new BankStatement({
@@ -1295,7 +1341,13 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
     const overlap = await reuseOverlappingConfirmedEntries(statement);
     await statement.save();
 
-    return res.status(201).json({ success: true, message: 'PDF bank statement uploaded', result: statement, overlap });
+    return res.status(201).json({
+      success: true,
+      message: 'PDF bank statement uploaded',
+      result: statement,
+      overlap,
+      ai_review: { status: aiReview.ai?.status || 'unavailable', suggested: aiReview.suggestions.length, remaining: aiReview.remainingCount },
+    });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/upload-pdf');
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -1320,6 +1372,7 @@ router.post('/upload-csv', async (req, res) => {
     if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found' });
 
     const enriched = await autoMatchEntries(entries);
+    const aiReview = await addUploadAiSuggestions(enriched);
 
     const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
     const statement = new BankStatement({
@@ -1333,7 +1386,13 @@ router.post('/upload-csv', async (req, res) => {
     const overlap = await reuseOverlappingConfirmedEntries(statement);
     await statement.save();
 
-    return res.status(201).json({ success: true, message: 'Bank statement uploaded', result: statement, overlap });
+    return res.status(201).json({
+      success: true,
+      message: 'Bank statement uploaded',
+      result: statement,
+      overlap,
+      ai_review: { status: aiReview.ai?.status || 'unavailable', suggested: aiReview.suggestions.length, remaining: aiReview.remainingCount },
+    });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/upload-csv');
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -1429,7 +1488,7 @@ router.put('/:uuid/ledger-account', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Select a valid non-cash Bank and Account ledger' });
     }
 
-    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid }).lean();
     if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
 
     stmt.ledger_account_uuid = bankDoc.Customer_uuid;
@@ -1508,6 +1567,133 @@ router.get('/by-date', async (req, res) => {
   }
 });
 
+async function countPendingEntriesWithoutAi() {
+  const [row] = await BankStatement.aggregate([
+    { $unwind: '$entries' },
+    { $match: {
+      'entries.entry_status': { $nin: ['confirmed', 'rejected'] },
+      'entries.ai_suggestion': null,
+    } },
+    { $count: 'count' },
+  ]);
+  return Number(row?.count || 0);
+}
+
+// Backfill existing statements in bounded, restartable batches. Repeated calls
+// skip entries that already have a suggestion and never post to the ledger.
+router.post('/ai-review-existing', async (req, res) => {
+  try {
+    const requestedLimit = Number(req.body?.limit || 100);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, Math.floor(requestedLimit))) : 100;
+    const statements = await BankStatement.find({
+      'entries.entry_status': { $nin: ['confirmed', 'rejected'] },
+    }, { statement_uuid: 1, createdAt: 1, entries: 1 }).sort({ createdAt: 1 }).lean();
+    const selected = [];
+    for (const statement of statements) {
+      for (const entry of statement.entries || []) {
+        if (entry.entry_status === 'confirmed' || entry.entry_status === 'rejected' || entry.ai_suggestion) continue;
+        selected.push({ statementUuid: statement.statement_uuid, entry });
+        if (selected.length >= limit) break;
+      }
+      if (selected.length >= limit) break;
+    }
+
+    if (!selected.length) {
+      return res.json({ success: true, reviewed: 0, remainingCount: 0, ai: { provider: 'gemini', status: 'ready' } });
+    }
+
+    const excludedDiaryEntryUuids = [
+      ...selected.map(({ entry }) => entry.matched_diary_entry_uuid).filter(Boolean).map(String),
+    ];
+    const suggestions = [];
+    let status = 'ready';
+    for (let start = 0; start < selected.length; start += 25) {
+      const result = await suggestBankEntryMatches({
+        entries: selected.slice(start, start + 25).map(({ entry }) => entry),
+        excludedDiaryEntryUuids,
+      });
+      if (result.ai?.status === 'not_configured' || result.ai?.status === 'temporarily_unavailable') {
+        status = result.ai.status;
+        break;
+      }
+      if (result.ai?.status === 'empty_response') status = 'empty_response';
+      suggestions.push(...(result.suggestions || []));
+      for (const suggestion of result.suggestions || []) {
+        if (suggestion.suggestedDiary?.diaryEntryUuid) excludedDiaryEntryUuids.push(suggestion.suggestedDiary.diaryEntryUuid);
+      }
+    }
+
+    if (status === 'not_configured') {
+      return res.status(503).json({ success: false, message: 'Gemini is not configured on the MIS backend.' });
+    }
+    if (!suggestions.length && status === 'temporarily_unavailable') {
+      return res.status(503).json({ success: false, message: 'Gemini could not review historical bank entries. Try again later.' });
+    }
+
+    const selectedByUuid = new Map(selected.map((item) => [String(item.entry.entry_uuid), item]));
+    let reviewed = 0;
+    for (const suggestion of suggestions) {
+      const match = selectedByUuid.get(String(suggestion.entryUuid));
+      if (!match) continue;
+      if (await persistBankAiSuggestion(match.statementUuid, match.entry, suggestion)) reviewed += 1;
+    }
+
+    const remainingCount = await countPendingEntriesWithoutAi();
+    return res.json({
+      success: true,
+      reviewed,
+      remainingCount,
+      ai: { provider: 'gemini', status },
+    });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/ai-review-existing');
+    return res.status(500).json({ success: false, message: 'Could not review existing bank entries with AI.' });
+  }
+});
+
+// Read-only Gemini suggestions for a bounded batch of pending statement rows.
+// The UI applies any accepted recommendation separately, so AI never posts to
+// the ledger or changes reconciliation state on its own.
+router.post('/:uuid/ai-suggestions', async (req, res) => {
+  try {
+    const entryUuids = Array.isArray(req.body?.entry_uuids) ? [...new Set(req.body.entry_uuids.map(String))] : [];
+    if (!entryUuids.length || entryUuids.length > 25) {
+      return res.status(400).json({ success: false, message: 'Supply between 1 and 25 bank entry IDs per AI review batch.' });
+    }
+
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const selected = new Map((stmt.entries || []).map((entry) => [String(entry.entry_uuid), entry]));
+    const entries = entryUuids.map((entryUuid) => selected.get(entryUuid));
+    if (entries.some((entry) => !entry)) {
+      return res.status(400).json({ success: false, message: 'One or more entries do not belong to this bank statement.' });
+    }
+    if (entries.some((entry) => entry.entry_status === 'confirmed' || entry.entry_status === 'rejected')) {
+      return res.status(400).json({ success: false, message: 'AI review is available only for pending bank entries.' });
+    }
+
+    const excludedDiaryEntryUuids = Array.isArray(req.body?.excluded_diary_entry_uuids)
+      ? req.body.excluded_diary_entry_uuids.slice(-200).map(String)
+      : [];
+    const result = await suggestBankEntryMatches({ entries, excludedDiaryEntryUuids });
+    if (result.ai?.status === 'not_configured') {
+      return res.status(503).json({ success: false, message: 'Gemini is not configured on the MIS backend.', ai: result.ai });
+    }
+    if (result.ai?.status === 'temporarily_unavailable') {
+      return res.status(503).json({ success: false, message: 'Gemini could not review these bank entries. Try again later.', ai: result.ai });
+    }
+    for (const suggestion of result.suggestions) {
+      const entry = selected.get(String(suggestion.entryUuid));
+      if (entry) await persistBankAiSuggestion(stmt.statement_uuid, entry, suggestion);
+    }
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/ai-suggestions');
+    return res.status(500).json({ success: false, message: 'Could not review bank entries with AI.' });
+  }
+});
+
 // GET /api/bank-statement/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
@@ -1534,6 +1720,39 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
       account_assigned, entry_status,
     } = req.body;
 
+    if (match_status === 'matched') {
+      if (!matched_diary_uuid || !matched_diary_entry_uuid) {
+        return res.status(400).json({ success: false, message: 'A Diary entry is required for a matched status.' });
+      }
+      const diary = await DiaryDraft.findOne({ diary_uuid: matched_diary_uuid }, {
+        diary_uuid: 1, diary_date: 1, entries: 1,
+      }).lean();
+      const diaryEntry = (diary?.entries || []).find((candidate) => candidate.entry_uuid === matched_diary_entry_uuid);
+      const bankAmount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
+      const diaryDays = diary?.diary_date && entry.txn_date
+        ? Math.abs((new Date(entry.txn_date) - new Date(diary.diary_date)) / 86400000)
+        : Infinity;
+      if (!diaryEntry || diaryEntry.book !== 'bank' || diaryEntry.entry_status === 'rejected' ||
+          diaryEntry.direction !== entry.direction || roundMoney(diaryEntry.amount) !== bankAmount || diaryDays > 7) {
+        return res.status(400).json({ success: false, message: 'The selected Diary entry does not match this bank transaction.' });
+      }
+      const alreadyUsedInStatement = (stmt.entries || []).some((candidate) =>
+        candidate.entry_uuid !== entry.entry_uuid &&
+        candidate.entry_status !== 'rejected' &&
+        String(candidate.matched_diary_entry_uuid || '') === String(matched_diary_entry_uuid)
+      );
+      const alreadyUsedElsewhere = await BankStatement.findOne({
+        statement_uuid: { $ne: stmt.statement_uuid },
+        entries: { $elemMatch: {
+          matched_diary_entry_uuid: String(matched_diary_entry_uuid),
+          entry_status: { $ne: 'rejected' },
+        } },
+      }, { statement_uuid: 1 }).lean();
+      if (alreadyUsedInStatement || alreadyUsedElsewhere) {
+        return res.status(409).json({ success: false, message: 'This Diary entry is already linked to another bank entry.' });
+      }
+    }
+
     if (entry_status === 'confirmed' && entry.entry_status !== 'confirmed') {
       return res.status(400).json({
         success: false,
@@ -1546,7 +1765,11 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
     if (matched_diary_uuid       !== undefined) setFields['entries.$[e].matched_diary_uuid']       = matched_diary_uuid;
     if (matched_diary_entry_uuid !== undefined) setFields['entries.$[e].matched_diary_entry_uuid'] = matched_diary_entry_uuid;
     if (matched_party            !== undefined) setFields['entries.$[e].matched_party']            = matched_party;
-    if (account_assigned         !== undefined) setFields['entries.$[e].account_assigned']         = account_assigned;
+    if (account_assigned         !== undefined) {
+      setFields['entries.$[e].account_assigned'] = account_assigned;
+      setFields['entries.$[e].auto_suggested'] = false;
+      setFields['entries.$[e].suggestion_source'] = '';
+    }
     if (entry_status             !== undefined) setFields['entries.$[e].entry_status']             = entry_status;
     if (match_status === 'manual') setFields['entries.$[e].match_status'] = 'manual';
 

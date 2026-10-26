@@ -2,7 +2,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const RateCard = require('../repositories/rateCard');
 const { computeRateCardAmount, computeGst } = require('../utils/rateCardPricing');
 
-const MODEL = process.env.GEMINI_OFFICE_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash';
+const MODEL = process.env.GEMINI_OFFICE_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash';
 
 const clean = (value) => String(value || '').trim();
 const lower = (value) => clean(value).toLowerCase();

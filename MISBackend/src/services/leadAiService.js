@@ -254,7 +254,8 @@ async function classifyLeadConversations(leads = []) {
           results.push({ key: context.key, ai: providerInfo('empty_response'), conversationCount: context.chat.length });
         }
       }
-    } catch (_error) {
+    } catch (error) {
+      console.error('[Lead AI] Gemini batch classification failed:', error.message);
       for (const context of pending) results.push({ key: context.key, ai: providerInfo('temporarily_unavailable'), conversationCount: context.chat.length });
     }
   }
@@ -283,7 +284,8 @@ async function classifyLeadConversation(input) {
     if (!classification) return { ai: providerInfo('empty_response'), conversationCount: context.chat.length, orders: context.orders };
     writeCache(context, classification);
     return formatResult(context, classification);
-  } catch (_error) {
+  } catch (error) {
+    console.error('[Lead AI] Gemini conversation classification failed:', error.message);
     return { ai: providerInfo('temporarily_unavailable'), conversationCount: context.chat.length, orders: context.orders };
   }
 }

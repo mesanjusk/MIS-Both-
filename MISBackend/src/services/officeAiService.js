@@ -3,6 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const OFFICE_AI_MODE = 'suggest';
 const DEFAULT_MODEL =
   process.env.GEMINI_OFFICE_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
 const MAX_CONTEXT_CHARS = 30000;
 
 const asNumber = (value) => {
@@ -222,10 +223,22 @@ async function callGemini(instruction) {
   if (!key) return null;
 
   const client = new GoogleGenerativeAI(key);
-  const model = client.getGenerativeModel({ model: DEFAULT_MODEL });
-  const result = await model.generateContent(`${OFFICE_SYSTEM_PROMPT}\n\n${instruction}`);
-  const text = result?.response?.text?.();
-  return String(text || '').trim() || null;
+  const models = [...new Set([DEFAULT_MODEL, FALLBACK_MODEL].filter(Boolean))];
+  let lastError = null;
+  for (const modelName of models) {
+    try {
+      const model = client.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(`${OFFICE_SYSTEM_PROMPT}\n\n${instruction}`);
+      const text = String(result?.response?.text?.() || '').trim();
+      if (text) return text;
+      lastError = new Error(`Gemini model ${modelName} returned an empty response`);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Office AI] Gemini model ${modelName} failed${models.length > 1 ? '; trying fallback if available' : ''}:`, error.message);
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
 }
 
 function snapshotJson(snapshot) {

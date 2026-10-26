@@ -27,7 +27,7 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash' });
 
   const filePart = {
     inlineData: {
@@ -88,7 +88,7 @@ async function extractPaymentFromImage(fileBuffer, mimeType) {
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash' });
 
   const filePart = {
     inlineData: {

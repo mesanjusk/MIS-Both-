@@ -3,6 +3,7 @@ const Customer = require('../repositories/customer');
 const Orders = require('../repositories/order');
 const { normalizePhone } = require('./leadIdentityService');
 const { aiConfigured, providerInfo, callGemini } = require('./officeAiService');
+const sanjuskConversation = require('./sanjuskConversationService');
 
 const LABELS = new Set([
   'existing_order_followup',
@@ -31,6 +32,15 @@ function parseModelJson(text) {
   }
 }
 
+function looksLikeNewEnquiry(text) {
+  const value = String(text || '').toLocaleLowerCase();
+  const asksForPrice = /\b(price|pricing|rate|quote|quotation|how much|cost|charges|estimate)\b/.test(value) ||
+    /(रेट|कितना|कितने|कीमत|दाम|मिलेगा|पड़ेगा)/u.test(value);
+  const describesARequirement = /\b(print|printing|material|invitation|card|banner|sticker|design|printout|need|require|want|looking for)\b/.test(value) ||
+    /(प्रिंट|मटेरियल|कार्ड|बैनर|स्टिकर|डिजाइन|चाहिए|बनवाना|इस टाइप|ऐसे टाइप)/u.test(value);
+  return asksForPrice && describesARequirement;
+}
+
 async function classifyLeadConversation({ phone, instagramId }) {
   const cleanPhone = normalizePhone(phone);
   const cleanInstagramId = String(instagramId || '').trim();
@@ -43,8 +53,7 @@ async function classifyLeadConversation({ phone, instagramId }) {
   const clauses = [];
   if (variants.length) clauses.push({ $or: [{ from: { $in: variants } }, { to: { $in: variants } }] });
   if (cleanInstagramId) clauses.push({ instagramUserId: cleanInstagramId });
-  const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
-  const messages = clauses.length ? await Message.find({ $and: [ { $or: clauses }, { $or: [{ timestamp: { $gte: since } }, { createdAt: { $gte: since } }] } ] })
+  const messages = clauses.length ? await Message.find({ $or: clauses })
     .sort({ timestamp: -1, createdAt: -1 }).limit(60).lean() : [];
 
   let customer = null;
@@ -64,6 +73,37 @@ async function classifyLeadConversation({ phone, instagramId }) {
     at: row.timestamp || row.createdAt || row.time || null,
     text: String(row.body || row.message || row.text || row.caption || (row.type && row.type !== 'text' ? `[${row.type}]` : '')).slice(0, 1200),
   })).filter((row) => row.text).slice(-40);
+
+  // Home Leads also includes the recent SanjuSK inbox tail, which may not yet
+  // have been persisted in Message. Read that same feed here so the AI sees
+  // exactly the WhatsApp conversation that the lead card is showing.
+  if (cleanPhone) {
+    try {
+      const recent = await sanjuskConversation.getRecentMessages({ limit: 100 });
+      const cachedChat = (recent.rows || []).filter((row) => {
+        const direction = String(row.direction || '').toLowerCase();
+        const outbound = row.direction === 'outgoing' || row.fromMe === true || row.isOutbound === true || row.from_me === true;
+        const sender = normalizePhone(row.from || row.sender || row.phone || row.waId || row.wa_id);
+        return !outbound && direction !== 'sent' && sender === cleanPhone;
+      }).map((row) => ({
+        channel: 'WhatsApp',
+        direction: 'customer',
+        at: row.timestamp || row.createdAt || row.created_at || row.time || null,
+        text: String(row.text || row.body || row.message || row.caption || row.content || '').slice(0, 1200),
+      })).filter((row) => row.text);
+      chat.push(...cachedChat);
+      const seen = new Set();
+      const uniqueChat = chat.filter((row) => {
+        const key = `${row.channel}|${row.direction}|${new Date(row.at || 0).getTime()}|${row.text}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      chat.splice(0, chat.length, ...uniqueChat.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0)).slice(-40));
+    } catch (_error) {
+      // Persisted messages remain available when the inbox provider is down.
+    }
+  }
 
   const orderContext = orders.map((order) => ({
     orderNumber: order.Order_Number,
@@ -87,6 +127,22 @@ async function classifyLeadConversation({ phone, instagramId }) {
         relatedOrderNumbers: [],
       },
       conversationCount: 0,
+      orders: orderContext,
+    };
+  }
+
+  const latestCustomerMessage = [...chat].reverse().find((row) => row.direction === 'customer')?.text || '';
+  const hasActiveOrder = orderContext.some((order) => order.isActive);
+  if (!hasActiveOrder && looksLikeNewEnquiry(latestCustomerMessage)) {
+    return {
+      ai: providerInfo('ready'),
+      classification: {
+        category: 'new_lead', confidence: 0.92,
+        reason: 'The latest message asks for a price for a printing or design requirement, and no active MIS order is linked to this lead.',
+        suggestedNextStep: 'Ask for the item, size, quantity, and required date so the team can prepare a quote.',
+        relatedOrderNumbers: [],
+      },
+      conversationCount: chat.length,
       orders: orderContext,
     };
   }

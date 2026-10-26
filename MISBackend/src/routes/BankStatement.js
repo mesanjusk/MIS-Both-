@@ -17,6 +17,7 @@ const {
   reverseAndDeleteTransaction,
 } = require('../services/accountingPostingService');
 const { parseAmount } = require('../utils/money');
+const { suggestBankEntryMatches } = require('../services/bankEntryAiService');
 
 router.use(requireAuth);
 
@@ -1508,6 +1509,45 @@ router.get('/by-date', async (req, res) => {
   }
 });
 
+// Read-only Gemini suggestions for a bounded batch of pending statement rows.
+// The UI applies any accepted recommendation separately, so AI never posts to
+// the ledger or changes reconciliation state on its own.
+router.post('/:uuid/ai-suggestions', async (req, res) => {
+  try {
+    const entryUuids = Array.isArray(req.body?.entry_uuids) ? [...new Set(req.body.entry_uuids.map(String))] : [];
+    if (!entryUuids.length || entryUuids.length > 25) {
+      return res.status(400).json({ success: false, message: 'Supply between 1 and 25 bank entry IDs per AI review batch.' });
+    }
+
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid }).lean();
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+
+    const selected = new Map((stmt.entries || []).map((entry) => [String(entry.entry_uuid), entry]));
+    const entries = entryUuids.map((entryUuid) => selected.get(entryUuid));
+    if (entries.some((entry) => !entry)) {
+      return res.status(400).json({ success: false, message: 'One or more entries do not belong to this bank statement.' });
+    }
+    if (entries.some((entry) => entry.entry_status === 'confirmed' || entry.entry_status === 'rejected')) {
+      return res.status(400).json({ success: false, message: 'AI review is available only for pending bank entries.' });
+    }
+
+    const excludedDiaryEntryUuids = Array.isArray(req.body?.excluded_diary_entry_uuids)
+      ? req.body.excluded_diary_entry_uuids.slice(-200).map(String)
+      : [];
+    const result = await suggestBankEntryMatches({ entries, excludedDiaryEntryUuids });
+    if (result.ai?.status === 'not_configured') {
+      return res.status(503).json({ success: false, message: 'Gemini is not configured on the MIS backend.', ai: result.ai });
+    }
+    if (result.ai?.status === 'temporarily_unavailable') {
+      return res.status(503).json({ success: false, message: 'Gemini could not review these bank entries. Try again later.', ai: result.ai });
+    }
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/ai-suggestions');
+    return res.status(500).json({ success: false, message: 'Could not review bank entries with AI.' });
+  }
+});
+
 // GET /api/bank-statement/:uuid
 router.get('/:uuid', async (req, res) => {
   try {
@@ -1533,6 +1573,39 @@ router.put('/:uuid/entry/:entryUuid', async (req, res) => {
       match_status, matched_diary_uuid, matched_diary_entry_uuid, matched_party,
       account_assigned, entry_status,
     } = req.body;
+
+    if (match_status === 'matched') {
+      if (!matched_diary_uuid || !matched_diary_entry_uuid) {
+        return res.status(400).json({ success: false, message: 'A Diary entry is required for a matched status.' });
+      }
+      const diary = await DiaryDraft.findOne({ diary_uuid: matched_diary_uuid }, {
+        diary_uuid: 1, diary_date: 1, entries: 1,
+      }).lean();
+      const diaryEntry = (diary?.entries || []).find((candidate) => candidate.entry_uuid === matched_diary_entry_uuid);
+      const bankAmount = roundMoney(entry.credit > 0 ? entry.credit : entry.debit);
+      const diaryDays = diary?.diary_date && entry.txn_date
+        ? Math.abs((new Date(entry.txn_date) - new Date(diary.diary_date)) / 86400000)
+        : Infinity;
+      if (!diaryEntry || diaryEntry.book !== 'bank' || diaryEntry.entry_status === 'rejected' ||
+          diaryEntry.direction !== entry.direction || roundMoney(diaryEntry.amount) !== bankAmount || diaryDays > 7) {
+        return res.status(400).json({ success: false, message: 'The selected Diary entry does not match this bank transaction.' });
+      }
+      const alreadyUsedInStatement = (stmt.entries || []).some((candidate) =>
+        candidate.entry_uuid !== entry.entry_uuid &&
+        candidate.entry_status !== 'rejected' &&
+        String(candidate.matched_diary_entry_uuid || '') === String(matched_diary_entry_uuid)
+      );
+      const alreadyUsedElsewhere = await BankStatement.findOne({
+        statement_uuid: { $ne: stmt.statement_uuid },
+        entries: { $elemMatch: {
+          matched_diary_entry_uuid: String(matched_diary_entry_uuid),
+          entry_status: { $ne: 'rejected' },
+        } },
+      }, { statement_uuid: 1 }).lean();
+      if (alreadyUsedInStatement || alreadyUsedElsewhere) {
+        return res.status(409).json({ success: false, message: 'This Diary entry is already linked to another bank entry.' });
+      }
+    }
 
     if (entry_status === 'confirmed' && entry.entry_status !== 'confirmed') {
       return res.status(400).json({

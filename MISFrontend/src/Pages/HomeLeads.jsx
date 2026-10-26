@@ -26,6 +26,15 @@ const CHANNEL = {
   call: { label: 'Call', color: 'info', Icon: CallRoundedIcon },
   contacts: { label: 'Contacts', color: 'default', Icon: ContactsRoundedIcon },
 };
+const LEAD_INTENT = {
+  existing_order_followup: { label: 'Order follow-up', color: 'info' },
+  new_lead: { label: 'New enquiry', color: 'success' },
+  order_update: { label: 'Order update', color: 'secondary' },
+  payment_followup: { label: 'Payment', color: 'warning' },
+  support_issue: { label: 'Support', color: 'error' },
+  general_question: { label: 'General', color: 'default' },
+  not_enough_context: { label: 'Review', color: 'default' },
+};
 const formatDate = (value) => {
   if (!value) return '—';
   const date = new Date(value);
@@ -66,6 +75,9 @@ export default function HomeLeads() {
   const [linking, setLinking] = useState(false);
   const [classifying, setClassifying] = useState(false);
   const [classification, setClassification] = useState(null);
+  const [leadClassifications, setLeadClassifications] = useState({});
+  const [classifyingPage, setClassifyingPage] = useState(false);
+  const [classificationMessage, setClassificationMessage] = useState('');
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search), 350);
@@ -91,6 +103,39 @@ export default function HomeLeads() {
     }
   }, [page, debouncedSearch, channel]);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const chatLeads = leads.filter((lead) => !lead.directoryOnly && lead.lastContact);
+    if (!chatLeads.length) {
+      setLeadClassifications({});
+      setClassifyingPage(false);
+      return undefined;
+    }
+    let active = true;
+    setClassifyingPage(true);
+    setLeadClassifications({});
+    setClassificationMessage('');
+    apiClient.post('/api/leads/classify-batch', {
+      leads: chatLeads.map(({ id, phone, instagramId }) => ({ id, phone, instagramId })),
+    }, { timeout: 90000 }).then(({ data }) => {
+      if (!active) return;
+      const next = {};
+      (data.results || []).forEach((result) => {
+        if (result?.key && result.classification) next[result.key] = result.classification;
+      });
+      setLeadClassifications(next);
+      setClassificationMessage((data.results || []).some((result) => !result?.classification)
+        ? 'Some chat categories could not be generated. Refresh the Leads list to retry.'
+        : '');
+    }).catch((err) => {
+      if (!active) return;
+      setLeadClassifications({});
+      setClassificationMessage(parseApiError(err, 'AI lead categories are temporarily unavailable.'));
+    }).finally(() => {
+      if (active) setClassifyingPage(false);
+    });
+    return () => { active = false; };
+  }, [leads]);
 
   const syncInstagram = async () => {
     setSyncing(true);
@@ -230,6 +275,8 @@ export default function HomeLeads() {
             <Typography variant="caption" color="text.secondary">One person, one lead across WhatsApp, Instagram and calls</Typography>
           </Box>
           <Chip size="small" label={loaded ? `${total.toLocaleString('en-IN')} contacts / leads` : 'Loading'} />
+          <Chip size="small" variant="outlined" color={classifyingPage ? 'info' : 'default'}
+            label={classifyingPage ? 'AI categorizing…' : 'AI categories'} />
         </Stack>
         <Stack direction="row" gap={1} flexWrap="wrap">
           {isSuperAdmin && (
@@ -248,12 +295,16 @@ export default function HomeLeads() {
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {note && <Alert severity="info" onClose={() => setNote('')}>{note}</Alert>}
+      {classificationMessage && <Alert severity="warning">{classificationMessage}</Alert>}
       {status.instagram === 'not_connected' && <Alert severity="info">Instagram account not connected. Connect an Instagram professional account in Social Accounts to include DMs.</Alert>}
       {status.instagram === 'needs_messaging_permission' && <Alert severity="warning">Instagram publishing is connected, but DM reading needs the Meta <strong>instagram_manage_messages</strong> permission and account reconnection. WhatsApp and call leads remain available.</Alert>}
       {status.whatsapp === 'stored_only' && <Alert severity="warning">Live WhatsApp history is temporarily unavailable; showing saved messages.</Alert>}
       <Typography variant="caption" color="text.secondary">
         Lead Name and Customer Name are separate. A VCF import never overwrites manually entered Lead Names.
         Contacts with no interactions remain marked as directory-only.
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        AI intent colors: green = new enquiry · blue = order follow-up · purple = order update · amber = payment · red = support · grey = general or review.
       </Typography>
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -284,6 +335,11 @@ export default function HomeLeads() {
                   {[lead.phone, lead.instagramHandle ? '@' + lead.instagramHandle : ''].filter(Boolean).join(' · ') || 'Instagram account ID ' + lead.instagramId}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || (lead.directoryOnly ? 'Saved contact · No conversation yet' : 'Contact received')}</Typography>
+                {leadClassifications[lead.id] && (() => {
+                  const intent = LEAD_INTENT[leadClassifications[lead.id].category] || LEAD_INTENT.not_enough_context;
+                  return <Chip size="small" color={intent.color} label={intent.label}
+                    sx={{ mt: 0.6, fontWeight: 700, alignSelf: 'flex-start' }} />;
+                })()}
               </Box>
               <Stack spacing={0.5} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
                 <Stack direction="row" spacing={0.5} flexWrap="wrap">

@@ -11,7 +11,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const multer = require('multer');
 const { importVcf, updatePhoneLeadName, updateInstagramLeadName } = require('../services/leadContactDirectoryService');
-const { classifyLeadConversation } = require('../services/leadAiService');
+const { classifyLeadConversation, classifyLeadConversations } = require('../services/leadAiService');
 const vcfUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024, files: 1 },
@@ -48,6 +48,20 @@ router.post('/classify', requirePermission('canViewWhatsapp'), asyncHandler(asyn
     }
     throw error;
   }
+}));
+
+// Classify the current Leads page in one Gemini request so cards can be tagged
+// without opening each conversation. The input is bounded to one page (25).
+router.post('/classify-batch', requirePermission('canViewWhatsapp'), asyncHandler(async (req, res) => {
+  const leads = req.body?.leads;
+  if (!Array.isArray(leads) || leads.length > 25) {
+    throw new AppError('Supply up to 25 leads per classification request.', 400);
+  }
+  const result = await classifyLeadConversations(leads);
+  if (result.ai?.status === 'not_configured') {
+    return res.status(503).json({ success: false, message: 'Gemini is not configured on the MIS backend.', ai: result.ai });
+  }
+  return res.json({ success: true, ...result });
 }));
 
 // VCF import is admin-only and runs in bounded Mongo bulk updates. It never

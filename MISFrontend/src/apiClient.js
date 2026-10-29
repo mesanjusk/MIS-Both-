@@ -9,7 +9,7 @@ let redirectingToLogin = false;
 // IMPORTANT: dash.sanjusk.in must use the MISBackend service deployed from
 // this repository's main branch. VITE_API_SERVER in .env.production points to
 // the same active Render service; keep this override in sync with that value.
-const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
+const PRODUCTION_SERVER = "https://mis-both-p4e5.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "").replace(/\/$/, "") : url);
 

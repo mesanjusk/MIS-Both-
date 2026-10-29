@@ -35,18 +35,11 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Ping backend health endpoint
-        env:
-          # Set RENDER_KEEPALIVE_URL if the backend ever moves. The default is
-          # the host MISFrontend/.env.production points VITE_API_SERVER at —
-          # the deployment that actually serves the app, which is not the only
-          # one this repo builds. "/" is the health route; it answers
-          # { ok, service, release } with the deployed commit.
-          CONFIGURED_URL: ${{ secrets.RENDER_KEEPALIVE_URL }}
         shell: bash
         run: |
           set -euo pipefail
 
-          URL="${CONFIGURED_URL:-https://misbackend-e078.onrender.com/}"
+          URL="https://mis-both-p4e5.onrender.com/"
           echo "Pinging backend health endpoint..."
 
           # Generous timeouts: a sleeping free instance takes 20-40s to boot,

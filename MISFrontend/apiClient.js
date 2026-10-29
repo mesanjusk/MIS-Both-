@@ -3,7 +3,7 @@ import { getStoredToken } from "./utils/authStorage";
 
 // ─── Base URLs (NO /api suffix — all request paths already include /api/...) ───
 // Strips /api suffix if accidentally set in env vars to prevent /api/api/... double prefix.
-const PRODUCTION_SERVER = "https://misbackend-e078.onrender.com";
+const PRODUCTION_SERVER = "https://mis-both-p4e5.onrender.com";
 
 const stripApiSuffix = (url) => (url ? String(url).replace(/\/api\/?$/, "") : url);
 

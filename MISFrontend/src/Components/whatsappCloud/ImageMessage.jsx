@@ -3,12 +3,11 @@ import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import { Button, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
 import PropTypes from 'prop-types';
-
-const deriveImageUrl = (message) => message?.mediaUrl || message?.url || message?.link || message?.image?.link || message?.media?.url || '';
+import { getMediaUrl } from './mediaUtils';
 
 export default function ImageMessage({ message }) {
   const [isOpen, setIsOpen] = useState(false);
-  const imageUrl = useMemo(() => deriveImageUrl(message), [message]);
+  const imageUrl = useMemo(() => getMediaUrl(message), [message]);
 
   if (!imageUrl) {
     return <Typography variant="body2" sx={{ fontStyle: 'italic', opacity: 0.75 }}>Image unavailable</Typography>;

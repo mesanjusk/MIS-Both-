@@ -4,6 +4,7 @@ const GoogleDriveToken = require("../repositories/googleDriveToken");
 const { requireAuth } = require("../middleware/auth");
 const { requireAdmin } = require("../middleware/authorize");
 const { createState, consumeState } = require("../services/oauthStateService");
+const logger = require('../utils/logger');
 
 // Drive is connected once for the whole installation, so starting the flow is
 // an administrative act, not something any caller may trigger.
@@ -71,6 +72,7 @@ router.get("/auth-url", requireAuth, requireAdmin, async (req, res) => {
       returnTo: safeReturnTo,
     });
 
+    logger.info('[google-drive] OAuth authorization started');
     return res.json({ success: true, authUrl: getGoogleDriveAuthUrl(state) });
   } catch (error) {
     return res.status(500).json({
@@ -126,12 +128,14 @@ router.get("/callback", async (req, res) => {
     // client was able to replace the installation's Drive connection.
     const issued = await consumeState(state, OAUTH_PURPOSE);
     if (!issued) {
+      logger.warn('[google-drive] OAuth callback rejected: invalid or expired state');
       return res
         .status(400)
         .send("This Google sign-in link is invalid, expired, or has already been used. Start again from the app.");
     }
 
     const result = await saveGoogleTokensFromCode(code);
+    logger.info('[google-drive] OAuth connection completed');
 
     // The redirect target was validated when the flow started; `returnTo` from
     // the callback query is deliberately ignored.
@@ -158,6 +162,10 @@ router.get("/callback", async (req, res) => {
       </html>
     `);
   } catch (error) {
+    logger.error({
+      code: String(error?.code || '').slice(0, 64),
+      statusCode: Number(error?.response?.status || 0) || null,
+    }, '[google-drive] OAuth callback failed');
     return res.status(500).send(`
       <html>
         <head>

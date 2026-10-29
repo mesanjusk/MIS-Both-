@@ -1626,7 +1626,7 @@ const detectProofResponse = async (payload) => {
   }
 };
 
-const processIncomingWhatsAppPayload = async (payload) => {
+const processIncomingWhatsAppPayload = async (payload, { propagateErrors = false } = {}) => {
   try {
     upsertContactFromIncomingMessage(payload).catch((contactError) => {
       logger.error('[whatsapp] Failed to upsert contact:', contactError);
@@ -1780,6 +1780,10 @@ const processIncomingWhatsAppPayload = async (payload) => {
     }
   } catch (saveError) {
     logger.error('[whatsapp] Failed to save incoming message:', saveError);
+    // Durable SanjuSK deliveries must remain retryable when message storage
+    // fails. Legacy direct-Meta callers retain their existing best-effort
+    // behavior so asynchronous webhook handling is not disrupted.
+    if (propagateErrors) throw saveError;
   }
 };
 
@@ -1821,7 +1825,6 @@ const handleRecordedMetabspEvent = async (body) => {
         source: body.source || '',
         type: body.type || '',
         messageIsUrl,
-        messageSample: messageIsUrl ? rawMessage.trim().slice(0, 120) : '[non-url text]',
       },
       '[whatsapp] metabsp inbound accepted'
     );
@@ -1881,8 +1884,10 @@ const handleRecordedMetabspEvent = async (body) => {
       flowResponseData: '',
     };
 
-    await processIncomingWhatsAppPayload(payload);
-    await inboundQueue.markDone(event?._id);
+    await processIncomingWhatsAppPayload(payload, { propagateErrors: true });
+    // The caller owns the queue acknowledgement. Referencing an `event`
+    // here used to throw after a successful save, causing endless retries of
+    // otherwise valid incoming WhatsApp messages.
 };
 
 const metabspWebhookReceive = async (req, res) => {

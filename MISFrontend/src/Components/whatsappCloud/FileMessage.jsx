@@ -2,13 +2,12 @@ import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { Button, Paper, Stack, Typography } from '@mui/material';
 import PropTypes from 'prop-types';
-
-const getFileUrl = (message) => message?.mediaUrl || message?.url || message?.link || message?.document?.link || message?.media?.url || '';
+import { getMediaUrl } from './mediaUtils';
 
 const getFilename = (message) => message?.filename || message?.fileName || message?.document?.filename || message?.document?.name || 'Attachment';
 
 export default function FileMessage({ message }) {
-  const url = getFileUrl(message);
+  const url = getMediaUrl(message);
   const name = getFilename(message);
 
   if (!url) return <Typography variant="body2" sx={{ fontStyle: 'italic', opacity: 0.75 }}>Document unavailable</Typography>;

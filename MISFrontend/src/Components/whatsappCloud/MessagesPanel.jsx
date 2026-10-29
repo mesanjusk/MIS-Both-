@@ -44,8 +44,19 @@ const getMessageIdentity = (message) =>
     message
   )}`;
 
-const normalizeIncomingMessage = (message) =>
-  message?.data || message?.message || message;
+const normalizeIncomingMessage = (message) => {
+  // A stored message has a string `message` field. Previously this selected
+  // the string instead of the message object, so socket-delivered chats lost
+  // their sender, type and media URL until the next full inbox refresh.
+  if (!message || typeof message !== 'object') return null;
+  if (message.data && typeof message.data === 'object' && !Array.isArray(message.data)) {
+    return message.data;
+  }
+  if (message.message && typeof message.message === 'object' && !Array.isArray(message.message)) {
+    return message.message;
+  }
+  return message;
+};
 
 const getMessageDirection = (message) => {
   const direction = String(message?.direction ?? message?.type ?? '').toLowerCase();

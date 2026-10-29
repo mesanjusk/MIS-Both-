@@ -1,0 +1,10 @@
+{
+  "name": "mis-both-render-launcher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Start MISBackend when a Render service is configured at the repository root.",
+  "scripts": {
+    "postinstall": "npm --prefix MISBackend ci",
+    "start": "npm --prefix MISBackend start"
+  }
+}

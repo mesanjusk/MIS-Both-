@@ -4,6 +4,8 @@ const {
   parseRequirementRuleBased,
   missingFields,
   scoreRateCard,
+  parseQuantity,
+  redactCustomerContact,
 } = require('../../src/services/customerAiService');
 const { computeRateCardAmount, computeGst } = require('../../src/utils/rateCardPricing');
 
@@ -28,6 +30,23 @@ describe('Customer AI pure parsing', () => {
   test('reports missing product and quantity instead of inventing them', () => {
     const result = parseRequirementRuleBased('matt lamination chahiye');
     expect(missingFields(result)).toEqual(['product', 'quantity']);
+  });
+
+  test('does not misread dimensions or paper GSM as a quantity', () => {
+    expect(parseRequirementRuleBased('6x3 ft banner on 350gsm').quantity).toBeNull();
+    expect(parseQuantity('qty: 250 banner')).toBe(250);
+    expect(parseQuantity('500 visiting cards')).toBe(500);
+    expect(parseQuantity('1500 pcs')).toBe(1500);
+    expect(parseQuantity('2,000 pcs')).toBeNull();
+    expect(parseQuantity('9999999 pcs')).toBeNull();
+  });
+
+  test('removes contact details before sending enquiry to Gemini', () => {
+    const clean = redactCustomerContact('Call +91 98765 43210 or hello@example.com https://example.com/contact for 500 cards');
+    expect(clean).not.toContain('98765');
+    expect(clean).not.toContain('hello@example.com');
+    expect(clean).not.toContain('https://example');
+    expect(clean).toContain('500 cards');
   });
 
   test('scores exact matching rate card higher', () => {

@@ -1,9 +1,11 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const {
+  DEFAULT_MODEL,
+  FALLBACK_MODEL,
+  aiConfigured,
+  generateGemini,
+} = require('./geminiGatewayService');
 
 const OFFICE_AI_MODE = 'suggest';
-const DEFAULT_MODEL =
-  process.env.GEMINI_OFFICE_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash';
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
 const MAX_CONTEXT_CHARS = 30000;
 
 const asNumber = (value) => {
@@ -204,10 +206,6 @@ If the snapshot does not contain the answer, say that clearly instead of guessin
 Prioritise: no-owner/escalated work, overdue work, unassigned orders, delivery blocks, customer outstanding, vendor payable, and attendance/backup coverage.
 Keep answers concise, operational and suitable for an Indian small-business owner. Use ₹ for money where useful.`;
 
-function aiConfigured() {
-  return Boolean(String(process.env.GEMINI_API_KEY || '').trim());
-}
-
 function providerInfo(status = aiConfigured() ? 'ready' : 'not_configured') {
   return {
     provider: 'gemini',
@@ -218,27 +216,15 @@ function providerInfo(status = aiConfigured() ? 'ready' : 'not_configured') {
   };
 }
 
-async function callGemini(instruction) {
-  const key = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!key) return null;
-
-  const client = new GoogleGenerativeAI(key);
-  const models = [...new Set([DEFAULT_MODEL, FALLBACK_MODEL].filter(Boolean))];
-  let lastError = null;
-  for (const modelName of models) {
-    try {
-      const model = client.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(`${OFFICE_SYSTEM_PROMPT}\n\n${instruction}`);
-      const text = String(result?.response?.text?.() || '').trim();
-      if (text) return text;
-      lastError = new Error(`Gemini model ${modelName} returned an empty response`);
-    } catch (error) {
-      lastError = error;
-      console.warn(`[Office AI] Gemini model ${modelName} failed${models.length > 1 ? '; trying fallback if available' : ''}:`, error.message);
-    }
-  }
-  if (lastError) throw lastError;
-  return null;
+async function callGemini(instruction, task = 'office') {
+  if (!aiConfigured()) return null;
+  const result = await generateGemini({
+    prompt: `${OFFICE_SYSTEM_PROMPT}\n\n${instruction}`,
+    model: DEFAULT_MODEL,
+    fallbackModels: [FALLBACK_MODEL],
+    task,
+  });
+  return result.text;
 }
 
 function snapshotJson(snapshot) {

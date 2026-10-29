@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Users = require('./repositories/users');
 const { resolveSession } = require('./middleware/auth');
 const { tierFor } = require('./utils/roleHierarchy');
+const { isTrustedProjectDeploymentOrigin } = require('./config/trustedFrontendOrigins');
 
 // Streams a socket may be subscribed to, each gated on a permission.
 const ROOM_WHATSAPP = 'stream:whatsapp';
@@ -40,7 +41,13 @@ const getAllowedOrigins = () => {
 const initSocket = (server) => {
   ioInstance = new Server(server, {
     cors: {
-      origin: getAllowedOrigins(),
+      origin: (origin, callback) => {
+        const allowed = getAllowedOrigins();
+        if (!origin || allowed.includes(origin) || isTrustedProjectDeploymentOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error('Socket.IO origin is not allowed'));
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },

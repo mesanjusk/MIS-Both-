@@ -9,6 +9,8 @@
  * Set at least one of these on Render.com.
  * localhost origins are always allowed in non-production.
  */
+const { isTrustedProjectDeploymentOrigin } = require('./trustedFrontendOrigins');
+
 const getAllowedOrigins = () => {
   const sources = [
     process.env.ALLOWED_ORIGINS     || '',
@@ -38,7 +40,7 @@ const corsOptions = {
     // Allow requests with no origin (mobile apps, Postman, server-to-server)
     if (!origin) return callback(null, true);
 
-    if (allowed.includes(origin)) {
+    if (allowed.includes(origin) || isTrustedProjectDeploymentOrigin(origin)) {
       return callback(null, true);
     }
 

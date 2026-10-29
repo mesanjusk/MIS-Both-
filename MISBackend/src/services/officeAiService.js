@@ -63,6 +63,42 @@ const compactTeamRow = (row = {}) => ({
   covering: asNumber(row.transferredIn),
 });
 
+// Deterministic risks: AI explains these facts but never decides whether an
+// order is overdue or who should be reassigned. Missing dates are not guessed.
+function identifyDeliveryRisks(openOrders = [], now = new Date()) {
+  const nowMs = new Date(now).getTime();
+  return openOrders.map(compactOrder).map((order) => {
+    const dueMs = order.dueDate ? new Date(order.dueDate).getTime() : NaN;
+    if (!Number.isFinite(dueMs) || dueMs - nowMs > 48 * 3600000) return null;
+    const overdue = dueMs < nowMs;
+    const hasOwner = Boolean(String(order.responsible || '').trim());
+    return {
+      ...order,
+      status: overdue ? 'overdue' : 'due_soon',
+      hoursUntilDue: Math.round((dueMs - nowMs) / 3600000),
+      severity: overdue ? 'critical' : ((dueMs - nowMs <= 24 * 3600000 || !hasOwner) ? 'high' : 'medium'),
+      reviewBackup: !hasOwner,
+    };
+  }).filter(Boolean)
+    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
+    .slice(0, 12);
+}
+
+function identifyCoverageRisks(teamRows = []) {
+  return teamRows.filter((row) =>
+    /^(absent|on leave|leave)$/i.test(String(row.attendance || '').trim())
+    && (row.pending > 0 || row.overdue > 0)
+  ).map((row) => ({
+    name: row.name,
+    attendance: row.attendance,
+    priority: row.priority,
+    pending: row.pending,
+    overdue: row.overdue,
+    severity: row.overdue > 0 ? 'critical' : 'high',
+    recommendation: 'Check assigned backup and unresolved tasks in Team Operations',
+  })).sort((a, b) => b.overdue - a.overdue || b.pending - a.pending).slice(0, 12);
+}
+
 /**
  * Convert the existing MIS modules into a deliberately compact, read-only
  * snapshot. The snapshot contains no new source of truth: it is only a view of
@@ -70,6 +106,8 @@ const compactTeamRow = (row = {}) => ({
  */
 function buildOfficeSnapshot({ businessSummary = {}, teamStatus = {}, dailyReport = {}, escalations = {} } = {}) {
   const teamRows = Array.isArray(teamStatus?.rows) ? teamStatus.rows.map(compactTeamRow) : [];
+  const deliveryRisks = identifyDeliveryRisks(asRows(businessSummary.openOrders));
+  const coverageRisks = identifyCoverageRisks(teamRows);
   const escalatedResponsibilities = Array.isArray(escalations?.escalatedResponsibilities)
     ? escalations.escalatedResponsibilities.map((row) => row.name || row.responsibilityName || 'Responsibility')
     : [];
@@ -91,6 +129,8 @@ function buildOfficeSnapshot({ businessSummary = {}, teamStatus = {}, dailyRepor
       todayReceiptsAmount: asNumber(businessSummary.todayReceipts?.amount),
       todayDeliveries: asCount(businessSummary.todayDeliveries),
       overdueTasks: asCount(businessSummary.overdueTasks),
+      atRiskDeliveries: deliveryRisks.length,
+      staffCoverageRisks: coverageRisks.length,
     },
     attention: {
       unassignedOrders: asRows(businessSummary.unassignedOrders).slice(0, 8).map(compactOrder),
@@ -100,6 +140,8 @@ function buildOfficeSnapshot({ businessSummary = {}, teamStatus = {}, dailyRepor
       vendorPayables: asRows(businessSummary.vendorPayable).slice(0, 8).map(compactVendorBalance),
       escalatedResponsibilities,
       escalatedTasks: escalatedTasks.slice(0, 12),
+      deliveryRisks,
+      coverageRisks,
     },
     team: teamRows,
     day: {
@@ -125,6 +167,23 @@ function buildRuleBasedBrief(snapshot = {}) {
       title: 'Unowned work needs management',
       detail: `${(attention.escalatedResponsibilities || []).length} responsibility area(s) and ${(attention.escalatedTasks || []).length} task(s) have no available primary/backup owner.`,
       source: 'Team Operations',
+    });
+  }
+  if ((attention.deliveryRisks || []).length) {
+    const overdue = attention.deliveryRisks.filter((row) => row.status === 'overdue').length;
+    priorities.push({
+      severity: overdue ? 'critical' : 'high',
+      title: 'Delivery deadlines at risk',
+      detail: `${overdue} overdue and ${attention.deliveryRisks.length - overdue} due within 48 hours among checked open orders. Verify production and delivery status.`,
+      source: 'Orders',
+    });
+  }
+  if ((attention.coverageRisks || []).length) {
+    priorities.push({
+      severity: attention.coverageRisks.some((row) => row.overdue > 0) ? 'critical' : 'high',
+      title: 'Absent staff with unfinished tasks',
+      detail: `${attention.coverageRisks.length} absent/leave staff member(s) have pending or overdue work. Review backup assignments; nothing has been reassigned.`,
+      source: 'Attendance + Team Operations',
     });
   }
   if (asNumber(b.overdueTasks) > 0) {
@@ -263,7 +322,7 @@ function fallbackAnswer(question, snapshot) {
     return `${b.deliveredUnpaid || 0} delivered order(s) remain unpaid. Today's receipts are ₹${Math.round(asNumber(b.todayReceiptsAmount)).toLocaleString('en-IN')}. Vendor payable is ₹${Math.round(asNumber(b.vendorPayableAmount)).toLocaleString('en-IN')}.`;
   }
   if (/deliver/.test(q)) {
-    return `${b.readyNotDelivered || 0} order(s) are ready but not delivered, and ${b.todayDeliveries || 0} delivery/deliveries are recorded today.`;
+    return `${b.readyNotDelivered || 0} order(s) are ready but not delivered, ${b.atRiskDeliveries || 0} open order(s) have delivery deadlines within 48 hours or overdue, and ${b.todayDeliveries || 0} delivery/deliveries are recorded today.`;
   }
   if (/team|staff|attendance|p1|p2|p3|p4|who/.test(q)) {
     const rows = (snapshot.team || []).filter((row) => row.priority || row.pending || row.currentTask);
@@ -316,6 +375,8 @@ module.exports = {
   providerInfo,
   buildOfficeSnapshot,
   buildRuleBasedBrief,
+  identifyDeliveryRisks,
+  identifyCoverageRisks,
   fallbackAnswer,
   generateOfficeBrief,
   answerOfficeQuestion,

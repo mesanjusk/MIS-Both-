@@ -75,6 +75,8 @@ export default function OfficeAiPanel() {
 
   const business = data?.snapshot?.business || {};
   const brief = data?.brief || {};
+  const deliveryRisks = data?.snapshot?.attention?.deliveryRisks || [];
+  const coverageRisks = data?.snapshot?.attention?.coverageRisks || [];
   const priorities = useMemo(() => brief?.priorities || [], [brief]);
 
   const submitQuestion = useCallback(async (value) => {
@@ -130,6 +132,8 @@ export default function OfficeAiPanel() {
               <Metric label="Ready to Deliver" value={business.readyNotDelivered || 0} />
               <Metric label="Delivered Unpaid" value={business.deliveredUnpaid || 0} />
               <Metric label="Vendor Payable" value={money(business.vendorPayableAmount)} />
+              <Metric label="Delivery Risk" value={business.atRiskDeliveries || 0} helper="Overdue / due within 48h" />
+              <Metric label="Coverage Risk" value={business.staffCoverageRisks || 0} helper="Absent staff with work" />
             </Stack>
 
             <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
@@ -167,6 +171,34 @@ export default function OfficeAiPanel() {
                 ))}
               </Stack>
             ) : null}
+
+            {(deliveryRisks.length > 0 || coverageRisks.length > 0) && <Stack spacing={1.4} sx={{ mt: 1.5 }}>
+              {deliveryRisks.length > 0 && <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight={900}>Delivery deadlines · staff review</Typography>
+                <Typography variant="caption" color="text.secondary">Derived from recorded order due dates; no automatic status changes.</Typography>
+                <Stack spacing={0.7} sx={{ mt: 1 }}>
+                  {deliveryRisks.map((row, index) => <Stack key={`${row.orderNumber || 'order'}-${index}`}
+                    direction={{ xs: 'column', sm: 'row' }} spacing={0.8} alignItems={{ sm: 'center' }}>
+                    <Chip size="small" color={severityColor(row.severity)} label={row.status === 'overdue' ? 'Overdue' : 'Due soon'} />
+                    <Typography variant="body2" sx={{ flex: 1 }}>
+                      <strong>#{row.orderNumber || '—'}</strong> · {row.customer || 'Customer'} · {row.stage || 'Open'} · {row.responsible || 'Unassigned'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">{row.dueDate ? new Date(row.dueDate).toLocaleDateString('en-IN') : 'No due date'}</Typography>
+                  </Stack>)}
+                </Stack>
+              </Paper>}
+              {coverageRisks.length > 0 && <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight={900}>Attendance and task coverage · staff review</Typography>
+                <Stack spacing={0.7} sx={{ mt: 1 }}>
+                  {coverageRisks.map((row, index) => <Stack key={`${row.name}-${index}`} direction={{ xs: 'column', sm: 'row' }} spacing={0.8} alignItems={{ sm: 'center' }}>
+                    <Chip size="small" color={severityColor(row.severity)} label={row.attendance} />
+                    <Typography variant="body2" sx={{ flex: 1 }}>
+                      <strong>{row.name || 'Staff'}</strong> · {row.pending} pending, {row.overdue} overdue · Check assigned backup
+                    </Typography>
+                  </Stack>)}
+                </Stack>
+              </Paper>}
+            </Stack>}
 
             <Divider sx={{ my: 1.7 }} />
 

@@ -158,7 +158,7 @@ async function suggestBankEntryMatches({ entries = [], excludedDiaryEntryUuids =
   });
 
   try {
-    const parsed = parseModelJson(await callGemini(promptFor(contexts)));
+    const parsed = parseModelJson(await callGemini(promptFor(contexts), 'bank_suggestions'));
     const byUuid = new Map((Array.isArray(parsed?.results) ? parsed.results : [])
       .map((item) => [String(item.entryUuid || ''), item]));
     const usedDiaryEntries = new Set();

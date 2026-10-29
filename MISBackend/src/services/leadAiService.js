@@ -257,7 +257,7 @@ async function classifyLeadConversations(leads = []) {
 
   if (pending.length) {
     try {
-      const parsed = parseModelJson(await callGemini(modelPrompt(pending)));
+      const parsed = parseModelJson(await callGemini(modelPrompt(pending), 'lead_classification'));
       const byKey = new Map((Array.isArray(parsed?.results) ? parsed.results : []).map((item) => [String(item.key), item]));
       for (const context of pending) {
         const classification = validateModelClassification(byKey.get(context.key), context);
@@ -294,7 +294,7 @@ async function classifyLeadConversation(input) {
     return formatResult(context, deterministic);
   }
   try {
-    const parsed = parseModelJson(await callGemini(modelPrompt([context])));
+    const parsed = parseModelJson(await callGemini(modelPrompt([context]), 'lead_classification'));
     const item = Array.isArray(parsed?.results) ? parsed.results[0] : parsed;
     const classification = validateModelClassification(item, context);
     if (!classification) return formatResult(context, unclassifiedFallback(context), providerInfo('empty_response'));

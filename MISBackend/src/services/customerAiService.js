@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { generateGemini } = require('./geminiGatewayService');
 const RateCard = require('../repositories/rateCard');
 const { computeRateCardAmount, computeGst } = require('../utils/rateCardPricing');
 
@@ -93,11 +93,9 @@ async function aiEnhanceRequirement(message, base) {
   const key = clean(process.env.GEMINI_API_KEY);
   if (!key) return { requirement: base, aiUsed: false };
   try {
-    const client = new GoogleGenerativeAI(key);
-    const model = client.getGenerativeModel({ model: MODEL });
     const prompt = `Extract printing enquiry fields. Return ONLY valid JSON with keys product, quantity, size, gsm, sides, lamination, deadline, notes. size must be null or {"width":number,"height":number,"unit":"ft"|"in"}. Never invent missing values. Understand English, Hindi and Hinglish. Message:\n${JSON.stringify(clean(message))}`;
-    const result = await model.generateContent(prompt);
-    const parsed = normalizeAiJson(result?.response?.text?.());
+    const result = await generateGemini({ prompt, model: MODEL, task: 'customer_enquiry' });
+    const parsed = normalizeAiJson(result.text);
     if (!parsed) return { requirement: base, aiUsed: false };
     return {
       aiUsed: true,

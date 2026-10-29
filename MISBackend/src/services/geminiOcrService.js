@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { generateGemini } = require('./geminiGatewayService');
 
 const DIARY_PROMPT = `You are a bookkeeping assistant. Extract all diary entries from this handwritten or printed diary page.
 
@@ -26,9 +26,6 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash' });
-
   const filePart = {
     inlineData: {
       data: fileBuffer.toString('base64'),
@@ -38,13 +35,18 @@ async function extractCsvFromFile(fileBuffer, mimeType) {
 
   let result;
   try {
-    result = await model.generateContent([DIARY_PROMPT, filePart]);
+    result = await generateGemini({
+      prompt: DIARY_PROMPT,
+      parts: [filePart],
+      model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
+      task: 'diary_ocr',
+    });
   } catch (apiErr) {
     const detail = apiErr?.message || String(apiErr);
     throw new Error(`Gemini API error: ${detail}`);
   }
 
-  const text = result.response.text().trim();
+  const text = result.text.trim();
   return text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
 }
 
@@ -87,9 +89,6 @@ async function extractPaymentFromImage(fileBuffer, mimeType) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash' });
-
   const filePart = {
     inlineData: {
       data: fileBuffer.toString('base64'),
@@ -99,13 +98,18 @@ async function extractPaymentFromImage(fileBuffer, mimeType) {
 
   let result;
   try {
-    result = await model.generateContent([PAYMENT_PROMPT, filePart]);
+    result = await generateGemini({
+      prompt: PAYMENT_PROMPT,
+      parts: [filePart],
+      model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
+      task: 'payment_screenshot',
+    });
   } catch (apiErr) {
     const detail = apiErr?.message || String(apiErr);
     throw new Error(`Gemini API error: ${detail}`);
   }
 
-  const text = result.response.text().trim();
+  const text = result.text.trim();
   return text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
 }
 

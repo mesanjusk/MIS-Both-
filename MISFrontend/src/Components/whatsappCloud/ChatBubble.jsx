@@ -4,6 +4,7 @@ import DoneRoundedIcon from '@mui/icons-material/DoneRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import { Button, Chip, Stack, Typography } from '@mui/material';
 import MessageRenderer from './MessageRenderer';
+import { getMediaType } from './mediaUtils';
 
 const getStatusLabel = (status) => (status ? String(status).toLowerCase() : 'sent');
 
@@ -11,16 +12,6 @@ const formatMessageTime = (timestamp) => {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return '';
   return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(date);
-};
-
-const getMessageType = (message) => {
-  const resolved = String(message?.messageType || message?.type || message?.payloadType || message?.contentType || 'text').toLowerCase();
-  if (resolved.includes('image')) return 'image';
-  if (resolved.includes('video')) return 'video';
-  if (resolved.includes('audio')) return 'audio';
-  if (resolved.includes('document') || resolved.includes('file')) return 'document';
-  if (resolved.includes('sticker')) return 'sticker';
-  return 'text';
 };
 
 const statusIcon = (status) => {
@@ -32,7 +23,7 @@ const statusIcon = (status) => {
 export default function ChatBubble({ message, isOutgoing, timestamp, onRetry }) {
   const status = getStatusLabel(message?.status);
   const canRetry = isOutgoing && ['failed', 'error', 'undelivered'].includes(status);
-  const messageType = getMessageType(message);
+  const messageType = getMediaType(message);
 
   return (
     <Stack alignItems={isOutgoing ? 'flex-end' : 'flex-start'}>

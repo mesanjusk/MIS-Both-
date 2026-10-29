@@ -14,6 +14,23 @@ const { businessDateString } = require('../utils/businessDay');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
 const { ensureSopClockOut } = require('../services/employeeSopDayService');
 
+// Pino expects structured fields before the message. Passing err.message as
+// an extra positional argument hid the provider's actual failure reason in
+// production, even though an attendance message could later succeed.
+const logAttendanceWhatsAppFailure = (error) => {
+  const reason = String(error?.message || 'Unknown WhatsApp send failure')
+    .slice(0, 350)
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b\d{10,15}\b/g, '[phone]')
+    .replace(/[A-Za-z0-9_-]{40,}/g, '[redacted]');
+  logger.error({
+    errorType: String(error?.name || 'Error'),
+    code: String(error?.code || '').slice(0, 64),
+    statusCode: Number(error?.statusCode || error?.response?.status || 0) || null,
+    reason,
+  }, 'Failed to send pending task WhatsApp after attendance');
+};
+
 const toLower = (value = "") => String(value || "").trim().toLowerCase();
 
 const normalizeTaskStatus = (task) =>
@@ -212,7 +229,7 @@ router.post('/addAttendance', (req, res, next) => {
             contactName: user.User_name || '',
           });
         } catch (err) {
-          logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
+          logAttendanceWhatsAppFailure(err);
         }
       }
 
@@ -245,7 +262,7 @@ router.post('/addAttendance', (req, res, next) => {
             contactName: user.User_name || '',
           });
       } catch (err) {
-        logger.error("Failed to send pending task WhatsApp after attendance:", err.message);
+        logAttendanceWhatsAppFailure(err);
       }
     }
 

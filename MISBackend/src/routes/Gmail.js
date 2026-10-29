@@ -38,6 +38,7 @@ router.get('/callback', async (req, res) => {
   // redirect come from that row — the callback used to be trusted for both.
   const issued = await consumeState(state, OAUTH_PURPOSE);
   if (!issued) {
+    logger.warn('[gmail] OAuth callback rejected: invalid or expired state');
     return res.status(400).send(`
       <html><head><meta charset="utf-8"><title>Gmail Connection Failed</title></head>
       <body style="font-family:Arial,sans-serif;padding:24px">
@@ -52,6 +53,7 @@ router.get('/callback', async (req, res) => {
 
   try {
     const result = await saveTokensFromCode(code, addedBy);
+    logger.info('[gmail] OAuth connection completed');
     return res.send(`
       <html><head><meta charset="utf-8"><title>Gmail Connected</title></head>
       <body style="font-family:Arial,sans-serif;padding:24px;line-height:1.6">

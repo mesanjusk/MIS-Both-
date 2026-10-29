@@ -42,7 +42,11 @@ function looksLikeNewEnquiry(text) {
     /(रेट|कितना|कितने|कीमत|दाम|मिलेगा|पड़ेगा)/u.test(value);
   const describesARequirement = /\b(print|printing|material|invitation|card|banner|sticker|design|printout|need|require|want|looking for)\b/.test(value) ||
     /(प्रिंट|मटेरियल|कार्ड|बैनर|स्टिकर|डिजाइन|चाहिए|बनवाना|इस टाइप|ऐसे टाइप)/u.test(value);
-  return asksForPrice && describesARequirement;
+  const requestsAProduct = /\b(need|want|require|looking for|can you|do you|make me|please make|available|send (a )?quote|need to print)\b/.test(value) ||
+    /(चाहिए|बनवाना|बना सकते|करते हो|मिल जाएगा|बनाना है|करवाना है)/u.test(value);
+  // A fresh requirement is an enquiry even if the first customer message
+  // doesn't ask for the price yet (e.g. "I need 200 wedding cards").
+  return describesARequirement && (asksForPrice || requestsAProduct);
 }
 
 function cacheIdentity(context) {
@@ -105,6 +109,16 @@ function deterministicClassification(context) {
     };
   }
   return null;
+}
+
+function unclassifiedFallback(context) {
+  return deterministicClassification(context) || {
+    category: 'not_enough_context',
+    confidence: 0.2,
+    reason: 'Gemini could not classify this conversation. Review the latest customer messages.',
+    suggestedNextStep: 'Open the chat and classify the enquiry manually.',
+    relatedOrderNumbers: [],
+  };
 }
 
 async function loadLeadContext({ phone, instagramId, key }, cachedRows) {
@@ -251,12 +265,14 @@ async function classifyLeadConversations(leads = []) {
           writeCache(context, classification);
           results.push(formatResult(context, classification));
         } else {
-          results.push({ key: context.key, ai: providerInfo('empty_response'), conversationCount: context.chat.length });
+          results.push(formatResult(context, unclassifiedFallback(context), providerInfo('empty_response')));
         }
       }
     } catch (error) {
       console.error('[Lead AI] Gemini batch classification failed:', error.message);
-      for (const context of pending) results.push({ key: context.key, ai: providerInfo('temporarily_unavailable'), conversationCount: context.chat.length });
+      for (const context of pending) {
+        results.push(formatResult(context, unclassifiedFallback(context), providerInfo('temporarily_unavailable')));
+      }
     }
   }
   const byKey = new Map(results.map((result) => [result.key, result]));
@@ -281,13 +297,13 @@ async function classifyLeadConversation(input) {
     const parsed = parseModelJson(await callGemini(modelPrompt([context])));
     const item = Array.isArray(parsed?.results) ? parsed.results[0] : parsed;
     const classification = validateModelClassification(item, context);
-    if (!classification) return { ai: providerInfo('empty_response'), conversationCount: context.chat.length, orders: context.orders };
+    if (!classification) return formatResult(context, unclassifiedFallback(context), providerInfo('empty_response'));
     writeCache(context, classification);
     return formatResult(context, classification);
   } catch (error) {
     console.error('[Lead AI] Gemini conversation classification failed:', error.message);
-    return { ai: providerInfo('temporarily_unavailable'), conversationCount: context.chat.length, orders: context.orders };
+    return formatResult(context, unclassifiedFallback(context), providerInfo('temporarily_unavailable'));
   }
 }
 
-module.exports = { classifyLeadConversation, classifyLeadConversations };
+module.exports = { classifyLeadConversation, classifyLeadConversations, looksLikeNewEnquiry, deterministicClassification };

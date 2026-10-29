@@ -4,6 +4,7 @@ import {
   Alert, Box, Button, Chip, CircularProgress, Divider, Drawer,
   IconButton, Paper, Stack, TextField, Typography,
   Dialog, DialogActions, DialogContent, DialogTitle,
+  MenuItem,
 } from '@mui/material';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
 import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
@@ -84,6 +85,14 @@ export default function HomeLeads() {
   const [leadClassifications, setLeadClassifications] = useState({});
   const [classifyingPage, setClassifyingPage] = useState(false);
   const [classificationMessage, setClassificationMessage] = useState('');
+  const [quoteMessage, setQuoteMessage] = useState('');
+  const [quoteParsing, setQuoteParsing] = useState(false);
+  const [quotePreparing, setQuotePreparing] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [quoteAnalysis, setQuoteAnalysis] = useState(null);
+  const [quoteRequirement, setQuoteRequirement] = useState(null);
+  const [quoteCardUuid, setQuoteCardUuid] = useState('');
+  const [quoteDraft, setQuoteDraft] = useState(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search), 350);
@@ -261,6 +270,51 @@ export default function HomeLeads() {
     }
   };
 
+  const parseEnquiryForQuote = async () => {
+    if (!quoteMessage.trim()) return;
+    setQuoteParsing(true);
+    setQuoteError('');
+    setQuoteDraft(null);
+    try {
+      const { data } = await apiClient.post('/api/office-ai/customer/parse', { message: quoteMessage.trim() }, { timeout: 45000 });
+      const result = data.result;
+      setQuoteAnalysis(result);
+      setQuoteRequirement(result.requirement);
+      setQuoteCardUuid(result.rateCardMatches?.[0]?.rateCard_uuid || '');
+      setQuoteDraft(result.quote?.ready ? result.quote : null);
+    } catch (err) {
+      setQuoteError(parseApiError(err, 'Unable to analyze this enquiry.'));
+    } finally {
+      setQuoteParsing(false);
+    }
+  };
+
+  const prepareQuoteDraft = async () => {
+    if (!quoteRequirement || !quoteCardUuid) return;
+    setQuotePreparing(true);
+    setQuoteError('');
+    setQuoteDraft(null);
+    try {
+      const { data } = await apiClient.post('/api/office-ai/customer/quote', {
+        requirement: quoteRequirement,
+        rateCardUuid: quoteCardUuid,
+      });
+      if (!data.result?.ready) setQuoteError(data.result?.error || 'Cannot calculate a quote yet.');
+      else setQuoteDraft(data.result);
+    } catch (err) {
+      setQuoteError(parseApiError(err, 'Could not prepare quote.'));
+    } finally {
+      setQuotePreparing(false);
+    }
+  };
+
+  const updateQuoteRequirement = (field, value) => {
+    setQuoteRequirement((previous) => ({ ...previous, [field]: value }));
+    setQuoteDraft(null);
+  };
+
+  const money = (value) => Number(value || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
+
   const classificationLabel = (value) => ({
     existing_order_followup: 'Existing order follow-up',
     new_lead: 'New lead / enquiry',
@@ -339,6 +393,12 @@ export default function HomeLeads() {
             setClassification(leadClassifications[lead.id] ? {
               classification: leadClassifications[lead.id], conversationCount: lead.interactions,
             } : null);
+            setQuoteMessage(lead.lastContact?.detail || '');
+            setQuoteAnalysis(null);
+            setQuoteRequirement(null);
+            setQuoteCardUuid('');
+            setQuoteDraft(null);
+            setQuoteError('');
           }}
             sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}>
             <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
@@ -435,6 +495,57 @@ export default function HomeLeads() {
               </>}
             </Stack>
           </Paper>
+          {isSuperAdmin && <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+            <Stack spacing={1.2}>
+              <Typography variant="subtitle2" fontWeight={700}>Gemini enquiry → draft quotation</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Prepare-only. Check product, quantity, size and the rate-card selection before sharing a quote.
+                This does not send WhatsApp or create an order.
+              </Typography>
+              <TextField size="small" multiline minRows={2} label="Customer enquiry · edit first"
+                value={quoteMessage} onChange={(event) => { setQuoteMessage(event.target.value); setQuoteAnalysis(null); setQuoteDraft(null); }}
+                inputProps={{ maxLength: 3000 }} />
+              <Button size="small" variant="outlined" disabled={quoteParsing || !quoteMessage.trim()}
+                startIcon={quoteParsing ? <CircularProgress size={15} /> : <AutoAwesomeRoundedIcon />}
+                onClick={parseEnquiryForQuote}>{quoteParsing ? 'Analyzing…' : 'Extract enquiry & find rate cards'}</Button>
+              {quoteError && <Alert severity="warning" onClose={() => setQuoteError('')}>{quoteError}</Alert>}
+              {quoteRequirement && <Stack spacing={1}>
+                <TextField size="small" label="Product" value={quoteRequirement.product || ''}
+                  onChange={(event) => updateQuoteRequirement('product', event.target.value)} />
+                <TextField size="small" label="Quantity (pieces)" type="number" value={quoteRequirement.quantity ?? ''}
+                  inputProps={{ min: 1, max: 1000000 }}
+                  onChange={(event) => updateQuoteRequirement('quantity', event.target.value)} />
+                <Stack direction="row" gap={1}>
+                  <TextField size="small" label="Width" type="number" fullWidth value={quoteRequirement.size?.width ?? ''}
+                    onChange={(event) => updateQuoteRequirement('size', { ...quoteRequirement.size, width: event.target.value, unit: quoteRequirement.size?.unit || 'ft' })} />
+                  <TextField size="small" label="Height" type="number" fullWidth value={quoteRequirement.size?.height ?? ''}
+                    onChange={(event) => updateQuoteRequirement('size', { ...quoteRequirement.size, height: event.target.value, unit: quoteRequirement.size?.unit || 'ft' })} />
+                  <TextField size="small" select label="Unit" sx={{ minWidth: 85 }} value={quoteRequirement.size?.unit || 'ft'}
+                    onChange={(event) => updateQuoteRequirement('size', { ...quoteRequirement.size, unit: event.target.value })}>
+                    <MenuItem value="ft">Feet</MenuItem>
+                    <MenuItem value="in">Inch</MenuItem>
+                  </TextField>
+                </Stack>
+                <TextField size="small" select label="Rate card" value={quoteCardUuid}
+                  onChange={(event) => { setQuoteCardUuid(event.target.value); setQuoteDraft(null); }}>
+                  {(quoteAnalysis?.rateCardMatches || []).map((card) =>
+                    <MenuItem value={card.rateCard_uuid} key={card.rateCard_uuid}>{card.itemName} · {card.pricingType}</MenuItem>)}
+                  {!quoteAnalysis?.rateCardMatches?.length && <MenuItem value="" disabled>No matching active rate card</MenuItem>}
+                </TextField>
+                {quoteAnalysis?.followupQuestions?.length > 0 &&
+                  <Alert severity="info">Confirm with customer: {quoteAnalysis.followupQuestions.join(' · ')}</Alert>}
+                <Button size="small" variant="contained" disabled={quotePreparing || !quoteCardUuid}
+                  onClick={prepareQuoteDraft}>{quotePreparing ? 'Calculating…' : 'Recalculate draft quotation'}</Button>
+              </Stack>}
+              {quoteDraft?.ready && <Paper variant="outlined" sx={{ p: 1.2, bgcolor: 'action.hover' }}>
+                <Typography variant="body2" fontWeight={700}>Draft · {quoteDraft.rateCard.itemName}</Typography>
+                <Typography variant="body2">Quantity: {quoteDraft.pricing.quantity} · Subtotal: {money(quoteDraft.pricing.subtotal)}</Typography>
+                <Typography variant="body2">GST: {money(quoteDraft.pricing.gst)}</Typography>
+                <Typography variant="subtitle2" fontWeight={700}>Total: {money(quoteDraft.pricing.total)}</Typography>
+                <Typography variant="caption" color="text.secondary">Not sent or saved as an order. Verify prices and tax before quoting.</Typography>
+              </Paper>}
+            </Stack>
+          </Paper>}
           <Typography variant="subtitle2" fontWeight={700}>{selected.firstContact ? `First contact: ${formatDate(selected.firstContact.at)} (${selected.firstContact.source})` : 'No calls or messages recorded yet'}</Typography>
           <Typography variant="caption" color="text.secondary">Recent interactions ({selected.interactions} recorded; showing latest 15)</Typography>
           {selected.history.map((event) => (

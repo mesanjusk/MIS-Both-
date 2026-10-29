@@ -35,6 +35,12 @@ const LEAD_INTENT = {
   general_question: { label: 'General', color: 'default' },
   not_enough_context: { label: 'Review', color: 'default' },
 };
+const LEAD_PRIORITY = {
+  urgent: { label: 'Urgent', color: 'error' },
+  high: { label: 'High priority', color: 'warning' },
+  normal: { label: 'Normal', color: 'default' },
+  low: { label: 'Low priority', color: 'default' },
+};
 const formatDate = (value) => {
   if (!value) return '—';
   const date = new Date(value);
@@ -326,7 +332,14 @@ export default function HomeLeads() {
       )}
       <Stack spacing={0.75}>
         {shown.map((lead) => (
-          <Paper key={lead.id} variant="outlined" onClick={() => { setSelected(lead); setLeadName(lead.leadName || ''); setLinkPhone(lead.phone || ''); setClassification(null); }}
+          <Paper key={lead.id} variant="outlined" onClick={() => {
+            setSelected(lead);
+            setLeadName(lead.leadName || '');
+            setLinkPhone(lead.phone || '');
+            setClassification(leadClassifications[lead.id] ? {
+              classification: leadClassifications[lead.id], conversationCount: lead.interactions,
+            } : null);
+          }}
             sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' } }}>
             <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
               <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -336,9 +349,16 @@ export default function HomeLeads() {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" noWrap sx={{ mt: 0.35 }}>{lead.lastContact?.detail || (lead.directoryOnly ? 'Saved contact · No conversation yet' : 'Contact received')}</Typography>
                 {leadClassifications[lead.id] && (() => {
-                  const intent = LEAD_INTENT[leadClassifications[lead.id].category] || LEAD_INTENT.not_enough_context;
-                  return <Chip size="small" color={intent.color} label={intent.label}
-                    sx={{ mt: 0.6, fontWeight: 700, alignSelf: 'flex-start' }} />;
+                  const insight = leadClassifications[lead.id];
+                  const intent = LEAD_INTENT[insight.category] || LEAD_INTENT.not_enough_context;
+                  const priority = LEAD_PRIORITY[insight.priority];
+                  return <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center">
+                      <Chip size="small" color={intent.color} label={intent.label} sx={{ fontWeight: 700 }} />
+                      {priority && insight.priority !== 'normal' && <Chip size="small" variant="outlined" color={priority.color} label={priority.label} />}
+                    </Stack>
+                    {insight.summary && <Typography variant="caption" color="text.secondary">{insight.summary}</Typography>}
+                  </Stack>;
                 })()}
               </Box>
               <Stack spacing={0.5} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
@@ -396,13 +416,21 @@ export default function HomeLeads() {
                 <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap">
                   <Chip size="small" color={classification.classification.confidence >= 0.7 ? 'primary' : 'warning'}
                     label={classificationLabel(classification.classification.category)} />
+                  {LEAD_PRIORITY[classification.classification.priority] && <Chip size="small" variant="outlined"
+                    color={LEAD_PRIORITY[classification.classification.priority].color}
+                    label={LEAD_PRIORITY[classification.classification.priority].label} />}
                   <Typography variant="caption" color="text.secondary">{Math.round(classification.classification.confidence * 100)}% confidence</Typography>
                 </Stack>
+                {classification.classification.summary && <Typography variant="body2"><strong>Summary:</strong> {classification.classification.summary}</Typography>}
                 <Typography variant="body2">{classification.classification.reason}</Typography>
                 {classification.classification.relatedOrderNumbers?.length > 0 &&
                   <Typography variant="caption" color="text.secondary">Related order(s): {classification.classification.relatedOrderNumbers.join(', ')}</Typography>}
                 {classification.classification.suggestedNextStep &&
                   <Typography variant="body2"><strong>Suggested next step:</strong> {classification.classification.suggestedNextStep}</Typography>}
+                {classification.classification.replyDraft && <TextField size="small" multiline minRows={2} fullWidth
+                  label="Suggested reply · review before sending"
+                  value={classification.classification.replyDraft}
+                  InputProps={{ readOnly: true }} />}
                 <Typography variant="caption" color="text.secondary">Based on {classification.conversationCount} recent message(s). AI does not update orders or send replies.</Typography>
               </>}
             </Stack>

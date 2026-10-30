@@ -7,6 +7,8 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Checkbox,
+  FormControlLabel,
   Divider,
   IconButton,
   List,
@@ -98,7 +100,7 @@ function AiSuggestion({ suggestion }) {
     <Tooltip title={`${suggestion.reason}${detail ? ` · ${detail}` : ''}`}>
       <Stack spacing={0.25} sx={{ maxWidth: 200 }}>
         <Chip
-          label={`AI · ${meta.label}`}
+          label={`${suggestion.source === 'local' ? 'Local' : 'Gemini'} · ${meta.label}`}
           size="small"
           color={meta.color}
           variant="outlined"
@@ -343,6 +345,7 @@ export default function BankReconciliation() {
   const [bankLedgerSaving, setBankLedgerSaving] = useState(false);
   const [ledgerSyncing, setLedgerSyncing] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState({});
+  const [geminiConsent, setGeminiConsent] = useState(false);
   const [aiReviewLoading, setAiReviewLoading] = useState(false);
   const [aiReviewProgress, setAiReviewProgress] = useState({ done: 0, total: 0 });
   const [aiReviewError, setAiReviewError] = useState('');
@@ -353,6 +356,7 @@ export default function BankReconciliation() {
   const [historicalAiMessage, setHistoricalAiMessage] = useState('');
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
+  useEffect(() => { setGeminiConsent(false); }, [selectedUuid]);
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -598,14 +602,14 @@ export default function BankReconciliation() {
         ...(suggestion.suggestedAccount?.name ? { account_assigned: suggestion.suggestedAccount.name } : {}),
       });
       setStmt(res.data?.result || stmt);
-      setSuccessMsg('AI Diary match applied. Review the linked entry, then click Link to confirm it.');
+      setSuccessMsg('Suggested Diary match applied. Review the linked entry, then click Link to confirm it.');
     } catch (err) {
       setError(err?.response?.data?.message || 'Could not apply the AI Diary match.');
     }
   }, [stmt]);
 
   const handleAiReview = useCallback(async () => {
-    if (!stmt || aiReviewLoading) return;
+    if (!stmt || aiReviewLoading || !geminiConsent) return;
     const pending = (stmt.entries || []).filter(
       (entry) => entry.entry_status !== 'confirmed' && entry.entry_status !== 'rejected'
     );
@@ -634,6 +638,7 @@ export default function BankReconciliation() {
         const response = await axios.post(`/api/bank-statement/${stmt.statement_uuid}/ai-suggestions`, {
           entry_uuids: batch.map((entry) => entry.entry_uuid),
           excluded_diary_entry_uuids: excludedDiaryEntryUuids,
+          allow_external_ai: true,
         });
         const suggestions = response.data?.suggestions || [];
         suggestions.forEach((suggestion) => {
@@ -658,50 +663,40 @@ export default function BankReconciliation() {
     } finally {
       setAiReviewLoading(false);
     }
-  }, [stmt, aiReviewLoading, aiSuggestions]);
+  }, [stmt, aiReviewLoading, aiSuggestions, geminiConsent]);
 
   const handleHistoricalAiReview = useCallback(async () => {
-    if (historicalAiLoading) return;
+    if (historicalAiLoading || !geminiConsent) return;
     setHistoricalAiLoading(true);
     setHistoricalAiError('');
     setHistoricalAiMessage('');
     setHistoricalAiProgress({ reviewed: 0, remaining: 0 });
-    let reviewedTotal = 0;
-    let remaining = 1;
-    let callsWithoutProgress = 0;
-
     try {
-      while (remaining > 0) {
-        const response = await axios.post('/api/bank-statement/ai-review-existing', { limit: 100 });
-        const reviewed = Number(response.data?.reviewed || 0);
-        remaining = Number(response.data?.remainingCount || 0);
-        reviewedTotal += reviewed;
-        setHistoricalAiProgress({ reviewed: reviewedTotal, remaining });
-        callsWithoutProgress = reviewed ? 0 : callsWithoutProgress + 1;
-        if (!reviewed && remaining > 0) break;
-        if (callsWithoutProgress > 0) break;
-      }
-
+      // Exactly one bounded batch per explicit click/consent.
+      const response = await axios.post('/api/bank-statement/ai-review-existing', {
+        limit: 25, allow_external_ai: true,
+      });
+      const reviewed = Number(response.data?.reviewed || 0);
+      const remaining = Number(response.data?.remainingCount || 0);
+      setHistoricalAiProgress({ reviewed, remaining });
       if (selectedUuid) {
         const current = await axios.get(`/api/bank-statement/${selectedUuid}`);
         const loaded = current.data?.result || null;
         setStmt(loaded);
-        setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion).map((entry) => [entry.entry_uuid, entry.ai_suggestion])));
+        setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion)
+          .map((entry) => [entry.entry_uuid, entry.ai_suggestion])));
       }
       await loadList();
-      if (remaining > 0 && !reviewedTotal) {
-        setHistoricalAiError('AI could not suggest any more entries. Check Gemini availability and retry.');
-      } else {
-        setHistoricalAiMessage(`AI updated ${reviewedTotal} existing bank entries${remaining ? `; ${remaining} remain for a retry.` : '; no pending historical entries remain.'}`);
-      }
+      setHistoricalAiMessage(
+        `Gemini reviewed ${reviewed} historical entries in this batch${remaining ? `; ${remaining} remain. Click again after reviewing.` : '.'}`
+      );
     } catch (err) {
       setHistoricalAiError(err?.response?.data?.message || 'Could not review historical bank entries.');
     } finally {
       setHistoricalAiLoading(false);
     }
-  }, [historicalAiLoading, selectedUuid, loadList]);
+  }, [historicalAiLoading, selectedUuid, loadList, geminiConsent]);
 
-  // Derived
   const entries = stmt?.entries || [];
   const pending = entries.filter(
     (entry) => entry.entry_status !== 'confirmed' && entry.entry_status !== 'rejected'
@@ -795,13 +790,15 @@ export default function BankReconciliation() {
               size="small"
               startIcon={historicalAiLoading ? <CircularProgress size={14} /> : <AutoAwesomeRoundedIcon />}
               onClick={handleHistoricalAiReview}
-              disabled={historicalAiLoading}
+              disabled={historicalAiLoading || !geminiConsent}
               sx={{ whiteSpace: 'nowrap' }}
             >
               {historicalAiLoading
                 ? `AI updating ${historicalAiProgress.reviewed} · ${historicalAiProgress.remaining} left`
                 : 'AI review old statements'}
             </Button>
+            <FormControlLabel sx={{ maxWidth: 340, mr: 0 }} control={<Checkbox size="small" checked={geminiConsent} onChange={(event) => setGeminiConsent(event.target.checked)} />}
+              label={<Typography variant="caption">Allow Gemini to review selected redacted financial signals (amounts/dates included). No raw narration or account names sent.</Typography>} />
             {historicalAiMessage && <Typography variant="caption" color="success.dark">{historicalAiMessage}</Typography>}
             {historicalAiError && <Typography variant="caption" color="error.main">{historicalAiError}</Typography>}
           </Stack>
@@ -981,7 +978,7 @@ export default function BankReconciliation() {
                 <Box>
                   <Typography variant="subtitle2" fontWeight={700}>AI bank-entry review</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Gemini labels pending entries, suggests likely Diary matches, and pre-fills high-confidence ledger choices. Review every suggestion; AI never posts to the ledger.
+                    Local matching runs on upload without sending financial data to Gemini. Optional Gemini review sends redacted matching signals only after consent; review every suggestion. No automatic posting.
                   </Typography>
                   {aiReviewMessage && <Typography variant="caption" color="success.dark" display="block">{aiReviewMessage}</Typography>}
                   {aiReviewError && <Typography variant="caption" color="error.main" display="block">{aiReviewError}</Typography>}
@@ -990,7 +987,7 @@ export default function BankReconciliation() {
                   variant="outlined"
                   startIcon={aiReviewLoading ? <CircularProgress size={15} /> : <AutoAwesomeRoundedIcon />}
                   onClick={handleAiReview}
-                  disabled={aiReviewLoading || !pending.length}
+                  disabled={aiReviewLoading || !pending.length || !geminiConsent}
                   sx={{ whiteSpace: 'nowrap', alignSelf: { xs: 'flex-start', sm: 'center' } }}
                 >
                   {aiReviewLoading

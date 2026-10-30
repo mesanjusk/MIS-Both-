@@ -354,6 +354,7 @@ async function autoMatchEntries(stmtEntries) {
     let bestDiaryUuid = null;
     let bestEntryUuid = null;
     let bestParty = '';
+    let ambiguous = false;
 
     for (const diary of diaries) {
       const bankEntries = (diary.entries || []).filter(
@@ -367,11 +368,11 @@ async function autoMatchEntries(stmtEntries) {
         // Direction must match (diary 'in' ↔ statement credit; diary 'out' ↔ statement debit)
         if (dEntry.direction !== stmtEntry.direction) continue;
 
-        // Date proximity (within 7 days)
+        // Local matching window: at most two calendar days.
         const daysDiff = Math.abs(
           (new Date(stmtEntry.txn_date) - new Date(diary.diary_date)) / 86400000
         );
-        if (daysDiff > 7) continue;
+        if (daysDiff > 2) continue;
 
         let score = 50; // amount exact match
         if (daysDiff === 0) score += 30;
@@ -384,7 +385,9 @@ async function autoMatchEntries(stmtEntries) {
         const partyWords = dEntry.party.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
         if (partyWords.some((w) => descLower.includes(w))) score += 20;
 
+        if (score === bestScore && bestScore > 0 && String(bestEntryUuid) !== String(dEntry.entry_uuid)) ambiguous = true;
         if (score > bestScore) {
+          ambiguous = false;
           bestScore = score;
           bestDiaryUuid = diary.diary_uuid;
           bestEntryUuid = dEntry.entry_uuid;
@@ -393,7 +396,7 @@ async function autoMatchEntries(stmtEntries) {
       }
     }
 
-    if (bestScore >= 70) {
+    if (bestScore >= 70 && !ambiguous) {
       stmtEntry.match_status             = 'matched';
       stmtEntry.match_score              = bestScore;
       stmtEntry.matched_diary_uuid       = bestDiaryUuid;
@@ -411,8 +414,8 @@ async function addUploadAiSuggestions(entries) {
     attachBankSuggestions(entries, result.suggestions);
     return result;
   } catch (err) {
-    logger.warn({ err }, 'Gemini bank-entry suggestions skipped; continuing statement upload');
-    return { ai: { provider: 'gemini', status: 'temporarily_unavailable' }, suggestions: [], remainingCount: entries.length };
+    logger.warn({ err }, 'Local bank-entry suggestions skipped; continuing statement upload');
+    return { ai: { provider: 'local', status: 'temporarily_unavailable' }, suggestions: [], remainingCount: entries.length };
   }
 }
 
@@ -1583,8 +1586,9 @@ async function countPendingEntriesWithoutAi() {
 // skip entries that already have a suggestion and never post to the ledger.
 router.post('/ai-review-existing', async (req, res) => {
   try {
-    const requestedLimit = Number(req.body?.limit || 100);
-    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, Math.floor(requestedLimit))) : 100;
+    if (req.body?.allow_external_ai !== true) return res.status(403).json({ success: false, message: 'Explicit Gemini data-sharing consent is required for this review.' });
+    const requestedLimit = Number(req.body?.limit || 25);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(25, Math.floor(requestedLimit))) : 25;
     const statements = await BankStatement.find({
       'entries.entry_status': { $nin: ['confirmed', 'rejected'] },
     }, { statement_uuid: 1, createdAt: 1, entries: 1 }).sort({ createdAt: 1 }).lean();
@@ -1656,6 +1660,7 @@ router.post('/ai-review-existing', async (req, res) => {
 // the ledger or changes reconciliation state on its own.
 router.post('/:uuid/ai-suggestions', async (req, res) => {
   try {
+    if (req.body?.allow_external_ai !== true) return res.status(403).json({ success: false, message: 'Explicit Gemini data-sharing consent is required for this review.' });
     const entryUuids = Array.isArray(req.body?.entry_uuids) ? [...new Set(req.body.entry_uuids.map(String))] : [];
     if (!entryUuids.length || entryUuids.length > 25) {
       return res.status(400).json({ success: false, message: 'Supply between 1 and 25 bank entry IDs per AI review batch.' });

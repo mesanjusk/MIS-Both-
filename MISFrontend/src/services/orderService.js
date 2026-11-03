@@ -2,6 +2,8 @@ import axios from "../apiClient.js";
 
 export const fetchOrders = () => axios.get("/api/orders/GetOrderList");
 export const fetchDeliveredOrders = () => axios.get("/api/orders/GetDeliveredList");
+export const fetchPendingBills = (page = 1, limit = 100) =>
+  axios.get("/api/orders/GetPendingBills", { params: { page, limit } });
 
 /**
  * ✅ Backend route: /api/orders/updateOrder/:id

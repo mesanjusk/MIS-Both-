@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import axios from '../../apiClient';
+import { loadConfirmOptions, readConfirmOptions } from './confirmOrderOptionsCache';
 
 const TITLES = {
   customer: 'Add Customer',
@@ -23,6 +24,7 @@ const preferredGroup = (groups, kind) => {
 
 export default function ConfirmFinalMasterAddDialog({
   kind, onClose, onCreated, stage = 'print', stageCapability = 'print', stageOptions = [],
+  cacheScope = 'current-user',
 }) {
   const open = Boolean(kind);
   const [name, setName] = useState('');
@@ -46,20 +48,23 @@ export default function ConfirmFinalMasterAddDialog({
     setWasSaved(false);
     setError('');
     if (!['customer', 'item'].includes(kind)) return () => { active = false; };
-    setLoading(true);
+    const resource = kind === 'customer' ? 'customerGroups' : 'itemGroups';
     const path = kind === 'customer'
       ? '/api/customergroup/GetCustomergroupList'
       : '/api/itemgroup/GetItemgroupList';
-    axios.get(path, { cache: false })
-      .then(({ data }) => {
-        if (!active) return;
-        const options = Array.isArray(data?.result) ? data.result : [];
-        const names = options
-          .map((row) => kind === 'customer' ? row.Customer_group : row.Item_group)
-          .filter(Boolean);
-        setGroupOptions([...new Set(names)]);
-        setGroup(kind === 'customer' ? preferredGroup(options, kind) : (names[0] || 'General'));
-      })
+    const cached = readConfirmOptions(cacheScope, resource);
+    const setGroups = (options) => {
+      const names = options.map((row) => kind === 'customer' ? row.Customer_group : row.Item_group)
+        .filter(Boolean);
+      setGroupOptions([...new Set(names)]);
+      setGroup(kind === 'customer' ? preferredGroup(options, kind) : (names[0] || 'General'));
+    };
+    if (cached) setGroups(cached);
+    else setLoading(true);
+    loadConfirmOptions(cacheScope, resource, () =>
+      axios.get(path, { cache: false }).then(({ data }) =>
+        Array.isArray(data?.result) ? data.result : []))
+      .then((options) => { if (active) setGroups(options); })
       .catch((err) => {
         if (!active) return;
         // A new installation can legitimately have no group master yet.
@@ -68,7 +73,7 @@ export default function ConfirmFinalMasterAddDialog({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [open, kind, stage]);
+  }, [open, kind, stage, cacheScope]);
 
   const save = async () => {
     const label = name.trim().replace(/\s+/g, ' ');

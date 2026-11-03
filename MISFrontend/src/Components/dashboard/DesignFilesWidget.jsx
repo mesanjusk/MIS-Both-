@@ -78,6 +78,8 @@ import toast from 'react-hot-toast';
 import { copyPathToClipboard, launchMisFileUrl } from '../../utils/localFileLauncher';
 import { getWorkflowLocalFolderPath } from './workflowLocalFolder';
 import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
+import { applyArchiveConfirmation, normalizeArchiveScan, readArchiveCache, writeArchiveCache } from './archiveBrowserCache';
+import { loadConfirmOptions, readConfirmOptions, replaceConfirmOptions } from './confirmOrderOptionsCache';
 import { archiveFolderSummary, archiveFolderStatusSx, isConfirmedArchiveOrder } from './archiveFolderStatus';
 import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
@@ -754,7 +756,7 @@ function MasterFieldAdd({ label, onClick, disabled }) {
 }
 
 // ─── Confirm Final Dialog ─────────────────────────────────────────────────────
-export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false }) {
+export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive = false, cacheScope = 'current-user' }) {
   const [customer, setCustomer] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [customerInput, setCustomerInput] = useState('');
@@ -781,29 +783,42 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
       setOrderMode('note'); setError(''); setExtraCharges([]); setAssigneeId('');
       setAddKind(''); setStageShortcutId('');
       setItems([{ itemName: '', qty: 1, rate: '', amount: '', remark: '' }]);
-      return;
+      return undefined;
     }
+    let active = true;
     setStage(fromArchive ? 'print' : 'new_design');
     setStageShortcutId('');
     setNoteText((file?.fileName || '').replace(/\.[^.]+$/, ''));
-    setLoadingData(true);
+    const resources = ['customers', 'items', 'assignees', 'shortcuts'];
+    const cached = resources.map((resource) => readConfirmOptions(cacheScope, resource));
+    if (cached[0]) setCustomers(cached[0]);
+    if (cached[1]) setItemOptions(cached[1]);
+    if (cached[2]) setAssignees(cached[2]);
+    if (cached[3]) setStageShortcuts(cached[3]);
+    setLoadingData(cached.some((value) => value === null));
     Promise.all([
-      axios.get('/api/customers/GetCustomerList'),
-      axios.get('/api/items/GetItemList'),
-      fetchAssignees().catch(() => ({ data: { result: [] } })),
-      axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false })
-        .catch(() => ({ data: { result: [] } })), // supports staged frontend/backend rollout
+      loadConfirmOptions(cacheScope, 'customers', () =>
+        axios.get('/api/customers/GetCustomerList').then((res) => res.data?.result || [])),
+      loadConfirmOptions(cacheScope, 'items', () =>
+        axios.get('/api/items/GetItemList').then((res) => res.data?.result || [])),
+      loadConfirmOptions(cacheScope, 'assignees', () =>
+        fetchAssignees().then((res) => (res.data?.result || []).filter((a) => a.type === 'payable'))
+          .catch(() => [])),
+      loadConfirmOptions(cacheScope, 'shortcuts', () =>
+        axios.get('/api/design-files/confirm-stage-shortcuts', { cache: false })
+          .then((res) => res.data?.result || []).catch(() => [])),
     ])
-      .then(([custRes, itemRes, assigneeRes, shortcutRes]) => {
-        setCustomers(custRes.data?.result || []);
-        setItemOptions(itemRes.data?.result || []);
-        // Account Payable parties only — same list the assign menu uses.
-        setAssignees((assigneeRes.data?.result || []).filter((a) => a.type === 'payable'));
-        setStageShortcuts(shortcutRes.data?.result || []);
+      .then(([customerRows, itemRows, assigneeRows, shortcutRows]) => {
+        if (!active) return;
+        setCustomers(customerRows);
+        setItemOptions(itemRows);
+        setAssignees(assigneeRows);
+        setStageShortcuts(shortcutRows);
       })
       .catch(() => {})
-      .finally(() => setLoadingData(false));
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+      .finally(() => { if (active) setLoadingData(false); });
+    return () => { active = false; };
+  }, [open, cacheScope]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMasterCreated = async ({ kind, name, saved, canonicalStage }) => {
     const exact = (rowName) => String(rowName || '').trim().toLowerCase() === name.toLowerCase();
@@ -812,6 +827,7 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
       const updated = data?.result || [];
       const added = updated.find((row) => exact(row.Customer_name));
       if (!added) throw new Error('Customer saved but was not returned by the refreshed list. Reopen to refresh.');
+      replaceConfirmOptions(cacheScope, 'customers', updated);
       setCustomers(updated);
       setCustomer(added);
       setCustomerInput(`${added.Customer_name}${added.Mobile ? ` — ${added.Mobile}` : ''}`);
@@ -821,6 +837,7 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
       const updated = (data?.result || []).filter((row) => row.type === 'payable');
       const added = updated.find((row) => exact(row.name));
       if (!added) throw new Error('Assignable party saved but not found in the refreshed list.');
+      replaceConfirmOptions(cacheScope, 'assignees', updated);
       setAssignees(updated);
       setAssigneeId(added.id);
     } else if (kind === 'item') {
@@ -830,6 +847,7 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
         ? row.Item_uuid === saved.Item_uuid
         : exact(row.Item_name));
       if (!added) throw new Error('Item saved but not found in the refreshed master list.');
+      replaceConfirmOptions(cacheScope, 'items', updated);
       setItemOptions(updated);
       setOrderMode('items');
       setItems((previous) => previous.map((row, i) =>
@@ -840,6 +858,7 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
       const updated = data?.result || [];
       const added = updated.find((row) => saved?.id ? row.id === saved.id : exact(row.label));
       if (!added) throw new Error('Stage shortcut saved but not returned by the refreshed list.');
+      replaceConfirmOptions(cacheScope, 'shortcuts', updated);
       setStageShortcuts(updated);
       setStage(added.canonicalStage || canonicalStage);
       setStageShortcutId(added.id);
@@ -928,7 +947,15 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
         : '';
       onSuccess(
         `Order #${res.data.orderNumber} created — "${file.fileName}" confirmed${billNote}${folderNote}`,
-        'success'
+        'success',
+        {
+          fileId: file.fileId,
+          orderNumber: res.data.orderNumber,
+          orderUuid: res.data.orderUuid,
+          newName: res.data.renamed ? res.data.newName : file.fileName,
+          stage: res.data.stage || stage,
+          customerName: customer.Customer_name,
+        }
       );
       onClose();
     } catch (err) {
@@ -1196,7 +1223,7 @@ export function ConfirmFinalDialog({ open, file, onClose, onSuccess, fromArchive
       </DialogActions>
       <ConfirmFinalMasterAddDialog
         kind={addKind} onClose={() => setAddKind('')}
-        onCreated={handleMasterCreated}
+        cacheScope={cacheScope} onCreated={handleMasterCreated}
         stage={stage} stageCapability={stageCapability} stageOptions={stageChoices}
       />
     </Dialog>
@@ -1890,12 +1917,12 @@ function FolderTile({ name, caption, onOpen, summary }) {
   );
 }
 
-function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
+function ArchivePanel({ onConfirm, confirmation, onEditPrintJob, viewMode }) {
   const { userName } = useAuth();
-  const [archiveData, setArchiveData] = useState(null);
+  const [archiveData, setArchiveData] = useState(() => readArchiveCache(userName));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(() => Boolean(readArchiveCache(userName)));
   const [archiveViewMode, setArchiveViewMode] = useState('folders'); // 'folders' | 'list'
   const [browsePath, setBrowsePath] = useState([]); // [] | [month] | [month, date]
 
@@ -1907,33 +1934,45 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
   const [archivePrintJobFiles, setArchivePrintJobFiles] = useState([]);
   const [archiveTempOpen, setArchiveTempOpen] = useState(false);
   const [archiveToast, setArchiveToast] = useState(null);
+  const confirmationsRef = useRef(new Map());
+
+  // Keep archive navigation and folder data local across tab changes.
+  useEffect(() => {
+    const cached = readArchiveCache(userName);
+    setArchiveData(cached);
+    setLoaded(Boolean(cached));
+    setBrowsePath([]);
+  }, [userName]);
 
   const loadArchive = useCallback(async (preservePath = false) => {
     setLoading(true); setError('');
     try {
       const res = await axios.get('/api/design-files/scan-archive', { cache: false });
-      // Printing folders are hidden here for now — this tab lists design
-      // files only.
-      const data = res.data || {};
-      const dates = (data.dates || [])
-        .map((d) => {
-          const sections = (d.sections || []).filter((sec) => sec.stageNumber !== PRINTING_STAGE_NUMBER);
-          return { ...d, sections, fileCount: sections.reduce((n, sec) => n + (sec.files?.length || 0), 0) };
-        })
-        .filter((d) => d.fileCount > 0);
-      setArchiveData({ ...data, dates });
+      let snapshot = normalizeArchiveScan(res.data || {}, PRINTING_STAGE_NUMBER);
+      for (const confirmed of confirmationsRef.current.values()) {
+        snapshot = applyArchiveConfirmation(snapshot, confirmed);
+      }
+      writeArchiveCache(userName, snapshot);
+      setArchiveData(snapshot);
       setLoaded(true);
       if (preservePath !== true) setBrowsePath([]);
       setSelectedMap({});
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
-  }, []);
+  }, [userName]);
 
-  // Parent Confirm Final changes the archive while this date folder stays open.
+  // The successful POST is authoritative: patch the card and folder counters
+  // in memory, with no second Google Drive scan or server request.
   useEffect(() => {
-    if (refreshKey > 0 && loaded) loadArchive(true);
-  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!confirmation?.fileId) return;
+    confirmationsRef.current.set(confirmation.fileId, confirmation);
+    setArchiveData((current) => {
+      const updated = applyArchiveConfirmation(current, confirmation);
+      if (updated !== current) writeArchiveCache(userName, updated);
+      return updated;
+    });
+  }, [confirmation, userName]);
 
   const toggleSelect = useCallback((file) => {
     setSelectedMap((prev) => {
@@ -2014,9 +2053,9 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
     );
   }
 
-  if (loading) return <Box sx={{ py: 2 }}><LinearProgress sx={{ height: 2 }} /></Box>;
+  if (loading && !loaded) return <Box sx={{ py: 2 }}><LinearProgress sx={{ height: 2 }} /></Box>;
 
-  if (error) {
+  if (error && !loaded) {
     return (
       <Alert severity="error" sx={{ m: 1.5 }} action={<Button size="small" onClick={loadArchive}>Retry</Button>}>{error}</Alert>
     );
@@ -2026,6 +2065,10 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {loading && <LinearProgress sx={{ height: 2, mb: 0.5, flexShrink: 0 }} />}
+      {error && <Alert severity="warning" sx={{ mx: 1.5, mb: 0.5 }} action={
+        <Button size="small" onClick={() => loadArchive(true)}>Retry</Button>
+      }>{error} — showing saved archive.</Alert>}
       {/* Archive header */}
       <Stack direction="row" alignItems="center" sx={{ px: 1.5, pb: 0.75, flexShrink: 0 }} spacing={1} flexWrap="wrap">
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
@@ -2070,7 +2113,7 @@ function ArchivePanel({ onConfirm, refreshKey = 0, onEditPrintJob, viewMode }) {
           </>
         )}
         <Tooltip title="Refresh archive">
-          <IconButton size="small" onClick={loadArchive} disabled={loading} sx={{ p: 0.4 }}>
+          <IconButton size="small" onClick={() => loadArchive(true)} disabled={loading} sx={{ p: 0.4 }}>
             <RefreshRoundedIcon sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>
@@ -2984,7 +3027,7 @@ export default function DesignFilesWidget() {
   // List/grid toggle removed by request — grid is the only view now.
   const viewMode = 'grid';
   const [confirmFile, setConfirmFile] = useState(null);
-  const [archiveRefreshKey, setArchiveRefreshKey] = useState(0);
+  const [archiveConfirmation, setArchiveConfirmation] = useState(null);
   const [editPrintJobFile, setEditPrintJobFile] = useState(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [relinkFile, setRelinkFile] = useState(null);
@@ -3333,7 +3376,7 @@ export default function DesignFilesWidget() {
           <Box sx={{ flex: 1, overflowY: 'auto', py: 1 }}>
             <ArchivePanel
               onConfirm={setConfirmFile}
-              refreshKey={archiveRefreshKey}
+              confirmation={archiveConfirmation}
               onEditPrintJob={setEditPrintJobFile}
               viewMode={viewMode}
             />
@@ -3452,12 +3495,16 @@ export default function DesignFilesWidget() {
       <ConfirmFinalDialog
         open={!!confirmFile} file={confirmFile}
         fromArchive={activeTab === 'archive'}
+        cacheScope={userName}
         onClose={() => setConfirmFile(null)}
-        onSuccess={(msg, severity = 'success') => {
+        onSuccess={(msg, severity = 'success', confirmed) => {
           setToast({ message: msg, severity });
           setConfirmFile(null);
-          if (activeTab === 'archive') setArchiveRefreshKey((value) => value + 1);
-          load();
+          if (activeTab === 'archive' && confirmed) {
+            setArchiveConfirmation({ ...confirmed });
+          } else {
+            load();
+          }
         }}
       />
       <EditPrintJobDialog

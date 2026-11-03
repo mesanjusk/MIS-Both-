@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ConfirmFinalMasterAddDialog from './ConfirmFinalMasterAddDialog';
+import { clearConfirmOptionsCache } from './confirmOrderOptionsCache';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('../../apiClient', () => ({ default: api }));
 
 beforeEach(() => {
+  clearConfirmOptionsCache();
   vi.clearAllMocks();
   api.get.mockImplementation((url) => {
     if (url.includes('customergroup')) return Promise.resolve({ data: {

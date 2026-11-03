@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConfirmFinalDialog } from './DesignFilesWidget';
+import { clearConfirmOptionsCache, readConfirmOptions } from './confirmOrderOptionsCache';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), assignees: vi.fn() }));
 vi.mock('../../apiClient', () => ({ default: { get: api.get, post: api.post } }));
@@ -9,6 +10,7 @@ vi.mock('../../services/assigneeService', () => ({ fetchAssignees: api.assignees
 const archiveFinal = { fileId: 'final-1', fileName: 'Sample Final.cdr', stageNumber: 5, matched: false };
 
 beforeEach(() => {
+  clearConfirmOptionsCache();
   vi.clearAllMocks();
   api.get.mockImplementation((url) => {
     if (url.includes('GetCustomerList')) return Promise.resolve({ data: { success: true,
@@ -71,4 +73,23 @@ describe('existing archive Confirm as MIS Order form', () => {
     expect(screen.getByText('Confirm Final File → Create Order')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Premium Card')).toBeInTheDocument();
   });
+
+  it('reopens the same order popup from browser cache without another master-list fetch', async () => {
+    const { rerender } = render(<ConfirmFinalDialog open fromArchive file={archiveFinal}
+      onClose={() => {}} onSuccess={() => {}} cacheScope="staff-a" />);
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/items/GetItemList'));
+    await waitFor(() => expect(readConfirmOptions('staff-a', 'shortcuts')).not.toBeNull());
+    const fetches = api.get.mock.calls.length;
+    const assigneeFetches = api.assignees.mock.calls.length;
+
+    rerender(<ConfirmFinalDialog open={false} fromArchive file={archiveFinal}
+      onClose={() => {}} onSuccess={() => {}} cacheScope="staff-a" />);
+    rerender(<ConfirmFinalDialog open fromArchive file={archiveFinal}
+      onClose={() => {}} onSuccess={() => {}} cacheScope="staff-a" />);
+
+    expect(screen.getByRole('button', { name: 'Confirm & Create Order' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(fetches);
+    expect(api.assignees).toHaveBeenCalledTimes(assigneeFetches);
+  });
+
 });

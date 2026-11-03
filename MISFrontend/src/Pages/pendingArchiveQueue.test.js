@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { filterPendingArchiveFiles, pendingArchiveFiles } from './pendingArchiveQueue';
+import { applyArchiveConfirmation } from '../Components/dashboard/archiveBrowserCache';
 
 const snapshot = {
   dates: [
@@ -36,8 +37,7 @@ describe('Pending archive queue', () => {
   });
 
   it('removes a file once the archive cache is patched as confirmed', () => {
-    const confirmed = JSON.parse(JSON.stringify(snapshot));
-    confirmed.dates[0].sections[0].files[0].matched = true;
+    const confirmed = applyArchiveConfirmation(snapshot, { fileId: 'a', orderNumber: 123 });
     expect(pendingArchiveFiles(confirmed).some((row) => row.fileId === 'a')).toBe(false);
   });
 });

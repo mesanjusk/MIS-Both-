@@ -4,6 +4,7 @@ const {
   normHeader,
   parseSbiCsv,
   parseSbiTextFormat,
+  summarizeImportedBankEntries,
   repairImportedBankDirection,
   chooseCustomerCounterparty,
   chooseBankLedgerDoc,
@@ -383,5 +384,19 @@ describe('historical SBI direction repair', () => {
   test('does not alter a correctly classified credit or ambiguous description', () => {
     expect(repairImportedBankDirection({ description: 'BY TRANSFER-UPI/CR/823479363509/Aman', credit: 1400, debit: 0, direction: 'in' })).toBeNull();
     expect(repairImportedBankDirection({ description: 'UNKNOWN MOVEMENT', credit: 500, debit: 0, direction: 'in' })).toBeNull();
+  });
+});
+
+describe('uploaded statement pending-only summary', () => {
+  test('counts existing Day Book and ledger matches separately from missing entries', () => {
+    const entries = [
+      { entry_status: 'confirmed', match_status: 'manual', transaction_uuid: 'ledger-1' },
+      { entry_status: 'pending', match_status: 'matched', transaction_uuid: null },
+      { entry_status: 'pending', match_status: 'unmatched', transaction_uuid: null },
+      { entry_status: 'pending', match_status: 'unmatched', transaction_uuid: null },
+    ];
+    expect(summarizeImportedBankEntries(entries)).toEqual({
+      total: 4, already_entered: 2, pending: 2, confirmed: 1,
+    });
   });
 });

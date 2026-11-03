@@ -2002,12 +2002,47 @@ router.post('/:uuid/repair-import-directions', async (req, res) => {
       repairable.push(entry);
       stats.repaired += 1;
     }
-    if (repairable.length) {
-      await autoMatchEntries(repairable);
-      stats.newly_matched = repairable.filter((e) => e.match_status === 'matched').length;
+    // Link already-posted Day Book/ledger transactions before asking anyone to
+    // post a bank row. This is independent of confirmed-row ledger repair, so
+    // a handful of historical conflicts do not block finding existing entries.
+    const bankLedger = await resolveStatementBankLedgerEvidence(stmt);
+    const linked = bankLedger
+      ? await autoLinkExistingLedgerTransactions(stmt, bankLedger)
+      : { linked: 0, ambiguous: 0 };
+    stats.already_in_ledger = linked.linked;
+    stats.ambiguous_ledger_matches = linked.ambiguous;
+
+    const usedDiaryEntries = new Set((stmt.entries || [])
+      .filter((entry) => entry.match_status === 'matched' && entry.matched_diary_entry_uuid)
+      .map((entry) => String(entry.matched_diary_entry_uuid)));
+    const candidates = (stmt.entries || []).filter((entry) =>
+      entry.entry_status === 'pending' && !entry.transaction_uuid &&
+      entry.match_status === 'unmatched'
+    );
+    if (candidates.length) {
+      await autoMatchEntries(candidates);
+      for (const entry of candidates) {
+        if (entry.match_status !== 'matched') continue;
+        const diaryUuid = String(entry.matched_diary_entry_uuid || '');
+        if (!diaryUuid || usedDiaryEntries.has(diaryUuid)) {
+          entry.match_status = 'unmatched';
+          entry.match_score = 0;
+          entry.matched_diary_uuid = null;
+          entry.matched_diary_entry_uuid = null;
+          entry.matched_party = '';
+          continue;
+        }
+        usedDiaryEntries.add(diaryUuid);
+        stats.newly_matched += 1;
+      }
+    }
+    if (repairable.length || linked.linked || stats.newly_matched) {
       stmt.markModified('entries');
       await stmt.save();
     }
+    stats.genuinely_unmatched = (stmt.entries || []).filter((entry) =>
+      entry.entry_status === 'pending' && entry.match_status === 'unmatched'
+    ).length;
     return res.json({ success: true, result: stmt, repair: stats });
   } catch (err) {
     logger.error({ err }, 'POST /bank-statement/:uuid/repair-import-directions');

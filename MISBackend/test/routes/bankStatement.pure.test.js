@@ -350,7 +350,7 @@ describe('SBI import regression: fixed-width and pasted sheet', () => {
     const txt = [
       '20 Oct 2026  20 Oct 2026  TO TRANSFER-UPI/DR/629369895020/Mr BHUPE/CBIN/test-      TRANSFER TO 4897691162095 / 376      500.00       65,624.43',
       '21 Oct 2026  21 Oct 2026  BY TRANSFER-UPI/CR/823479363509/Aman Vij/BDBL/test-    TRANSFER FROM 4897734162099 / 376               1,400.00 66,964.43',
-    ].join('\\n');
+    ].join('\n');
     const { entries, error } = parseSbiTextFormat(txt);
     expect(error).toBeNull();
     expect(entries).toHaveLength(2);
@@ -360,10 +360,10 @@ describe('SBI import regression: fixed-width and pasted sheet', () => {
 
   test('tab-separated Excel paste preserves bank reference and direction', () => {
     const txt = [
-      'Txn Date\\tValue Date\\tDescription\\tBank Reference\\tDebit\\tCredit',
-      '20/10/2026\\t20/10/2026\\tMr BHUPE\\t629369895020\\t500.00\\t',
-      '21/10/2026\\t21/10/2026\\tAman Vij\\t823479363509\\t\\t1400.00',
-    ].join('\\n');
+      'Txn Date\tValue Date\tDescription\tBank Reference\tDebit\tCredit',
+      '20/10/2026\t20/10/2026\tMr BHUPE\t629369895020\t500.00\t',
+      '21/10/2026\t21/10/2026\tAman Vij\t823479363509\t\t1400.00',
+    ].join('\n');
     const { entries, error } = parseSbiCsv(txt);
     expect(error).toBeNull();
     expect(entries).toHaveLength(2);

@@ -1,17 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Paper, Stack, TextField, Typography,
+  Alert, Box, Button, Chip, CircularProgress, LinearProgress, Paper, Stack, TextField,
+  ToggleButton, ToggleButtonGroup, Typography,
 } from '@mui/material';
 import ReceiptLongRoundedIcon from '@mui/icons-material/ReceiptLongRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useAuth } from '../context/AuthContext';
 import { fetchPendingBills } from '../services/orderService';
+import axios from '../apiClient';
+import { applyArchiveConfirmation, normalizeArchiveScan, readArchiveCache, writeArchiveCache } from '../Components/dashboard/archiveBrowserCache';
+import { pendingArchiveFiles, filterPendingArchiveFiles } from './pendingArchiveQueue';
 import UpdateDelivery from './updateDelivery';
+
+// Lazy-load the existing Archive confirmation popup only when someone needs it.
+const ArchiveConfirmDialog = lazy(() => import('../Components/dashboard/DesignFilesWidget')
+  .then((module) => ({ default: module.ConfirmFinalDialog })));
 
 const CACHE_PREFIX = 'mis.pendingBills.v1';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const PAGE_SIZE = 100;
+const ARCHIVE_PAGE_SIZE = 60;
 const EMPTY = { rows: [], total: 0, hasMore: false, savedAt: 0 };
 const orderKey = (order) => String(order?.Order_uuid || order?._id || '');
 
@@ -57,6 +66,15 @@ export default function PendingBills() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [queueTab, setQueueTab] = useState('archive');
+  const [archiveSnapshot, setArchiveSnapshot] = useState(() => readArchiveCache(userName));
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState('');
+  const [archivePageSize, setArchivePageSize] = useState(ARCHIVE_PAGE_SIZE);
+  const [confirmArchiveFile, setConfirmArchiveFile] = useState(null);
+  const [archiveNotice, setArchiveNotice] = useState(null);
+  const archiveInFlight = useRef(false);
+  const localConfirmations = useRef(new Map());
 
   const commit = useCallback((next) => {
     snapshotRef.current = next;
@@ -93,6 +111,39 @@ export default function PendingBills() {
     }
   }, [commit]);
 
+  const loadArchive = useCallback(async () => {
+    if (archiveInFlight.current) return;
+    archiveInFlight.current = true;
+    setArchiveBusy(true);
+    setArchiveError('');
+    try {
+      const response = await axios.get('/api/design-files/scan-archive', { cache: false });
+      if (!response.data?.success || !Array.isArray(response.data?.dates)) {
+        throw new Error(response.data?.message || 'Archive scan returned no files');
+      }
+      let next = normalizeArchiveScan(response.data);
+      for (const confirmation of localConfirmations.current.values()) {
+        next = applyArchiveConfirmation(next, confirmation);
+      }
+      writeArchiveCache(userName, next);
+      setArchiveSnapshot(next);
+    } catch (err) {
+      setArchiveError(err?.response?.data?.message || err.message || 'Unable to load Archive pending confirmations.');
+    } finally {
+      archiveInFlight.current = false;
+      setArchiveBusy(false);
+    }
+  }, [userName]);
+
+  // Share the Archive tab's browser-session snapshot; only scan Drive if this
+  // user has never loaded it in the current session, or presses Refresh.
+  useEffect(() => {
+    const cached = readArchiveCache(userName);
+    setArchiveSnapshot(cached);
+    setArchivePageSize(ARCHIVE_PAGE_SIZE);
+    if (!cached && userName) loadArchive();
+  }, [userName, loadArchive]);
+
   useEffect(() => {
     const cached = readCache(cacheKey);
     if (cached) {
@@ -126,27 +177,147 @@ export default function PendingBills() {
     ].some((value) => String(value || '').toLowerCase().includes(term)));
   }, [search, snapshot.rows]);
 
+  const archivePending = useMemo(() => pendingArchiveFiles(archiveSnapshot), [archiveSnapshot]);
+  const archiveFiltered = useMemo(
+    () => filterPendingArchiveFiles(archivePending, search),
+    [archivePending, search]
+  );
+  const archiveVisible = archiveFiltered.slice(0, archivePageSize);
+
+  const handleArchiveConfirmed = useCallback((message, severity = 'success', confirmed) => {
+    if (confirmed?.fileId) {
+      localConfirmations.current.set(confirmed.fileId, confirmed);
+      const current = readArchiveCache(userName) || archiveSnapshot;
+      const next = applyArchiveConfirmation(current, confirmed);
+      if (next !== current) {
+        writeArchiveCache(userName, next);
+        setArchiveSnapshot(next);
+      }
+    } else {
+      // Never hide a file without confirmation from the server.
+      loadArchive();
+    }
+    setArchiveNotice({ severity, message });
+    setConfirmArchiveFile(null);
+  }, [userName, archiveSnapshot, loadArchive]);
+
   return (
     <Stack spacing={1.5}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }}>
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="h6" fontWeight={800}>Pending Bills</Typography>
-            <Chip label={snapshot.total} size="small" color="warning" />
+            <Chip label={queueTab === 'archive' ? archivePending.length : snapshot.total} size="small" color="warning" />
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Delivered orders without an invoice. Create a bill to remove an order from this list.
+            {queueTab === 'archive'
+              ? 'Files marked Pending confirmation in Workflow → Archive. Confirm a file as an MIS order before billing.'
+              : 'Delivered orders without an invoice. Create a bill to remove an order from this list.'}
           </Typography>
         </Box>
-        <Button size="small" variant="outlined" startIcon={busy ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
-          onClick={() => load(false)} disabled={busy} sx={{ textTransform: 'none', alignSelf: { xs: 'flex-start', sm: 'auto' } }}>
+        <Button size="small" variant="outlined" startIcon={(queueTab === 'archive' ? archiveBusy : busy) ? <CircularProgress size={16} /> : <RefreshRoundedIcon />}
+          onClick={() => queueTab === 'archive' ? loadArchive() : load(false)} disabled={queueTab === 'archive' ? archiveBusy : busy} sx={{ textTransform: 'none', alignSelf: { xs: 'flex-start', sm: 'auto' } }}>
           Refresh
         </Button>
       </Stack>
 
+      <ToggleButtonGroup size="small" exclusive value={queueTab}
+        onChange={(_, next) => {
+          if (!next) return;
+          setQueueTab(next);
+          setSearch('');
+          setArchivePageSize(ARCHIVE_PAGE_SIZE);
+        }}
+        sx={{ alignSelf: 'flex-start', '& .MuiToggleButton-root': { textTransform: 'none', fontWeight: 650 } }}>
+        <ToggleButton value="archive">Archive Pending Confirmation ({archivePending.length})</ToggleButton>
+        <ToggleButton value="delivered">Delivered, Not Invoiced ({snapshot.total})</ToggleButton>
+      </ToggleButtonGroup>
+
       <TextField size="small" fullWidth value={search} onChange={(event) => setSearch(event.target.value)}
-        placeholder="Search loaded orders by number, customer or remark"
+        placeholder={queueTab === 'archive' ? "Search pending files by name, month, date or customer" : "Search loaded orders by number, customer or remark"}
         InputProps={{ startAdornment: <SearchRoundedIcon sx={{ mr: 1, color: 'text.disabled' }} /> }} />
+
+      {queueTab === 'archive' ? (
+        <>
+          {archiveBusy && <LinearProgress sx={{ height: 2 }} />}
+          {archiveError && (
+            <Alert severity="warning" action={<Button size="small" onClick={loadArchive}>Retry</Button>}>
+              {archiveError}{archiveSnapshot ? ' — showing saved archive.' : ''}
+            </Alert>
+          )}
+          {archiveNotice && (
+            <Alert severity={archiveNotice.severity} onClose={() => setArchiveNotice(null)}>
+              {archiveNotice.message}
+            </Alert>
+          )}
+          {!archiveSnapshot && archiveBusy && (
+            <Stack alignItems="center" spacing={1} sx={{ py: 4 }}>
+              <CircularProgress size={25} />
+              <Typography variant="body2" color="text.secondary">
+                Loading the archive once. Saved folders will be reused on your next visit.
+              </Typography>
+            </Stack>
+          )}
+          {archiveSnapshot && archivePending.length === 0 && (
+            <Alert severity="success">All archived files are confirmed as MIS orders.</Alert>
+          )}
+          {archiveSnapshot && archivePending.length > 0 && archiveFiltered.length === 0 && (
+            <Alert severity="info">No pending archive files match this search.</Alert>
+          )}
+          <Stack spacing={0.75}>
+            {archiveVisible.map((file) => (
+              <Paper key={file.fileId} variant="outlined"
+                sx={{ p: { xs: 1.25, md: 1.5 }, borderRadius: 2, borderColor: 'warning.light' }}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
+                  <Box sx={{ minWidth: { md: 170 } }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {file.archiveMonth} · {file.archiveDate}
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled">
+                      {file.archiveSection || 'Archive file'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography fontWeight={700} variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                      {file.fileName}
+                    </Typography>
+                    {(file.customerName || file.orderNumber) && (
+                      <Typography variant="caption" color="text.secondary">
+                        {file.customerName || 'Order'}{file.orderNumber ? ' #' + file.orderNumber : ''}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Chip label={file.isTemporaryOrder ? 'Temp · Pending' : file.isDraft ? 'Draft · Pending' : 'Pending confirmation'}
+                    size="small" color="warning" variant="outlined" sx={{ alignSelf: 'flex-start' }} />
+                  {file.canConfirmOrder ? (
+                    <Button size="small" variant="contained" color="warning" startIcon={<ReceiptLongRoundedIcon />}
+                      onClick={() => setConfirmArchiveFile(file)} sx={{ textTransform: 'none', flexShrink: 0 }}>
+                      Confirm MIS Order
+                    </Button>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 140 }}>
+                      Review in Workflow → Archive
+                    </Typography>
+                  )}
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+          {archiveSnapshot && archiveFiltered.length > 0 && (
+            <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" justifyContent="center" spacing={1}>
+              <Typography variant="caption" color="text.secondary">
+                Showing {archiveVisible.length} of {archiveFiltered.length} matching · {archivePending.length} pending in Archive
+              </Typography>
+              {archiveVisible.length < archiveFiltered.length && (
+                <Button size="small" variant="outlined" onClick={() => setArchivePageSize((n) => n + ARCHIVE_PAGE_SIZE)}>
+                  Show more
+                </Button>
+              )}
+            </Stack>
+          )}
+        </>
+      ) : (
+        <>
 
       {error && <Alert severity="error" action={<Button size="small" onClick={() => load(false)}>Retry</Button>}>{error}</Alert>}
       {busy && snapshot.rows.length === 0 && <CircularProgress size={26} sx={{ alignSelf: 'center', my: 3 }} />}
@@ -192,6 +363,10 @@ export default function PendingBills() {
         </Stack>
       )}
 
+
+        </>
+      )}
+
       {selectedOrder && (
         <UpdateDelivery
           mode="edit"
@@ -204,6 +379,18 @@ export default function PendingBills() {
             setSelectedOrder(null);
           }}
         />
+      )}
+      {confirmArchiveFile && (
+        <Suspense fallback={<CircularProgress size={20} sx={{ alignSelf: 'center' }} />}>
+          <ArchiveConfirmDialog
+            open
+            file={confirmArchiveFile}
+            fromArchive
+            cacheScope={userName}
+            onClose={() => setConfirmArchiveFile(null)}
+            onSuccess={handleArchiveConfirmed}
+          />
+        </Suspense>
       )}
     </Stack>
   );

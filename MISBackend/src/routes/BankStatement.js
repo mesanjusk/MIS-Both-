@@ -69,6 +69,9 @@ const normHeader = (h) => h.trim().toLowerCase().replace(/[\s\/\.\-]+/g, '_').re
 // Parse SBI bank statement CSV
 // Expected columns (in order): Txn Date, Value Date, Description, Ref No./Cheque No., Branch Code, Debit, Credit, Balance
 function parseSbiCsv(text) {
+  // Spreadsheet copy/paste uses tabs; accept it alongside comma-separated CSV.
+  const separator = text.split('\n').some((line) => line.includes('\t') && /debit/i.test(line) && /credit/i.test(line))
+    ? '\t' : ',';
   const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean);
 
   // Find the header row (contains "txn" or "date" and "debit" and "credit")
@@ -77,7 +80,7 @@ function parseSbiCsv(text) {
   for (let i = 0; i < Math.min(lines.length, 20); i++) {
     const lower = lines[i].toLowerCase();
     if ((lower.includes('txn') || lower.includes('date')) && lower.includes('debit') && lower.includes('credit')) {
-      headers = lines[i].split(',').map(normHeader);
+      headers = lines[i].split(separator).map(normHeader);
       headerIdx = i;
       break;
     }
@@ -90,7 +93,7 @@ function parseSbiCsv(text) {
   // Extract account name from lines before header (SBI puts it there)
   let accountName = '';
   for (let i = 0; i < headerIdx; i++) {
-    const parts = lines[i].split(',').map((p) => p.trim());
+    const parts = lines[i].split(separator).map((p) => p.trim());
     const lower = lines[i].toLowerCase();
     if (lower.includes('account name') || lower.includes('acc name')) {
       accountName = parts[1] || parts[0] || '';
@@ -103,7 +106,7 @@ function parseSbiCsv(text) {
 
   const entries = [];
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    const vals = lines[i].split(',');
+    const vals = lines[i].split(separator);
     if (vals.length < 4) continue;
 
     const row = {};
@@ -113,7 +116,7 @@ function parseSbiCsv(text) {
     const txnDateStr  = row['txn_date'] || row['date'] || row['transaction_date'] || '';
     const valDateStr  = row['value_date'] || row['val_date'] || txnDateStr;
     const description = row['description'] || row['narration'] || row['particulars'] || '';
-    const refNo       = row['ref_no_cheque_no'] || row['ref_no'] || row['cheque_no'] || row['reference'] || '';
+    const refNo       = row['ref_no_cheque_no'] || row['ref_no'] || row['cheque_no'] || row['reference'] || row['bank_reference'] || '';
     const debit       = toAmt(row['debit'] || row['withdrawal'] || '0');
     const credit      = toAmt(row['credit'] || row['deposit'] || '0');
     const balance     = toAmt(row['balance'] || '0');
@@ -299,31 +302,43 @@ function parseSbiTextFormat(text) {
     if (amounts.length < 2) continue;
 
     const balance = toAmt(amounts[amounts.length - 1][1]);
-    const credit  = toAmt(amounts[amounts.length - 2][1]);
-    const debit   = amounts.length >= 3 ? toAmt(amounts[amounts.length - 3][1]) : 0;
-    if (!debit && !credit) continue;
 
-    // Description: text between last date-match end and first-of-the-last-2/3-amounts start
-    const lastDate    = dateParts[dateParts.length - 1];
+    // A fixed-width SBI row normally contains only the populated debit OR
+    // credit column plus balance. Never assume the penultimate amount is credit.
+    const lastDate = dateParts[dateParts.length - 1];
     const lastDateEnd = lastDate.index + lastDate[0].length;
-    const amtOffset   = amounts.length >= 3 ? amounts.length - 3 : amounts.length - 2;
-    const firstAmtIdx = amounts[amtOffset].index;
+    const amountStart = amounts.length >= 3 ? amounts.length - 3 : amounts.length - 2;
+    const firstAmtIdx = amounts[amountStart].index;
     let desc = lineStr.substring(lastDateEnd, firstAmtIdx).replace(/\s+/g, ' ').trim();
-    // Strip trailing standalone ref number (6+ digits)
     desc = desc.replace(/\s+\d{6,}\s*$/, '').trim();
 
     const descUpper = desc.toUpperCase();
-    let direction;
-    if (/^(TO |BY DEBIT|DEBIT)/.test(descUpper)) direction = 'out';
-    else if (/^(BY |INB |CREDIT|NEFT CR|IMPS CR)/.test(descUpper)) direction = 'in';
-    else direction = credit > 0 ? 'in' : 'out';
+    const isDebit = /^(TO |BY DEBIT|DEBIT)/.test(descUpper) || /\/UPI\/DR\//.test(descUpper);
+    const isCredit = /^(BY |INB |CREDIT|NEFT CR|IMPS CR)/.test(descUpper) || /\/UPI\/CR\//.test(descUpper);
+    const movement = toAmt(amounts[amounts.length - 2][1]);
+    let debit = 0;
+    let credit = 0;
+    if (amounts.length >= 3) {
+      debit = toAmt(amounts[amounts.length - 3][1]);
+      credit = movement;
+    } else if (isDebit && !isCredit) {
+      debit = movement;
+    } else if (isCredit && !isDebit) {
+      credit = movement;
+    } else {
+      // Ambiguous two-amount lines cannot safely be classified.
+      continue;
+    }
+    if (!debit && !credit) continue;
+    const direction = credit > 0 ? 'in' : 'out';
+    const refMatch = desc.match(/(?:UPI\/(?:CR|DR)\/|NEFT\*[^*]+\*)([A-Z0-9]{8,})/i);
 
     entries.push({
       entry_uuid:   uuid(),
       txn_date:     txnDate,
       value_date:   valueDate,
       description:  desc,
-      ref_no:       '',
+      ref_no:       refMatch ? refMatch[1] : '',
       debit,
       credit,
       balance,

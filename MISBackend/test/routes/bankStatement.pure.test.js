@@ -3,6 +3,7 @@ const {
   parseDateStr,
   normHeader,
   parseSbiCsv,
+  parseSbiTextFormat,
   chooseCustomerCounterparty,
   chooseBankLedgerDoc,
   scoreBankLedgerName,
@@ -341,5 +342,32 @@ describe('Overlapping statement movement protection', () => {
   test('prevents cross-bank matches', () => {
     expect(sameImportedBank({ ledger_account_uuid: 'sbi' }, { ledger_account_uuid: 'hdfc' })).toBe(false);
     expect(sameImportedBank({ account_name: 'SBI Main' }, { account_name: 'SBI Main' })).toBe(true);
+  });
+});
+
+describe('SBI import regression: fixed-width and pasted sheet', () => {
+  test('two-amount debit rows are not mistaken for credits', () => {
+    const txt = [
+      '20 Oct 2026  20 Oct 2026  TO TRANSFER-UPI/DR/629369895020/Mr BHUPE/CBIN/test-      TRANSFER TO 4897691162095 / 376      500.00       65,624.43',
+      '21 Oct 2026  21 Oct 2026  BY TRANSFER-UPI/CR/823479363509/Aman Vij/BDBL/test-    TRANSFER FROM 4897734162099 / 376               1,400.00 66,964.43',
+    ].join('\n');
+    const { entries, error } = parseSbiTextFormat(txt);
+    expect(error).toBeNull();
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ debit: 500, credit: 0, direction: 'out', ref_no: '629369895020' });
+    expect(entries[1]).toMatchObject({ debit: 0, credit: 1400, direction: 'in', ref_no: '823479363509' });
+  });
+
+  test('tab-separated Excel paste preserves bank reference and direction', () => {
+    const txt = [
+      'Txn Date\tValue Date\tDescription\tBank Reference\tDebit\tCredit',
+      '20/10/2026\t20/10/2026\tMr BHUPE\t629369895020\t500.00\t',
+      '21/10/2026\t21/10/2026\tAman Vij\t823479363509\t\t1400.00',
+    ].join('\n');
+    const { entries, error } = parseSbiCsv(txt);
+    expect(error).toBeNull();
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({ debit: 500, credit: 0, ref_no: '629369895020', direction: 'out' });
+    expect(entries[1]).toMatchObject({ debit: 0, credit: 1400, ref_no: '823479363509', direction: 'in' });
   });
 });

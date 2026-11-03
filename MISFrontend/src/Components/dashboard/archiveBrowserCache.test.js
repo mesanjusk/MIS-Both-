@@ -55,6 +55,17 @@ describe('Archive browser-session snapshot', () => {
     expect(snapshot.dates[0].sections[0].files[0].matched).toBe(false);
   });
 
+  it('does not double-count a TEMP match already included in scan totals', () => {
+    const snapshot = normalizeArchiveScan(scan());
+    snapshot.dates[0].sections[0].files[0] = {
+      ...snapshot.dates[0].sections[0].files[0], matched: true, isTemporaryOrder: true,
+    };
+    snapshot.summary = { total: 2, matched: 1, unmatched: 1 };
+    const updated = applyArchiveConfirmation(snapshot, { fileId: 'drive-1', orderNumber: 7654 });
+    expect(updated.summary).toEqual(snapshot.summary);
+    expect(archiveFolderSummary(updated.dates).confirmed).toBe(1);
+  });
+
   it('does not change the snapshot for an unknown Drive file', () => {
     const snapshot = normalizeArchiveScan(scan());
     expect(applyArchiveConfirmation(snapshot, { fileId: 'missing' })).toBe(snapshot);

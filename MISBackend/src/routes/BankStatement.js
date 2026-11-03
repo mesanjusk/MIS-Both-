@@ -1313,6 +1313,71 @@ async function reuseOverlappingConfirmedEntries(statement) {
   return { reused, ambiguous };
 }
 
+// Pre-reconcile every uploaded statement regardless of its date range.
+// Import all bank rows for audit, but expose only genuine unmatched rows as
+// pending work; never create ledger postings as part of upload.
+function summarizeImportedBankEntries(entries) {
+  const rows = entries || [];
+  return {
+    total: rows.length,
+    already_entered: rows.filter((e) =>
+      (e.entry_status === 'confirmed' && Boolean(e.transaction_uuid)) ||
+      (e.match_status === 'matched' || e.match_status === 'manual')
+    ).length,
+    pending: rows.filter((e) => e.entry_status === 'pending' && e.match_status === 'unmatched').length,
+    confirmed: rows.filter((e) => e.entry_status === 'confirmed' && Boolean(e.transaction_uuid)).length,
+  };
+}
+
+async function prepareUploadedBankStatement({ entries, accountName, uploaded_by }) {
+  const enriched = await autoMatchEntries(entries);
+  const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
+  const statement = new BankStatement({
+    statement_uuid: uuid(),
+    account_name: accountName || 'Bank Account',
+    uploaded_by,
+    period_start: dates[0],
+    period_end: dates[dates.length - 1],
+    entries: enriched,
+  });
+  const overlap = await reuseOverlappingConfirmedEntries(statement);
+
+  const bankLedger = await resolveStatementBankLedgerEvidence(statement);
+  const ledgerMatch = bankLedger
+    ? await autoLinkExistingLedgerTransactions(statement, bankLedger)
+    : { linked: 0, ambiguous: 0 };
+  if (bankLedger) {
+    statement.ledger_account_uuid = bankLedger.uuid;
+    statement.ledger_account_name = bankLedger.name;
+  }
+
+  // A single Day Book row must not hide multiple imported bank movements.
+  const usedDiaryEntries = new Set();
+  for (const entry of statement.entries || []) {
+    if (!entry.matched_diary_entry_uuid || entry.match_status !== 'matched') continue;
+    const diaryEntryUuid = String(entry.matched_diary_entry_uuid);
+    if (usedDiaryEntries.has(diaryEntryUuid) && entry.entry_status !== 'confirmed') {
+      entry.match_status = 'unmatched';
+      entry.match_score = 0;
+      entry.matched_diary_uuid = null;
+      entry.matched_diary_entry_uuid = null;
+      entry.matched_party = '';
+    } else {
+      usedDiaryEntries.add(diaryEntryUuid);
+    }
+  }
+
+  // Local suggestions concern only rows that still need a user action.
+  const outstanding = (statement.entries || []).filter((entry) =>
+    entry.entry_status === 'pending' && entry.match_status === 'unmatched'
+  );
+  const aiReview = await addUploadAiSuggestions(outstanding);
+  await statement.save();
+
+  return { statement, overlap, ledgerMatch, aiReview,
+    summary: summarizeImportedBankEntries(statement.entries) };
+}
+
 // POST /api/bank-statement/upload-pdf
 router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
   try {
@@ -1344,26 +1409,16 @@ router.post('/upload-pdf', pdfUpload.single('pdf'), async (req, res) => {
       });
     }
 
-    const enriched = await autoMatchEntries(entries);
-    const aiReview = await addUploadAiSuggestions(enriched);
-
-    const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
-    const statement = new BankStatement({
-      statement_uuid: uuid(),
-      account_name:   accountName || 'SBI Bank Account',
-      uploaded_by,
-      period_start:   dates[0],
-      period_end:     dates[dates.length - 1],
-      entries:        enriched,
-    });
-    const overlap = await reuseOverlappingConfirmedEntries(statement);
-    await statement.save();
+    const { statement, overlap, ledgerMatch, aiReview, summary } =
+      await prepareUploadedBankStatement({ entries, accountName: accountName || 'SBI Bank Account', uploaded_by });
 
     return res.status(201).json({
       success: true,
       message: 'PDF bank statement uploaded',
       result: statement,
       overlap,
+      ledger_match: ledgerMatch,
+      summary,
       ai_review: { status: aiReview.ai?.status || 'unavailable', suggested: aiReview.suggestions.length, remaining: aiReview.remainingCount },
     });
   } catch (err) {
@@ -1389,26 +1444,16 @@ router.post('/upload-csv', async (req, res) => {
     if (error) return res.status(400).json({ success: false, message: error });
     if (!entries.length) return res.status(400).json({ success: false, message: 'No valid entries found' });
 
-    const enriched = await autoMatchEntries(entries);
-    const aiReview = await addUploadAiSuggestions(enriched);
-
-    const dates = enriched.map((e) => e.txn_date).sort((a, b) => a - b);
-    const statement = new BankStatement({
-      statement_uuid: uuid(),
-      account_name:   accountName || 'Bank Account',
-      uploaded_by,
-      period_start:   dates[0],
-      period_end:     dates[dates.length - 1],
-      entries:        enriched,
-    });
-    const overlap = await reuseOverlappingConfirmedEntries(statement);
-    await statement.save();
+    const { statement, overlap, ledgerMatch, aiReview, summary } =
+      await prepareUploadedBankStatement({ entries, accountName, uploaded_by });
 
     return res.status(201).json({
       success: true,
       message: 'Bank statement uploaded',
       result: statement,
       overlap,
+      ledger_match: ledgerMatch,
+      summary,
       ai_review: { status: aiReview.ai?.status || 'unavailable', suggested: aiReview.suggestions.length, remaining: aiReview.remainingCount },
     });
   } catch (err) {
@@ -2129,6 +2174,7 @@ module.exports.parseSbiPdfText = parseSbiPdfText;
 module.exports.parseSbiTextFormat = parseSbiTextFormat;
 module.exports.repairImportedBankDirection = repairImportedBankDirection;
 module.exports.autoMatchEntries = autoMatchEntries;
+module.exports.summarizeImportedBankEntries = summarizeImportedBankEntries;
 module.exports.chooseCustomerCounterparty = chooseCustomerCounterparty;
 module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;
 module.exports.scoreBankLedgerName = scoreBankLedgerName;

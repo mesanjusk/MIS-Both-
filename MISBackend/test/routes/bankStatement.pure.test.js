@@ -4,6 +4,7 @@ const {
   normHeader,
   parseSbiCsv,
   parseSbiTextFormat,
+  repairImportedBankDirection,
   chooseCustomerCounterparty,
   chooseBankLedgerDoc,
   scoreBankLedgerName,
@@ -369,5 +370,18 @@ describe('SBI import regression: fixed-width and pasted sheet', () => {
     expect(entries).toHaveLength(2);
     expect(entries[0]).toMatchObject({ debit: 500, credit: 0, ref_no: '629369895020', direction: 'out' });
     expect(entries[1]).toMatchObject({ debit: 0, credit: 1400, ref_no: '823479363509', direction: 'in' });
+  });
+});
+
+describe('historical SBI direction repair', () => {
+  test('reverses an old debit wrongly stored as credit', () => {
+    expect(repairImportedBankDirection({
+      description: 'TO TRANSFER-UPI/DR/629369895020/Mr BHUPE',
+      credit: 500, debit: 0, direction: 'out', ref_no: '',
+    })).toEqual({ direction: 'out', debit: 500, credit: 0, ref_no: '629369895020' });
+  });
+  test('does not alter a correctly classified credit or ambiguous description', () => {
+    expect(repairImportedBankDirection({ description: 'BY TRANSFER-UPI/CR/823479363509/Aman', credit: 1400, debit: 0, direction: 'in' })).toBeNull();
+    expect(repairImportedBankDirection({ description: 'UNKNOWN MOVEMENT', credit: 500, debit: 0, direction: 'in' })).toBeNull();
   });
 });

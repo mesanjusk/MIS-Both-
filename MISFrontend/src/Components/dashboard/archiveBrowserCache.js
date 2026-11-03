@@ -1,5 +1,3 @@
-import { isConfirmedArchiveOrder } from './archiveFolderStatus';
-
 // The archive scan walks many Drive folders. Keep its last snapshot in this
 // browser tab so tab changes / successful confirmations do not repeat the scan.
 const snapshots = new Map();
@@ -51,7 +49,7 @@ export function normalizeArchiveScan(data = {}, printingStageNumber = 6) {
 export function applyArchiveConfirmation(data, confirmation) {
   if (!data?.dates || !confirmation?.fileId) return data;
   let found = false;
-  let newlyConfirmed = false;
+  let newlyMatched = false;
   const dates = data.dates.map((date) => ({
     ...date,
     sections: (date.sections || []).map((section) => ({
@@ -59,7 +57,7 @@ export function applyArchiveConfirmation(data, confirmation) {
       files: (section.files || []).map((file) => {
         if (file.fileId !== confirmation.fileId) return file;
         found = true;
-        newlyConfirmed = !isConfirmedArchiveOrder(file);
+        newlyMatched = !file.matched;
         return {
           ...file,
           matched: true,
@@ -75,7 +73,7 @@ export function applyArchiveConfirmation(data, confirmation) {
     })),
   }));
   if (!found) return data;
-  const summary = data.summary && newlyConfirmed
+  const summary = data.summary && newlyMatched
     ? {
         ...data.summary,
         matched: Number(data.summary.matched || 0) + 1,

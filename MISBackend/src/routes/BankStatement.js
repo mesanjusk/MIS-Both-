@@ -1957,6 +1957,64 @@ router.post('/:uuid/entry/:entryUuid/confirm', async (req, res) => {
 // were mapped to the real bank ledger. Existing Diary/manual transactions are
 // linked instead of duplicated; rows with no existing match are moved/created
 // in the configured bank ledger.
+// Safely repair historical SBI imports affected by the old two-amount parser.
+// Only pending, unposted entries are mutable; confirmed ledger movements are
+// reported for manual review rather than silently rewriting accounting history.
+function repairImportedBankDirection(entry) {
+  const desc = String(entry.description || '').trim().toUpperCase();
+  const debitEvidence = /^(TO |BY DEBIT|DEBIT)/.test(desc) || /\/UPI\/DR\//.test(desc);
+  const creditEvidence = (/^(BY |INB |CREDIT|NEFT CR|IMPS CR)/.test(desc) || /\/UPI\/CR\//.test(desc)) && !debitEvidence;
+  if (debitEvidence === creditEvidence) return null;
+  const actualDirection = debitEvidence ? 'out' : 'in';
+  const amount = Number(entry.debit || entry.credit || 0);
+  if (!(amount > 0)) return null;
+  const mismatch = actualDirection !== entry.direction ||
+    (debitEvidence ? Number(entry.credit || 0) > 0 : Number(entry.debit || 0) > 0);
+  if (!mismatch) return null;
+  const refMatch = desc.match(/(?:UPI\/(?:CR|DR)\/|NEFT\*[^*]+\*)([A-Z0-9]{8,})/i);
+  return { direction: actualDirection, debit: debitEvidence ? amount : 0,
+    credit: debitEvidence ? 0 : amount, ref_no: entry.ref_no || refMatch?.[1] || '' };
+}
+
+router.post('/:uuid/repair-import-directions', async (req, res) => {
+  try {
+    const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
+    if (!stmt) return res.status(404).json({ success: false, message: 'Statement not found' });
+    const stats = { repaired: 0, confirmed_needs_review: 0, unresolved: 0, newly_matched: 0 };
+    const repairable = [];
+    for (const entry of stmt.entries || []) {
+      const correction = repairImportedBankDirection(entry);
+      if (!correction) continue;
+      if (entry.entry_status === 'confirmed' || entry.transaction_uuid) {
+        stats.confirmed_needs_review += 1;
+        continue;
+      }
+      if (entry.entry_status === 'rejected') continue;
+      Object.assign(entry, correction);
+      // Any previously inferred match was scored using the wrong direction.
+      if (entry.match_status === 'matched') {
+        entry.match_status = 'unmatched';
+        entry.match_score = 0;
+        entry.matched_diary_uuid = null;
+        entry.matched_diary_entry_uuid = null;
+        entry.matched_party = '';
+      }
+      repairable.push(entry);
+      stats.repaired += 1;
+    }
+    if (repairable.length) {
+      await autoMatchEntries(repairable);
+      stats.newly_matched = repairable.filter((e) => e.match_status === 'matched').length;
+      stmt.markModified('entries');
+      await stmt.save();
+    }
+    return res.json({ success: true, result: stmt, repair: stats });
+  } catch (err) {
+    logger.error({ err }, 'POST /bank-statement/:uuid/repair-import-directions');
+    return res.status(500).json({ success: false, message: 'Could not repair imported bank directions' });
+  }
+});
+
 router.post('/:uuid/sync-ledger', async (req, res) => {
   try {
     const stmt = await BankStatement.findOne({ statement_uuid: req.params.uuid });
@@ -2034,6 +2092,7 @@ module.exports.normHeader = normHeader;
 module.exports.parseSbiCsv = parseSbiCsv;
 module.exports.parseSbiPdfText = parseSbiPdfText;
 module.exports.parseSbiTextFormat = parseSbiTextFormat;
+module.exports.repairImportedBankDirection = repairImportedBankDirection;
 module.exports.autoMatchEntries = autoMatchEntries;
 module.exports.chooseCustomerCounterparty = chooseCustomerCounterparty;
 module.exports.chooseBankLedgerDoc = chooseBankLedgerDoc;

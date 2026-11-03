@@ -54,7 +54,7 @@ function statusChip(status) {
 }
 
 // --- single entry row with inline account assignment ---
-function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [], onCustomerAdded }) {
+function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [], onCustomerAdded, bankMatchStatus }) {
   const [editing, setEditing] = useState(false);
   const [createCustomerOpen, setCreateCustomerOpen] = useState(false);
   const [acct, setAcct]       = useState(entry.account_assigned || '');
@@ -295,7 +295,13 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [], onCustome
       {/* Status + reject toggle */}
       <TableCell align="center" sx={{ width: 90 }}>
         <Stack direction="row" spacing={0.5} justifyContent="center" alignItems="center">
-          {statusChip(entry.entry_status)}
+          {bankMatchStatus === 'bank_confirmed' ? (
+            <Tooltip title="An existing confirmed bank-statement ledger posting matches this account, amount and direction. Confirming the day book will link it without posting a duplicate.">
+              <Chip label="✓ Already confirmed from bank statement" size="small" color="success" variant="outlined" />
+            </Tooltip>
+          ) : bankMatchStatus === 'review_required' ? (
+            <Chip label="Bank match needs review" size="small" color="warning" />
+          ) : statusChip(entry.entry_status)}
           {isDraft && (
             <Tooltip title={entry.entry_status === 'rejected' ? 'Restore entry' : 'Reject entry'}>
               <IconButton size="small" color="error" onClick={reject}>
@@ -310,7 +316,7 @@ function EntryRow({ entry, diaryStatus, onUpdate, ledgerAccounts = [], onCustome
 }
 
 // --- section table (cash receipts / cash payments / bank) ---
-function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAccounts, onCustomerAdded }) {
+function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAccounts, onCustomerAdded, bankMatchById = {} }) {
   if (!entries.length) return null;
   const total = entries.reduce((s, e) => s + (e.entry_status !== 'rejected' ? e.amount : 0), 0);
   return (
@@ -333,7 +339,7 @@ function EntrySection({ title, entries, color, diaryStatus, onUpdate, ledgerAcco
           </TableHead>
           <TableBody>
             {entries.map((e) => (
-              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} ledgerAccounts={ledgerAccounts} onCustomerAdded={onCustomerAdded} />
+              <EntryRow key={e.entry_uuid} entry={e} diaryStatus={diaryStatus} onUpdate={onUpdate} ledgerAccounts={ledgerAccounts} onCustomerAdded={onCustomerAdded} bankMatchStatus={bankMatchById[e.entry_uuid]} />
             ))}
           </TableBody>
         </Table>
@@ -737,6 +743,7 @@ export default function DayBook() {
   const [ledgerTxns, setLedgerTxns]       = useState(null);
   const [ledgerMeta, setLedgerMeta]       = useState({ cashAccounts: [], cashNames: [], bankAccounts: [], bankNames: [] });
   const [bankStmtEntries, setBankStmtEntries] = useState([]);
+  const [bankMatchById, setBankMatchById] = useState({});
   const [loading, setLoading]             = useState(false);
   const [listLoading, setListLoading]     = useState(true);
   const [confirming, setConfirming]       = useState(false);
@@ -784,6 +791,7 @@ export default function DayBook() {
     setError('');
     setSuccessMsg('');
     setBankStmtEntries([]);
+    setBankMatchById({});
     try {
       const res = await axios.get(`/api/diary/${uid}`);
       const d = res.data?.result || null;
@@ -800,6 +808,21 @@ export default function DayBook() {
       setLoading(false);
     }
   }, []);
+
+  // Refresh this read-only preview whenever assignments or amounts change.
+  useEffect(() => {
+    if (!diary?.diary_uuid || diary.status === 'confirmed') return;
+    let active = true;
+    axios.get(`/api/diary/${diary.diary_uuid}/bank-posting-preview`)
+      .then((response) => {
+        if (!active) return;
+        const matches = {};
+        for (const item of response.data?.result || []) matches[item.entry_uuid] = item.status;
+        setBankMatchById(matches);
+      })
+      .catch(() => { if (active) setBankMatchById({}); });
+    return () => { active = false; };
+  }, [diary?.diary_uuid, diary?.entries, diary?.status]);
 
   useEffect(() => { loadList(); }, [loadList]);
 
@@ -1335,6 +1358,7 @@ export default function DayBook() {
                   <Box sx={{ flex: 1 }}>
                     <EntrySection
                       title="Bank Receipts (IN)"
+                      bankMatchById={bankMatchById}
                       entries={bankIn}
                       color="info.dark"
                       diaryStatus={diary.status}
@@ -1346,6 +1370,7 @@ export default function DayBook() {
                   <Box sx={{ flex: 1 }}>
                     <EntrySection
                       title="Bank Receipts (OUT)"
+                      bankMatchById={bankMatchById}
                       entries={bankOut}
                       color="warning.dark"
                       diaryStatus={diary.status}

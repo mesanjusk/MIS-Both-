@@ -60,7 +60,7 @@ export const updateBillStatus = (orderId, billStatus, meta = {}) => {
 
 export const fetchMyOrderTasks = (userName) => axios.get('/api/orders/tasks/mine', { params: { userName } });
 export const fetchOrderQueue = () => axios.get('/api/orders/tasks/queue');
-export const fetchPendingTasksOverview = () => axios.get('/api/orders/tasks/overview');
+export const fetchPendingTasksOverview = (options = {}) => axios.get('/api/orders/tasks/overview', options);
 // Backend route reads `assignedTo` (either a Mongo user id or the "Customer"
 // sentinel) off the body — accept either shape here so existing callers that
 // pass `userId`/`userName` keep working alongside newer `assignedTo` callers.
@@ -78,3 +78,7 @@ export const assignOrderToUser = (orderId, payload = {}) => {
 // normalizes any pre-migration legacy stage value it finds on the order
 // first, so this also "fixes" an old stuck order the moment it's moved.
 export const moveOrderStage = (orderId, stage) => axios.patch(`/api/orders/${orderId}/stage`, { stage });
+
+// One server-side batch, preserving the normal per-order lifecycle validation.
+export const bulkMoveOrderStages = (orderIds, stage) =>
+  axios.post('/api/orders/tasks/bulk-stage', { orderIds, stage });

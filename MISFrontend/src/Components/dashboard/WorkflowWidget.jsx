@@ -365,7 +365,7 @@ export default function WorkflowWidget() {
             size="small"
             exclusive
             value={tab}
-            onChange={(_, next) => next && setTab(next)}
+            onChange={(_, next) => { if (next) { setTab(next); setSelectedIds(new Set()); setBulkDialogOpen(false); } }}
             sx={{
               '& .MuiToggleButton-root': {
                 px: 1,
@@ -400,7 +400,7 @@ export default function WorkflowWidget() {
                   <Switch
                     size="small"
                     checked={onlyMine}
-                    onChange={(event) => setOnlyMine(event.target.checked)}
+                    onChange={(event) => { setOnlyMine(event.target.checked); setSelectedIds(new Set()); }}
                   />
                 )}
                 label="Only mine"

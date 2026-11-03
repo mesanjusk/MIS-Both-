@@ -295,6 +295,22 @@ export default function WorkflowWidget() {
     });
   };
 
+  const handleSelectSection = (sectionTasks) => {
+    if (bulkMoving) return;
+    const ids = [...new Set(sectionTasks.map((task) => task.orderId).filter(Boolean))];
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (ids.every((id) => next.has(id))) {
+        ids.forEach((id) => next.delete(id));
+      } else {
+        ids.forEach((id) => {
+          if (next.size < MAX_WORKFLOW_BULK_ORDERS) next.add(id);
+        });
+      }
+      return next;
+    });
+  };
+
   const handleBulkStageMove = async () => {
     if (bulkMoving || !bulkTargetStage || !selectedTasks.length) return;
     setBulkMoving(true);
@@ -645,6 +661,18 @@ export default function WorkflowWidget() {
                           }}
                         >
                           <Typography variant="caption" fontWeight={800} sx={{ flex: 1, minWidth: 0, fontSize: 11, lineHeight: 1.2 }}>{section.label}</Typography>
+                          {selectionMode && tasks.length > 0 && (
+                            <Tooltip title={`Select all ${section.label} orders`}>
+                              <Checkbox size="small" sx={{ p: 0.1 }}
+                                checked={tasks.every((task) => selectedIds.has(task.orderId))}
+                                indeterminate={tasks.some((task) => selectedIds.has(task.orderId)) &&
+                                  !tasks.every((task) => selectedIds.has(task.orderId))}
+                                onChange={() => handleSelectSection(tasks)}
+                                disabled={bulkMoving}
+                                inputProps={{ 'aria-label': `Select all ${section.label} orders` }}
+                              />
+                            </Tooltip>
+                          )}
                           <Typography
                             variant="caption"
                             fontWeight={800}

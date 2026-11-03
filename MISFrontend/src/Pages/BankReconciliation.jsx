@@ -381,9 +381,18 @@ export default function BankReconciliation() {
       // idempotent: it links an existing Diary/manual transaction when one
       // already represents the bank movement, otherwise it repairs/posts the
       // bank-owned transaction into the configured bank ledger.
-      const syncRes = await axios.post(`/api/bank-statement/${uid}/sync-ledger`, {
-        synced_by: loggedInUser,
-      });
+      // Correct pending rows from historical SBI fixed-width uploads first.
+      // Confirmed movements are never rewritten by this repair.
+      const repairRes = await axios.post(`/api/bank-statement/${uid}/repair-import-directions`);
+      const needsReview = Number(repairRes.data?.repair?.confirmed_needs_review || 0);
+      if (needsReview) {
+        setError(`${needsReview} confirmed bank entries have conflicting debit/credit evidence. Their ledger postings were preserved; review them before running ledger sync.`);
+      }
+      const syncRes = needsReview
+        ? repairRes
+        : await axios.post(`/api/bank-statement/${uid}/sync-ledger`, {
+            synced_by: loggedInUser,
+          });
       const loaded = syncRes.data?.result || null;
       setStmt(loaded);
       setAiSuggestions(Object.fromEntries((loaded?.entries || []).filter((entry) => entry.ai_suggestion).map((entry) => [entry.entry_uuid, entry.ai_suggestion])));

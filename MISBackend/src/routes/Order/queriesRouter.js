@@ -212,6 +212,66 @@ router.get("/GetDeliveredList", async (_req, res) => {
   }
 });
 
+// Delivered orders without any positive invoice line are awaiting a customer bill.
+// Keep this server-side and paginated so the Home tab never downloads the entire
+// delivery history just to display its pending work.
+router.get("/GetPendingBills", async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
+    const [data = {}] = await Orders.aggregate([
+      {
+        $match: {
+          $or: [
+            { stage: { $in: ["delivered", "paid"] } },
+            { Status: { $elemMatch: { Task: { $regex: "delivered", $options: "i" } } } },
+          ],
+        },
+      },
+      ...latestStatusProjectionStages,
+      { $match: { hasBillable: false } },
+      { $sort: { createdAt: -1, _id: -1 } },
+      {
+        $facet: {
+          rows: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: Customers.collection.name,
+                localField: "Customer_uuid",
+                foreignField: "Customer_uuid",
+                as: "customer",
+              },
+            },
+            {
+              $addFields: {
+                Customer_name: {
+                  $ifNull: [{ $arrayElemAt: ["$customer.Customer_name", 0] }, "$Customer_name"],
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 1, Order_uuid: 1, Order_Number: 1, Customer_uuid: 1,
+                Customer_name: 1, Items: 1, extraCharges: 1, orderNote: 1,
+                Status: 1, stage: 1, createdAt: 1, isTemporary: 1,
+              },
+            },
+          ],
+          metadata: [{ $count: "total" }],
+        },
+      },
+    ]);
+    const result = data.rows || [];
+    const total = data.metadata?.[0]?.total || 0;
+    res.json({ success: true, result, total, page, hasMore: page * limit < total });
+  } catch (err) {
+    logger.error("GetPendingBills error:", err);
+    res.status(500).json({ success: false, message: "Unable to load pending bills" });
+  }
+});
+
 router.get("/GetBillList", async (_req, res) => {
   try {
     const rows = await Orders.aggregate([

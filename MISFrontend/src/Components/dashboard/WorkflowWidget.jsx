@@ -6,12 +6,20 @@ import {
   Alert,
   Avatar,
   Box,
+  Button,
+  Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControlLabel,
   IconButton,
+  MenuItem,
   Stack,
+  TextField,
   Switch,
   ToggleButton,
   ToggleButtonGroup,
@@ -26,12 +34,13 @@ import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRou
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
-import { fetchPendingTasksOverview, assignOrderToUser, moveOrderStage } from '../../services/orderService';
+import { fetchPendingTasksOverview, assignOrderToUser, moveOrderStage, bulkMoveOrderStages } from '../../services/orderService';
 import { fetchAssignees } from '../../services/assigneeService';
 import { useAuth } from '../../context/AuthContext';
 import { useRoleKey } from '../../hooks/useRouteAccess';
 import { ADMIN_ROLES, isRoleAllowed } from '../../constants/roles';
-import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { WORKFLOW_SECTIONS, WORKFLOW_GROUPS, WORKFLOW_MOVABLE_STAGES, STAGE_LABELS, LEGACY_STAGE_LABELS } from '../../constants/orderStages';
+import { MAX_WORKFLOW_BULK_ORDERS, visibleWorkflowOrderIds, selectionAfterBulkMove } from './workflowBulkSelection';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
 import { ORDER_SECTIONS } from '../orders/orderControlSections';
 
@@ -152,17 +161,24 @@ export default function WorkflowWidget() {
   const [error, setError] = useState('');
   const [assigningId, setAssigningId] = useState('');
   const [movingId, setMovingId] = useState('');
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkTargetStage, setBulkTargetStage] = useState('');
+  const [bulkMoving, setBulkMoving] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+  const [bulkFeedback, setBulkFeedback] = useState(null);
 
   // One source for the whole widget. `/tasks/overview` is open to every
   // authenticated user by design (see Order/statusRouter.js), and the By User
   // tab has always shown every person's pending work to everyone — so the
   // board showing the same orders is not new exposure, it is the same data
   // the tab beside it already displays.
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setIsLoading(true);
     setError('');
     try {
-      const overviewRes = await fetchPendingTasksOverview();
+      const overviewRes = await fetchPendingTasksOverview(force ? { cache: false } : {});
       setOverview(overviewRes?.data || null);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load pending tasks.');
@@ -185,7 +201,7 @@ export default function WorkflowWidget() {
     setAssigningId(orderId);
     try {
       await assignOrderToUser(orderId, { assignedTo, assignedToType, assignedBy: userName });
-      await load();
+      await load(true);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to update assignment.');
     } finally {
@@ -202,7 +218,7 @@ export default function WorkflowWidget() {
     setMovingId(orderId);
     try {
       await moveOrderStage(orderId, stage);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to move order.');
     } finally {
@@ -238,6 +254,80 @@ export default function WorkflowWidget() {
     () => (overview?.byUser || []).map((group) => ({ ...group, stageGroups: groupTasksByStageLabel(group.tasks) })),
     [overview]
   );
+
+  const visibleOrderIds = useMemo(
+    () => visibleWorkflowOrderIds(tab, sections, byUserGroups, WORKFLOW_GROUPS),
+    [tab, sections, byUserGroups]
+  );
+  const selectedTasks = useMemo(
+    () => (overview?.tasks || []).filter((task) => selectedIds.has(task.orderId)),
+    [overview, selectedIds]
+  );
+  const visibleSelectedCount = visibleOrderIds.filter((id) => selectedIds.has(id)).length;
+  const allVisibleSelected = visibleOrderIds.length > 0 && visibleSelectedCount === visibleOrderIds.length;
+
+  const handleToggleSelection = useCallback((orderId) => {
+    if (bulkMoving) return;
+    if (!selectedIds.has(orderId) && selectedIds.size >= MAX_WORKFLOW_BULK_ORDERS) {
+      setBulkFeedback({ severity: 'warning', message: `Select up to ${MAX_WORKFLOW_BULK_ORDERS} orders per move.` });
+      return;
+    }
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }, [bulkMoving, selectedIds]);
+
+  const handleSelectVisible = () => {
+    if (bulkMoving) return;
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (visibleOrderIds.length > 0 && visibleOrderIds.every((id) => next.has(id))) {
+        visibleOrderIds.forEach((id) => next.delete(id));
+      } else {
+        visibleOrderIds.forEach((id) => {
+          if (next.size < MAX_WORKFLOW_BULK_ORDERS) next.add(id);
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleBulkStageMove = async () => {
+    if (bulkMoving || !bulkTargetStage || !selectedTasks.length) return;
+    setBulkMoving(true);
+    setBulkError('');
+    setBulkFeedback(null);
+    try {
+      const ids = selectedTasks.map((task) => task.orderId);
+      const response = await bulkMoveOrderStages(ids, bulkTargetStage);
+      const result = response?.data || {};
+      const failures = Array.isArray(result.failures) ? result.failures : [];
+      const moved = Number(result.moved || 0);
+      const destination = WORKFLOW_MOVABLE_STAGES.find((option) => option.stage === bulkTargetStage)?.label || bulkTargetStage;
+      const orderNames = new Map(selectedTasks.map((task) => [task.orderId, `#${task.orderNumber}`]));
+      const details = failures.slice(0, 5)
+        .map((failure) => `${orderNames.get(failure.orderId) || failure.orderId}: ${failure.message}`)
+        .join(' · ');
+
+      // One overview refresh for the entire batch, never one per order.
+      if (moved > 0) await load(true);
+      setSelectedIds(selectionAfterBulkMove(failures));
+      setBulkDialogOpen(false);
+      setBulkTargetStage('');
+      setBulkFeedback({
+        severity: failures.length ? (moved ? 'warning' : 'error') : 'success',
+        message: `${moved} of ${result.requested ?? ids.length} orders moved to ${destination}.${failures.length ? ` ${failures.length} failed and remain selected for retry.` : ''}`,
+        details,
+      });
+    } catch (err) {
+      setBulkError(err?.response?.data?.message || err.message || 'Bulk stage move failed. Please retry.');
+    } finally {
+      setBulkMoving(false);
+    }
+  };
 
   return (
     <Box>
@@ -302,12 +392,59 @@ export default function WorkflowWidget() {
             </Tooltip>
           )}
           <Tooltip title="Refresh">
-            <IconButton size="small" onClick={load} disabled={isLoading}>
+            <IconButton size="small" onClick={() => load(true)} disabled={isLoading}>
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         </Stack>
       </Stack>
+
+      {(tab === 'board' || tab === 'byUser') && (
+        <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+          <Button size="small" variant={selectionMode ? 'contained' : 'outlined'}
+            disabled={bulkMoving}
+            onClick={() => {
+              setSelectionMode((value) => !value);
+              setSelectedIds(new Set());
+              setBulkFeedback(null);
+            }}>
+            {selectionMode ? 'Done selecting' : 'Select orders'}
+          </Button>
+          {selectionMode && (
+            <>
+              <FormControlLabel
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12 } }}
+                control={<Checkbox size="small" checked={allVisibleSelected}
+                  indeterminate={visibleSelectedCount > 0 && !allVisibleSelected}
+                  disabled={bulkMoving || visibleOrderIds.length === 0}
+                  onChange={handleSelectVisible} />}
+                label="Select visible"
+              />
+              <Chip size="small" color={selectedTasks.length ? 'primary' : 'default'}
+                label={`${selectedTasks.length} selected · max ${MAX_WORKFLOW_BULK_ORDERS}`} />
+              <Button size="small" disabled={!selectedIds.size || bulkMoving}
+                onClick={() => setSelectedIds(new Set())}>Clear</Button>
+              <Button size="small" variant="contained"
+                disabled={!selectedTasks.length || bulkMoving}
+                onClick={() => {
+                  setBulkTargetStage('');
+                  setBulkError('');
+                  setBulkDialogOpen(true);
+                }}>
+                Move Stage
+              </Button>
+            </>
+          )}
+        </Stack>
+      )}
+      {bulkFeedback && (
+        <Alert severity={bulkFeedback.severity} sx={{ mb: 1 }} onClose={() => setBulkFeedback(null)}>
+          {bulkFeedback.message}
+          {bulkFeedback.details && (
+            <Typography variant="caption" display="block">{bulkFeedback.details}</Typography>
+          )}
+        </Alert>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
@@ -392,6 +529,10 @@ export default function WorkflowWidget() {
                               onAssign={handleAssign}
                               movingId={movingId}
                               onMoveStage={handleMoveStage}
+                             selectionMode={selectionMode}
+                             selectedOrderIds={selectedIds}
+                             onToggleSelect={handleToggleSelection}
+                             selectionBusy={bulkMoving}
                             />
                           </Box>
                         </Box>
@@ -523,6 +664,10 @@ export default function WorkflowWidget() {
                             onAssign={handleAssign}
                             movingId={movingId}
                             onMoveStage={handleMoveStage}
+                             selectionMode={selectionMode}
+                             selectedOrderIds={selectedIds}
+                             onToggleSelect={handleToggleSelection}
+                             selectionBusy={bulkMoving}
                             emptyMessage="Nothing here."
                           />
                         </Box>
@@ -538,6 +683,43 @@ export default function WorkflowWidget() {
           </Box>
         </>
       )}
+      <Dialog open={bulkDialogOpen} onClose={bulkMoving ? undefined : () => setBulkDialogOpen(false)}
+        maxWidth="xs" fullWidth aria-labelledby="workflow-bulk-stage-title">
+        <DialogTitle id="workflow-bulk-stage-title">Move {selectedTasks.length} orders to another stage</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Selected: {selectedTasks.slice(0, 6).map((task) => `#${task.orderNumber}`).join(', ')}
+              {selectedTasks.length > 6 ? ` and ${selectedTasks.length - 6} more` : ''}.
+              Each order will be checked against the normal stage-move rules.
+            </Typography>
+            <TextField select size="small" fullWidth label="Destination stage"
+              value={bulkTargetStage} onChange={(event) => setBulkTargetStage(event.target.value)}
+              disabled={bulkMoving}>
+              <MenuItem value="" disabled>Select destination</MenuItem>
+              {WORKFLOW_MOVABLE_STAGES.map(({ stage, label }) => (
+                <MenuItem value={stage} key={stage}>{label}</MenuItem>
+              ))}
+            </TextField>
+            {bulkTargetStage === 'delivered' && (
+              <Alert severity="warning">
+                Delivered is a final stage. Eligible orders will leave the pending Workflow board
+                and trigger the usual delivery follow-up process.
+              </Alert>
+            )}
+            {bulkError && <Alert severity="error">{bulkError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={bulkMoving} onClick={() => setBulkDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" disabled={bulkMoving || !bulkTargetStage || !selectedTasks.length}
+            startIcon={bulkMoving ? <CircularProgress size={15} color="inherit" /> : null}
+            onClick={handleBulkStageMove}>
+            {bulkMoving ? 'Moving orders…' : `Move ${selectedTasks.length} orders`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
     </Box>
   );
 }

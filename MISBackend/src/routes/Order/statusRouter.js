@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const { patchOrderStage, listOrderTasks } = require("../../controllers/orderLifecycleController");
+const { bulkMoveOrderStages } = require("../../services/bulkOrderStageService");
 const {
   assignOrderToUser,
   getPendingOrdersForUser,
@@ -71,6 +72,24 @@ router.patch("/:id/assign", async (req, res) => {
   } catch (error) {
     logger.error("assign order error:", error);
     return res.status(500).json({ success: false, message: error.message || "Failed to assign order" });
+  }
+});
+
+// Bulk moves share the same per-order lifecycle writer as PATCH /:id/stage;
+// individual failures (e.g. forbidden rollback) are reported to the UI.
+router.post("/tasks/bulk-stage", async (req, res) => {
+  try {
+    const result = await bulkMoveOrderStages({
+      orderIds: req.body?.orderIds,
+      stage: req.body?.stage,
+    });
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error.statusCode !== 400) logger.error("Bulk move order stage error:", error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to move selected orders",
+    });
   }
 });
 

@@ -215,6 +215,17 @@ export const DESIGN_LOOP_STAGES = new Set([
   'ready_to_print',
 ]);
 
+// Shared destination choices for one-order and bulk Workflow moves. The
+// Design Files board owns its folder-driven stages, so these are the manual
+// production stages plus terminal Delivered.
+export const WORKFLOW_MOVABLE_STAGES = [
+  { stage: 'print', label: 'Print' },
+  { stage: 'fitting', label: 'Fitting' },
+  { stage: 'bind_packing', label: 'Bind-Pack' },
+  { stage: 'ready', label: 'Ready' },
+  { stage: 'delivered', label: 'Delivered' },
+];
+
 // Older screens (OrderKanban, OrderUpdate) track stage via the free-text
 // Status[].Task log rather than order.stage, using Title Case labels.
 // Reconciling that with order.stage is a larger follow-up, not part of

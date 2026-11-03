@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Checkbox,
   CircularProgress,
   Divider,
   IconButton,
@@ -29,7 +30,7 @@ import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRound
 import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SupportAgentRoundedIcon from '@mui/icons-material/SupportAgentRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
-import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS } from '../../constants/orderStages';
+import { STAGE_LABELS, LEGACY_STAGE_LABELS, STAGE_TO_CAPABILITY, ASSIGNEE_TYPE_LABELS, WORKFLOW_MOVABLE_STAGES } from '../../constants/orderStages';
 import { stringToColor, initialsFor } from '../../utils/avatarColor';
 
 // GET /api/assignees only ever returns Account Payable parties (see
@@ -38,22 +39,9 @@ import { stringToColor, initialsFor } from '../../utils/avatarColor';
 // future type can be added here without restructuring the grouping below.
 const ASSIGNEE_TYPE_ORDER = ['payable'];
 
-// Stages a task can be manually moved to from the Workflow widget — one per
-// remaining pipeline column, matching WORKFLOW_GROUPS in
-// constants/orderStages.js. Design sub-stages (Today's New/Old Pending/
-// Design Approval/Hold/Ready to Print) are deliberately excluded here —
-// those now move automatically based on which Drive folder a design file
-// sits in (see the Design Files widget), not by a manual dashboard action.
-const MOVABLE_STAGES = [
-  { stage: 'print', label: 'Print' },
-  { stage: 'fitting', label: 'Fitting' },
-  { stage: 'bind_packing', label: 'Bind-Pack' },
-  { stage: 'ready', label: 'Ready' },
-];
-
-// Delivered is listed separately (and last) — it's a terminal move, not
-// another pipeline column, so it's visually split from the rest.
-const DELIVERED_STAGE = { stage: 'delivered', label: 'Delivered' };
+// Keep the single-card stage menu in sync with bulk moves.
+const MOVABLE_STAGES = WORKFLOW_MOVABLE_STAGES.filter(({ stage }) => stage !== 'delivered');
+const DELIVERED_STAGE = WORKFLOW_MOVABLE_STAGES.find(({ stage }) => stage === 'delivered');
 
 // Replaces the old red "Overdue" chip on the card: the stage chip itself
 // now carries the urgency, coloured by how long the order has been sitting
@@ -109,6 +97,10 @@ export default function OrderTaskList({
   onAssign,
   movingId = '',
   onMoveStage,
+  selectionMode = false,
+  selectedOrderIds,
+  onToggleSelect,
+  selectionBusy = false,
   emptyMessage = 'No pending tasks.',
 }) {
   const [menuPos, setMenuPos] = useState(null);
@@ -120,6 +112,7 @@ export default function OrderTaskList({
 
   const canAssign = typeof onAssign === 'function';
   const canMove = typeof onMoveStage === 'function';
+  const canSelect = selectionMode && typeof onToggleSelect === 'function';
 
   const openAssignMenu = (event, task) => {
     if (!canAssign) return;
@@ -168,7 +161,7 @@ export default function OrderTaskList({
   // rebuild these buttons mid-interaction.
   const renderAssignIcon = (task) => {
     const isUnassigned = task.assignedTo === 'Unassigned';
-    const isBusy = assigningId === task.orderId;
+    const isBusy = selectionBusy || assigningId === task.orderId;
     return (
       <Tooltip title={!canAssign ? '' : isUnassigned ? 'Assign this task' : `Reassign — currently ${task.assignedTo}`}>
         <span>
@@ -193,7 +186,7 @@ export default function OrderTaskList({
 
   const renderMoveIcon = (task) => {
     if (!canMove) return null;
-    const isBusy = movingId === task.orderId;
+    const isBusy = selectionBusy || movingId === task.orderId;
     return (
       <Tooltip title="Move to another stage/column">
         <span>
@@ -235,7 +228,7 @@ export default function OrderTaskList({
 
   const renderCardActionsButton = (task, compact) => {
     if (!canAssign && !canMove) return null;
-    const isBusy = assigningId === task.orderId || movingId === task.orderId;
+    const isBusy = selectionBusy || assigningId === task.orderId || movingId === task.orderId;
     return (
       <Tooltip title="Actions">
         <span>
@@ -374,6 +367,7 @@ export default function OrderTaskList({
         <Box sx={gridSx}>
           {tasks.map((task) => {
             const isUnassigned = task.assignedTo === 'Unassigned';
+            const selected = Boolean(selectedOrderIds?.has(task.orderId));
             const age = STAGE_AGE_STYLES[stageAgeKey(task)];
             const stageLabel = STAGE_LABELS[task.stage] || LEGACY_STAGE_LABELS[task.stage] || task.task || '—';
             const movedLabel = stageUpdatedLabel(task);
@@ -394,7 +388,7 @@ export default function OrderTaskList({
                   border: 'none',
                   borderLeft: '2px solid',
                   borderLeftColor: age.accent,
-                  bgcolor: 'background.paper',
+                  bgcolor: selected ? 'action.selected' : 'background.paper',
                   boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
                   transition: 'background 0.15s ease, box-shadow 0.15s ease',
                   '&:hover': {
@@ -410,6 +404,13 @@ export default function OrderTaskList({
                   }}
                 >
                   <Stack direction="row" alignItems="flex-start" spacing={0.25}>
+                    {canSelect && (
+                      <Checkbox size="small" checked={selected} disabled={selectionBusy}
+                        onChange={() => onToggleSelect(task.orderId)}
+                        inputProps={{ 'aria-label': `Select order #${task.orderNumber}` }}
+                        sx={{ p: 0.1, mt: -0.3, ml: -0.3, flexShrink: 0 }}
+                      />
+                    )}
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Tooltip title={titleTooltip}>
                         <Typography
@@ -561,6 +562,7 @@ export default function OrderTaskList({
       <Table size="small" sx={{ minWidth: 420 }}>
         <TableHead>
           <TableRow>
+            {canSelect && <TableCell padding="checkbox" />}
             <TableCell>Order</TableCell>
             <TableCell>Stage / Task</TableCell>
             <TableCell>Due</TableCell>
@@ -568,7 +570,12 @@ export default function OrderTaskList({
         </TableHead>
         <TableBody>
           {tasks.map((task) => (
-            <TableRow key={task.orderId}>
+            <TableRow key={task.orderId} selected={Boolean(selectedOrderIds?.has(task.orderId))}>
+              {canSelect && <TableCell padding="checkbox"><Checkbox size="small"
+                checked={Boolean(selectedOrderIds?.has(task.orderId))} disabled={selectionBusy}
+                onChange={() => onToggleSelect(task.orderId)}
+                inputProps={{ 'aria-label': `Select order #${task.orderNumber}` }}
+              /></TableCell>}
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
                 <Stack direction="row" spacing={0.25} alignItems="center">
                   {renderAssignIcon(task)}

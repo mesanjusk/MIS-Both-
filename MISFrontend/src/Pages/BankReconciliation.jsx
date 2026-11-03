@@ -354,9 +354,22 @@ export default function BankReconciliation() {
   const [historicalAiProgress, setHistoricalAiProgress] = useState({ reviewed: 0, remaining: 0 });
   const [historicalAiError, setHistoricalAiError] = useState('');
   const [historicalAiMessage, setHistoricalAiMessage] = useState('');
+  const [missingFromDate, setMissingFromDate] = useState('');
+  const [showMatched, setShowMatched] = useState(false);
 
   const loggedInUser = localStorage.getItem('User_name') || 'user';
   useEffect(() => { setGeminiConsent(false); }, [selectedUuid]);
+  useEffect(() => {
+    if (!selectedUuid) return;
+    // This statement's Day Book was reported complete through 19 Oct 2026.
+    // Keep the chosen cutoff per statement, with a way to show all dates.
+    const key = `bank-reconciliation-missing-from:${selectedUuid}`;
+    setMissingFromDate(localStorage.getItem(key) ?? (selectedUuid === '9f9674aa-8e91-444d-99d1-db08755c2df1' ? '2026-10-20' : ''));
+  }, [selectedUuid]);
+  const changeMissingFromDate = (value) => {
+    setMissingFromDate(value);
+    if (selectedUuid) localStorage.setItem(`bank-reconciliation-missing-from:${selectedUuid}`, value);
+  };
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -726,8 +739,11 @@ export default function BankReconciliation() {
   const matched = [...reconciled, ...matchedPending.filter(
     (e) => !reconciled.some((r) => r.entry_uuid === e.entry_uuid)
   )];
-  const unmatched = entries.filter(
+  const unmatchedAll = entries.filter(
     (e) => e.entry_status === 'pending' && e.match_status === 'unmatched'
+  );
+  const unmatched = unmatchedAll.filter((entry) => !missingFromDate ||
+    (entry.txn_date && new Date(entry.txn_date).toISOString().slice(0, 10) >= missingFromDate)
   );
   const skipped = entries.filter((e) => e.entry_status === 'rejected');
   const totalIn = entries.filter((e) => e.direction === 'in').reduce((s, e) => s + e.credit, 0);
@@ -971,7 +987,7 @@ export default function BankReconciliation() {
                     <Typography variant="body1" fontWeight={700} color="success.main">{reconciled.length}</Typography>
                   </Box>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Needs Action</Typography>
+                    <Typography variant="caption" color="text.secondary">{missingFromDate ? 'Needs Action (from date)' : 'Needs Action'}</Typography>
                     <Typography variant="body1" fontWeight={700} color="warning.main">{unmatched.length}</Typography>
                   </Box>
                   <Box>
@@ -1008,15 +1024,38 @@ export default function BankReconciliation() {
               </Stack>
             </Paper>
 
+            <Paper variant="outlined" sx={{ mb: 2, p: 1.5, borderRadius: 2 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <TextField
+                  label="Missing entries from"
+                  type="date"
+                  size="small"
+                  value={missingFromDate}
+                  onChange={(event) => changeMissingFromDate(event.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  helperText="Only affects this working list; bank data and ledger are unchanged."
+                />
+                <Button variant="outlined" size="small" onClick={() => changeMissingFromDate('')}>
+                  Show all dates
+                </Button>
+                <Button variant="text" size="small" onClick={() => setShowMatched((current) => !current)}>
+                  {showMatched ? 'Hide already entered' : `Show already entered (${matched.length})`}
+                </Button>
+                <Typography variant="body2">
+                  <strong>{unmatched.length}</strong> missing-entry candidates in selected period
+                  {missingFromDate ? ` · ${unmatchedAll.length - unmatched.length} older unmatched rows hidden` : ''}
+                </Typography>
+              </Stack>
+            </Paper>
             {unmatched.length > 0 && (
               <Alert severity="warning" sx={{ mb: 2, borderRadius: 3 }}>
-                <strong>{unmatched.length} entries still need action</strong> — assign the correct account and click <strong>Post</strong>,
-                or skip the row if it should not be posted. Confirmed rows are not counted here once a valid ledger transaction exists.
+                <strong>{unmatched.length} entries need review in this period.</strong> These are not matched to an existing Day Book/ledger entry.
+                Assign an account and Post only when genuinely missing. Confirmed and matched rows are excluded.
               </Alert>
             )}
 
             {/* Matched entries */}
-            {matched.length > 0 && (
+            {showMatched && matched.length > 0 && (
               <Box sx={{ mb: 3 }}>
                 <Typography variant="subtitle2" fontWeight={700} color="success.dark" sx={{ mb: 1 }}>
                   ✓ Reconciled / Matched ({matched.length})

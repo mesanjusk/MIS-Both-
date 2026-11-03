@@ -217,7 +217,7 @@ router.get("/GetDeliveredList", async (_req, res) => {
 // delivery history just to display its pending work.
 router.get("/GetPendingBills", async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
     const [data = {}] = await Orders.aggregate([
       {
@@ -234,7 +234,7 @@ router.get("/GetPendingBills", async (req, res) => {
       {
         $facet: {
           rows: [
-            { $skip: (page - 1) * limit },
+            { $skip: offset },
             { $limit: limit },
             {
               $lookup: {
@@ -265,7 +265,7 @@ router.get("/GetPendingBills", async (req, res) => {
     ]);
     const result = data.rows || [];
     const total = data.metadata?.[0]?.total || 0;
-    res.json({ success: true, result, total, page, hasMore: page * limit < total });
+    res.json({ success: true, result, total, offset, hasMore: offset + result.length < total });
   } catch (err) {
     logger.error("GetPendingBills error:", err);
     res.status(500).json({ success: false, message: "Unable to load pending bills" });

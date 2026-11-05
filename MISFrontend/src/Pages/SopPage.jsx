@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControl, FormControlLabel, Grid, IconButton, InputLabel, MenuItem,
-  Select, Stack, Switch, TextField, Tooltip, Typography,
+  Select, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableHead,
+  TableRow, TextField, Tooltip, Typography, Paper,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadingIcon from '@mui/icons-material/Downloading';
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import { PageContainer, SectionCard } from '../Components/ui';
 import axios from '../apiClient';
 import { FEATURE_TOGGLE_KEYS } from '../constants/featureToggles';
@@ -89,6 +91,8 @@ export default function SopPage() {
   const [pendingHandovers, setPendingHandovers] = useState([]);
   const [canReviewHandovers, setCanReviewHandovers] = useState(false);
   const [reviewing, setReviewing] = useState('');
+  const [teamOverview, setTeamOverview] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -132,12 +136,37 @@ export default function SopPage() {
     }
   }, []);
 
+  const fetchTeamOverview = useCallback(async () => {
+    setOverviewLoading(true);
+    try {
+      const { data } = await axios.get('/api/sop/daily/overview', { cache: false });
+      if (data?.success) setTeamOverview(data);
+    } catch (err) {
+      if (err?.response?.status === 403) setCanReviewHandovers(false);
+    } finally { setOverviewLoading(false); }
+  }, []);
+
   useEffect(() => {
     fetchTasks();
     fetchGroups();
     fetchResponsibilityOptions();
     fetchHandovers();
   }, [fetchTasks, fetchGroups, fetchResponsibilityOptions, fetchHandovers]);
+
+  useEffect(() => {
+    if (!canReviewHandovers) return undefined;
+    fetchTeamOverview();
+    const timer = window.setInterval(fetchTeamOverview, 60_000);
+    return () => window.clearInterval(timer);
+  }, [canReviewHandovers, fetchTeamOverview]);
+
+  const teamStatusColor = (status) => ({
+    'Not started': 'default', 'SOP pending': 'warning', 'Ready to close': 'success',
+    Closed: 'success', 'Closed with exceptions': 'warning',
+  }[status] || 'default');
+  const punchTime = (value) => value ? new Date(value).toLocaleTimeString('en-IN', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+  }) : '—';
 
   const reviewHandover = async (record) => {
     setReviewing(record._id); setError('');
@@ -280,6 +309,78 @@ export default function SopPage() {
     >
       {error && <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1 }}>{error}</Alert>}
       {success && <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1 }}>{success}</Alert>}
+
+      {canReviewHandovers && (
+        <SectionCard title="Today’s employee SOP & day-end status" sx={{ mb: 2 }} contentSx={{ p: 1.5 }}>
+          <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Chip size="small" label={`${teamOverview?.totals?.started ?? '—'} punched in`} />
+            <Chip size="small" color="success" variant="outlined"
+              label={`${teamOverview?.totals?.closed ?? '—'} punched out`} />
+            <Chip size="small" color="warning" variant="outlined"
+              label={`${teamOverview?.totals?.pending ?? '—'} with pending SOP`} />
+            <Chip size="small" color="warning" variant="outlined"
+              label={`${teamOverview?.totals?.exceptions ?? '—'} handover exceptions`} />
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              Auto-refreshes every minute · {teamOverview?.date || 'Loading today'}
+            </Typography>
+            <Button size="small" startIcon={<RefreshRoundedIcon />} disabled={overviewLoading}
+              onClick={fetchTeamOverview}>Refresh</Button>
+          </Stack>
+          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420 }}>
+            <Table size="small" stickyHeader aria-label="Employee SOP day-end status">
+              <TableHead><TableRow>
+                <TableCell>Employee</TableCell><TableCell>Attendance</TableCell>
+                <TableCell>SOP progress</TableCell><TableCell>Day status</TableCell>
+                <TableCell>Needs attention / handover</TableCell>
+              </TableRow></TableHead>
+              <TableBody>
+                {(teamOverview?.employees || []).map((employee) => (
+                  <TableRow key={employee.employeeUuid} hover>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={700}>{employee.employeeName}</Typography>
+                      <Typography variant="caption" color="text.secondary">{employee.userGroup}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                      <Typography variant="body2">In {punchTime(employee.punchInAt)}</Typography>
+                      <Typography variant="caption" color="text.secondary">Out {punchTime(employee.punchOutAt)}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" variant="outlined" color={employee.pendingTasks.length ? 'warning' : 'success'}
+                        label={`${employee.completedCount}/${employee.totalCount} done`} />
+                    </TableCell>
+                    <TableCell><Chip size="small" color={teamStatusColor(employee.dayStatus)} label={employee.dayStatus} /></TableCell>
+                    <TableCell sx={{ minWidth: 240 }}>
+                      {employee.pendingTasks.length > 0 && (
+                        <Typography variant="caption" display="block" color="warning.dark">
+                          Pending: {employee.pendingTasks.map((task) => task.title).join(', ')}
+                        </Typography>
+                      )}
+                      {employee.exceptions.map((item) => (
+                        <Tooltip key={item.sop_uuid} title={item.reason || 'No reason recorded'}>
+                          <Typography variant="caption" display="block" color="warning.dark">
+                            Handover: {item.title} → {item.assignedTo} ({item.reviewStatus})
+                          </Typography>
+                        </Tooltip>
+                      ))}
+                      {!employee.pendingTasks.length && !employee.exceptions.length && (
+                        <Typography variant="caption" color="text.secondary">No pending items</Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {teamOverview && !teamOverview.employees.length && (
+                  <TableRow><TableCell colSpan={5} align="center">No active employee accounts found.</TableCell></TableRow>
+                )}
+                {!teamOverview && <TableRow><TableCell colSpan={5} align="center">Loading employee status…</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+            Staff see only their own checklist. Normal Punch Out remains blocked until mandatory SOPs are complete or handed over; any emergency exit is listed as an exception for manager review.
+          </Typography>
+        </SectionCard>
+      )}
 
       {canReviewHandovers && pendingHandovers.length > 0 && (
         <SectionCard title={`Pending SOP handovers (${pendingHandovers.length})`} sx={{ mb: 2 }} contentSx={{ p: 1.5 }}>

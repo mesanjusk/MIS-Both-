@@ -18,6 +18,7 @@ const SOPHandover = require('../repositories/sopHandover');
 const Responsibility = require('../repositories/responsibility');
 const {
   getEmployeeDailyStatus, saveEmployeeCompletion, saveSopHandover,
+  getTeamDailyOverview,
 } = require('../services/employeeSopDayService');
 
 async function currentEmployee(req) {
@@ -184,6 +185,15 @@ router.get('/daily/me', requireAuth, async (req, res, next) => {
     if (!actor?.User_uuid) return res.status(404).json({ success: false, message: 'Employee not found' });
     const status = await getEmployeeDailyStatus(actor);
     return res.json({ success: true, ...status });
+  } catch (error) { return next(error); }
+});
+
+// GET /api/sop/daily/overview — manager view of each active employee's SOP
+// progress and day-end attendance. Employees continue to see only /daily/me.
+router.get('/daily/overview', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const overview = await getTeamDailyOverview();
+    return res.json({ success: true, ...overview });
   } catch (error) { return next(error); }
 });
 

@@ -8,6 +8,7 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  MenuItem,
   Paper,
   Stack,
   TextField,
@@ -17,6 +18,7 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import { askOfficeAi, fetchOfficeAiBrief } from '../services/officeAiService';
+import { draftOrderIntake } from '../services/businessOpsService';
 
 const SUGGESTED_QUESTIONS = [
   'What needs my attention now?',
@@ -57,6 +59,26 @@ export default function OfficeAiPanel() {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [answerMeta, setAnswerMeta] = useState(null);
+  const [intakeNote, setIntakeNote] = useState('');
+  const [intakeSource, setIntakeSource] = useState('whatsapp');
+  const [intakeDraft, setIntakeDraft] = useState(null);
+  const [intakeBusy, setIntakeBusy] = useState(false);
+  const [intakeError, setIntakeError] = useState('');
+
+  const draftIntake = useCallback(async () => {
+    if (!intakeNote.trim() || intakeBusy) return;
+    setIntakeBusy(true);
+    setIntakeError('');
+    setIntakeDraft(null);
+    try {
+      const result = await draftOrderIntake({ note: intakeNote, source: intakeSource });
+      setIntakeDraft(result.draft || null);
+    } catch (err) {
+      setIntakeError(err?.response?.data?.message || err.message || 'Could not extract order details');
+    } finally {
+      setIntakeBusy(false);
+    }
+  }, [intakeNote, intakeSource, intakeBusy]);
 
   const loadBrief = useCallback(async () => {
     setLoading(true);
@@ -117,6 +139,28 @@ export default function OfficeAiPanel() {
         </Stack>
 
         {error ? <Alert severity="error" sx={{ mt: 1.5, borderRadius: 2 }}>{error}</Alert> : null}
+
+        <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
+          <Typography variant="subtitle2" fontWeight={900}>New enquiry → Gemini order draft</Typography>
+          <Typography variant="caption" color="text.secondary">Paste a WhatsApp enquiry, call note or walk-in requirement. Gemini extracts details for review; it does not create orders or message customers.</Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+            <TextField select size="small" label="Source" value={intakeSource} onChange={(event) => setIntakeSource(event.target.value)} sx={{ minWidth: 130 }}>
+              <MenuItem value="whatsapp">WhatsApp</MenuItem>
+              <MenuItem value="call">Call</MenuItem>
+              <MenuItem value="store">Store visit</MenuItem>
+            </TextField>
+            <TextField fullWidth size="small" multiline minRows={2} maxRows={5} label="Customer requirement" value={intakeNote} onChange={(event) => setIntakeNote(event.target.value)} inputProps={{ maxLength: 6000 }} />
+            <Button variant="contained" disabled={intakeBusy || !intakeNote.trim()} onClick={draftIntake} sx={{ minWidth: 125 }}>{intakeBusy ? 'Reading…' : 'Extract draft'}</Button>
+          </Stack>
+          {intakeError && <Alert severity="warning" sx={{ mt: 1 }}>{intakeError}</Alert>}
+          {intakeDraft && <Box sx={{ mt: 1.5 }}>
+            <Alert severity="info" sx={{ mb: 1 }}>Draft only — confirm customer, amount, date and artwork approval before creating an order.</Alert>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+              {`Customer: ${intakeDraft.customerName || 'Not provided'}\nPhone: ${intakeDraft.phone || 'Not provided'}\nProduct: ${intakeDraft.product || 'Not provided'}\nSize: ${intakeDraft.size || 'Not provided'}\nMaterial: ${intakeDraft.material || 'Not provided'}\nQuantity: ${intakeDraft.quantity ?? 'Not provided'}\nQuoted amount: ${intakeDraft.quotedAmount ?? 'Not provided'}\nRequired date: ${intakeDraft.requiredDate || 'Not provided'}\nArtwork: ${intakeDraft.artworkNotes || 'Not provided'}`}
+            </Typography>
+            <Typography variant="caption" color="warning.main">Missing: {(intakeDraft.missing || []).join(', ') || 'None detected'}</Typography>
+          </Box>}
+        </Paper>
 
         {loading ? (
           <Stack direction="row" alignItems="center" spacing={1.2} sx={{ py: 3 }}>

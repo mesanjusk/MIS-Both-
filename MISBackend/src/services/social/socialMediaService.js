@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { Readable } = require('stream');
+const { createReadStream } = require('node:fs');
 const cloudinary = require('../../utils/cloudinary');
 const AppError = require('../../utils/AppError');
 const SocialMediaAsset = require('../../repositories/SocialMediaAsset');
@@ -42,8 +43,21 @@ function uploadBufferToCloudinary({ buffer, kind, folder = 'social_media' }) {
   });
 }
 
+function uploadFileToCloudinary({ path, kind, folder = 'social_media' }) {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      { folder, resource_type: kind === 'video' ? 'video' : 'image' },
+      (error, result) => (error ? reject(error) : resolve(result))
+    );
+    const source = createReadStream(path);
+    source.on('error', reject);
+    uploadStream.on('error', reject);
+    source.pipe(uploadStream);
+  });
+}
+
 async function uploadAsset({ file, user, source = 'upload', sourceRef = null }) {
-  if (!file?.buffer) throw new AppError('No file uploaded', 400);
+  if (!file?.path && !file?.buffer) throw new AppError('No file uploaded', 400);
 
   const mime = file.mimetype || '';
   const isImage = ALLOWED_IMAGE_MIME.includes(mime);
@@ -58,7 +72,9 @@ async function uploadAsset({ file, user, source = 'upload', sourceRef = null }) 
   }
 
   const kind = isVideo ? 'video' : 'image';
-  const result = await uploadBufferToCloudinary({ buffer: file.buffer, kind });
+  const result = file.path
+    ? await uploadFileToCloudinary({ path: file.path, kind })
+    : await uploadBufferToCloudinary({ buffer: file.buffer, kind });
 
   return SocialMediaAsset.create({
     kind,

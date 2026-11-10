@@ -1,12 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "../apiClient.js";
-import { jsPDF } from "jspdf";
-import html2canvas from "html2canvas";
 import { toast } from "./Toast";
 import InvoicePreview from "./InvoicePreview";
 
 const CLOUDINARY_UPLOAD_URL = "https://api.cloudinary.com/v1_1/dadcprflr/raw/upload";
 const CLOUDINARY_UPLOAD_PRESET = "missk_invoice";
+
+// PDF/canvas dependencies are large. Fetch them only when an invoice actually
+// needs rendering, not while staff are navigating normal MIS screens.
+const loadPdfRenderers = async () => {
+  const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+    import('jspdf'),
+    import('html2canvas'),
+  ]);
+  return { jsPDF, html2canvas };
+};
 
 const DEFAULT_PROFILE = {
   name: "S.K. Digital",
@@ -167,6 +175,7 @@ export default function InvoiceModal({
         }
 
         // 2. Generate PDF and upload to Cloudinary
+        const { jsPDF, html2canvas } = await loadPdfRenderers();
         const canvas = await html2canvas(previewRef.current, { scale: 2, useCORS: true });
         const imgData = canvas.toDataURL("image/jpeg", 0.92);
         const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });
@@ -214,6 +223,7 @@ export default function InvoiceModal({
 
   const handleDownloadPDF = async () => {
     if (!previewRef.current) return;
+    const { jsPDF, html2canvas } = await loadPdfRenderers();
     const canvas = await html2canvas(previewRef.current, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL("image/jpeg", 0.92);
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a5" });

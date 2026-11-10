@@ -11,6 +11,7 @@ const { requireSocialPermission } = require('../middleware/socialAuthorize');
 const SocialMediaAsset = require('../repositories/SocialMediaAsset');
 const AppError = require('../utils/AppError');
 const { uploadAsset, deleteAsset } = require('../services/social/socialMediaService');
+const { buildSocialAssetQuery } = require('../utils/socialAssetQuery');
 
 // Large videos must never occupy hundreds of MB of Node heap. Multer writes
 // to temporary disk; the Cloudinary service streams it and we always clean up.
@@ -26,16 +27,7 @@ router.use(requireAuth);
 // GET /api/social/assets?kind=&tag=&campaign=&createdBy=&search=
 router.get('/', requireSocialPermission('socialView'), async (req, res, next) => {
   try {
-    const { kind, tag, campaign, createdBy, search, page = 1, limit = 60 } = req.query;
-    const filter = {};
-    if (kind) filter.kind = kind;
-    if (tag) filter.tags = tag;
-    if (campaign) filter.campaign = campaign;
-    if (createdBy) filter.createdBy = createdBy;
-    if (search) filter.tags = { $regex: search, $options: 'i' };
-
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.min(200, Number(limit) || 60);
+    const { filter, pageNum, limitNum } = buildSocialAssetQuery(req.query);
 
     const [items, total] = await Promise.all([
       SocialMediaAsset.find(filter)

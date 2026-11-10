@@ -2,7 +2,6 @@ const { v4: uuid } = require('uuid');
 const Orders = require('../repositories/order');
 const Tasks = require('../repositories/tasks');
 const Customers = require('../repositories/customer');
-const PaymentFollowup = require('../repositories/paymentFollowup');
 const Users = require('../repositories/users');
 const Usertasks = require('../repositories/usertask');
 const Counter = require('../repositories/counter');
@@ -176,34 +175,10 @@ const notifyDeliveredOrder = async (order) => {
     logger.error(`WhatsApp failed: ${error.message}`);
   }
 
-  try {
-    const orderTotal = Number(order.Total_Amount || order.totalAmount || order.Amount || order.saleSubtotal || 0);
-    const paidAmount = Number(order.paidAmount || order.Paid_Amount || 0);
-    const pendingAmount = orderTotal - paidAmount;
-    if (pendingAmount > 0) {
-      const title = `Order #${order.Order_Number} payment reminder`;
-      const exists = await PaymentFollowup.findOne({
-        customer_name: customerName,
-        amount: pendingAmount,
-        title,
-        status: 'pending',
-      }).lean();
-      if (!exists) {
-        await PaymentFollowup.create({
-          followup_uuid: uuid(),
-          customer_name: customerName,
-          amount: pendingAmount,
-          title,
-          remark: `Auto-created on delivery of Order #${order.Order_Number}`,
-          followup_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-          status: 'pending',
-          created_by: 'system',
-        });
-      }
-    }
-  } catch (followupErr) {
-    logger.error('Failed to create payment followup:', followupErr.message);
-  }
+  // Collection tasks are created only after invoice posting and verified
+  // against the customer journal by businessWorkflowService ->
+  // orderCollectionService. Never create an unverified name-only follow-up
+  // from a cached order total / paidAmount here.
 };
 
 const assertValidStage = (stage) => {

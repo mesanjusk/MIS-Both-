@@ -6,6 +6,9 @@ const paymentFollowupSchema = new mongoose.Schema(
     followup_uuid: { type: String, required: true, index: true, unique: true },
     customer_name: { type: String, required: true, index: true },
     customer_uuid: { type: String, default: '', index: true },
+    // Idempotency key for collection tasks created from a delivered order.
+    // Older manual follow-ups have no value and remain unaffected.
+    source_order_uuid: { type: String, default: undefined },
     // Ledger receivable when the follow-up was created. Legacy name-only
     // records retain 0 and are never automatically marked settled.
     baseline_outstanding: { type: Number, default: 0 },
@@ -42,5 +45,6 @@ const paymentFollowupSchema = new mongoose.Schema(
 
 paymentFollowupSchema.index({ status: 1, followup_date: 1 });
 paymentFollowupSchema.index({ customer_uuid: 1, status: 1 });
+paymentFollowupSchema.index({ source_order_uuid: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("PaymentFollowup", paymentFollowupSchema);

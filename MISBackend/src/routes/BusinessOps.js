@@ -13,6 +13,7 @@ const {
   getBusinessControlSummary,
 } = require('../services/businessWorkflowService');
 const logger = require('../utils/logger');
+const { draftOrderFromNote } = require('../services/orderIntakeAiService');
 
 function actorFromReq(req) {
   return req.user?.userName || req.user?.User_name || req.body?.createdBy || req.body?.Created_by || 'system';
@@ -39,6 +40,15 @@ router.get('/summary', async (_req, res) => {
     return res.json({ success: true, result: summary, ...summary });
   } catch (error) {
     return sendError(res, error, 'Failed to load business control summary');
+  }
+});
+
+// Suggest-only Gemini extraction. No customer/order write or outbound message.
+router.post('/orders/intake-draft', async (req, res) => {
+  try {
+    return sendOk(res, await draftOrderFromNote({ note: req.body?.note, source: req.body?.source }), 'Review order draft');
+  } catch (error) {
+    return sendError(res, error, 'Could not draft order intake');
   }
 });
 

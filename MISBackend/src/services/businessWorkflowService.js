@@ -20,6 +20,7 @@ const {
 } = require('./accountingPostingService');
 const { buildDefaultDueDate } = require('./orderTaskService');
 const { updateOrderStage } = require('./orderLifecycleService');
+const { ensureCollectionFollowup } = require('./orderCollectionService');
 const { ORDER_STAGES, CLOSED_STAGES, stageIndex, isValidStage } = require('../constants/orderStages');
 const { resolveOrderFilter: buildOrderFilter } = require('../utils/orderFilter');
 
@@ -343,6 +344,18 @@ async function markOrderDelivered({ orderUuid, deliveredBy = 'system', note = ''
   }
 
   const refreshed = await refreshOrderPaymentStatus({ orderId: order._id });
+  // Collection is an operational task, not a financial posting. A follow-up
+  // failure must never undo an already completed delivery/invoice.
+  try {
+    await ensureCollectionFollowup({
+      order,
+      orderTotal: total,
+      receivedAmount: await getReceivedAmountForOrder(order),
+      createdBy: deliveredBy,
+    });
+  } catch (error) {
+    console.error('[order-collection] Could not queue follow-up', { orderUuid: order.Order_uuid, message: error.message });
+  }
   return { order: refreshed || await Orders.findById(order._id).lean(), invoicePosting };
 }
 

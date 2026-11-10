@@ -327,6 +327,16 @@ async function runLedgerIntegrityStartupTask() {
 (async () => {
   await connectDB();
 
+  // Production restarts/deploys must not silently rewrite historical ledgers.
+  // Historical repairs are exceptional maintenance operations, explicitly
+  // enabled only after backup and a reviewed repair plan.
+  const runHistoricalRepairs = process.env.RUN_HISTORICAL_STARTUP_REPAIRS === 'true';
+  if (!runHistoricalRepairs) {
+    logger.info('[startup] Historical data repairs skipped (opt-in RUN_HISTORICAL_STARTUP_REPAIRS=true)');
+  }
+
+  if (runHistoricalRepairs) {
+
   // Historical Diary/Bank Statement assignments could create a shadow chart-
   // of-accounts row with the same name as a customer (for example "SK Priyanka").
   // Repair those journal foreign keys before any reconciliation verification so
@@ -367,6 +377,7 @@ async function runLedgerIntegrityStartupTask() {
       '[staff-account-mapping-repair] failed'
     );
   }
+  }
 
   // Read-only staff/outstanding audit. This verifies that every active
   // user's Attendance AccountID points at the same ledger entity used by the
@@ -386,14 +397,16 @@ async function runLedgerIntegrityStartupTask() {
   // confident statement/account-name match. This is idempotent and avoids the
   // old failure mode where confirmed rows existed but were posted to a hidden
   // generic Bank ledger instead of the visible bank account.
-  try {
-    const summary = await BankStatement.repairConfirmedBankStatementsWithEvidence?.();
-    if (summary) logger.info({ summary }, '[bank-statement-startup-repair] RESULT');
-  } catch (bankRepairError) {
-    logger.error(
-      { err: bankRepairError?.message || bankRepairError },
-      '[bank-statement-startup-repair] failed'
-    );
+  if (runHistoricalRepairs) {
+    try {
+      const summary = await BankStatement.repairConfirmedBankStatementsWithEvidence?.();
+      if (summary) logger.info({ summary }, '[bank-statement-startup-repair] RESULT');
+    } catch (bankRepairError) {
+      logger.error(
+        { err: bankRepairError?.message || bankRepairError },
+        '[bank-statement-startup-repair] failed'
+      );
+    }
   }
 
   await runLedgerIntegrityStartupTask();
@@ -414,8 +427,8 @@ async function runLedgerIntegrityStartupTask() {
   initSocialPublishingScheduler();
   initInboundWebhookRetry();
 
-  // One-time migration: remove duplicate "Opening Balance" account and fix journal entries
-  try {
+  // Legacy one-time migration is also explicit maintenance, never a deploy side effect.
+  if (runHistoricalRepairs) try {
     const Accounts = require('./repositories/accounts');
     const TransactionModel = require('./repositories/transaction');
     const { invalidateCache } = require('./services/accountRegistry');

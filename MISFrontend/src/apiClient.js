@@ -60,6 +60,16 @@ const authHeader = (headers) => {
   return headers.Authorization || headers.authorization || "";
 };
 
+export const isCurrentSessionRejected = (error, currentToken) => {
+  const config = error?.config || {};
+  const sentBearer = authHeader(config.headers).replace(/^Bearer\s+/i, '');
+  return error?.response?.status === 401
+    && error?.response?.data?.code === 'AUTH_SESSION_INVALID'
+    && Boolean(sentBearer)
+    && sentBearer === currentToken
+    && !config.url?.includes('/login');
+};
+
 const shouldCacheGet = (config) => {
   if (String(config?.method || "get").toLowerCase() !== "get") return false;
   if (config?.cache === false) return false;
@@ -163,12 +173,13 @@ client.interceptors.response.use(
   },
   async (error) => {
     const originalConfig = error?.config || {};
-    const status = error?.response?.status;
     const isNetworkFailure = !error?.response;
 
-    // On 401 (expired / invalid token), clear storage and send to login.
-    // Skip if the failing request is already the login endpoint itself.
-    if (status === 401 && !originalConfig.url?.includes('/login')) {
+    // Only a rejection of the MIS login session should log the user out.
+    // Other integrations can return 401 for their own credentials; treating
+    // every 401 as a JWT expiry causes seemingly random weekly logouts.
+    // Also ignore delayed failures from a token that has since been replaced.
+    if (isCurrentSessionRejected(error, getStoredToken())) {
       if (!redirectingToLogin) {
         redirectingToLogin = true;
         clearApiCache();

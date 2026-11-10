@@ -5,6 +5,11 @@ const Users = require('../repositories/users');
 
 /** The bare JWT from an `Authorization: Bearer <token>` header. */
 const token = (authHeader) => authHeader.split(' ')[1];
+const invalidSession = (message) => {
+  const error = new AppError(message, 401);
+  error.code = 'AUTH_SESSION_INVALID';
+  return error;
+};
 
 /**
  * Verify the token's signature and return its payload, or throw an AppError.
@@ -15,10 +20,10 @@ const decodeToken = (token, path) => {
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
       logger.info({ path }, 'Expired token presented');
-      throw new AppError('Token expired. Please log in again.', 401);
+      throw invalidSession('Token expired. Please log in again.');
     }
     logger.warn({ err: error.message, path }, 'Invalid token');
-    throw new AppError('Invalid or expired token', 401);
+    throw invalidSession('Invalid or expired token');
   }
 };
 
@@ -40,7 +45,7 @@ const decodeToken = (token, path) => {
  */
 const resolveSession = async (payload, req) => {
   const id = payload.id || payload._id || payload.userId;
-  if (!id) throw new AppError('Invalid token payload', 401);
+  if (!id) throw invalidSession('Invalid token payload');
 
   const user = await Users.findById(id)
     .select('User_name User_group permissions Session_version')
@@ -48,14 +53,14 @@ const resolveSession = async (payload, req) => {
 
   if (!user) {
     logger.warn({ id, path: req?.originalUrl }, 'Token presented for a user that no longer exists');
-    throw new AppError('Session is no longer valid. Please log in again.', 401);
+    throw invalidSession('Session is no longer valid. Please log in again.');
   }
 
   const tokenVersion  = Number(payload.sv || 0);
   const storedVersion = Number(user.Session_version || 0);
   if (tokenVersion !== storedVersion) {
     logger.info({ id, path: req?.originalUrl }, 'Token presented after session revocation');
-    throw new AppError('Session has expired. Please log in again.', 401);
+    throw invalidSession('Session has expired. Please log in again.');
   }
 
   if (req) req._permissions = user.permissions || {};
@@ -77,7 +82,7 @@ const resolveSession = async (payload, req) => {
 const requireAuth = async (req, _res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(new AppError('Authorization token is required', 401));
+    return next(invalidSession('Authorization token is required'));
   }
 
   try {
@@ -85,7 +90,7 @@ const requireAuth = async (req, _res, next) => {
     req.user = await resolveSession(payload, req);
     return next();
   } catch (error) {
-    return next(error instanceof AppError ? error : new AppError('Invalid or expired token', 401));
+    return next(error instanceof AppError ? error : invalidSession('Invalid or expired token'));
   }
 };
 

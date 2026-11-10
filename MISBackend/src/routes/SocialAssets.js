@@ -3,6 +3,8 @@
  */
 const express = require('express');
 const multer = require('multer');
+const os = require('node:os');
+const fs = require('node:fs/promises');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { requireSocialPermission } = require('../middleware/socialAuthorize');
@@ -10,7 +12,14 @@ const SocialMediaAsset = require('../repositories/SocialMediaAsset');
 const AppError = require('../utils/AppError');
 const { uploadAsset, deleteAsset } = require('../services/social/socialMediaService');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 500 * 1024 * 1024 } });
+// Large videos must never occupy hundreds of MB of Node heap. Multer writes
+// to temporary disk; the Cloudinary service streams it and we always clean up.
+const UPLOAD_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'video/mp4', 'video/quicktime', 'video/webm']);
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 500 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => cb(null, UPLOAD_MIMES.has(file.mimetype)),
+});
 
 router.use(requireAuth);
 
@@ -51,6 +60,10 @@ router.post('/', requireSocialPermission('socialCreate'), upload.single('file'),
     res.status(201).json({ success: true, data: asset });
   } catch (error) {
     next(error);
+  } finally {
+    if (req.file?.path) {
+      await fs.unlink(req.file.path).catch(() => {});
+    }
   }
 });
 

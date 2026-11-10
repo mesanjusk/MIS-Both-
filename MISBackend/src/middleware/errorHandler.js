@@ -6,6 +6,7 @@ const formatErrorResponse = (err, req) => ({
   success: false,
   status: err.status || 'error',
   message: err.message || 'Something went wrong',
+  ...(err.code ? { code: err.code } : {}),
   path: req.originalUrl,
 });
 

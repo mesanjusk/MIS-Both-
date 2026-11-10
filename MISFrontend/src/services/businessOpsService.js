@@ -6,6 +6,7 @@ const base = '/api/business-control';
 
 export const getBusinessControlSummary = async () => unwrap(await axios.get(`${base}/summary`));
 export const createQuickOrderWorkflow = async (payload) => unwrap(await axios.post(`${base}/orders/quick`, payload));
+export const draftOrderIntake = async (payload) => unwrap(await axios.post(`${base}/orders/intake-draft`, payload));
 export const moveOrderStage = async (orderUuid, payload) => unwrap(await axios.post(`${base}/orders/${orderUuid}/stage`, payload));
 export const markOrderReady = async (orderUuid, payload = {}) => unwrap(await axios.post(`${base}/orders/${orderUuid}/ready`, payload));
 export const markOrderDelivered = async (orderUuid, payload = {}) => unwrap(await axios.post(`${base}/orders/${orderUuid}/delivered`, payload));

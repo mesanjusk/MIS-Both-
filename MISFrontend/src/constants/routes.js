@@ -25,6 +25,7 @@ export const ROUTES = {
   ADD_USER_GROUP: '/addUsergroup',
 
   ORDERS_NEW: '/orders/new',
+  WEBSITE_ORDERS: '/website-orders',
   ORDERS_BOARD: '/orders/board',
   BUSINESS_CONTROL: '/business-control',
   POST_PRINTING_CONTROL: '/post-printing',

@@ -99,6 +99,7 @@ const { ensureDefaultFeatureToggles } = require("./services/defaultFeatureToggle
 const BusinessProfile = require("./routes/BusinessProfile");
 const NetworkFileSettings = require("./routes/NetworkFileSettings");
 const SanjuskApi = require("./routes/SanjuskApi");
+const WebsiteOrdersRouter = require("./routes/WebsiteOrders");
 const PublicInvoiceRouter = require("./routes/PublicInvoice");
 const WorkflowAudit = require("./routes/WorkflowAudit");
 const LegacyTransactionMigration = require("./routes/LegacyTransactionMigration");
@@ -234,6 +235,7 @@ app.use("/api/network-files", NetworkFileSettings);
 // Admin → API: the SanjuSK WhatsApp integration. The inbound half is not here
 // — SanjuSK pushes to /webhook/metabsp, which authenticates by HMAC.
 app.use("/api/sanjusk", SanjuskApi);
+app.use("/api/web-orders", WebsiteOrdersRouter);
 app.use("/api/public-invoices", PublicInvoiceRouter);
 app.use("/api/workflow-audit", WorkflowAudit);
 app.use("/api/admin/legacy-transactions", LegacyTransactionMigration);

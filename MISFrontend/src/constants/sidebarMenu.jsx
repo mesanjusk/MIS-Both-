@@ -61,6 +61,7 @@ export const SIDEBAR_GROUPS = [
     label: 'Orders Reports',
     items: [
       { label: 'All Orders', path: ROUTES.REPORTS_ORDERS_LIST, icon: <ReceiptLongRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'orders' },
+      { label: 'Website Orders', path: ROUTES.WEBSITE_ORDERS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'orders' },
       { label: 'Purchase Orders', path: ROUTES.PURCHASE_ORDERS, icon: <RequestQuoteRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
       { label: 'Post-Print Jobs', path: ROUTES.POST_PRINTING_JOBS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },
       { label: 'Vendors / Freelancers', path: ROUTES.VENDORS, icon: <StorefrontRoundedIcon fontSize="small" />, roles: ADMIN_ROLES, section: 'production' },

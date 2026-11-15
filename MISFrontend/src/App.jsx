@@ -50,6 +50,7 @@ const CustomerDetails = lazy(() => import('./Pages/CustomerDetails'));
 const WhatsAppCloudDashboard = lazy(() => import('./Pages/WhatsAppCloudDashboard'));
 const AllOrder = lazy(() => import('./Reports/allOrder'));
 const AllOrdersList = lazy(() => import('./Reports/allOrdersList'));
+const WebsiteOrders = lazy(() => import('./Pages/WebsiteOrders'));
 const AllDelivery = lazy(() => import('./Reports/allDelivery'));
 const AgingReport = lazy(() => import('./Reports/agingReport'));
 const OutstandingReport = lazy(() => import('./Reports/outstandingReport'));
@@ -235,6 +236,7 @@ export default function App() {
             <Route path="/reports/orders" element={rolesOnly(OFFICE_ROLES, <AllOrder />)} />
             <Route path="/allOrder" element={rolesOnly(OFFICE_ROLES, <AllOrder />)} />
             <Route path={ROUTES.REPORTS_ORDERS_LIST} element={adminOnly(<AllOrdersList />)} />
+            <Route path={ROUTES.WEBSITE_ORDERS} element={adminOnly(<WebsiteOrders />)} />
             <Route path="/reports/delivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
             <Route path="/allDelivery" element={rolesOnly(EMAIL_ROLES, <AllDelivery />)} />
             <Route path={ROUTES.LEDGER} element={accountsOnly(<Ledger />)} />

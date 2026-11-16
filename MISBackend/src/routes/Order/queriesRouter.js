@@ -575,10 +575,21 @@ router.get("/reports/planning", async (_req, res) => {
       Orders.find({}, { Order_uuid: 1, Order_Number: 1, Customer_uuid: 1, stage: 1, dueDate: 1, assignedTo: 1, vendorAssignments: 1, Steps: 1, Status: 1, createdAt: 1 }).sort({ createdAt: -1 }).lean(),
       ProductionJob.find({}).sort({ job_date: -1, createdAt: -1 }).lean(),
     ]);
+    const jobsByOrder = new Map();
+    for (const job of jobs) {
+      const orderUuids = new Set((job.linkedOrders || []).map((link) => String(link?.orderUuid || '')));
+      for (const uuid of orderUuids) {
+        const summary = jobsByOrder.get(uuid) || { count: 0, cost: 0 };
+        summary.count += 1;
+        summary.cost += Number(job.jobValue || 0);
+        jobsByOrder.set(uuid, summary);
+      }
+    }
+
     const orderRows = orders.map((order) => {
       const latestStatusTask = Array.isArray(order.Status) && order.Status.length ? order.Status[order.Status.length - 1] : null;
-      const linkedJobs = jobs.filter((job) => Array.isArray(job.linkedOrders) && job.linkedOrders.some((e) => String(e?.orderUuid || "") === String(order.Order_uuid)));
-      return { ...order, latestStatusTask, vendorJobCount: linkedJobs.length, vendorJobCost: linkedJobs.reduce((s, j) => s + Number(j.jobValue || 0), 0), unassignedDesign: String(latestStatusTask?.Task || order.stage || "").toLowerCase().includes("design") && (!latestStatusTask?.Assigned || String(latestStatusTask?.Assigned || "").toLowerCase() === "none") };
+      const linkedJobs = jobsByOrder.get(String(order.Order_uuid));
+      return { ...order, latestStatusTask, vendorJobCount: linkedJobs?.count ?? 0, vendorJobCost: linkedJobs?.cost ?? 0, unassignedDesign: String(latestStatusTask?.Task || order.stage || "").toLowerCase().includes("design") && (!latestStatusTask?.Assigned || String(latestStatusTask?.Assigned || "").toLowerCase() === "none") };
     });
     return res.json({ success: true, result: { orders: orderRows, jobs } });
   } catch (error) {

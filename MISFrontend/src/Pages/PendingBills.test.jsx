@@ -57,7 +57,6 @@ describe('Pending Bills', () => {
 
   test('creates a bill in the existing popup, removes the row locally, and reuses browser cache', async () => {
     const view = render(<PendingBills />);
-    fireEvent.click(screen.getByRole('button', { name: /Delivered, Not Invoiced/ }));
     await screen.findByText('Test Customer');
     expect(fetchPendingBills).toHaveBeenCalledTimes(1);
 
@@ -69,14 +68,12 @@ describe('Pending Bills', () => {
 
     view.unmount();
     render(<PendingBills />);
-    fireEvent.click(screen.getByRole('button', { name: /Delivered, Not Invoiced/ }));
     await waitFor(() => expect(screen.getByText(/No pending bills/)).toBeInTheDocument());
     expect(fetchPendingBills).toHaveBeenCalledTimes(1);
   });
 
   test('refresh explicitly rechecks the backend even with a warm cache', async () => {
     render(<PendingBills />);
-    fireEvent.click(screen.getByRole('button', { name: /Delivered, Not Invoiced/ }));
     await screen.findByText('Test Customer');
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(fetchPendingBills).toHaveBeenCalledTimes(2));
@@ -96,6 +93,7 @@ describe('Pending Bills', () => {
     });
 
     const view = render(<PendingBills />);
+    fireEvent.click(screen.getByRole('button', { name: /Archive Pending Confirmation/ }));
     expect(await screen.findByText('Needs confirmation.cdr')).toBeInTheDocument();
     expect(screen.queryByText('Already confirmed.cdr')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm MIS Order' }));
@@ -107,6 +105,7 @@ describe('Pending Bills', () => {
     view.unmount();
 
     render(<PendingBills />);
+    fireEvent.click(screen.getByRole('button', { name: /Archive Pending Confirmation/ }));
     expect(screen.getByText(/All archived files are confirmed/)).toBeInTheDocument();
     expect(screen.queryByText('Needs confirmation.cdr')).toBeNull();
     expect(fetchPendingBills).toHaveBeenCalledTimes(1);
@@ -121,6 +120,7 @@ describe('Pending Bills', () => {
       }],
     });
     render(<PendingBills />);
+    fireEvent.click(screen.getByRole('button', { name: /Archive Pending Confirmation/ }));
     expect(await screen.findByText('Loose file.cdr')).toBeInTheDocument();
     expect(screen.getByText(/Review in Workflow/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Confirm MIS Order' })).toBeNull();

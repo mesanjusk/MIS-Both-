@@ -66,7 +66,7 @@ export default function PendingBills() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [queueTab, setQueueTab] = useState('archive');
+  const [queueTab, setQueueTab] = useState('delivered');
   const [archiveSnapshot, setArchiveSnapshot] = useState(() => readArchiveCache(userName));
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState('');
@@ -141,8 +141,8 @@ export default function PendingBills() {
     const cached = readArchiveCache(userName);
     setArchiveSnapshot(cached);
     setArchivePageSize(ARCHIVE_PAGE_SIZE);
-    if (!cached && userName) loadArchive();
-  }, [userName, loadArchive]);
+    if (!cached && userName && queueTab === 'archive') loadArchive();
+  }, [userName, queueTab, loadArchive]);
 
   useEffect(() => {
     const cached = readCache(cacheKey);

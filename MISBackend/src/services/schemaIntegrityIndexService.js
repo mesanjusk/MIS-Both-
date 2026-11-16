@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+const { auditProductionDuplicates } = require('./productionDuplicateAudit');
 
 /**
  * Install partial uniqueness guards for keys used by active write paths.
@@ -70,7 +71,16 @@ async function ensureSchemaIntegrityIndexes() {
       created.push(`${spec.collection}.${spec.options.name}`);
     } catch (err) {
       failed.push({ index: `${spec.collection}.${spec.options.name}`, error: err.message });
-      logger.error({ err, index: spec.options.name, collection: spec.collection }, 'Schema integrity index creation failed');
+      if (spec.options.name === 'Event_key_unique' && err.code === 11000) {
+        logger.error({ code: err.code, index: spec.options.name }, 'Duplicate journal events blocked the unique index');
+        auditProductionDuplicates(db.db).then((summary) => {
+          logger.info(summary, 'Production duplicate audit counts');
+        }).catch((error) => {
+          logger.error({ code: error.code, codeName: error.codeName }, 'Production duplicate audit failed');
+        });
+      } else {
+        logger.error({ err, index: spec.options.name, collection: spec.collection }, 'Schema integrity index creation failed');
+      }
     }
   }
 

@@ -577,7 +577,7 @@ router.get("/reports/planning", async (_req, res) => {
     ]);
     const jobsByOrder = new Map();
     for (const job of jobs) {
-      const orderUuids = new Set((job.linkedOrders || []).map((link) => String(link?.orderUuid || '')));
+      const orderUuids = new Set((Array.isArray(job.linkedOrders) ? job.linkedOrders : []).map((link) => String(link?.orderUuid || '')));
       for (const uuid of orderUuids) {
         const summary = jobsByOrder.get(uuid) || { count: 0, cost: 0 };
         summary.count += 1;

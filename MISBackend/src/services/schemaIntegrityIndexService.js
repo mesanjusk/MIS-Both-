@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
 /**
- * Create only indexes that use the new additive integrity-key fields.
+ * Install partial uniqueness guards for keys used by active write paths.
  *
  * Historical records without these fields are excluded by partial filters, so
  * enabling the indexes cannot delete, merge, or rewrite legacy data. If an
@@ -14,6 +14,15 @@ async function ensureSchemaIntegrityIndexes() {
   if (db.readyState !== 1) return { created: [], failed: [] };
 
   const specs = [
+    {
+      collection: 'transactions',
+      keys: { Event_key: 1 },
+      options: {
+        unique: true,
+        partialFilterExpression: { Event_key: { $type: 'string' } },
+        name: 'Event_key_unique',
+      },
+    },
     {
       collection: 'accounts',
       keys: { Account_name_key: 1 },

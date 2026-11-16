@@ -1602,26 +1602,27 @@ router.get('/by-date', async (req, res) => {
     if (!date) return res.status(400).json({ success: false, message: 'date query param required (YYYY-MM-DD)' });
 
     const dayStart = new Date(`${date}T00:00:00.000Z`);
-    const dayEnd   = new Date(`${date}T23:59:59.999Z`);
-
-    const statements = await BankStatement.find({
-      'entries.txn_date': { $gte: dayStart, $lte: dayEnd },
-    }).lean();
-
-    const entries = [];
-    for (const stmt of statements) {
-      for (const entry of stmt.entries || []) {
-        const d = new Date(entry.txn_date);
-        if (d < dayStart || d > dayEnd) continue;
-        if (entry.match_status === 'matched') continue;      // already has a diary entry
-        if (entry.entry_status === 'confirmed') continue;    // already confirmed
-        entries.push({
-          ...entry,
-          statement_uuid: stmt.statement_uuid,
-          account_name:   stmt.account_name,
-        });
-      }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        Number.isNaN(dayStart.valueOf()) || dayStart.toISOString().slice(0, 10) !== date) {
+      return res.status(400).json({ success: false, message: 'Invalid date (expected YYYY-MM-DD)' });
     }
+    const dayEnd = new Date(dayStart);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+    const eligible = {
+      'entries.txn_date': { $gte: dayStart, $lt: dayEnd },
+      // Older imports can omit these fields. Keep those rows visible for review.
+      'entries.entry_status': { $nin: ['confirmed', 'rejected'] },
+      'entries.match_status': { $nin: ['matched', 'manual'] },
+    };
+    const entries = await BankStatement.aggregate([
+      { $match: { 'entries.txn_date': eligible['entries.txn_date'] } },
+      { $unwind: '$entries' },
+      { $match: eligible },
+      { $replaceWith: { $mergeObjects: [
+        '$entries', { statement_uuid: '$statement_uuid', account_name: '$account_name' },
+      ] } },
+    ]);
 
     return res.json({ success: true, result: entries });
   } catch (err) {

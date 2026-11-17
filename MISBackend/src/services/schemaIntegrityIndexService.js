@@ -2,6 +2,38 @@ const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { auditProductionDuplicates } = require('./productionDuplicateAudit');
 
+// The accounts owner confirmed these same-day HMV cash postings are separate.
+async function separateConfirmedCashEventKeys(collection) {
+  const firstId = new mongoose.Types.ObjectId('6ac0d8101afeb94eb37cc9be');
+  const secondId = new mongoose.Types.ObjectId('6ac0d8101afeb94eb37cc9c2');
+  const replacementKey = 'confirmed-separate:' + secondId.toHexString();
+  const first = { _id: firstId, Transaction_id: 2907 };
+  const second = { _id: secondId, Transaction_id: 2908 };
+  const cash = {
+    Description: 'HMV',
+    Payment_mode: 'Cash',
+    Total_Debit: 1000,
+    Transaction_date: {
+      $gte: new Date('2026-10-01T00:00:00+05:30'),
+      $lt: new Date('2026-10-02T00:00:00+05:30'),
+    },
+  };
+  const rows = await collection.find({ ...cash, $or: [first, second] })
+    .project({ _id: 0, Transaction_id: 1, Event_key: 1 }).toArray();
+  const original = rows.find((row) => row.Transaction_id === 2907)?.Event_key;
+  const current = rows.find((row) => row.Transaction_id === 2908)?.Event_key;
+  if (typeof original !== 'string' || !original || original === replacementKey) return false;
+  if (current === replacementKey) return true;
+  if (current !== original || await collection.countDocuments({ Event_key: original }) !== 2) return false;
+  if (await collection.findOne({ Event_key: replacementKey }, { projection: { _id: 1 } })) return false;
+
+  const result = await collection.updateOne({ ...cash, ...second, Event_key: original }, {
+    $set: { Event_key: replacementKey },
+  });
+  return result.modifiedCount === 1 ||
+    Boolean(await collection.findOne({ ...cash, ...second, Event_key: replacementKey }, { projection: { _id: 1 } }));
+}
+
 /**
  * Install partial uniqueness guards for keys used by active write paths.
  *
@@ -67,7 +99,17 @@ async function ensureSchemaIntegrityIndexes() {
 
   for (const spec of specs) {
     try {
-      await db.collection(spec.collection).createIndex(spec.keys, spec.options);
+      const collection = db.collection(spec.collection);
+      const isTransactionIndex = spec.options.name === 'Event_key_unique';
+      const verifiedCashPair = isTransactionIndex && await separateConfirmedCashEventKeys(collection);
+      await collection.createIndex(spec.keys, spec.options);
+      if (isTransactionIndex) {
+        auditProductionDuplicates(db.db).then((summary) => {
+          logger.info({ ...summary, verifiedCashPair }, 'Production duplicate audit counts');
+        }).catch((error) => {
+          logger.error({ code: error.code, codeName: error.codeName }, 'Production duplicate audit failed');
+        });
+      }
       created.push(`${spec.collection}.${spec.options.name}`);
     } catch (err) {
       failed.push({ index: `${spec.collection}.${spec.options.name}`, error: err.message });

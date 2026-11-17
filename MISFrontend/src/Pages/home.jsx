@@ -36,6 +36,7 @@ const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
 const HomeLeads = lazy(loadHomeLeads);
 const PendingBills = lazy(loadPendingBills);
+const DuplicateTransactions = lazy(() => import('./DuplicateTransactions'));
 
 function AttendanceHome() {
   const navigate = useNavigate();
@@ -124,6 +125,7 @@ const HOME_TABS = [
   { id: 'rateCalculator', label: 'Rate Calculator', icon: CalculateRoundedIcon, Component: RateCalculator },
   { id: 'paymentFollowup', label: 'Payment Follow-up', icon: NotificationsActiveRoundedIcon, Component: PaymentFollowup, requiresAccounts: true },
   { id: 'pendingBills', label: 'Pending Bills', icon: ReceiptLongRoundedIcon, Component: PendingBills },
+  { id: 'duplicateTransactions', label: 'Find Duplicate Transactions', icon: ReceiptLongRoundedIcon, Component: DuplicateTransactions, requiresAccounts: true },
   { id: 'leads', label: 'Leads', icon: PeopleAltRoundedIcon, Component: HomeLeads, requiresWhatsApp: true },
 ];
 
@@ -156,7 +158,7 @@ export default function Home() {
     if (!configured.length) return accountVisibleTabs;
     const allowed = new Set(configured.map((id) => LEGACY_HOME_TAB_IDS[id] || id));
     // Newly introduced Accounts tab remains visible until widget configuration supports it.
-    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id) || tab.id === 'paymentFollowup' || tab.id === 'pendingBills' || tab.id === 'leads');
+    const filtered = accountVisibleTabs.filter((tab) => allowed.has(tab.id) || tab.id === 'paymentFollowup' || tab.id === 'pendingBills' || tab.id === 'leads' || tab.id === 'duplicateTransactions');
     return filtered.length ? filtered : accountVisibleTabs;
   }, [permissions?.allowedWidgets, permissions?.canViewAccounts, permissions?.canViewWhatsapp]);
 

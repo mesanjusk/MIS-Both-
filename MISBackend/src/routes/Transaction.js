@@ -416,6 +416,35 @@ router.get('/', async (req, res) => {
 // GET /distinctPaymentModes
 // ---------------------------------------------------------------------------
 
+// Temporary read-only account reconciliation. The router applies authentication
+// and canViewAccounts before this fixed report.
+router.get('/duplicate-events', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const groups = await Transaction.aggregate([
+      { $match: { Event_key: { $type: 'string', $ne: '' } } },
+      { $group: { _id: '$Event_key', count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 21 },
+    ]).option({ maxTimeMS: 15000, allowDiskUse: true });
+
+    const result = await Promise.all(groups.slice(0, 20).map(async (group) => ({
+      count: group.count,
+      entries: await Transaction.find({ Event_key: group._id })
+        .select('Transaction_id Transaction_date Description Total_Debit Payment_mode Order_number Upi_reference')
+        .sort({ Transaction_date: 1, _id: 1 })
+        .limit(20)
+        .maxTimeMS(10000)
+        .lean(),
+    })));
+    res.json({ success: true, result, hasMore: groups.length > 20 });
+  } catch (error) {
+    logger.error({ code: error.code, codeName: error.codeName }, 'Duplicate transaction lookup failed');
+    res.status(500).json({ success: false, message: 'Could not check duplicate transactions. Please try again.' });
+  }
+});
+
 router.get('/distinctPaymentModes', async (req, res) => {
   try {
     const modes = await Transaction.distinct('Payment_mode');

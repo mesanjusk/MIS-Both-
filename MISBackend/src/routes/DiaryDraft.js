@@ -390,6 +390,35 @@ router.post('/create', async (req, res) => {
   }
 });
 
+// Read-only bank posting preview. Exact journal legs, account and amount must match;
+// ambiguous candidates remain blocked rather than being marked confirmed.
+router.get('/:uuid/bank-posting-preview', async (req, res) => {
+  try {
+    const draft = await DiaryDraft.findOne({ diary_uuid: req.params.uuid }).lean();
+    if (!draft) return res.status(404).json({ success: false, message: 'Diary not found' });
+    const { bankAccounts } = await getCashBankAccounts();
+    const bankUuid = bankAccounts[0] || 'Bank';
+    const reserved = new Set();
+    const result = [];
+    for (const entry of draft.entries || []) {
+      if (entry.book !== 'bank' || entry.entry_status === 'rejected' || !entry.account_assigned) continue;
+      const account = await resolveLedgerEntity(entry.account_assigned, { preferCustomer: true });
+      if (account.name === account.uuid) continue;
+      const match = await findExistingDiaryPosting(draft, entry, bankUuid, account.uuid, reserved);
+      if (match.transaction && String(match.transaction.Source || '').startsWith('bank_statement')) {
+        reserved.add(String(match.transaction.Transaction_uuid));
+        result.push({ entry_uuid: entry.entry_uuid, status: 'bank_confirmed', transaction_uuid: match.transaction.Transaction_uuid });
+      } else if (match.ambiguous) {
+        result.push({ entry_uuid: entry.entry_uuid, status: 'review_required' });
+      }
+    }
+    return res.json({ success: true, result });
+  } catch (err) {
+    logger.error({ err }, 'GET /diary/:uuid/bank-posting-preview');
+    return res.status(500).json({ success: false, message: 'Could not check bank postings' });
+  }
+});
+
 // GET /api/diary/:uuid
 router.get('/:uuid', async (req, res) => {
   try {

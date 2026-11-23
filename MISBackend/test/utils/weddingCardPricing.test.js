@@ -16,9 +16,9 @@ test("markup preserves exact paise on small values", () => {
   expect(markUpTenPercent(17.5)).toBe(19.25);
   expect(markUpTenPercent(1200)).toBe(1320);
 });
-test("printing packing design charges add to marked up price", () => {
+test("only actual quoted quantity includes batch and one-time charges", () => {
   expect(withCalculatedPrices({ originalPrice: 550, printingCharge: 3.5, packingCharge: 2, designCharge: 6 })).toMatchObject({
-    codedPrice: "UUY", updatedPrice: 605, finalRate: 616.5
+    codedPrice: "UUY", updatedPrice: 605, finalRate: 605, hundredTotal: 60511.5
   });
 });
 

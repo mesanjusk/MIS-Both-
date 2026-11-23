@@ -60,7 +60,6 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
   const [originals, setOriginals] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [review, setReview] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +68,6 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
     setWorking(first);
     setBusy(false);
     setError('');
-    setReview(false);
   }, [open, rows]);
 
   const changes = useMemo(() => rows.map(row => {
@@ -89,7 +87,6 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
 
   const changeCell = (id, field, value) => {
     setWorking(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
-    setReview(false);
   };
 
   const pasteGrid = (event, rowIndex, colIndex) => {
@@ -112,23 +109,19 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
       });
       return next;
     });
-    setReview(false);
   };
 
   const saveAll = async () => {
     if (invalid.length) return setError('Fix invalid cells before saving: ' + invalid.slice(0, 4).join(', '));
     if (!changes.length) return setError('No edited values to save.');
-    if (!review) { setReview(true); setError(''); return; }
     setBusy(true);
     try {
       const updated = await bulkUpdateWeddingCardRows(changes.map(({ brand, code, changes: fields, expected }) =>
         ({ brand, code, changes: fields, expected })
       ));
-      setReview(false);
       setError('');
       await onSaved(updated.updated);
     } catch (err) {
-      setReview(false);
       setError(err.response?.data?.message || 'Bulk update failed. No rows were intentionally changed. Refresh and retry.');
     } finally {
       setBusy(false);
@@ -150,7 +143,7 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
             label={changes.length + ' changed rows'} />
           {invalid.length > 0 && <Chip color="error" size="small" label={invalid.length + ' invalid cells'} />}
           <Button size="small" variant="outlined" disabled={busy || !changes.length}
-            onClick={() => { setWorking(originals); setReview(false); setError(''); }}>
+            onClick={() => { setWorking(originals); setError(''); }}>
             Reset all edits
           </Button>
         </Stack>
@@ -226,17 +219,14 @@ export default function WeddingBulkSpreadsheetDialog({ open, rows, onClose, onSa
           * Preview for 100 cards: selling card subtotal + printing /100 + packing /100 + one-time design.
           Name Label and Other are optional and are not included unless selected in the quote.
         </Typography>
-        {review && <Alert severity="warning" sx={{ mt: 1 }}>
-          Review: {changes.length} modified cards will be updated together. Changes remain editable;
-          press <strong>Confirm &amp; Update All</strong> again to save.
-        </Alert>}
+        {changes.length > 0 && <Typography variant="caption" sx={{ mt: 1 }} color="primary.main">
+          Review the highlighted cells, then confirm once to save all {changes.length} changed card rows.
+        </Typography>}
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.5 }}>
         <Button disabled={busy} onClick={onClose}>Cancel</Button>
         <Button variant="contained" disabled={busy || !changes.length || invalid.length > 0}
-          onClick={saveAll}>{busy ? 'Updating…' : review
-            ? 'Confirm & Update All (' + changes.length + ')'
-            : 'Review Changes (' + changes.length + ')'}</Button>
+          onClick={saveAll}>{busy ? 'Updating…' : 'Confirm & Update All (' + changes.length + ')'}</Button>
       </DialogActions>
     </Dialog>
   );

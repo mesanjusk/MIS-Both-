@@ -147,6 +147,11 @@ router.put('/update/:id', async (req, res) => {
     bom: normalizeBom(req.body?.bom),
   };
   try {
+    const existing = await Items.findById(id).select('Item_name weddingCardVariants').lean();
+    if (existing?.weddingCardVariants?.length && safeBody.Item_name &&
+        !/^wedding cards?$/i.test(String(safeBody.Item_name).trim())) {
+      return res.status(409).json({ success: false, message: 'Wedding Card parent name cannot change while designs exist' });
+    }
     const item = await Items.findByIdAndUpdate(id, payload, { new: true });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });

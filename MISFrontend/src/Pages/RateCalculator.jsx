@@ -2,48 +2,49 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import toast from 'react-hot-toast';
 import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Divider,
-  IconButton,
-  MenuItem,
-  Paper,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Tooltip,
-  Typography,
+  Alert, Box, Button, CircularProgress, Divider, IconButton, MenuItem,
+  Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
+  TableRow, TextField, Tooltip, Typography
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import { useAuth } from '../context/AuthContext';
 import { fetchRateCards } from '../services/rateCardService';
+import { fetchWeddingCardRates, quoteWeddingCard } from '../services/weddingCardService';
 import WeddingCardCatalog from '../Components/rates/WeddingCardCatalog';
 import { computeRateCardAmount, computeGst } from '../utils/rateCardPricing';
 
-const WEDDING_CARD_ID = '__wedding_card__';
-const money = (n) => `₹${(Number(n) || 0).toFixed(2)}`;
+const money = (n) => '₹' + (Number(n) || 0).toFixed(2);
+const roundMoney = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const idFor = row => row.type === 'wedding'
+  ? 'wedding:' + row.brand + ':' + row.code
+  : 'other:' + row.rateCard_uuid;
+const toLabel = row => row.type === 'wedding'
+  ? 'Wedding Card / SK (' + row.brand + ') / No. ' + row.code
+  : row.itemName + (row.category ? ' / ' + row.category : '');
 
 export default function RateCalculator() {
+  const { isSuperAdmin } = useAuth();
   const [rateCards, setRateCards] = useState([]);
+  const [weddingCodes, setWeddingCodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [customerName, setCustomerName] = useState('');
-
-  const [selectedId, setSelectedId] = useState('');
+  const [search, setSearch] = useState('');
+  const [selectedKey, setSelectedKey] = useState('');
+  const [qty, setQty] = useState('100');
   const [widthFt, setWidthFt] = useState('');
   const [heightFt, setHeightFt] = useState('');
-  const [qty, setQty] = useState(1);
-
+  const [markup, setMarkup] = useState('');
+  const [discount, setDiscount] = useState('');
+  const [weddingQuote, setWeddingQuote] = useState(null);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [manageOpen, setManageOpen] = useState(false);
   const [lines, setLines] = useState([]);
 
   const printRef = useRef(null);
@@ -53,245 +54,234 @@ export default function RateCalculator() {
     pageStyle: '@media print { .no-print { display: none !important; } }',
   });
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await fetchRateCards(true);
-        setRateCards(Array.isArray(data) ? data : []);
-      } catch (err) {
-        toast.error(err.response?.data?.message || 'Unable to load rate cards');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const selectedCard = useMemo(
-    () => rateCards.find((r) => r.rateCard_uuid === selectedId) || null,
-    [rateCards, selectedId]
-  );
-
-  const preview = useMemo(() => {
-    if (!selectedCard) return null;
-    return computeRateCardAmount(selectedCard, { widthFt, heightFt, qty });
-  }, [selectedCard, widthFt, heightFt, qty]);
-
-  const belowMinQty = selectedCard && Number(qty) > 0 && Number(qty) < Number(selectedCard.minQty || 0);
-
-  const addLine = () => {
-    if (!selectedCard) return toast.error('Select an item first');
-    if (!qty || Number(qty) <= 0) return toast.error('Enter a valid quantity');
-    if (!preview || preview.error) return toast.error(preview?.error || 'Unable to compute price');
-
-    const { gst, total } = computeGst(preview.amount, selectedCard.gstPercent);
-    setLines((prev) => [
-      ...prev,
-      {
-        key: `${selectedCard.rateCard_uuid}-${Date.now()}`,
-        itemName: selectedCard.itemName,
-        pricingType: selectedCard.pricingType,
-        widthFt: selectedCard.pricingType === 'per_sqft' ? Number(widthFt) || 0 : null,
-        heightFt: selectedCard.pricingType === 'per_sqft' ? Number(heightFt) || 0 : null,
-        sqft: preview.sqft || null,
-        qty: Number(qty),
-        unit: selectedCard.unit,
-        amount: preview.amount,
-        gstPercent: selectedCard.gstPercent || 0,
-        gst,
-        total,
-      },
+  const load = async () => {
+    setLoading(true);
+    const [rates, wedding] = await Promise.allSettled([
+      fetchRateCards(true), fetchWeddingCardRates()
     ]);
-    setWidthFt('');
-    setHeightFt('');
-    setQty(1);
+    if (rates.status === 'fulfilled' && Array.isArray(rates.value)) setRateCards(rates.value);
+    else toast.error('Could not load other rate categories');
+    if (wedding.status === 'fulfilled' && Array.isArray(wedding.value)) setWeddingCodes(wedding.value);
+    else toast.error('Could not load Wedding Card designs');
+    setLoading(false);
   };
+  useEffect(() => { load(); }, []);
 
-  const removeLine = (key) => setLines((prev) => prev.filter((l) => l.key !== key));
-  const clearAll = () => setLines([]);
+  const matches = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return [];
+    const wedding = weddingCodes.map(row => ({ ...row, type: 'wedding' }));
+    const other = rateCards.filter(rc => !/^wedding cards?$/i.test(rc.itemName || ''))
+      .map(rc => ({ ...rc, type: 'other' }));
+    const candidates = [...wedding, ...other].filter(row => {
+      const target = row.type === 'wedding'
+        ? row.code + ' wedding card sk ' + row.brand
+        : (row.itemName || '') + ' ' + (row.category || '');
+      return target.toLowerCase().includes(q);
+    });
+    const score = row => {
+      const field = row.type === 'wedding' ? row.code : (row.itemName || '').toLowerCase();
+      if (field === q) return 0;
+      if (field.startsWith(q)) return 1;
+      return 2;
+    };
+    candidates.sort((a,b) => score(a)-score(b) || toLabel(a).localeCompare(toLabel(b)));
+    return candidates.slice(0, 30);
+  }, [rateCards, weddingCodes, search]);
+  const active = matches.find(row => idFor(row) === selectedKey) || matches[0] || null;
+  const count = Number(qty);
+  const quantityValid = Number.isSafeInteger(count) && count > 0 && count <= 1000000;
+  const customMarkup = markup.trim() === '' ? null : Number(markup);
+  const customDiscount = discount.trim() === '' ? null : Number(discount);
+  const customInvalid = (customMarkup !== null && (!Number.isFinite(customMarkup) || customMarkup < 0 || customMarkup > 1000)) ||
+    (customDiscount !== null && (!Number.isFinite(customDiscount) || customDiscount < 0 || customDiscount > 100));
 
+  useEffect(() => {
+    if (!active || active.type !== 'wedding' || !quantityValid || customInvalid) {
+      setWeddingQuote(null); setQuoteBusy(false); return;
+    }
+    let cancelled = false;
+    setQuoteBusy(true); setQuoteError(''); setWeddingQuote(null);
+    const opts = {};
+    if (isSuperAdmin) {
+      if (customMarkup !== null) opts.markupPercent = customMarkup;
+      if (customDiscount !== null) opts.discountPercent = customDiscount;
+    }
+    const timer = setTimeout(() => {
+      quoteWeddingCard(active.brand, active.code, count, opts).then(value => {
+        if (!cancelled) { setWeddingQuote(value); setQuoteError(''); }
+      }).catch(err => {
+        if (!cancelled) { setWeddingQuote(null); setQuoteError(err.response?.data?.message || 'Could not calculate price'); }
+      }).finally(() => { if (!cancelled) setQuoteBusy(false); });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [active?.brand, active?.code, active?.type, count, isSuperAdmin, customMarkup, customDiscount, customInvalid, quantityValid]);
+
+  const otherPreview = useMemo(() => {
+    if (!active || active.type !== 'other' || !quantityValid) return null;
+    const calculation = computeRateCardAmount(active, { widthFt, heightFt, qty: count });
+    if (calculation?.error) return { error: calculation.error };
+    const gst = computeGst(calculation.amount, active.gstPercent || 0);
+    const rateBeforeDiscount = gst.total;
+    const plus = isSuperAdmin && customMarkup !== null ? 1 + customMarkup / 100 : 1;
+    const minus = isSuperAdmin && customDiscount !== null ? 1 - customDiscount / 100 : 1;
+    return { amount: roundMoney(rateBeforeDiscount * plus * minus), preview: calculation };
+  }, [active, quantityValid, widthFt, heightFt, count, isSuperAdmin, customMarkup, customDiscount]);
+
+  const finalAmount = active?.type === 'wedding' ? weddingQuote?.amount : otherPreview?.amount;
+  const calculatedError = otherPreview?.error || quoteError;
+  const addLine = () => {
+    if (!active || !quantityValid || customInvalid || finalAmount == null || quoteBusy) return toast.error('Calculate a valid price first');
+    const isWedding = active.type === 'wedding';
+    setLines(prev => [...prev, {
+      key: idFor(active) + ':' + Date.now() + ':' + prev.length,
+      itemName: toLabel(active),
+      pricingType: isWedding ? 'per_piece' : active.pricingType,
+      widthFt: !isWedding && active.pricingType === 'per_sqft' ? Number(widthFt) : null,
+      heightFt: !isWedding && active.pricingType === 'per_sqft' ? Number(heightFt) : null,
+      sqft: otherPreview?.preview?.sqft || null,
+      qty: count, unit: isWedding ? 'Nos' : active.unit,
+      amount: finalAmount, gstPercent: 0, gst: 0, total: finalAmount
+    }]);
+    toast.success('Added to quote');
+  };
+  const removeLine = key => setLines(prev => prev.filter(row => row.key !== key));
   const totals = useMemo(() => {
-    const subtotal = lines.reduce((sum, l) => sum + l.amount, 0);
-    const gstTotal = lines.reduce((sum, l) => sum + l.gst, 0);
+    const subtotal = lines.reduce((sum, row) => sum + row.amount, 0);
+    const gstTotal = lines.reduce((sum, row) => sum + row.gst, 0);
     return { subtotal, gstTotal, grandTotal: subtotal + gstTotal };
   }, [lines]);
 
   const copySummary = async () => {
-    if (lines.length === 0) return toast.error('Add at least one item to the quote');
-    const rows = lines.map((l) => {
-      const dims = l.pricingType === 'per_sqft' ? ` (${l.widthFt}ft x ${l.heightFt}ft = ${l.sqft.toFixed(2)} sq.ft)` : '';
-      return `${l.itemName}${dims} x ${l.qty} ${l.unit} = ${money(l.total)}`;
-    });
-    const text = [
-      customerName ? `Quote for: ${customerName}` : 'Rate Quote',
-      ...rows,
-      '',
-      `Subtotal: ${money(totals.subtotal)}`,
-      `GST: ${money(totals.gstTotal)}`,
-      `Grand Total: ${money(totals.grandTotal)}`,
+    if (!lines.length) return toast.error('Add an item to the quote first');
+    const output = [
+      customerName ? 'Quote for: ' + customerName : 'Rate Quote',
+      ...lines.map(row => row.itemName + ' x ' + row.qty + ' ' + row.unit + ' = ' + money(row.total)),
+      '', 'Grand Total: ' + money(totals.grandTotal)
     ].join('\n');
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success('Quote summary copied');
-    } catch {
-      toast.error('Could not copy to clipboard');
-    }
+    try { await navigator.clipboard.writeText(output); toast.success('Quote copied'); }
+    catch { toast.error('Cannot copy quote'); }
   };
 
   return (
-    <Box sx={{ p: { xs: 1, md: 2 }, bgcolor: 'background.default', minHeight: '100%' }}>
+    <Box sx={{ p: { xs: 1, md: 2 }, minHeight: '100%' }}>
       <Paper elevation={0} sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 4, border: '1px solid', borderColor: 'divider' }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <CalculateRoundedIcon sx={{ color: 'primary.main' }} />
-          <Typography variant="h5" fontWeight={900} color="primary.main">Rate Calculator</Typography>
+        <Stack direction="row" gap={1} alignItems="center">
+          <CalculateRoundedIcon color="primary" />
+          <Typography variant="h5" fontWeight={900}>Rate Calculator</Typography>
         </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Quick pricing for cards, flex, banners and other print items using rates from the Rate Card Master.
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+          Search across all categories by product code or name. Enter quantity to see the final calculated price.
         </Typography>
+        <TextField label="Customer / Quote For (optional)" size="small" value={customerName}
+          onChange={e => setCustomerName(e.target.value)} fullWidth sx={{ maxWidth: 380, mb: 2 }} />
+        <Paper variant="outlined" sx={{ borderRadius: 3, p: 1.5, mb: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>
+            <TextField size="small" fullWidth label="Search product code / any category" autoComplete="off"
+              placeholder="e.g. 580, 1115, Flex, Banner, Wedding Card"
+              value={search} onChange={e => { setSearch(e.target.value); setSelectedKey(''); }}
+              InputProps={{ startAdornment: <SearchRoundedIcon color="action" sx={{ mr: 0.5 }} /> }} />
+            <TextField size="small" label="Quantity" type="number" value={qty} onChange={e => setQty(e.target.value)}
+              inputProps={{ min: 1, step: 1 }} sx={{ minWidth: { xs: '100%', sm: 130 } }} />
+          </Stack>
+          {active?.type === 'other' && active.pricingType === 'per_sqft' && (
+            <Stack direction="row" gap={1} sx={{ mt: 1 }}>
+              <TextField label="Width (ft)" size="small" type="number" value={widthFt}
+                onChange={e => setWidthFt(e.target.value)} />
+              <TextField label="Height (ft)" size="small" type="number" value={heightFt}
+                onChange={e => setHeightFt(e.target.value)} />
+            </Stack>
+          )}
+          {isSuperAdmin && active && (
+            <Stack direction="row" gap={1} sx={{ mt: 1 }}>
+              <TextField size="small" type="number" label="Override increase % (optional)"
+                value={markup} onChange={e => setMarkup(e.target.value)} fullWidth />
+              <TextField size="small" type="number" label="Override discount % (optional)"
+                value={discount} onChange={e => setDiscount(e.target.value)} fullWidth />
+            </Stack>
+          )}
+          {loading && <Box sx={{ textAlign: 'center', p: 2 }}><CircularProgress size={22}/></Box>}
+          {!loading && search.trim() && matches.length > 1 && (
+            <Paper variant="outlined" sx={{ mt: 1, maxHeight: 230, overflowY: 'auto' }}>
+              {matches.map(row => (
+                <MenuItem key={idFor(row)} selected={idFor(row) === idFor(active)} dense
+                  onClick={() => setSelectedKey(idFor(row))}>
+                  {row.type === 'wedding' && row.imageUrl &&
+                    <Box component="img" src={row.imageUrl} alt="" sx={{ width: 33, height: 33, objectFit: 'cover', borderRadius: 1, mr: 1 }} />}
+                  <Typography variant="body2">{toLabel(row)}</Typography>
+                </MenuItem>
+              ))}
+            </Paper>
+          )}
+          {active && (
+            <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
+              <Typography variant="caption" color="text.secondary">{toLabel(active)}</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1}>
+                <Typography variant="h5" color="primary.main" fontWeight={900}>
+                  {quoteBusy ? 'Calculating…' : !quantityValid ? 'Enter valid quantity' :
+                    customInvalid ? 'Check percentages' :
+                    calculatedError ? 'Price unavailable' :
+                    finalAmount == null ? 'Enter dimensions / quantity' : money(finalAmount)}
+                </Typography>
+                <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || customInvalid || !!calculatedError}
+                  onClick={addLine}>Add to Quote</Button>
+              </Stack>
+              {calculatedError && <Alert severity="warning" sx={{ mt: 1 }}>{calculatedError}</Alert>}
+            </Paper>
+          )}
+          {!loading && search.trim() && matches.length === 0 &&
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No matching item or code.</Typography>}
+        </Paper>
 
-        <TextField
-          label="Customer / Quote For (optional)"
-          value={customerName}
-          onChange={(e) => setCustomerName(e.target.value)}
-          size="small"
-          sx={{ maxWidth: 360, mb: 1.5 }}
-          fullWidth
-        />
+        {isSuperAdmin && (
+          <Box className="no-print" sx={{ mb: 2 }}>
+            <Button variant="outlined" size="small" startIcon={<SettingsRoundedIcon />}
+              onClick={async () => {
+                if (manageOpen) {
+                  try { setWeddingCodes(await fetchWeddingCardRates()); } catch { toast.error('Could not refresh Wedding Card codes'); }
+                }
+                setManageOpen(!manageOpen);
+              }}>
+              {manageOpen ? 'Close Wedding Card Editor' : 'Edit Wedding Card Prices / Bulk Edit / Photos'}
+            </Button>
+          </Box>
+        )}
+        {isSuperAdmin && manageOpen && <WeddingCardCatalog onAddToQuote={line => setLines(prev => [...prev, line])}/>}
 
         <Divider sx={{ mb: 1.5 }} />
-
-        {loading ? (
-          <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>
-        ) : (
-          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} flexWrap="wrap" alignItems="flex-start">
-              <TextField
-                select
-                label="Item"
-                value={selectedId}
-                onChange={(e) => setSelectedId(e.target.value)}
-                size="small"
-                sx={{ minWidth: 220, flex: 1 }}
-              >
-                <MenuItem value="">Select item</MenuItem>
-                <MenuItem value={WEDDING_CARD_ID}>Wedding Card</MenuItem>
-                {rateCards.filter((rc) => !/^wedding cards?$/i.test(String(rc.itemName || '').trim())).map((rc) => (
-                  <MenuItem key={rc.rateCard_uuid} value={rc.rateCard_uuid}>
-                    {rc.itemName}{rc.category ? ` (${rc.category})` : ''}
-                  </MenuItem>
-                ))}
-              </TextField>
-
-              {selectedCard?.pricingType === 'per_sqft' && (
-                <>
-                  <TextField label="Width (ft)" type="number" size="small" value={widthFt} onChange={(e) => setWidthFt(e.target.value)} sx={{ width: 120 }} />
-                  <TextField label="Height (ft)" type="number" size="small" value={heightFt} onChange={(e) => setHeightFt(e.target.value)} sx={{ width: 120 }} />
-                </>
-              )}
-
-              {selectedId !== WEDDING_CARD_ID && (
-                <>
-                  <TextField label="Quantity" type="number" size="small" value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 110 }} />
-                  <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={addLine} sx={{ borderRadius: 2.5, height: 40 }}>
-                    Add to Quote
-                  </Button>
-                </>
-              )}
-            </Stack>
-
-            {selectedCard && (
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mt: 1.25 }}>
-                {selectedCard.pricingType === 'per_sqft' && (
-                  <Chip size="small" variant="outlined" label={`Rate: ₹${selectedCard.ratePerSqft}/sq.ft${selectedCard.minBillingSqft ? ` (min ${selectedCard.minBillingSqft} sq.ft)` : ''}`} />
-                )}
-                {selectedCard.pricingType === 'per_piece' && (
-                  <Chip size="small" variant="outlined" label={`Rate: ₹${selectedCard.ratePerPiece}/pc`} />
-                )}
-                {selectedCard.pricingType === 'slab' && (
-                  <Chip size="small" variant="outlined" label={preview?.matchedSlab ? `Slab: ${preview.matchedSlab.minQty}-${preview.matchedSlab.maxQty || '∞'}` : 'No matching slab'} />
-                )}
-                {preview?.sqft ? <Chip size="small" variant="outlined" label={`${preview.sqft.toFixed(2)} sq.ft`} /> : null}
-                {belowMinQty && <Chip size="small" color="warning" label={`Below min order qty (${selectedCard.minQty})`} />}
-                {preview && !preview.error && (
-                  <Typography variant="subtitle2" fontWeight={900} color="primary.main">
-                    Amount: {money(preview.amount)}
-                  </Typography>
-                )}
-                {preview?.error && <Alert severity="warning" sx={{ py: 0, borderRadius: 2 }}>{preview.error}</Alert>}
-              </Stack>
-            )}
-          </Paper>
-        )}
-        {selectedId === WEDDING_CARD_ID && !loading && (
-          <WeddingCardCatalog onAddToQuote={(line) => setLines((previous) => [...previous, line])} />
-        )}
-
-        <Box ref={printRef} sx={{ p: { xs: 0, md: 0.5 } }}>
-          <Typography variant="subtitle1" fontWeight={900} sx={{ mb: 1 }}>
-            Quote{customerName ? ` — ${customerName}` : ''}
-          </Typography>
-
-          {lines.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No items added yet.</Typography>
-          ) : (
-            <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
+        <Box ref={printRef}>
+          <Typography fontWeight={900} sx={{ mb: 1 }}>Quote{customerName ? ' — ' + customerName : ''}</Typography>
+          {!lines.length ? <Typography variant="body2" color="text.secondary">No items added yet.</Typography> : (
+            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
               <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 900 }}>Item</TableCell>
-                    <TableCell sx={{ fontWeight: 900 }}>Size / Qty</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 900 }}>Amount</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 900 }}>GST</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 900 }}>Total</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 900 }} className="no-print">Remove</TableCell>
+                <TableHead><TableRow>
+                  <TableCell>Item</TableCell><TableCell>Qty</TableCell>
+                  <TableCell align="right">Amount</TableCell><TableCell className="no-print" align="right">Remove</TableCell>
+                </TableRow></TableHead>
+                <TableBody>{lines.map(row => (
+                  <TableRow key={row.key}>
+                    <TableCell>{row.itemName}</TableCell>
+                    <TableCell>{row.qty} {row.unit}{row.sqft ? ' · ' + row.sqft.toFixed(2) + ' sq.ft.' : ''}</TableCell>
+                    <TableCell align="right">{money(row.total)}</TableCell>
+                    <TableCell align="right" className="no-print">
+                      <Tooltip title="Remove line"><IconButton color="error" size="small" onClick={() => removeLine(row.key)}>
+                        <DeleteRoundedIcon fontSize="small"/>
+                      </IconButton></Tooltip>
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {lines.map((l) => (
-                    <TableRow key={l.key} hover>
-                      <TableCell>{l.itemName}</TableCell>
-                      <TableCell>
-                        {l.pricingType === 'per_sqft'
-                          ? `${l.widthFt}ft x ${l.heightFt}ft (${l.sqft.toFixed(2)} sq.ft) x ${l.qty}`
-                          : `${l.qty} ${l.unit}`}
-                      </TableCell>
-                      <TableCell align="right">{money(l.amount)}</TableCell>
-                      <TableCell align="right">{money(l.gst)}</TableCell>
-                      <TableCell align="right">{money(l.total)}</TableCell>
-                      <TableCell align="right" className="no-print">
-                        <Tooltip title="Remove">
-                          <IconButton size="small" color="error" onClick={() => removeLine(l.key)}>
-                            <DeleteRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
+                ))}</TableBody>
               </Table>
             </TableContainer>
           )}
-
-          {lines.length > 0 && (
-            <Stack alignItems="flex-end" spacing={0.5} sx={{ mt: 1.5 }}>
-              <Typography variant="body2">Subtotal: {money(totals.subtotal)}</Typography>
-              <Typography variant="body2">GST: {money(totals.gstTotal)}</Typography>
-              <Typography variant="h6" fontWeight={900} color="primary.main">Grand Total: {money(totals.grandTotal)}</Typography>
-            </Stack>
-          )}
+          {!!lines.length && <Typography align="right" variant="h6" fontWeight={900} sx={{ mt: 1 }}>
+            Total: {money(totals.grandTotal)}
+          </Typography>}
         </Box>
-
-        {lines.length > 0 && (
-          <Stack direction="row" spacing={1.25} sx={{ mt: 2 }} className="no-print">
-            <Button variant="outlined" startIcon={<ContentCopyRoundedIcon />} onClick={copySummary} sx={{ borderRadius: 2.5 }}>
-              Copy Summary
-            </Button>
-            <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={handlePrint} sx={{ borderRadius: 2.5 }}>
-              Print Quote
-            </Button>
-            <Button color="error" onClick={clearAll} sx={{ borderRadius: 2.5 }}>
-              Clear All
-            </Button>
+        {!!lines.length && (
+          <Stack direction="row" gap={1} sx={{ mt: 2 }} className="no-print">
+            <Button variant="outlined" onClick={copySummary} startIcon={<ContentCopyRoundedIcon />}>Copy Quote</Button>
+            <Button variant="outlined" onClick={handlePrint} startIcon={<PrintRoundedIcon />}>Print</Button>
+            <Button color="error" onClick={() => setLines([])}>Clear All</Button>
           </Stack>
         )}
       </Paper>

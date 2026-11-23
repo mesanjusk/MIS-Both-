@@ -24,6 +24,13 @@ const weddingCardVariantSchema = new mongoose.Schema(
     discountPercent: { type: Number, default: 0, min: 0, max: 100 },
     imageUrl: { type: String, default: "" },
     imagePublicId: { type: String, default: "" },
+    images: { type: [{
+      url: { type: String, required: true },
+      publicId: { type: String, required: true },
+    }], default: [], validate: {
+      validator: (items) => items.length <= 6,
+      message: "Maximum 6 images per Wedding Card",
+    } },
     notes: { type: String, default: "" },
     isDeleted: { type: Boolean, default: false },
   },

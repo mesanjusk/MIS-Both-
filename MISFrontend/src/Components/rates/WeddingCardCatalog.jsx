@@ -20,18 +20,21 @@ import {
 const money = (value) => '₹' + (Number(value) || 0).toFixed(2);
 const defaultForm = (brand = 'M') => ({
   brand, code: '', originalPrice: '', markupPercent: '10', discountPercent: '0',
-  printingCharge: '0', packingCharge: '0', designCharge: '0', notes: ''
+  printingCharge: '0', packingCharge: '0', designCharge: '0',
+  nameLabelCharge: '0', otherCharge: '0', otherServiceName: 'Other', notes: ''
 });
 const bulkFields = [
   ['originalPrice', 'Original price ₹'], ['markupPercent', 'Price increase %'],
   ['discountPercent', 'Discount %'], ['printingCharge', 'Printing per 100 ₹'],
-  ['packingCharge', 'Packing per 100 ₹'], ['designCharge', 'Design once ₹']
+  ['packingCharge', 'Packing per 100 ₹'], ['designCharge', 'Design once ₹'],
+  ['nameLabelCharge', 'Name Label per label ₹'], ['otherCharge', 'Other service per unit ₹']
 ];
 const decimal = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const CODE_MAP = { '1':'N','2':'A','3':'G','4':'P','5':'U','6':'R','7':'C','8':'I','9':'T','0':'Y' };
 const encoded = (value) => String(value).replace(/[0-9]/g, digit => CODE_MAP[digit]);
 const limits = { originalPrice: 10000000, markupPercent: 1000, discountPercent: 100,
-  printingCharge: 10000000, packingCharge: 10000000, designCharge: 10000000 };
+  printingCharge: 10000000, packingCharge: 10000000, designCharge: 10000000,
+  nameLabelCharge: 10000000, otherCharge: 10000000 };
 
 export default function WeddingCardCatalog({ onAddToQuote }) {
   const { isSuperAdmin } = useAuth();
@@ -123,6 +126,9 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       printingCharge: String(row.printingCharge ?? 0),
       packingCharge: String(row.packingCharge ?? 0),
       designCharge: String(row.designCharge ?? 0),
+      nameLabelCharge: String(row.nameLabelCharge ?? 0),
+      otherCharge: String(row.otherCharge ?? 0),
+      otherServiceName: String(row.otherServiceName || 'Other'),
       notes: row.notes || ''
     });
     setDialogOpen(true); setError('');
@@ -320,10 +326,18 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
               onChange={e => updateField('packingCharge', e.target.value)} />
             <TextField label="Design charge ₹ / order (one time)" size="small" type="number" fullWidth value={form.designCharge}
               onChange={e => updateField('designCharge', e.target.value)} />
+            <TextField label="Name Label charge ₹ / label" size="small" type="number" fullWidth value={form.nameLabelCharge}
+              onChange={e => updateField('nameLabelCharge', e.target.value)} />
+            <Stack direction="row" gap={1}>
+              <TextField label="Other service name" size="small" fullWidth value={form.otherServiceName}
+                inputProps={{ maxLength: 45 }} onChange={e => updateField('otherServiceName', e.target.value)} />
+              <TextField label="Other service rate ₹ / unit" size="small" type="number" fullWidth value={form.otherCharge}
+                onChange={e => updateField('otherCharge', e.target.value)} />
+            </Stack>
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
               <Typography variant="caption">Internal coded supplier rate: {encoded(form.originalPrice || 0)}</Typography>
               <Typography variant="body2">Example quote for 100 cards: <strong>{money(example100)}</strong></Typography>
-              <Typography variant="caption" color="text.secondary">Design is added once; printing and packing are prorated for quantities other than 100.</Typography>
+              <Typography variant="caption" color="text.secondary">Design once, printing/packing per 100, Name Label per piece, Other per unit. Name Label and Other are optional rows in the quote.</Typography>
             </Paper>
             <TextField label="Notes" size="small" fullWidth multiline minRows={2} value={form.notes}
               onChange={e => updateField('notes', e.target.value)} />

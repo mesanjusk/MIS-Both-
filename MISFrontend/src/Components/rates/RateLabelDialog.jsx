@@ -4,17 +4,17 @@ import {
   DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Typography
 } from '@mui/material';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
-import { downloadRateLabelPdf, getLabelLayout } from '../../utils/rateLabelPdf';
+import { downloadRateLabelPdf, getLabelLayout, isWeddingJobLayoutLegible } from '../../utils/rateLabelPdf';
 
 const money = amount => '₹' + (Number(amount) || 0).toFixed(2);
 
 export default function RateLabelDialog({ open, onClose, item, quote, quantity, isAdmin }) {
   const [orientation, setOrientation] = useState('portrait');
-  const [columns, setColumns] = useState('3');
-  const [rows, setRows] = useState('7');
-  const [count, setCount] = useState('21');
-  const [priceMode, setPriceMode] = useState('effective');
-  const [showInternalCode, setShowInternalCode] = useState(false);
+  const [columns, setColumns] = useState('2');
+  const [rows, setRows] = useState('5');
+  const [count, setCount] = useState('10');
+  const [priceMode, setPriceMode] = useState('job');
+  const [showInternalCode, setShowInternalCode] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
 
@@ -31,24 +31,31 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
   const total = Number(quote?.amount);
   const qty = Number(quantity);
   const baseAvailable = Boolean(isAdmin && isWedding && breakdown);
+  const isJob = isWedding && priceMode === 'job';
+  const layoutValid = Boolean(geometry && (!isJob || isWeddingJobLayoutLegible(geometry)));
   const price = priceMode === 'base' && baseAvailable
     ? breakdown.discountedUnitPrice
     : priceMode === 'total' || !isWedding
       ? total
       : qty > 0 ? Math.round((total / qty + Number.EPSILON) * 100) / 100 : NaN;
   const labelItem = {
-    type: isWedding ? 'wedding' : 'other',
+    type: isJob ? 'job' : (isWedding ? 'wedding' : 'other'),
     brand: item?.brand || '',
     code: item?.code || '',
     name: isWedding ? 'Wedding Card' : (item?.itemName || item?.name || 'SK Digital Product') +
       ' (Qty ' + qty + ')',
     codedPrice: showInternalCode && baseAvailable ? quote?.codedPrice : '',
+    lines: isJob ? quote?.lines : undefined,
+    deliveryDays: isJob ? quote?.deliveryDays : undefined,
+    grandTotal: isJob ? quote?.amount : undefined,
     price,
   };
 
   const download = () => {
     setError('');
-    if (!geometry) return setError('Reduce rows/columns: labels must remain legible on A4.');
+    if (!layoutValid) return setError(isJob
+      ? 'Job slips need labels at least 78 × 47 mm. Try 2 columns × 5 rows on A4 portrait.'
+      : 'Reduce rows/columns: labels must remain legible on A4.');
     try {
       setExporting(true);
       downloadRateLabelPdf({
@@ -62,7 +69,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
     }
   };
   const countValid = Number.isSafeInteger(Number(count)) && Number(count) > 0 && Number(count) <= 5000;
-  const pages = geometry && countValid ? Math.ceil(Number(count) / geometry.perPage) : 0;
+  const pages = layoutValid && countValid ? Math.ceil(Number(count) / geometry.perPage) : 0;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -92,6 +99,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
               value={count} onChange={e => setCount(e.target.value)} />
             <TextField select size="small" fullWidth label="Price printed on label"
               value={priceMode} onChange={e => setPriceMode(e.target.value)}>
+              {isWedding && <MenuItem value="job">Itemized job slip (same as reference)</MenuItem>}
               {isWedding && <MenuItem value="effective">Effective per card (all charges)</MenuItem>}
               {baseAvailable && <MenuItem value="base">Card selling price (excl. extra charges)</MenuItem>}
               <MenuItem value="total">{isWedding ? 'Full order total' : 'Calculated quote total'}</MenuItem>
@@ -103,7 +111,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
                 onChange={e => setShowInternalCode(e.target.checked)} />
             } label="Print internal NAGPURCITY supplier code (admin only)" />
           )}
-          {geometry && countValid ? (
+          {layoutValid && countValid ? (
             <Stack spacing={0.75}>
               <Typography variant="body2">
                 <strong>{geometry.columns} × {geometry.rows} = {geometry.perPage} labels/page</strong>
@@ -112,6 +120,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
               <Typography variant="caption" color="text.secondary">
                 Each label: {geometry.labelWidth.toFixed(1)} × {geometry.labelHeight.toFixed(1)} mm.
                 Print at 100% Actual Size without scaling.
+                {isJob ? ' Six service rows with checkboxes, delivery days and grand total.' : ''}
               </Typography>
               <Box sx={{
                 border: '1px solid', borderColor: 'divider',
@@ -134,19 +143,24 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
                       <Typography sx={{ color: '#b73822', fontWeight: 800, fontSize: 7 }}>
                         {isWedding ? item.code : 'Product'}
                       </Typography>
+                      {isJob && <Typography sx={{ fontSize: 4.5, color: '#333', textAlign: 'center' }}>
+                        Card / Design / Print / Pack / Name / Other
+                      </Typography>}
                     </Box>
                   ))}
                 </Box>
               </Box>
               <Typography variant="body2">Label price: <strong>{money(price)}</strong></Typography>
             </Stack>
-          ) : <Alert severity="warning">Choose valid rows, columns and 1–5,000 labels.</Alert>}
+          ) : <Alert severity="warning">{isJob && geometry && !isWeddingJobLayoutLegible(geometry)
+            ? 'Job slip format needs larger labels. Try 2 columns × 5 rows on A4 portrait.'
+            : 'Choose valid rows, columns and 1–5,000 labels.'}</Alert>}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" startIcon={<DownloadRoundedIcon />} disabled={!geometry || !countValid || exporting || !Number.isFinite(price)}
+        <Button variant="contained" startIcon={<DownloadRoundedIcon />} disabled={!layoutValid || !countValid || exporting || !Number.isFinite(price) || (isJob && !quote?.lines?.length)}
           onClick={download}>Download PDF</Button>
       </DialogActions>
     </Dialog>

@@ -63,6 +63,10 @@ const BLANK_FORM = {
 };
 
 function pricingSummary(rc) {
+  if (rc.weddingCardVariants?.length) {
+    const active = rc.weddingCardVariants.filter((entry) => !entry.isDeleted).length;
+    return `${active} Wedding Card codes · SK (M) / SK (K)`;
+  }
   if (rc.pricingType === 'per_sqft') {
     return `₹${rc.ratePerSqft || 0}/sq.ft${rc.minBillingSqft ? ` (min ${rc.minBillingSqft} sq.ft)` : ''}`;
   }
@@ -252,9 +256,11 @@ export default function RateCardMaster() {
                       <Tooltip title="Edit">
                         <IconButton size="small" onClick={() => openEdit(rc)}><EditRoundedIcon fontSize="small" /></IconButton>
                       </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton size="small" color="error" onClick={() => remove(rc)}><DeleteRoundedIcon fontSize="small" /></IconButton>
-                      </Tooltip>
+                      {!rc.weddingCardVariants?.length && (
+                        <Tooltip title="Delete">
+                          <IconButton size="small" color="error" onClick={() => remove(rc)}><DeleteRoundedIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

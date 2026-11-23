@@ -10,6 +10,22 @@ const slabSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Wedding Card product designs are embedded under ONE Rate Card master record.
+// No per-design Items-master entries or extra MongoDB collections are created.
+const weddingCardVariantSchema = new mongoose.Schema(
+  {
+    brand: { type: String, required: true, enum: ["M", "K"] },
+    code: { type: String, required: true, match: /^\d{3,5}$/ },
+    originalPrice: { type: Number, required: true, min: 0 },
+    printingCharge: { type: Number, default: 0, min: 0 },
+    packingCharge: { type: Number, default: 0, min: 0 },
+    designCharge: { type: Number, default: 0, min: 0 },
+    notes: { type: String, default: "" },
+    isDeleted: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const RateCardSchema = new mongoose.Schema(
   {
     rateCard_uuid: { type: String, required: true, unique: true },
@@ -32,6 +48,7 @@ const RateCardSchema = new mongoose.Schema(
     gstPercent: { type: Number, default: 0, min: 0, max: 100 },
     isActive: { type: Boolean, default: true },
     notes: { type: String, default: "" },
+    weddingCardVariants: { type: [weddingCardVariantSchema], default: [] },
   },
   { timestamps: true }
 );

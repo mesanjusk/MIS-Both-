@@ -116,6 +116,10 @@ router.put("/:id", async (req, res) => {
     return res.status(400).json({ success: false, message: "itemName is required" });
   }
   try {
+    const existing = await RateCard.findOne({ rateCard_uuid: req.params.id }).lean();
+    if (existing?.weddingCardVariants?.length && !/^wedding cards?$/i.test(payload.itemName)) {
+      return res.status(400).json({ success: false, message: "The Wedding Card catalogue parent item must remain named Wedding Card" });
+    }
     const updated = await RateCard.findOneAndUpdate(
       { rateCard_uuid: req.params.id },
       { $set: payload },
@@ -132,8 +136,13 @@ router.put("/:id", async (req, res) => {
 // Delete rate card
 router.delete("/:id", async (req, res) => {
   try {
-    const deleted = await RateCard.findOneAndDelete({ rateCard_uuid: req.params.id });
-    if (!deleted) return res.status(404).json({ success: false, message: "Rate card not found" });
+    const existing = await RateCard.findOne({ rateCard_uuid: req.params.id }).lean();
+    if (!existing) return res.status(404).json({ success: false, message: "Rate card not found" });
+    // Protect the single Wedding Card catalogue and all embedded code variants.
+    if (existing.weddingCardVariants?.length) {
+      return res.status(409).json({ success: false, message: "Wedding Card catalogue cannot be deleted from Rate Card Master. Manage codes in Rate Calculator." });
+    }
+    await RateCard.deleteOne({ rateCard_uuid: req.params.id });
     res.json({ success: true, message: "Rate card deleted" });
   } catch (err) {
     logger.error("Error deleting rate card:", err);

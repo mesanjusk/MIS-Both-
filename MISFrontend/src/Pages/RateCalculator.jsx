@@ -40,6 +40,7 @@ export default function RateCalculator() {
   const [widthFt, setWidthFt] = useState('');
   const [heightFt, setHeightFt] = useState('');
   const [weddingQuote, setWeddingQuote] = useState(null);
+  const [quoteRevision, setQuoteRevision] = useState(0);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteError, setQuoteError] = useState('');
   const [manageOpen, setManageOpen] = useState(false);
@@ -104,7 +105,7 @@ export default function RateCalculator() {
       }).finally(() => { if (!cancelled) setQuoteBusy(false); });
     }, 200);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active?.brand, active?.code, active?.type, count, quantityValid]);
+  }, [active?.brand, active?.code, active?.type, count, quantityValid, quoteRevision]);
 
   const otherPreview = useMemo(() => {
     if (!active || active.type !== 'other' || !quantityValid) return null;
@@ -221,7 +222,7 @@ export default function RateCalculator() {
             <Button variant="outlined" size="small" startIcon={<SettingsRoundedIcon />}
               onClick={async () => {
                 if (manageOpen) {
-                  try { setWeddingCodes(await fetchWeddingCardRates()); } catch { toast.error('Could not refresh Wedding Card codes'); }
+                  try { setWeddingCodes(await fetchWeddingCardRates()); setQuoteRevision(n => n + 1); } catch { toast.error('Could not refresh Wedding Card codes'); }
                 }
                 setManageOpen(!manageOpen);
               }}>

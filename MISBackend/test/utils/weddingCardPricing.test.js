@@ -21,3 +21,11 @@ test("printing packing design charges add to marked up price", () => {
     codedPrice: "UUY", updatedPrice: 605, finalRate: 616.5
   });
 });
+
+test("SKU variants are embedded on RateCard instead of creating their own collection", () => {
+  const RateCard = require("../../src/repositories/rateCard");
+  const variantsPath = RateCard.schema.path("weddingCardVariants");
+  expect(variantsPath).toBeDefined();
+  expect(variantsPath.schema.path("brand")).toBeDefined();
+  expect(variantsPath.schema.path("originalPrice")).toBeDefined();
+});

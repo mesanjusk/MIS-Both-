@@ -6,6 +6,12 @@ const { WEDDING_CARD_SEED } = require("../data/weddingCardSeed");
 const WEDDING_CARD_NAME = /^\s*wedding cards?\s*$/i;
 
 async function findWeddingCardParent() {
+  // Prefer the actual Wedding Card Item master, not a separate Rate Card/SKU.
+  const direct = await Items.findOne({ Item_name: WEDDING_CARD_NAME });
+  if (direct) return direct;
+  const existingItem = await Items.findOne({ Item_name: /wedding\s*cards?/i });
+  if (existingItem) return existingItem;
+  // Compatibility fallback if a legacy Wedding Card Rate Card already exists.
   return RateCard.findOne({ itemName: WEDDING_CARD_NAME });
 }
 
@@ -13,23 +19,19 @@ async function getOrCreateWeddingCardParent() {
   const existing = await findWeddingCardParent();
   if (existing) return existing;
 
-  // Only one parent Rate Card record is created if none exists. The design
-  // numbers themselves are embedded subcategory variants, never Item records.
-  const masterItem = await Items.findOne({ Item_name: WEDDING_CARD_NAME }).lean();
-  return RateCard.create({
-    rateCard_uuid: uuid(),
-    itemName: masterItem?.Item_name || "Wedding Card",
-    itemUuid: masterItem?.Item_uuid || "",
-    category: masterItem?.Item_group || "Wedding Card",
-    pricingType: "per_piece",
+  // Only ONE Wedding Card master Item is created if truly absent; all designs
+  // live inside it. Items collection already exists in the running MIS.
+  return Items.create({
+    Item_uuid: uuid(),
+    Item_name: "Wedding Card",
+    Item_group: "Wedding Card",
+    itemType: "finished_item",
     unit: "Nos",
-    ratePerPiece: 0,
-    isActive: true,
     weddingCardVariants: [],
   });
 }
 
-// Idempotent additive seed inside the existing RateCard collection. Preserves
+// Idempotent additive seed inside existing Items (or legacy RateCard) collection. Preserves
 // edits and tombstones; no Mongo collection creation or Items-master writes.
 async function seedWeddingCardCatalog() {
   const parent = await getOrCreateWeddingCardParent();
@@ -48,7 +50,7 @@ async function seedWeddingCardCatalog() {
   return {
     inserted: missing.length,
     sourceEntries: WEDDING_CARD_SEED.length,
-    parentRateCard: parent.rateCard_uuid,
+    parentItem: parent.Item_uuid || parent.rateCard_uuid,
   };
 }
 module.exports = { findWeddingCardParent, getOrCreateWeddingCardParent, seedWeddingCardCatalog };

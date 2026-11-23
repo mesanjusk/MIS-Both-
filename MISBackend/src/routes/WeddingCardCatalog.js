@@ -5,7 +5,7 @@ const { tierFor } = require("../utils/roleHierarchy");
 const { createUpload, limitRequestSize, MB } = require("../middleware/uploadLimits");
 const cloudinary = require("../utils/cloudinary");
 const { findWeddingCardParent, getOrCreateWeddingCardParent } = require("../services/weddingCardCatalogSeed");
-const { roundMoney, withCalculatedPrices, calculateWeddingQuote } = require("../utils/weddingCardPricing");
+const { roundMoney, withCalculatedPrices, calculateWeddingQuote, calculateWeddingBreakdown, encodePrice } = require("../utils/weddingCardPricing");
 const logger = require("../utils/logger");
 
 const router = express.Router();
@@ -93,9 +93,13 @@ router.get("/quote", async (req, res) => {
     if (!row || row.isDeleted) return res.status(404).json({ success: false, message: "Wedding Card not found" });
     const calculated = calculateWeddingQuote(row, qty, overrides);
     if (calculated.error) return res.status(400).json({ success: false, message: calculated.error });
+    const extra = canEdit(req) ? {
+      codedPrice: encodePrice(row.originalPrice),
+      breakdown: calculateWeddingBreakdown(row, qty, overrides),
+    } : {};
     return res.json({
       success: true,
-      result: { ...summary(row), qty, amount: calculated.amount, unit: "Nos" },
+      result: { ...summary(row), qty, amount: calculated.amount, unit: "Nos", ...extra },
     });
   } catch (err) {
     return handleError(res, err, "Wedding Card quote failed");

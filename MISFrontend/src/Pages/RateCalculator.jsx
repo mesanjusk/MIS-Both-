@@ -13,10 +13,12 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { useAuth } from '../context/AuthContext';
 import { fetchRateCards } from '../services/rateCardService';
 import { fetchWeddingCardRates, quoteWeddingCard } from '../services/weddingCardService';
 import WeddingCardCatalog from '../Components/rates/WeddingCardCatalog';
+import RateLabelDialog from '../Components/rates/RateLabelDialog';
 import { computeRateCardAmount, computeGst } from '../utils/rateCardPricing';
 
 const money = (n) => '₹' + (Number(n) || 0).toFixed(2);
@@ -44,6 +46,7 @@ export default function RateCalculator() {
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteError, setQuoteError] = useState('');
   const [manageOpen, setManageOpen] = useState(false);
+  const [labelDialogOpen, setLabelDialogOpen] = useState(false);
   const [lines, setLines] = useState([]);
 
   const printRef = useRef(null);
@@ -207,16 +210,80 @@ export default function RateCalculator() {
                     calculatedError ? 'Price unavailable' :
                     finalAmount == null ? 'Enter dimensions / quantity' : money(finalAmount)}
                 </Typography>
-                <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
-                  onClick={addLine}>Add to Quote</Button>
+                <Stack direction="row" gap={1} flexWrap="wrap">
+                  <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
+                    onClick={addLine}>Add to Quote</Button>
+                  <Button variant="outlined" startIcon={<DownloadRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
+                    onClick={() => setLabelDialogOpen(true)}>Print Labels PDF</Button>
+                </Stack>
               </Stack>
               {calculatedError && <Alert severity="warning" sx={{ mt: 1 }}>{calculatedError}</Alert>}
+              {isSuperAdmin && active.type === 'wedding' && weddingQuote?.breakdown && (
+                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="subtitle2" fontWeight={900} sx={{ mb: 1 }}>
+                    Cost & break-even estimate · {count} cards
+                  </Typography>
+                  <Table size="small" sx={{ '& td': { py: 0.5 } }}>
+                    <TableBody>
+                      {[
+                        ['Supplier card price / card', money(weddingQuote.breakdown.supplierUnitPrice)],
+                        ['Internal NAGPURCITY code', weddingQuote.codedPrice || '—'],
+                        ['Price increase', weddingQuote.breakdown.markupPercent + '%'],
+                        ['Selling card rate before discount', money(weddingQuote.breakdown.markedUpUnitPrice)],
+                        ['Discount', weddingQuote.breakdown.discountPercent + '%'],
+                        ['Selling card rate after discount', money(weddingQuote.breakdown.discountedUnitPrice)],
+                        ['Card subtotal × ' + count, money(weddingQuote.breakdown.cardSellingTotal)],
+                        ['Printing rate / 100 cards', money(weddingQuote.breakdown.printingRatePer100)],
+                        ['Printing for ' + count, money(weddingQuote.breakdown.printingTotal)],
+                        ['Packing rate / 100 cards', money(weddingQuote.breakdown.packingRatePer100)],
+                        ['Packing for ' + count, money(weddingQuote.breakdown.packingTotal)],
+                        ['Design charge (once)', money(weddingQuote.breakdown.designTotal)],
+                        ['Estimated break-even / card', money(weddingQuote.breakdown.estimatedBreakEvenUnit)],
+                        ['Estimated total break-even', money(weddingQuote.breakdown.estimatedRecoveryTotal)],
+                        ['Estimated contribution before other overhead', money(weddingQuote.breakdown.estimatedContribution)],
+                      ].map(([label, value]) => (
+                        <TableRow key={label}>
+                          <TableCell sx={{ color: 'text.secondary', width: '63%' }}>{label}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700 }}>{value}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <Typography variant="caption" color="text.secondary">
+                    Break-even is an estimate assuming supplier rate and entered printing, packing and design
+                    charges are actual costs. Unrecorded overhead and taxes are excluded.
+                  </Typography>
+                </Box>
+              )}
+              {isSuperAdmin && active.type === 'other' && (
+                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="subtitle2" fontWeight={800}>Item pricing details</Typography>
+                  <Typography variant="body2">
+                    {active.pricingType === 'per_sqft'
+                      ? 'Area-based rate: ' + money(active.ratePerSqft) + '/sq.ft' + 
+                        (otherPreview?.preview?.sqft ? ' · ' + otherPreview.preview.sqft.toFixed(2) + ' sq.ft' : '')
+                      : active.pricingType === 'per_piece'
+                        ? 'Rate per item: ' + money(active.ratePerPiece)
+                        : 'Slab-based rate (quantity ' + count + ')'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Break-even is not available for this category because supplier and production costs
+                    have not been defined in its Rate Card.
+                  </Typography>
+                </Box>
+              )}
             </Paper>
           )}
           {!loading && search.trim() && matches.length === 0 &&
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No matching item or code.</Typography>}
         </Paper>
 
+        {active && finalAmount != null && (
+          <RateLabelDialog open={labelDialogOpen} onClose={() => setLabelDialogOpen(false)}
+            item={active} quantity={count}
+            quote={active.type === 'wedding' ? weddingQuote : { amount: finalAmount }}
+            isAdmin={isSuperAdmin} />
+        )}
         {isSuperAdmin && (
           <Box className="no-print" sx={{ mb: 2 }}>
             <Button variant="outlined" size="small" startIcon={<SettingsRoundedIcon />}

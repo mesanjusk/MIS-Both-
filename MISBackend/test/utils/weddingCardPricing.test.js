@@ -69,3 +69,32 @@ describe('Wedding Card order pricing: charges by correct unit', () => {
     expect(calculateWeddingQuote(record, 50, { discountPercent: 105 }).error).toBeTruthy();
   });
 });
+
+describe('admin break-even estimate for Wedding Cards', () => {
+  const { calculateWeddingBreakdown } = require('../../src/utils/weddingCardPricing');
+  const costs = {
+    originalPrice: 20, markupPercent: 10, discountPercent: 0,
+    printingCharge: 150, packingCharge: 50, designCharge: 200,
+  };
+  test('separates supplier, printing, packing and one-time design', () => {
+    const row = calculateWeddingBreakdown(costs, 200);
+    expect(row).toMatchObject({
+      supplierUnitPrice: 20, supplierTotal: 4000,
+      printingRatePer100: 150, printingTotal: 300,
+      packingRatePer100: 50, packingTotal: 100,
+      designChargeOnce: 200, designTotal: 200,
+      cardSellingTotal: 4400, amount: 5000,
+      estimatedRecoveryTotal: 4600, estimatedBreakEvenUnit: 23,
+      estimatedContribution: 400
+    });
+  });
+  test('estimates correct design cost per card for a small order', () => {
+    const row = calculateWeddingBreakdown(costs, 25);
+    expect(row.estimatedRecoveryTotal).toBe(750);
+    expect(row.estimatedBreakEvenUnit).toBe(30);
+    expect(row.amount).toBe(800);
+  });
+  test('preserves descriptive error for invalid quantities', () => {
+    expect(calculateWeddingBreakdown(costs, -1).error).toBeTruthy();
+  });
+});

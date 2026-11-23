@@ -42,6 +42,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
   const [activeCode, setActiveCode] = useState('');
   const [quote, setQuote] = useState(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteRevision, setQuoteRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -98,7 +99,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
         .finally(() => { if (!ignore) setQuoteBusy(false); });
     }, 180);
     return () => { ignore = true; clearTimeout(timer); };
-  }, [brand, activeCode, qty]);
+  }, [brand, activeCode, qty, quoteRevision]);
 
   const addLine = () => {
     if (!quote || !active) return;
@@ -138,6 +139,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       else await createWeddingCardRate(payload);
       setDialogOpen(false); setError('');
       await load();
+      setQuoteRevision(n => n + 1);
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to save wedding card');
     } finally { setSaving(false); }
@@ -171,6 +173,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       const result = await bulkUpdateWeddingCardRates(ids, values, bulkMode);
       setBulkOpen(false); setBulkChanges({}); setSelected([]); setQuote(null);
       await load(); setError('');
+      setQuoteRevision(n => n + 1);
       return result;
     } catch (err) { setError(err.response?.data?.message || 'Bulk edit failed'); }
     finally { setSaving(false); }

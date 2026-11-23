@@ -46,6 +46,7 @@ const withCalculatedPrices = (record) => {
   const updatedPrice = markUpPrice(record.originalPrice, record.markupPercent ?? 10);
   return {
     ...record,
+    imageUrl: record.images?.[0]?.url || record.imageUrl || '',
     markupPercent: record.markupPercent ?? 10,
     discountPercent: record.discountPercent ?? 0,
     codedPrice: encodePrice(record.originalPrice),

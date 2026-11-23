@@ -27,6 +27,22 @@ const bomComponentschema = new mongoose.Schema(
   { _id: true }
 );
 
+// SK (M) / SK (K) are subcategories of the one Wedding Card Item.
+// All card-number variants are embedded; this creates NO new collection.
+const weddingCardVariantSchema = new mongoose.Schema(
+  {
+    brand: { type: String, required: true, enum: ["M", "K"] },
+    code: { type: String, required: true, match: /^\d{3,5}$/ },
+    originalPrice: { type: Number, required: true, min: 0 },
+    printingCharge: { type: Number, default: 0, min: 0 },
+    packingCharge: { type: Number, default: 0, min: 0 },
+    designCharge: { type: Number, default: 0, min: 0 },
+    notes: { type: String, default: "" },
+    isDeleted: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const ItemsSchema = new mongoose.Schema(
   {
     Item_uuid: { type: String },
@@ -55,6 +71,7 @@ const ItemsSchema = new mongoose.Schema(
     description: { type: String, default: "" },
     bom: { type: [bomComponentschema], default: [] },
     isActive: { type: Boolean, default: true },
+    weddingCardVariants: { type: [weddingCardVariantSchema], default: [] },
   },
   { timestamps: true }
 );

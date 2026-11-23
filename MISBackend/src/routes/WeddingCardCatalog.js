@@ -188,6 +188,78 @@ router.patch("/bulk", requireAdminOrOwner, async (req, res) => {
   } catch (err) { return handleError(res, err, "Wedding Card bulk edit failed"); }
 });
 
+// Excel-like bulk grid: each selected SKU has independent changes, submitted
+// in ONE request. Validate every target and field before mutating/saving once.
+// "expected" prevents silently overwriting a stale on-screen price.
+router.patch("/bulk-rows", requireAdminOrOwner, async (req, res) => {
+  const requested = req.body?.rows;
+  if (!Array.isArray(requested) || requested.length < 1 || requested.length > 500) {
+    return res.status(400).json({ success: false, message: "Select 1-500 edited card rows" });
+  }
+  const permitted = new Set([...Object.keys(fieldLimits), "otherServiceName"]);
+  const ids = new Set();
+  for (const entry of requested) {
+    const brand = String(entry?.brand || "").toUpperCase();
+    const code = String(entry?.code || "");
+    const id = brand + ":" + code;
+    if (!isBrand(brand) || !isCode(code) || ids.has(id) ||
+        !entry.changes || typeof entry.changes !== "object" || Array.isArray(entry.changes) ||
+        !entry.expected || typeof entry.expected !== "object" || Array.isArray(entry.expected)) {
+      return res.status(400).json({ success: false, message: "Invalid or duplicate edited card rows" });
+    }
+    const keys = Object.keys(entry.changes);
+    if (!keys.length || keys.some(field => !permitted.has(field) ||
+      !Object.hasOwn(entry.expected, field)) ||
+      Object.keys(entry.expected).some(field => !keys.includes(field))) {
+      return res.status(400).json({ success: false, message: "Only supported changed fields with original values may be submitted" });
+    }
+    ids.add(id);
+  }
+  try {
+    const parent = await findWeddingCardParent();
+    if (!parent) return res.status(404).json({ success: false, message: "Wedding Card item not found" });
+    const planned = [];
+    for (const entry of requested) {
+      const brand = String(entry.brand).toUpperCase();
+      const row = findVariant(parent, brand, String(entry.code));
+      if (!row || row.isDeleted) {
+        return res.status(409).json({ success: false, message: "Card SK (" + brand + ") " + entry.code + " no longer exists. Refresh and retry." });
+      }
+      const updated = {};
+      for (const [field, incoming] of Object.entries(entry.changes)) {
+        if (field === "otherServiceName") {
+          if (typeof incoming !== "string" || incoming.length > 45) {
+            return res.status(400).json({ success: false, message: "Other service name must be under 46 characters" });
+          }
+          const previous = String(row.otherServiceName || "Other").trim();
+          if (previous !== String(entry.expected[field]).trim()) {
+            return res.status(409).json({ success: false, message: "SK (" + brand + ") " + entry.code + " changed since opening Bulk Edit. Refresh and retry." });
+          }
+          updated[field] = incoming.trim() || "Other";
+        } else {
+          if (invalidAmount(entry.changes, field, fieldLimits[field]) ||
+              invalidAmount(entry.expected, field, fieldLimits[field])) {
+            return res.status(400).json({ success: false, message: "Invalid " + field + " for card " + entry.code });
+          }
+          const previous = Number(row[field] ?? (field === "markupPercent" ? 10 : 0));
+          if (roundMoney(previous) !== roundMoney(Number(entry.expected[field]))) {
+            return res.status(409).json({ success: false, message: "SK (" + brand + ") " + entry.code + " prices changed since opening Bulk Edit. Refresh and retry." });
+          }
+          updated[field] = roundMoney(Number(incoming));
+        }
+      }
+      planned.push({ row, updated });
+    }
+    // One document save is one MongoDB write for all embedded Wedding Card SKUs.
+    planned.forEach(({ row, updated }) => row.set(updated));
+    await parent.save();
+    return res.json({ success: true, result: { updated: planned.length } });
+  } catch (err) {
+    logger.error({ err }, "Wedding Card spreadsheet bulk update failed");
+    return res.status(500).json({ success: false, message: "Bulk update failed; please refresh prices before retrying" });
+  }
+});
+
 router.put("/:brand/:code", requireAdminOrOwner, async (req, res) => {
   const brand = String(req.params.brand || "").toUpperCase();
   const code = req.params.code;

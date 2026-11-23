@@ -193,7 +193,13 @@ export default function RateCalculator() {
           )}
           {active && (
             <Paper variant="outlined" sx={{ mt: 1.5, p: 1.5, borderRadius: 2 }}>
-              <Typography variant="caption" color="text.secondary">{toLabel(active)}</Typography>
+              <Stack direction="row" alignItems="center" gap={1}>
+                {active.type === 'wedding' && active.imageUrl && (
+                  <Box component="img" src={active.imageUrl} alt="Wedding Card preview"
+                    sx={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 1 }} />
+                )}
+                <Typography variant="caption" color="text.secondary">{toLabel(active)}</Typography>
+              </Stack>
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1}>
                 <Typography variant="h5" color="primary.main" fontWeight={900}>
                   {quoteBusy ? 'Calculating…' : !quantityValid ? 'Enter valid quantity' :

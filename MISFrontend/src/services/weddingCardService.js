@@ -11,6 +11,8 @@ export const updateWeddingCardRate = async (brand, code, data) =>
   unwrap(await axios.put(`${base}/${encodeURIComponent(brand)}/${encodeURIComponent(code)}`, data));
 export const bulkUpdateWeddingCardRates = async (codes, changes, mode = 'set') =>
   unwrap(await axios.patch(base + '/bulk', { codes, changes, mode }));
+export const bulkUpdateWeddingCardRows = async rows =>
+  unwrap(await axios.patch(base + '/bulk-rows', { rows }));
 export const deleteWeddingCardRate = async (brand, code) =>
   unwrap(await axios.delete(`${base}/${encodeURIComponent(brand)}/${encodeURIComponent(code)}`));
 export const uploadWeddingCardPhoto = async (brand, code, file) => {

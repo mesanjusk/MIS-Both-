@@ -10,10 +10,11 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded';
+import WeddingBulkSpreadsheetDialog from './WeddingBulkSpreadsheetDialog';
 import { useAuth } from '../../context/AuthContext';
 import {
   fetchWeddingCardRates, quoteWeddingCard, createWeddingCardRate,
-  updateWeddingCardRate, deleteWeddingCardRate, bulkUpdateWeddingCardRates,
+  updateWeddingCardRate, deleteWeddingCardRate,
   uploadWeddingCardPhoto, removeWeddingCardPhoto
 } from '../../services/weddingCardService';
 
@@ -23,12 +24,6 @@ const defaultForm = (brand = 'M') => ({
   printingCharge: '0', packingCharge: '0', designCharge: '0',
   nameLabelCharge: '0', otherCharge: '0', otherServiceName: 'Other', notes: ''
 });
-const bulkFields = [
-  ['originalPrice', 'Original price ₹'], ['markupPercent', 'Price increase %'],
-  ['discountPercent', 'Discount %'], ['printingCharge', 'Printing per 100 ₹'],
-  ['packingCharge', 'Packing per 100 ₹'], ['designCharge', 'Design once ₹'],
-  ['nameLabelCharge', 'Name Label per label ₹'], ['otherCharge', 'Other service per unit ₹']
-];
 const decimal = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const CODE_MAP = { '1':'N','2':'A','3':'G','4':'P','5':'U','6':'R','7':'C','8':'I','9':'T','0':'Y' };
 const encoded = (value) => String(value).replace(/[0-9]/g, digit => CODE_MAP[digit]);
@@ -56,8 +51,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
   const [perPage, setPerPage] = useState(25);
   const [selected, setSelected] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkMode, setBulkMode] = useState('set');
-  const [bulkChanges, setBulkChanges] = useState({});
+  const [bulkTargets, setBulkTargets] = useState([]);
   const [photoBusy, setPhotoBusy] = useState(false);
 
   const load = async () => {
@@ -167,22 +161,23 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
     const ids = visible.map(r => r.brand + ':' + r.code);
     setSelected(old => checked ? [...new Set([...old, ...ids])] : old.filter(id => !ids.includes(id)));
   };
-  const doBulk = async () => {
-    const values = Object.fromEntries(Object.entries(bulkChanges).filter(([, v]) => v !== ''));
-    if (!Object.keys(values).length) return setError('Select at least one pricing field');
-    if (Object.entries(values).some(([k,v]) => !Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > limits[k])) {
-      return setError('Invalid bulk adjustment');
-    }
-    setSaving(true);
-    try {
-      const ids = selectedRows.map(r => ({ brand: r.brand, code: r.code }));
-      const result = await bulkUpdateWeddingCardRates(ids, values, bulkMode);
-      setBulkOpen(false); setBulkChanges({}); setSelected([]); setQuote(null);
-      await load(); setError('');
-      setQuoteRevision(n => n + 1);
-      return result;
-    } catch (err) { setError(err.response?.data?.message || 'Bulk edit failed'); }
-    finally { setSaving(false); }
+  const openBulk = () => {
+    if (!selectedRows.length) return;
+    // Snapshot selected data once: in-progress spreadsheet edits are not
+    // reset when table filters, quote prices, or pagination change.
+    setBulkTargets(selectedRows.map(row => ({ ...row })));
+    setBulkOpen(true);
+    setError('');
+  };
+  const afterBulkSaved = async updatedCount => {
+    setBulkOpen(false);
+    setBulkTargets([]);
+    setSelected([]);
+    setQuote(null);
+    await load();
+    setQuoteRevision(n => n + 1);
+    setError('');
+    return updatedCount;
   };
   const uploadPhoto = async file => {
     if (!file || !editing) return;
@@ -230,7 +225,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
         {isSuperAdmin && (
           <Stack direction="row" gap={1}>
             <Button size="small" variant="outlined" disabled={selectedRows.length === 0}
-              onClick={() => { setBulkChanges({}); setBulkMode('set'); setBulkOpen(true); }}>
+              onClick={openBulk}>
               Bulk Edit ({selectedRows.length})
             </Button>
             <Button size="small" startIcon={<AddRoundedIcon />} variant="contained" onClick={openAdd}>Add Code</Button>
@@ -376,38 +371,11 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={bulkOpen} maxWidth="sm" fullWidth onClose={saving ? undefined : () => setBulkOpen(false)}>
-        <DialogTitle>Bulk Edit · {selectedRows.length} selected cards</DialogTitle>
-        <DialogContent>
-          {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
-          <Typography variant="caption" color="text.secondary">Only selected fields will change. Unselected charges remain untouched.</Typography>
-          <TextField select fullWidth size="small" sx={{ mt: 2 }} label="Operation" value={bulkMode}
-            onChange={e => setBulkMode(e.target.value)}>
-            <MenuItem value="set">Set field to this value</MenuItem>
-            <MenuItem value="add">Increase field by this amount / percentage points</MenuItem>
-          </TextField>
-          <Stack gap={1.3} sx={{ mt: 2 }}>
-            {bulkFields.map(([key, label]) => (
-              <Stack key={key} direction="row" alignItems="center" gap={1}>
-                <Checkbox checked={bulkChanges[key] !== undefined}
-                  onChange={e => setBulkChanges(old => {
-                    const next = { ...old };
-                    if (e.target.checked) next[key] = '0'; else delete next[key];
-                    return next;
-                  })} />
-                <TextField size="small" fullWidth label={label} type="number"
-                  disabled={bulkChanges[key] === undefined} value={bulkChanges[key] ?? ''}
-                  onChange={e => setBulkChanges(old => ({ ...old, [key]: e.target.value }))} />
-              </Stack>
-            ))}
-          </Stack>
-          <Alert severity="info" sx={{ mt: 2 }}>Updates {selectedRows.length} selected cards. Preview your values before applying. Deletions and card numbers are not affected.</Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button disabled={saving} onClick={() => setBulkOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={saving || !selectedRows.length} onClick={doBulk}>Apply to {selectedRows.length} cards</Button>
-        </DialogActions>
-      </Dialog>
+      <WeddingBulkSpreadsheetDialog
+        open={bulkOpen} rows={bulkTargets}
+        onClose={() => setBulkOpen(false)}
+        onSaved={afterBulkSaved}
+      />
     </Paper>
   );
 }

@@ -110,7 +110,7 @@ router.get("/GetItemList", async (_req, res) => {
     const allUsed = new Set([...usedFromOrders, ...usedFromTransactions]);
 
     const itemWithUsage = data.map((i) => ({
-      ...i.toObject(),
+      ...(({ weddingCardVariants, ...safe }) => safe)(i.toObject()),
       isUsed: allUsed.has(i.Item_name),
       bomCount: Array.isArray(i.bom) ? i.bom.length : 0,
     }));
@@ -125,7 +125,7 @@ router.get("/GetItemList", async (_req, res) => {
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const item = await Items.findById(id);
+    const item = await Items.findById(id).select('-weddingCardVariants');
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
@@ -138,19 +138,27 @@ router.get('/:id', async (req, res) => {
 
 router.put('/update/:id', async (req, res) => {
   const { id } = req.params;
+  const { weddingCardVariants: _protectedWeddingCardCatalogue, ...safeBody } = req.body || {};
   const payload = {
-    ...req.body,
+    ...safeBody,
     preferredVendorUuids: normalizeArray(req.body?.preferredVendorUuids),
     preferredUserGroups: normalizeArray(req.body?.preferredUserGroups),
     preferredUserNames: normalizeArray(req.body?.preferredUserNames),
     bom: normalizeBom(req.body?.bom),
   };
   try {
+    const existing = await Items.findById(id).select('Item_name weddingCardVariants').lean();
+    if (existing?.weddingCardVariants?.length && safeBody.Item_name &&
+        !/^wedding cards?$/i.test(String(safeBody.Item_name).trim())) {
+      return res.status(409).json({ success: false, message: 'Wedding Card parent name cannot change while designs exist' });
+    }
     const item = await Items.findByIdAndUpdate(id, payload, { new: true });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
-    res.json({ success: true, result: item });
+    const safeResult = item.toObject();
+    delete safeResult.weddingCardVariants;
+    res.json({ success: true, result: safeResult });
   } catch (error) {
     logger.error(error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -160,6 +168,10 @@ router.put('/update/:id', async (req, res) => {
 router.delete('/Delete/:itemId', async (req, res) => {
   const { itemId } = req.params;
   try {
+    const existing = await Items.findById(itemId).lean();
+    if (existing?.weddingCardVariants?.length) {
+      return res.status(409).json({ success: false, message: 'Manage Wedding Card designs in Rate Calculator rather than deleting the parent item' });
+    }
     const item = await Items.findByIdAndDelete(itemId);
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });

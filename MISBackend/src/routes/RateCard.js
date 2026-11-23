@@ -62,7 +62,7 @@ router.get("/", async (req, res) => {
   try {
     const filter = {};
     if (req.query.active === "true") filter.isActive = true;
-    const result = await RateCard.find(filter).sort({ category: 1, itemName: 1 }).lean();
+    const result = await RateCard.find(filter).select('-weddingCardVariants').sort({ category: 1, itemName: 1 }).lean();
     res.json({ success: true, result });
   } catch (err) {
     logger.error("Error fetching rate cards:", err);
@@ -73,7 +73,7 @@ router.get("/", async (req, res) => {
 // Get single rate card
 router.get("/:id", async (req, res) => {
   try {
-    const item = await RateCard.findOne({ rateCard_uuid: req.params.id }).lean();
+    const item = await RateCard.findOne({ rateCard_uuid: req.params.id }).select('-weddingCardVariants').lean();
     if (!item) return res.status(404).json({ success: false, message: "Rate card not found" });
     res.json({ success: true, result: item });
   } catch (err) {
@@ -126,7 +126,8 @@ router.put("/:id", async (req, res) => {
       { new: true }
     ).lean();
     if (!updated) return res.status(404).json({ success: false, message: "Rate card not found" });
-    res.json({ success: true, result: updated });
+    const { weddingCardVariants: _privateVariants, ...safeResult } = updated;
+    res.json({ success: true, result: safeResult });
   } catch (err) {
     logger.error("Error updating rate card:", err);
     res.status(500).json({ success: false, message: err.message || "Server error" });

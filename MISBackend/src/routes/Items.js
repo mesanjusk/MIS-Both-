@@ -151,7 +151,9 @@ router.put('/update/:id', async (req, res) => {
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
-    res.json({ success: true, result: item });
+    const safeResult = item.toObject();
+    delete safeResult.weddingCardVariants;
+    res.json({ success: true, result: safeResult });
   } catch (error) {
     logger.error(error);
     res.status(500).json({ success: false, message: 'Server error' });

@@ -1,20 +1,30 @@
-// Pricing for ONE Wedding Card design (variant of the existing Wedding Card Item).
-// Original supplier price is per card, print/pack charge is per 100 cards,
-// and design charge applies ONCE per quote line, not per card.
+// Wedding Card variants belong to the existing Wedding Card Item. Supplier cost
+// is per card, print/pack sell rates are per 100, and design is charged once.
 const DIGIT_CODE = Object.freeze({
   '1':'N','2':'A','3':'G','4':'P','5':'U','6':'R','7':'C','8':'I','9':'T','0':'Y',
 });
-const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-const encodePrice = (value) => String(value).replace(/[0-9]/g, digit => DIGIT_CODE[digit]);
+const roundMoney = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const encodePrice = value => String(value).replace(/[0-9]/g, digit => DIGIT_CODE[digit]);
 const validPercent = (percent, fallback = 0) =>
   Number.isFinite(Number(percent)) && percent !== '' && percent != null ? Number(percent) : fallback;
 const markUpPrice = (originalPrice, markupPercent = 10) =>
   roundMoney(Number(originalPrice) * (1 + validPercent(markupPercent, 10) / 100));
-const markUpTenPercent = (originalPrice) => markUpPrice(originalPrice, 10);
+const markUpTenPercent = originalPrice => markUpPrice(originalPrice, 10);
 
+const DEFAULT_SELECTED = Object.freeze({
+  card: true, design: true, printing: true, packing: true, nameLabel: false, other: false
+});
+const ROW_KEYS = Object.keys(DEFAULT_SELECTED);
+const safeQty = (input, fallback) => {
+  const n = Number(input ?? fallback);
+  return Number.isSafeInteger(n) && n >= 0 && n <= 1000000 ? n : NaN;
+};
+
+// All totals are computed on the server. The browser may choose checkboxes and
+// quantities but cannot override supplier cost or charge/rate definitions.
 const calculateWeddingQuote = (record, quantity, overrides = {}) => {
   const qty = Number(quantity);
-  if (!Number.isInteger(qty) || qty <= 0 || qty > 10000000) {
+  if (!Number.isSafeInteger(qty) || qty <= 0 || qty > 1000000) {
     return { error: 'Quantity must be a positive whole number' };
   }
   const markupPercent = overrides.markupPercent ?? record.markupPercent ?? 10;
@@ -24,31 +34,66 @@ const calculateWeddingQuote = (record, quantity, overrides = {}) => {
       Number(discountPercent) < 0 || Number(discountPercent) > 100) {
     return { error: 'Invalid markup or discount percentage' };
   }
+  const nameLabelQty = safeQty(overrides.nameLabelQty, qty);
+  const otherQty = safeQty(overrides.otherQty, 1);
+  const deliveryDays = overrides.deliveryDays == null || overrides.deliveryDays === ''
+    ? null : safeQty(overrides.deliveryDays, 0);
+  if (![nameLabelQty, otherQty].every(Number.isFinite) ||
+      (deliveryDays != null && (!Number.isFinite(deliveryDays) || deliveryDays > 3650))) {
+    return { error: 'Invalid service quantity or delivery days' };
+  }
+  const selected = { ...DEFAULT_SELECTED };
+  if (overrides.selected != null) {
+    if (!overrides.selected || typeof overrides.selected !== 'object' ||
+        Array.isArray(overrides.selected) ||
+        Object.entries(overrides.selected).some(([key,value]) =>
+          !ROW_KEYS.includes(key) || typeof value !== 'boolean')) {
+      return { error: 'Invalid selected services' };
+    }
+    Object.assign(selected, overrides.selected);
+  }
+
   const originalPrice = Number(record.originalPrice) || 0;
   const markedUpUnitPrice = markUpPrice(originalPrice, markupPercent);
   const discountedUnitPrice = roundMoney(markedUpUnitPrice * (1 - Number(discountPercent) / 100));
-  const baseAmount = roundMoney(discountedUnitPrice * qty);
-  // Proportionally bill batches: 150 pieces = 1.5 x the per-100 rate.
-  const printingTotal = roundMoney((Number(record.printingCharge) || 0) * qty / 100);
-  const packingTotal = roundMoney((Number(record.packingCharge) || 0) * qty / 100);
-  const designTotal = roundMoney(Number(record.designCharge) || 0);
-  const amount = roundMoney(baseAmount + printingTotal + packingTotal + designTotal);
+  const printQty = qty / 100;
+  const lineInputs = [
+    ['card', 'Card rate', qty, discountedUnitPrice, 'per card'],
+    ['design', 'Designing', 1, Number(record.designCharge) || 0, 'one time'],
+    ['printing', 'Printing', printQty, Number(record.printingCharge) || 0, 'per 100'],
+    ['packing', 'Packing', printQty, Number(record.packingCharge) || 0, 'per 100'],
+    ['nameLabel', 'Name Label', nameLabelQty, Number(record.nameLabelCharge) || 0, 'per label'],
+    ['other', String(record.otherServiceName || 'Other').slice(0, 45), otherQty,
+      Number(record.otherCharge) || 0, 'per unit'],
+  ];
+  const lines = lineInputs.map(([key, label, rowQty, rate, unit]) => ({
+    key, label, selected: selected[key], qty: rowQty, rate, unit,
+    total: selected[key] ? roundMoney(rowQty * rate) : 0,
+  }));
+  const line = key => lines.find(item => item.key === key).total;
+  const baseAmount = line('card');
+  const printingTotal = line('printing');
+  const packingTotal = line('packing');
+  const designTotal = line('design');
+  const nameLabelTotal = line('nameLabel');
+  const otherTotal = line('other');
+  const amount = roundMoney(lines.reduce((sum, item) => sum + item.total, 0));
   return {
-    qty, markupPercent: Number(markupPercent), discountPercent: Number(discountPercent),
+    qty, selected, nameLabelQty, otherQty, deliveryDays, lines,
+    markupPercent: Number(markupPercent), discountPercent: Number(discountPercent),
     markedUpUnitPrice, discountedUnitPrice, baseAmount,
-    printingTotal, packingTotal, designTotal, amount,
-    effectiveUnitPrice: roundMoney(amount / qty)
+    printingTotal, packingTotal, designTotal, nameLabelTotal, otherTotal, amount,
+    effectiveUnitPrice: roundMoney(amount / qty),
   };
 };
 
-// Administrative recovery estimate: treats original supplier rate plus entered
-// printing, packing and design charges as costs. Real break-even also depends
-// on any additional overhead/taxes not recorded in the Wedding Card catalogue.
+// Break-even is an estimate from the known supplier and production amounts.
+// Name-label and Other are sell prices only; their unknown costs are excluded.
 const calculateWeddingBreakdown = (record, quantity, overrides = {}) => {
   const quote = calculateWeddingQuote(record, quantity, overrides);
   if (quote.error) return quote;
   const supplierUnitPrice = Number(record.originalPrice) || 0;
-  const supplierTotal = roundMoney(supplierUnitPrice * quote.qty);
+  const supplierTotal = quote.selected.card ? roundMoney(supplierUnitPrice * quote.qty) : 0;
   const estimatedRecoveryTotal = roundMoney(
     supplierTotal + quote.printingTotal + quote.packingTotal + quote.designTotal
   );
@@ -59,24 +104,20 @@ const calculateWeddingBreakdown = (record, quantity, overrides = {}) => {
     printingRatePer100: Number(record.printingCharge) || 0,
     packingRatePer100: Number(record.packingCharge) || 0,
     designChargeOnce: Number(record.designCharge) || 0,
-    markupPercent: quote.markupPercent,
-    discountPercent: quote.discountPercent,
+    markupPercent: quote.markupPercent, discountPercent: quote.discountPercent,
     markedUpUnitPrice: quote.markedUpUnitPrice,
     discountedUnitPrice: quote.discountedUnitPrice,
     cardSellingTotal: quote.baseAmount,
-    printingTotal: quote.printingTotal,
-    packingTotal: quote.packingTotal,
-    designTotal: quote.designTotal,
-    amount: quote.amount,
-    effectiveSellingUnit: quote.effectiveUnitPrice,
-    estimatedRecoveryTotal,
-    estimatedBreakEvenUnit,
-    estimatedContribution,
-    basis: 'Estimate assumes supplier rate and the entered charges are actual costs; other overhead and taxes are excluded',
+    printingTotal: quote.printingTotal, packingTotal: quote.packingTotal,
+    designTotal: quote.designTotal, nameLabelTotal: quote.nameLabelTotal,
+    otherTotal: quote.otherTotal, amount: quote.amount,
+    effectiveSellingUnit: quote.effectiveUnitPrice, estimatedRecoveryTotal,
+    estimatedBreakEvenUnit, estimatedContribution,
+    basis: 'Estimate only: unknown Name Label/Other costs, overhead and taxes excluded',
   };
 };
 
-const withCalculatedPrices = (record) => {
+const withCalculatedPrices = record => {
   const result = calculateWeddingQuote(record, 100);
   const updatedPrice = markUpPrice(record.originalPrice, record.markupPercent ?? 10);
   return {
@@ -87,12 +128,11 @@ const withCalculatedPrices = (record) => {
     codedPrice: encodePrice(record.originalPrice),
     updatedPrice,
     discountedUnitPrice: result.discountedUnitPrice,
-    // A per-unit figure without one-time design/setup costs.
     finalRate: result.discountedUnitPrice,
     hundredTotal: result.amount,
   };
 };
 module.exports = {
   roundMoney, encodePrice, markUpPrice, markUpTenPercent,
-  calculateWeddingQuote, calculateWeddingBreakdown, withCalculatedPrices,
+  DEFAULT_SELECTED, calculateWeddingQuote, calculateWeddingBreakdown, withCalculatedPrices,
 };

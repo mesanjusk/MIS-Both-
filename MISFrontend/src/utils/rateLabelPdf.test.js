@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLabelLayout, buildRateLabelPdf } from './rateLabelPdf';
+import { getLabelLayout, buildRateLabelPdf, isWeddingJobLayoutLegible } from './rateLabelPdf';
 
 describe('printable label PDF grids', () => {
   it('starts with the previously used 3 column x 7 row A4 format', () => {
@@ -39,5 +39,32 @@ describe('printable label PDF grids', () => {
     });
     expect(pdf.internal.getNumberOfPages()).toBe(1);
     expect(() => buildRateLabelPdf({ item: { type: 'other', price: 10 }, count: 5001 })).toThrow();
+  });
+});
+
+describe('reference-style Wedding Card job slips', () => {
+  const lines = [
+    { key: 'card', label: 'Card rate', selected: true, qty: 300, rate: 13.86, total: 4158 },
+    { key: 'design', label: 'Designing', selected: true, qty: 1, rate: 200, total: 200 },
+    { key: 'printing', label: 'Printing', selected: true, qty: 3, rate: 300, total: 900 },
+    { key: 'packing', label: 'Packing', selected: true, qty: 3, rate: 100, total: 300 },
+    { key: 'nameLabel', label: 'Name Label', selected: false, qty: 300, rate: 2.5, total: 0 },
+    { key: 'other', label: 'Foil Finish', selected: false, qty: 1, rate: 75, total: 0 },
+  ];
+  const item = {
+    type: 'job', brand: 'K', code: '1022', codedPrice: 'NA.R',
+    price: 5558, grandTotal: 5558, deliveryDays: 5, lines,
+  };
+  it('renders same six service rows in 2x5 A4 portrait slips', () => {
+    const geometry = getLabelLayout({ columns: 2, rows: 5 });
+    expect(isWeddingJobLayoutLegible(geometry)).toBe(true);
+    const pdf = buildRateLabelPdf({ item, columns: 2, rows: 5, count: 11 });
+    expect(pdf.internal.getNumberOfPages()).toBe(2);
+    expect(pdf.output('arraybuffer').byteLength).toBeGreaterThan(1000);
+  });
+  it('does not permit illegibly small detailed slips', () => {
+    const geometry = getLabelLayout({ columns: 3, rows: 7 });
+    expect(isWeddingJobLayoutLegible(geometry)).toBe(false);
+    expect(() => buildRateLabelPdf({ item, columns: 3, rows: 7, count: 21 })).toThrow();
   });
 });

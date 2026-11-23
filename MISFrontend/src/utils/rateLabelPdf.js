@@ -98,8 +98,104 @@ function drawGeneralLabel(pdf, x, y, width, height, item) {
   pdf.text(titlePrice, x + width / 2, y + height - 3.4, { align: 'center' });
 }
 
+// The six-line job slip in the supplied reference needs more space than a
+// simple price tag. Preserve each selected/unchecked box and every line total.
+export function isWeddingJobLayoutLegible(layout) {
+  return Boolean(layout && layout.labelWidth >= 78 && layout.labelHeight >= 47);
+}
+
+const compactAmount = value => {
+  const amount = Number(value) || 0;
+  return 'Rs.' + (Number.isInteger(amount) ? String(amount) : amount.toFixed(2));
+};
+const quantityText = qty => Number.isInteger(Number(qty))
+  ? String(qty) : Number(qty).toFixed(2);
+
+function drawWeddingJobLabel(pdf, x, y, width, height, item) {
+  const pad = 2.5;
+  pdf.setDrawColor(80, 80, 80);
+  pdf.setFillColor(255, 255, 255);
+  pdf.setTextColor(35, 35, 35);
+  pdf.setLineWidth(0.22);
+  pdf.rect(x, y, width, height, 'S');
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(Math.min(10.5, width / 8.8));
+  pdf.text('SK(' + clean(item.brand) + ')  ' + clean(item.code), x + pad, y + 7.5);
+  if (item.codedPrice) {
+    pdf.setFontSize(8.2);
+    pdf.text(clean(item.codedPrice), x + width - pad, y + 7.5, { align: 'right' });
+  }
+  pdf.line(x + pad, y + 9.5, x + width - pad, y + 9.5);
+  const rows = Array.isArray(item.lines) ? item.lines : [];
+  const defaults = ['card', 'design', 'printing', 'packing', 'nameLabel', 'other'];
+  const titles = {
+    card: 'CARD RATE', design: 'DESIGNING', printing: 'PRINTING',
+    packing: 'PACKING', nameLabel: 'NAME LABEL', other: 'OTHER'
+  };
+  const top = y + 11.1;
+  const footerRule = y + height - 9.1;
+  const lineHeight = (footerRule - top) / 6;
+  // Fixed proportional columns match the sample: Checkbox/Service, Qty, Rate, Total.
+  const qtyX = x + width * 0.51;
+  const rateX = x + width * 0.76;
+  const totalX = x + width - pad;
+  defaults.forEach((key, index) => {
+    const row = rows.find(value => value.key === key) || {
+      selected: false, qty: 0, rate: 0, total: 0, label: titles[key]
+    };
+    const baseline = top + lineHeight * index + lineHeight * .66;
+    const square = Math.min(2.7, lineHeight * .60);
+    const left = x + pad;
+    pdf.setLineWidth(0.20);
+    pdf.rect(left, baseline - square + .45, square, square, 'S');
+    if (row.selected) {
+      pdf.setLineWidth(0.28);
+      pdf.line(left + .55, baseline - .35, left + square * .43, baseline + .16);
+      pdf.line(left + square * .43, baseline + .16, left + square - .45, baseline - square + .96);
+    }
+    const title = key === 'other'
+      ? clean(row.label || 'Other').toUpperCase().slice(0, 24)
+      : titles[key];
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.1);
+    const maxLabel = qtyX - (left + 4.1) - 1;
+    const labelWidth = Math.max(1, pdf.getTextWidth(title));
+    pdf.setFontSize(Math.max(5.4, Math.min(7.1, 7.1 * maxLabel / labelWidth)));
+    pdf.text(title, left + 4.1, baseline);
+    pdf.setFontSize(6.4);
+    pdf.text(quantityText(row.qty), qtyX, baseline, { align: 'center' });
+    const rate = compactAmount(row.rate);
+    const rowTotal = row.selected ? compactAmount(row.total) : '--';
+    const rateMax = rateX - qtyX - 5;
+    const rateWidth = Math.max(1, pdf.getTextWidth(rate));
+    pdf.setFontSize(Math.max(5, Math.min(6.4, 6.4 * rateMax / rateWidth)));
+    pdf.text(rate, rateX, baseline, { align: 'right' });
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(6.8);
+    const lastWidth = Math.max(1, pdf.getTextWidth(rowTotal));
+    const lastMax = totalX - rateX - 1.5;
+    pdf.setFontSize(Math.max(4.8, Math.min(6.8, 6.8 * lastMax / lastWidth)));
+    pdf.text(rowTotal, totalX, baseline, { align: 'right' });
+  });
+  pdf.setLineWidth(.25);
+  pdf.line(x + pad, footerRule, x + width - pad, footerRule);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7.1);
+  const days = item.deliveryDays == null || item.deliveryDays === ''
+    ? '____' : String(item.deliveryDays);
+  pdf.text('Delivery ' + days + ' days', x + pad, y + height - 3.25);
+  const grand = 'Grand Total ' + compactAmount(item.grandTotal);
+  const grandMax = width * .55;
+  const grandWidth = Math.max(1, pdf.getTextWidth(grand));
+  pdf.setFontSize(Math.max(5.4, Math.min(7.1, 7.1 * grandMax / grandWidth)));
+  pdf.text(grand, x + width - pad, y + height - 3.25, { align: 'right' });
+}
+
 export function buildRateLabelPdf({ item, columns = 3, rows = 7, orientation = 'portrait', count = 21 }) {
   const geometry = getLabelLayout({ columns, rows, orientation });
+  if (item?.type === 'job' && !isWeddingJobLayoutLegible(geometry)) {
+    throw new Error('Itemized job slips need at least 78 x 47 mm. Reduce rows/columns.');
+  }
   const repeats = Number(count);
   if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 5000) {
     throw new Error('Choose between 1 and 5,000 labels.');
@@ -117,7 +213,8 @@ export function buildRateLabelPdf({ item, columns = 3, rows = 7, orientation = '
     const row = Math.floor(local / geometry.columns);
     const x = geometry.margin + col * (geometry.labelWidth + geometry.gutter);
     const y = geometry.margin + row * (geometry.labelHeight + geometry.gutter);
-    if (item.type === 'wedding') drawWeddingLabel(pdf, x, y, geometry.labelWidth, geometry.labelHeight, item);
+    if (item.type === 'job') drawWeddingJobLabel(pdf, x, y, geometry.labelWidth, geometry.labelHeight, item);
+    else if (item.type === 'wedding') drawWeddingLabel(pdf, x, y, geometry.labelWidth, geometry.labelHeight, item);
     else drawGeneralLabel(pdf, x, y, geometry.labelWidth, geometry.labelHeight, item);
   }
   return pdf;
@@ -126,7 +223,7 @@ export function buildRateLabelPdf({ item, columns = 3, rows = 7, orientation = '
 export function downloadRateLabelPdf(options) {
   const pdf = buildRateLabelPdf(options);
   const item = options.item || {};
-  const labelName = item.type === 'wedding'
+  const labelName = (item.type === 'wedding' || item.type === 'job')
     ? 'SK_' + clean(item.brand) + '_' + clean(item.code)
     : 'SK_' + clean(item.name).replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 42);
   pdf.save(labelName + '_A4_' + options.columns + 'x' + options.rows + '_labels.pdf');

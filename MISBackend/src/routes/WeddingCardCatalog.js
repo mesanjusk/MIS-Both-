@@ -16,6 +16,7 @@ const isCode = (value) => /^\d{3,5}$/.test(String(value ?? ""));
 const fieldLimits = {
   originalPrice: 10000000, printingCharge: 10000000,
   packingCharge: 10000000, designCharge: 10000000,
+  nameLabelCharge: 10000000, otherCharge: 10000000,
   markupPercent: 1000, discountPercent: 100,
 };
 const findVariant = (parent, brand, code) =>
@@ -38,6 +39,9 @@ const normalizeChanges = (body = {}, existing = {}, { optional = false } = {}) =
     changes[name] = roundMoney(Number(body[name]));
   }
   if ("notes" in body && !optional) changes.notes = String(body.notes || "").slice(0, 500);
+  if ("otherServiceName" in body && !optional) {
+    changes.otherServiceName = String(body.otherServiceName || "Other").trim().slice(0, 45) || "Other";
+  }
   return changes;
 };
 const summary = (row) => ({
@@ -87,6 +91,22 @@ router.get("/quote", async (req, res) => {
     }
     overrides[field] = Number(req.query[field]);
   }
+  // Comma-delimited selected rows (including an empty set) come from the
+  // checklist; the server calculates all rates from stored variant fields.
+  if (req.query.selected != null) {
+    if (typeof req.query.selected !== "string") {
+      return res.status(400).json({ success: false, message: "Invalid service selections" });
+    }
+    const allowed = ["card", "design", "printing", "packing", "nameLabel", "other"];
+    const chosen = req.query.selected ? req.query.selected.split(",") : [];
+    if (new Set(chosen).size !== chosen.length || chosen.some(key => !allowed.includes(key))) {
+      return res.status(400).json({ success: false, message: "Invalid service selections" });
+    }
+    overrides.selected = Object.fromEntries(allowed.map(key => [key, chosen.includes(key)]));
+  }
+  for (const key of ["nameLabelQty", "otherQty", "deliveryDays"]) {
+    if (req.query[key] != null) overrides[key] = req.query[key];
+  }
   try {
     const parent = await findWeddingCardParent();
     const row = findVariant(parent, brand, code);
@@ -99,7 +119,12 @@ router.get("/quote", async (req, res) => {
     } : {};
     return res.json({
       success: true,
-      result: { ...summary(row), qty, amount: calculated.amount, unit: "Nos", ...extra },
+      result: {
+        ...summary(row), qty, amount: calculated.amount, unit: "Nos",
+        lines: calculated.lines, selected: calculated.selected,
+        deliveryDays: calculated.deliveryDays, nameLabelQty: calculated.nameLabelQty,
+        otherQty: calculated.otherQty, ...extra,
+      },
     });
   } catch (err) {
     return handleError(res, err, "Wedding Card quote failed");

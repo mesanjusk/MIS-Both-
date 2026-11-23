@@ -19,10 +19,15 @@ import { fetchRateCards } from '../services/rateCardService';
 import { fetchWeddingCardRates, quoteWeddingCard } from '../services/weddingCardService';
 import WeddingCardCatalog from '../Components/rates/WeddingCardCatalog';
 import RateLabelDialog from '../Components/rates/RateLabelDialog';
+import WeddingServiceChecklist from '../Components/rates/WeddingServiceChecklist';
 import { computeRateCardAmount, computeGst } from '../utils/rateCardPricing';
 
 const money = (n) => '₹' + (Number(n) || 0).toFixed(2);
 const roundMoney = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const DEFAULT_SERVICE_PREFS = Object.freeze({
+  selected: { card: true, design: true, printing: true, packing: true, nameLabel: false, other: false },
+  nameLabelQty: '', otherQty: '1', deliveryDays: ''
+});
 const idFor = row => row.type === 'wedding'
   ? 'wedding:' + row.brand + ':' + row.code
   : 'other:' + row.rateCard_uuid;
@@ -47,6 +52,7 @@ export default function RateCalculator() {
   const [quoteError, setQuoteError] = useState('');
   const [manageOpen, setManageOpen] = useState(false);
   const [labelDialogOpen, setLabelDialogOpen] = useState(false);
+  const [servicePreferences, setServicePreferences] = useState({});
   const [lines, setLines] = useState([]);
 
   const printRef = useRef(null);
@@ -93,6 +99,17 @@ export default function RateCalculator() {
   const active = matches.find(row => idFor(row) === selectedKey) || matches[0] || null;
   const count = Number(qty);
   const quantityValid = Number.isSafeInteger(count) && count > 0 && count <= 1000000;
+  const serviceKey = active?.type === 'wedding' ? active.brand + ':' + active.code : '';
+  const prefs = servicePreferences[serviceKey] || DEFAULT_SERVICE_PREFS;
+  const selectedServices = Object.keys(DEFAULT_SERVICE_PREFS.selected)
+    .filter(key => prefs.selected[key]).join(',');
+  const updateServicePref = changes => {
+    if (!serviceKey) return;
+    setServicePreferences(previous => ({
+      ...previous,
+      [serviceKey]: { ...(previous[serviceKey] || DEFAULT_SERVICE_PREFS), ...changes }
+    }));
+  };
 
   useEffect(() => {
     if (!active || active.type !== 'wedding' || !quantityValid) {
@@ -101,14 +118,22 @@ export default function RateCalculator() {
     let cancelled = false;
     setQuoteBusy(true); setQuoteError(''); setWeddingQuote(null);
     const timer = setTimeout(() => {
-      quoteWeddingCard(active.brand, active.code, count).then(value => {
+      quoteWeddingCard(active.brand, active.code, count, {
+        selected: selectedServices,
+        nameLabelQty: prefs.nameLabelQty === '' ? count : prefs.nameLabelQty,
+        otherQty: prefs.otherQty,
+        deliveryDays: prefs.deliveryDays
+      }).then(value => {
         if (!cancelled) { setWeddingQuote(value); setQuoteError(''); }
       }).catch(err => {
         if (!cancelled) { setWeddingQuote(null); setQuoteError(err.response?.data?.message || 'Could not calculate price'); }
       }).finally(() => { if (!cancelled) setQuoteBusy(false); });
     }, 200);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active?.brand, active?.code, active?.type, count, quantityValid, quoteRevision]);
+  }, [
+    active?.brand, active?.code, active?.type, count, quantityValid, quoteRevision,
+    selectedServices, prefs.nameLabelQty, prefs.otherQty, prefs.deliveryDays
+  ]);
 
   const otherPreview = useMemo(() => {
     if (!active || active.type !== 'other' || !quantityValid) return null;
@@ -204,74 +229,37 @@ export default function RateCalculator() {
                 )}
                 <Typography variant="caption" color="text.secondary">{toLabel(active)}</Typography>
               </Stack>
-              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1}>
+              {active.type === 'wedding' && (
+                <WeddingServiceChecklist
+                  brand={active.brand} code={active.code}
+                  quote={weddingQuote} qty={count} selected={prefs.selected}
+                  nameLabelQty={prefs.nameLabelQty === '' ? qty : prefs.nameLabelQty}
+                  otherQty={prefs.otherQty} deliveryDays={prefs.deliveryDays}
+                  isAdmin={isSuperAdmin} loading={quoteBusy}
+                  onToggle={(key, enabled) => updateServicePref({
+                    selected: { ...prefs.selected, [key]: enabled }
+                  })}
+                  onNameLabelQty={value => updateServicePref({ nameLabelQty: value })}
+                  onOtherQty={value => updateServicePref({ otherQty: value })}
+                  onDeliveryDays={value => updateServicePref({ deliveryDays: value })}
+                />
+              )}
+              {active.type !== 'wedding' && (
                 <Typography variant="h5" color="primary.main" fontWeight={900}>
                   {quoteBusy ? 'Calculating…' : !quantityValid ? 'Enter valid quantity' :
                     calculatedError ? 'Price unavailable' :
                     finalAmount == null ? 'Enter dimensions / quantity' : money(finalAmount)}
                 </Typography>
-                <Stack direction="row" gap={1} flexWrap="wrap">
-                  <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
-                    onClick={addLine}>Add to Quote</Button>
-                  <Button variant="outlined" startIcon={<DownloadRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
-                    onClick={() => setLabelDialogOpen(true)}>Print Labels PDF</Button>
-                </Stack>
-              </Stack>
+              )}
               {calculatedError && <Alert severity="warning" sx={{ mt: 1 }}>{calculatedError}</Alert>}
-              {isSuperAdmin && active.type === 'wedding' && weddingQuote?.breakdown && (
-                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-                  <Typography variant="subtitle2" fontWeight={900} sx={{ mb: 1 }}>
-                    Cost & break-even estimate · {count} cards
-                  </Typography>
-                  <Table size="small" sx={{ '& td': { py: 0.5 } }}>
-                    <TableBody>
-                      {[
-                        ['Supplier card price / card', money(weddingQuote.breakdown.supplierUnitPrice)],
-                        ['Internal NAGPURCITY code', weddingQuote.codedPrice || '—'],
-                        ['Price increase', weddingQuote.breakdown.markupPercent + '%'],
-                        ['Selling card rate before discount', money(weddingQuote.breakdown.markedUpUnitPrice)],
-                        ['Discount', weddingQuote.breakdown.discountPercent + '%'],
-                        ['Selling card rate after discount', money(weddingQuote.breakdown.discountedUnitPrice)],
-                        ['Card subtotal × ' + count, money(weddingQuote.breakdown.cardSellingTotal)],
-                        ['Printing rate / 100 cards', money(weddingQuote.breakdown.printingRatePer100)],
-                        ['Printing for ' + count, money(weddingQuote.breakdown.printingTotal)],
-                        ['Packing rate / 100 cards', money(weddingQuote.breakdown.packingRatePer100)],
-                        ['Packing for ' + count, money(weddingQuote.breakdown.packingTotal)],
-                        ['Design charge (once)', money(weddingQuote.breakdown.designTotal)],
-                        ['Estimated break-even / card', money(weddingQuote.breakdown.estimatedBreakEvenUnit)],
-                        ['Estimated total break-even', money(weddingQuote.breakdown.estimatedRecoveryTotal)],
-                        ['Estimated contribution before other overhead', money(weddingQuote.breakdown.estimatedContribution)],
-                      ].map(([label, value]) => (
-                        <TableRow key={label}>
-                          <TableCell sx={{ color: 'text.secondary', width: '63%' }}>{label}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700 }}>{value}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  <Typography variant="caption" color="text.secondary">
-                    Break-even is an estimate assuming supplier rate and entered printing, packing and design
-                    charges are actual costs. Unrecorded overhead and taxes are excluded.
-                  </Typography>
-                </Box>
-              )}
-              {isSuperAdmin && active.type === 'other' && (
-                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-                  <Typography variant="subtitle2" fontWeight={800}>Item pricing details</Typography>
-                  <Typography variant="body2">
-                    {active.pricingType === 'per_sqft'
-                      ? 'Area-based rate: ' + money(active.ratePerSqft) + '/sq.ft' + 
-                        (otherPreview?.preview?.sqft ? ' · ' + otherPreview.preview.sqft.toFixed(2) + ' sq.ft' : '')
-                      : active.pricingType === 'per_piece'
-                        ? 'Rate per item: ' + money(active.ratePerPiece)
-                        : 'Slab-based rate (quantity ' + count + ')'}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Break-even is not available for this category because supplier and production costs
-                    have not been defined in its Rate Card.
-                  </Typography>
-                </Box>
-              )}
+              <Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: 1.5 }}>
+                <Button variant="contained" startIcon={<AddRoundedIcon />}
+                  disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
+                  onClick={addLine}>Add to Quote</Button>
+                <Button variant="outlined" startIcon={<DownloadRoundedIcon />}
+                  disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
+                  onClick={() => setLabelDialogOpen(true)}>Print Labels PDF</Button>
+              </Stack>
             </Paper>
           )}
           {!loading && search.trim() && matches.length === 0 &&

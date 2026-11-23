@@ -98,3 +98,58 @@ describe('admin break-even estimate for Wedding Cards', () => {
     expect(calculateWeddingBreakdown(costs, -1).error).toBeTruthy();
   });
 });
+
+describe('Wedding Card checkbox quote and optional Name Label / Other', () => {
+  const { calculateWeddingQuote, calculateWeddingBreakdown } = require('../../src/utils/weddingCardPricing');
+  const product = {
+    originalPrice: 12.60, markupPercent: 10, discountPercent: 0,
+    printingCharge: 300, packingCharge: 100, designCharge: 200,
+    nameLabelCharge: 2.50, otherCharge: 75, otherServiceName: 'Foil Finish'
+  };
+
+  test('reference layout defaults to card, design, print, packing only', () => {
+    const q = calculateWeddingQuote(product, 300);
+    expect(q.lines.map(x => x.key)).toEqual([
+      'card', 'design', 'printing', 'packing', 'nameLabel', 'other'
+    ]);
+    expect(q.lines.map(x => x.selected)).toEqual([true, true, true, true, false, false]);
+    expect(q.lines.map(x => x.qty)).toEqual([300, 1, 3, 3, 300, 1]);
+    expect(q).toMatchObject({ baseAmount: 4158, printingTotal: 900,
+      packingTotal: 300, designTotal: 200, nameLabelTotal: 0,
+      otherTotal: 0, amount: 5558 });
+  });
+
+  test('Name Label per label and Other per unit become selected line items', () => {
+    const q = calculateWeddingQuote(product, 300, {
+      selected: { nameLabel: true, other: true },
+      nameLabelQty: 200, otherQty: 2, deliveryDays: 5
+    });
+    expect(q).toMatchObject({ nameLabelTotal: 500, otherTotal: 150,
+      deliveryDays: 5, amount: 6208 });
+    expect(q.lines.find(x => x.key === 'other')).toMatchObject({
+      label: 'Foil Finish', qty: 2, rate: 75, total: 150
+    });
+  });
+
+  test('unchecking design and print removes both from grand total', () => {
+    const q = calculateWeddingQuote(product, 300, {
+      selected: { design: false, printing: false }
+    });
+    expect(q.designTotal).toBe(0);
+    expect(q.printingTotal).toBe(0);
+    expect(q.amount).toBe(4458);
+  });
+
+  test('checking optional services does not pretend their sale prices are verified costs', () => {
+    const b = calculateWeddingBreakdown(product, 300, { selected: { nameLabel: true, other: true } });
+    expect(b.basis).toMatch(/unknown Name Label\/Other costs/);
+    expect(b.estimatedRecoveryTotal).toBe(5180);
+  });
+
+  test('rejects unknown selections and invalid additional service counts', () => {
+    expect(calculateWeddingQuote(product, 300, { selected: { malicious: true } }).error).toBeTruthy();
+    expect(calculateWeddingQuote(product, 300, { otherQty: -2 }).error).toBeTruthy();
+    expect(calculateWeddingQuote(product, 300, { nameLabelQty: 1.5 }).error).toBeTruthy();
+    expect(calculateWeddingQuote(product, 300, { deliveryDays: 99999 }).error).toBeTruthy();
+  });
+});

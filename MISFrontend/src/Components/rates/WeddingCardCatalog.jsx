@@ -214,6 +214,9 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
     (1 - Number(form.discountPercent || 0) / 100));
   const example100 = decimal(unit * 100 + Number(form.printingCharge || 0) +
     Number(form.packingCharge || 0) + Number(form.designCharge || 0));
+  const estimatedBreakEven100 = decimal((Number(form.originalPrice || 0) * 100 +
+    Number(form.printingCharge || 0) + Number(form.packingCharge || 0) +
+    Number(form.designCharge || 0)) / 100);
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1, sm: 1.5 }, mb: 2, borderRadius: 3 }}>
@@ -337,6 +340,9 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
               <Typography variant="caption">Internal coded supplier rate: {encoded(form.originalPrice || 0)}</Typography>
               <Typography variant="body2">Example quote for 100 cards: <strong>{money(example100)}</strong></Typography>
+              <Typography variant="caption" color="text.secondary">
+                Estimated break-even / card (100-card order): {money(estimatedBreakEven100)}
+              </Typography>
               <Typography variant="caption" color="text.secondary">Design once, printing/packing per 100, Name Label per piece, Other per unit. Name Label and Other are optional rows in the quote.</Typography>
             </Paper>
             <TextField label="Notes" size="small" fullWidth multiline minRows={2} value={form.notes}

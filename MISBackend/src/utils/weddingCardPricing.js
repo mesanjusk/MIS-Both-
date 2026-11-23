@@ -41,6 +41,41 @@ const calculateWeddingQuote = (record, quantity, overrides = {}) => {
   };
 };
 
+// Administrative recovery estimate: treats original supplier rate plus entered
+// printing, packing and design charges as costs. Real break-even also depends
+// on any additional overhead/taxes not recorded in the Wedding Card catalogue.
+const calculateWeddingBreakdown = (record, quantity, overrides = {}) => {
+  const quote = calculateWeddingQuote(record, quantity, overrides);
+  if (quote.error) return quote;
+  const supplierUnitPrice = Number(record.originalPrice) || 0;
+  const supplierTotal = roundMoney(supplierUnitPrice * quote.qty);
+  const estimatedRecoveryTotal = roundMoney(
+    supplierTotal + quote.printingTotal + quote.packingTotal + quote.designTotal
+  );
+  const estimatedBreakEvenUnit = roundMoney(estimatedRecoveryTotal / quote.qty);
+  const estimatedContribution = roundMoney(quote.amount - estimatedRecoveryTotal);
+  return {
+    supplierUnitPrice, supplierTotal,
+    printingRatePer100: Number(record.printingCharge) || 0,
+    packingRatePer100: Number(record.packingCharge) || 0,
+    designChargeOnce: Number(record.designCharge) || 0,
+    markupPercent: quote.markupPercent,
+    discountPercent: quote.discountPercent,
+    markedUpUnitPrice: quote.markedUpUnitPrice,
+    discountedUnitPrice: quote.discountedUnitPrice,
+    cardSellingTotal: quote.baseAmount,
+    printingTotal: quote.printingTotal,
+    packingTotal: quote.packingTotal,
+    designTotal: quote.designTotal,
+    amount: quote.amount,
+    effectiveSellingUnit: quote.effectiveUnitPrice,
+    estimatedRecoveryTotal,
+    estimatedBreakEvenUnit,
+    estimatedContribution,
+    basis: 'Estimate assumes supplier rate and the entered charges are actual costs; other overhead and taxes are excluded',
+  };
+};
+
 const withCalculatedPrices = (record) => {
   const result = calculateWeddingQuote(record, 100);
   const updatedPrice = markUpPrice(record.originalPrice, record.markupPercent ?? 10);
@@ -59,5 +94,5 @@ const withCalculatedPrices = (record) => {
 };
 module.exports = {
   roundMoney, encodePrice, markUpPrice, markUpTenPercent,
-  calculateWeddingQuote, withCalculatedPrices,
+  calculateWeddingQuote, calculateWeddingBreakdown, withCalculatedPrices,
 };

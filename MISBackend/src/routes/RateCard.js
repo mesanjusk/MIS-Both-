@@ -126,7 +126,8 @@ router.put("/:id", async (req, res) => {
       { new: true }
     ).lean();
     if (!updated) return res.status(404).json({ success: false, message: "Rate card not found" });
-    res.json({ success: true, result: updated });
+    const { weddingCardVariants: _privateVariants, ...safeResult } = updated;
+    res.json({ success: true, result: safeResult });
   } catch (err) {
     logger.error("Error updating rate card:", err);
     res.status(500).json({ success: false, message: err.message || "Server error" });

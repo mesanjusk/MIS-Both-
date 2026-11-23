@@ -48,10 +48,11 @@ export const changedFields = (original, current) => {
   return { changes, expected };
 };
 const baseExample = row => {
-  const amount = Number(row.originalPrice) * (1 + Number(row.markupPercent) / 100)
-    * (1 - Number(row.discountPercent) / 100);
   const round = value => Math.round((value + Number.EPSILON) * 100) / 100;
-  return round(round(amount) * 100 + Number(row.printingCharge) +
+  // Match backend rounding at EACH unit-price step, not only the final sum.
+  const marked = round(Number(row.originalPrice) * (1 + Number(row.markupPercent) / 100));
+  const discounted = round(marked * (1 - Number(row.discountPercent) / 100));
+  return round(discounted * 100 + Number(row.printingCharge) +
     Number(row.packingCharge) + Number(row.designCharge));
 };
 

@@ -293,6 +293,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       <Dialog open={dialogOpen} maxWidth="sm" fullWidth onClose={saving ? undefined : () => setDialogOpen(false)}>
         <DialogTitle>{editing ? 'Edit SK (' + editing.brand + ') No. ' + editing.code : 'Add Wedding Card'}</DialogTitle>
         <DialogContent>
+          {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
           <Stack gap={1.5} sx={{ pt: 1 }}>
             <Stack direction="row" gap={1}>
               <TextField select size="small" label="Subcategory" fullWidth value={form.brand}
@@ -355,6 +356,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       <Dialog open={bulkOpen} maxWidth="sm" fullWidth onClose={saving ? undefined : () => setBulkOpen(false)}>
         <DialogTitle>Bulk Edit · {selectedRows.length} selected cards</DialogTitle>
         <DialogContent>
+          {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
           <Typography variant="caption" color="text.secondary">Only selected fields will change. Unselected charges remain untouched.</Typography>
           <TextField select fullWidth size="small" sx={{ mt: 2 }} label="Operation" value={bulkMode}
             onChange={e => setBulkMode(e.target.value)}>

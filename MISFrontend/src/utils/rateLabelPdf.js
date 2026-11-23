@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 const PAGE_MM = { portrait: [210, 297], landscape: [297, 210] };
 const currency = number => {
   const amount = Number(number);
-  return Number.isFinite(amount) ? 'Rs. ' + amount.toFixed(2) + '/-' : 'Rs. 0.00/-';
+  return Number.isFinite(amount) ? 'Rs. ' + (Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(2)) + '/-' : 'Rs. 0/-';
 };
 const clean = value => String(value ?? '').replace(/[\r\n]/g, ' ').trim();
 
@@ -90,8 +90,12 @@ function drawGeneralLabel(pdf, x, y, width, height, item) {
   pdf.text(lines, x + width / 2, y + height * 0.41, { align: 'center' });
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(173, 47, 31);
-  pdf.setFontSize(Math.max(8, Math.min(12, width / 4.8)));
-  pdf.text(currency(item.price), x + width / 2, y + height - 3.4, { align: 'center' });
+  const titlePrice = currency(item.price);
+  const targetSize = Math.max(8, Math.min(12, width / 4.8));
+  pdf.setFontSize(targetSize);
+  const measure = Math.max(1, pdf.getTextWidth(titlePrice));
+  pdf.setFontSize(Math.min(targetSize, targetSize * (width - pad * 2) / measure));
+  pdf.text(titlePrice, x + width / 2, y + height - 3.4, { align: 'center' });
 }
 
 export function buildRateLabelPdf({ item, columns = 3, rows = 7, orientation = 'portrait', count = 21 }) {

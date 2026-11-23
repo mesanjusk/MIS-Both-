@@ -39,8 +39,6 @@ export default function RateCalculator() {
   const [qty, setQty] = useState('100');
   const [widthFt, setWidthFt] = useState('');
   const [heightFt, setHeightFt] = useState('');
-  const [markup, setMarkup] = useState('');
-  const [discount, setDiscount] = useState('');
   const [weddingQuote, setWeddingQuote] = useState(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteError, setQuoteError] = useState('');
@@ -91,47 +89,35 @@ export default function RateCalculator() {
   const active = matches.find(row => idFor(row) === selectedKey) || matches[0] || null;
   const count = Number(qty);
   const quantityValid = Number.isSafeInteger(count) && count > 0 && count <= 1000000;
-  const customMarkup = markup.trim() === '' ? null : Number(markup);
-  const customDiscount = discount.trim() === '' ? null : Number(discount);
-  const customInvalid = (customMarkup !== null && (!Number.isFinite(customMarkup) || customMarkup < 0 || customMarkup > 1000)) ||
-    (customDiscount !== null && (!Number.isFinite(customDiscount) || customDiscount < 0 || customDiscount > 100));
 
   useEffect(() => {
-    if (!active || active.type !== 'wedding' || !quantityValid || customInvalid) {
+    if (!active || active.type !== 'wedding' || !quantityValid) {
       setWeddingQuote(null); setQuoteBusy(false); return;
     }
     let cancelled = false;
     setQuoteBusy(true); setQuoteError(''); setWeddingQuote(null);
-    const opts = {};
-    if (isSuperAdmin) {
-      if (customMarkup !== null) opts.markupPercent = customMarkup;
-      if (customDiscount !== null) opts.discountPercent = customDiscount;
-    }
     const timer = setTimeout(() => {
-      quoteWeddingCard(active.brand, active.code, count, opts).then(value => {
+      quoteWeddingCard(active.brand, active.code, count).then(value => {
         if (!cancelled) { setWeddingQuote(value); setQuoteError(''); }
       }).catch(err => {
         if (!cancelled) { setWeddingQuote(null); setQuoteError(err.response?.data?.message || 'Could not calculate price'); }
       }).finally(() => { if (!cancelled) setQuoteBusy(false); });
     }, 200);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active?.brand, active?.code, active?.type, count, isSuperAdmin, customMarkup, customDiscount, customInvalid, quantityValid]);
+  }, [active?.brand, active?.code, active?.type, count, quantityValid]);
 
   const otherPreview = useMemo(() => {
     if (!active || active.type !== 'other' || !quantityValid) return null;
     const calculation = computeRateCardAmount(active, { widthFt, heightFt, qty: count });
     if (calculation?.error) return { error: calculation.error };
     const gst = computeGst(calculation.amount, active.gstPercent || 0);
-    const rateBeforeDiscount = gst.total;
-    const plus = isSuperAdmin && customMarkup !== null ? 1 + customMarkup / 100 : 1;
-    const minus = isSuperAdmin && customDiscount !== null ? 1 - customDiscount / 100 : 1;
-    return { amount: roundMoney(rateBeforeDiscount * plus * minus), preview: calculation };
-  }, [active, quantityValid, widthFt, heightFt, count, isSuperAdmin, customMarkup, customDiscount]);
+    return { amount: roundMoney(gst.total), preview: calculation };
+  }, [active, quantityValid, widthFt, heightFt, count]);
 
   const finalAmount = active?.type === 'wedding' ? weddingQuote?.amount : otherPreview?.amount;
   const calculatedError = otherPreview?.error || quoteError;
   const addLine = () => {
-    if (!active || !quantityValid || customInvalid || finalAmount == null || quoteBusy) return toast.error('Calculate a valid price first');
+    if (!active || !quantityValid || finalAmount == null || quoteBusy) return toast.error('Calculate a valid price first');
     const isWedding = active.type === 'wedding';
     setLines(prev => [...prev, {
       key: idFor(active) + ':' + Date.now() + ':' + prev.length,
@@ -192,14 +178,6 @@ export default function RateCalculator() {
                 onChange={e => setHeightFt(e.target.value)} />
             </Stack>
           )}
-          {isSuperAdmin && active && (
-            <Stack direction="row" gap={1} sx={{ mt: 1 }}>
-              <TextField size="small" type="number" label="Override increase % (optional)"
-                value={markup} onChange={e => setMarkup(e.target.value)} fullWidth />
-              <TextField size="small" type="number" label="Override discount % (optional)"
-                value={discount} onChange={e => setDiscount(e.target.value)} fullWidth />
-            </Stack>
-          )}
           {loading && <Box sx={{ textAlign: 'center', p: 2 }}><CircularProgress size={22}/></Box>}
           {!loading && search.trim() && matches.length > 1 && (
             <Paper variant="outlined" sx={{ mt: 1, maxHeight: 230, overflowY: 'auto' }}>
@@ -219,11 +197,10 @@ export default function RateCalculator() {
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} justifyContent="space-between" gap={1}>
                 <Typography variant="h5" color="primary.main" fontWeight={900}>
                   {quoteBusy ? 'Calculating…' : !quantityValid ? 'Enter valid quantity' :
-                    customInvalid ? 'Check percentages' :
                     calculatedError ? 'Price unavailable' :
                     finalAmount == null ? 'Enter dimensions / quantity' : money(finalAmount)}
                 </Typography>
-                <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || customInvalid || !!calculatedError}
+                <Button variant="contained" startIcon={<AddRoundedIcon />} disabled={quoteBusy || finalAmount == null || !quantityValid || !!calculatedError}
                   onClick={addLine}>Add to Quote</Button>
               </Stack>
               {calculatedError && <Alert severity="warning" sx={{ mt: 1 }}>{calculatedError}</Alert>}

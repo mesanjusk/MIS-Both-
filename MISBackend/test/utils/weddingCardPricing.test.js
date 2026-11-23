@@ -22,9 +22,11 @@ test("printing packing design charges add to marked up price", () => {
   });
 });
 
-test("SKU variants are embedded on RateCard instead of creating their own collection", () => {
+test("SKU variants are embedded on existing Item or legacy RateCard, not separate items", () => {
+  const Items = require("../../src/repositories/items");
   const RateCard = require("../../src/repositories/rateCard");
-  const variantsPath = RateCard.schema.path("weddingCardVariants");
+  const variantsPath = Items.schema.path("weddingCardVariants");
+  expect(RateCard.schema.path("weddingCardVariants")).toBeDefined();
   expect(variantsPath).toBeDefined();
   expect(variantsPath.schema.path("brand")).toBeDefined();
   expect(variantsPath.schema.path("originalPrice")).toBeDefined();

@@ -50,6 +50,8 @@ const Taskgroup = require("./routes/Taskgroup");
 const Items = require("./routes/Items");
 const Itemgroup = require("./routes/Itemgroup");
 const RateCard = require("./routes/RateCard");
+const WeddingCardCatalog = require("./routes/WeddingCardCatalog");
+const { seedWeddingCardCatalog } = require("./services/weddingCardCatalogSeed");
 const Priority = require("./routes/Priority");
 const Orders = require("./routes/Order");
 const Enquiry = require("./routes/Enquiry");
@@ -209,6 +211,7 @@ app.use("/api/tasks", Tasks);
 app.use("/api/taskgroup", Taskgroup);
 app.use("/api/items", Items);
 app.use("/api/itemgroup", Itemgroup);
+app.use("/api/rate-cards/wedding-cards", WeddingCardCatalog);
 app.use("/api/rate-cards", RateCard);
 app.use("/api/priority", Priority);
 app.use("/api/orders", Orders);
@@ -328,6 +331,15 @@ async function runLedgerIntegrityStartupTask() {
 
 (async () => {
   await connectDB();
+
+  // Bootstrap missing SKU variants inside the Wedding Card item only.
+  // $setOnInsert preserves every user edit and every soft deletion.
+  try {
+    const summary = await seedWeddingCardCatalog();
+    logger.info({ summary }, "[wedding-card-catalog] initialized");
+  } catch (seedErr) {
+    logger.error({ err: seedErr?.message || seedErr }, "[wedding-card-catalog] initialization failed");
+  }
 
   // Production restarts/deploys must not silently rewrite historical ledgers.
   // Historical repairs are exceptional maintenance operations, explicitly

@@ -28,8 +28,10 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CalculateRoundedIcon from '@mui/icons-material/CalculateRounded';
 import { fetchRateCards } from '../services/rateCardService';
+import WeddingCardCatalog from '../Components/rates/WeddingCardCatalog';
 import { computeRateCardAmount, computeGst } from '../utils/rateCardPricing';
 
+const WEDDING_CARD_ID = '__wedding_card__';
 const money = (n) => `₹${(Number(n) || 0).toFixed(2)}`;
 
 export default function RateCalculator() {
@@ -160,10 +162,6 @@ export default function RateCalculator() {
 
         {loading ? (
           <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress /></Box>
-        ) : rateCards.length === 0 ? (
-          <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-            No rate cards found.
-          </Typography>
         ) : (
           <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 3, mb: 2 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} flexWrap="wrap" alignItems="flex-start">
@@ -176,7 +174,8 @@ export default function RateCalculator() {
                 sx={{ minWidth: 220, flex: 1 }}
               >
                 <MenuItem value="">Select item</MenuItem>
-                {rateCards.map((rc) => (
+                <MenuItem value={WEDDING_CARD_ID}>Wedding Card</MenuItem>
+                {rateCards.filter((rc) => !/^wedding cards?$/i.test(String(rc.itemName || '').trim())).map((rc) => (
                   <MenuItem key={rc.rateCard_uuid} value={rc.rateCard_uuid}>
                     {rc.itemName}{rc.category ? ` (${rc.category})` : ''}
                   </MenuItem>
@@ -190,11 +189,14 @@ export default function RateCalculator() {
                 </>
               )}
 
-              <TextField label="Quantity" type="number" size="small" value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 110 }} />
-
-              <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={addLine} sx={{ borderRadius: 2.5, height: 40 }}>
-                Add to Quote
-              </Button>
+              {selectedId !== WEDDING_CARD_ID && (
+                <>
+                  <TextField label="Quantity" type="number" size="small" value={qty} onChange={(e) => setQty(e.target.value)} sx={{ width: 110 }} />
+                  <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={addLine} sx={{ borderRadius: 2.5, height: 40 }}>
+                    Add to Quote
+                  </Button>
+                </>
+              )}
             </Stack>
 
             {selectedCard && (
@@ -219,6 +221,9 @@ export default function RateCalculator() {
               </Stack>
             )}
           </Paper>
+        )}
+        {selectedId === WEDDING_CARD_ID && !loading && (
+          <WeddingCardCatalog onAddToQuote={(line) => setLines((previous) => [...previous, line])} />
         )}
 
         <Box ref={printRef} sx={{ p: { xs: 0, md: 0.5 } }}>

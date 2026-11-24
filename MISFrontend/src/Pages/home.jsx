@@ -25,6 +25,7 @@ const loadDayBookLedger = () => import('../Reports/allTransaction4D');
 const loadHomeInbox = () => import('./HomeInbox');
 const loadHomeLeads = () => import('./HomeLeads');
 const loadPendingBills = () => import('./PendingBills');
+const loadTeamFollowup = () => import('./TeamFollowupHome');
 
 const OutstandingReport = lazy(loadOutstandingReport);
 const AllOrders = lazy(loadAllOrders);
@@ -36,6 +37,7 @@ const DayBookLedger = lazy(loadDayBookLedger);
 const HomeInbox = lazy(loadHomeInbox);
 const HomeLeads = lazy(loadHomeLeads);
 const PendingBills = lazy(loadPendingBills);
+const TeamFollowup = lazy(loadTeamFollowup);
 
 function AttendanceHome() {
   const navigate = useNavigate();
@@ -115,6 +117,7 @@ function DayBookHome() {
 
 const HOME_TABS = [
   { id: 'workflow', label: 'Workflow', icon: AssignmentRoundedIcon, Component: WorkflowWidget },
+  { id: 'teamFollowup', label: 'Team Follow-up', icon: PeopleAltRoundedIcon, Component: TeamFollowup },
   { id: 'inbox', label: 'Inbox', icon: ChatRoundedIcon, Component: HomeInbox },
   { id: 'dayBook', label: 'Day Book', icon: MenuBookRoundedIcon, Component: DayBookHome, requiresAccounts: true },
   { id: 'attendance', label: 'Attendance', icon: EventAvailableRoundedIcon, Component: AttendanceHome },
@@ -240,7 +243,7 @@ export default function Home() {
               }}
             >
               <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
-                <TabComponent {...(tab.id === 'paymentFollowup'
+                <TabComponent {...(tab.id === 'teamFollowup' ? { active: isActive } : tab.id === 'paymentFollowup'
                   ? { initialCustomerUuid: location.state?.followupCustomerUuid || '', prefillKey: location.key }
                   : {})} />
               </Suspense>

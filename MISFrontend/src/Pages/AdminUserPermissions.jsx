@@ -54,6 +54,7 @@ const DEFAULT_PERMISSIONS = {
 
 const HOME_WIDGETS = [
   { id: 'workflow',       label: 'Workflow',        color: '#d97706', bg: '#fef3c7' },
+  { id: 'teamFollowup',   label: 'Team Follow-up',  color: '#4f46e5', bg: '#e0e7ff' },
   { id: 'orders',         label: 'Orders',          color: '#0891b2', bg: '#cffafe' },
   { id: 'outstanding',    label: 'Outstanding',     color: '#2563eb', bg: '#dbeafe' },
   { id: 'transaction4D', label: 'Cash & Bank',     color: '#16a34a', bg: '#dcfce7' },

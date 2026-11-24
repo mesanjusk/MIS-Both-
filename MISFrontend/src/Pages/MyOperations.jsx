@@ -24,7 +24,7 @@ const formatDeadline = (value) => {
 };
 
 /** The logged-in user's own operational role card, task buckets and cover. */
-export default function MyOperations() {
+export default function MyOperations({ compact = false }) {
   const [me, setMe] = useState(null);
   const [tasks, setTasks] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -137,14 +137,17 @@ export default function MyOperations() {
 
   return (
     <PageContainer
-      title="My Operations"
-      subtitle="Your operational role, today's tasks and anything you are covering"
+      title={compact ? 'My Tasks' : 'My Operations'}
+      subtitle={compact ? 'Complete overdue and urgent tasks first.' : "Your operational role, today's tasks and anything you are covering"}
       actions={<Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>}
     >
       {error ? <ErrorState message={error} /> : null}
       {success ? <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert> : null}
 
-      <SectionCard title="My Operational Role">
+      {compact ? <Stack direction="row" gap={0.75} flexWrap="wrap" alignItems="center">
+        <Typography variant="body2" fontWeight={700}>My availability:</Typography>
+        {['Available', 'Busy', 'Outside'].map((state) => <Chip key={state} size="small" clickable onClick={() => changeState(state)} color={availability.operationalState === state ? stateColor(state) : 'default'} variant={availability.operationalState === state ? 'filled' : 'outlined'} label={state} />)}
+      </Stack> : <SectionCard title="My Operational Role">
         <Grid container spacing={2}>
           <Grid item xs={12} md={4}>
             <Stack direction="row" spacing={1} alignItems="center">
@@ -196,16 +199,16 @@ export default function MyOperations() {
             </Typography>
           </Grid>
         </Grid>
-      </SectionCard>
+      </SectionCard>}
 
-      {tasks?.transferredToMe?.length ? (
+      {!compact && tasks?.transferredToMe?.length ? (
         <SectionCard title="Tasks Transferred To Me" subtitle="You are covering these because the configured owner is unavailable">
           {renderTaskTable(tasks.transferredToMe, { showOwnerRole: true })}
         </SectionCard>
       ) : null}
 
       <SectionCard title="My Tasks">
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: 1 }}>
+        {!compact && <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: 1 }}>
           {BUCKET_META.map((meta) => (
             <Chip
               key={meta.key}
@@ -215,7 +218,7 @@ export default function MyOperations() {
               label={`${meta.dot} ${meta.label}: ${(buckets[meta.key] || []).length}`}
             />
           ))}
-        </Stack>
+        </Stack>}
         {BUCKET_META.map((meta) => {
           const rows = buckets[meta.key] || [];
           if (!rows.length) return null;

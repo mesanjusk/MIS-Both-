@@ -4,12 +4,14 @@ import { MemoryRouter } from 'react-router-dom';
 import TeamFollowupHome from './TeamFollowupHome';
 
 const auth = vi.hoisted(() => ({ userGroup: 'Admin User', permissions: {} }));
-const calls = vi.hoisted(() => ({ team: vi.fn(), warnings: vi.fn(), office: vi.fn() }));
+const calls = vi.hoisted(() => ({ team: vi.fn(), warnings: vi.fn(), office: vi.fn(), orders: vi.fn(), daily: vi.fn() }));
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('../services/operationsService', () => ({
   fetchTeamStatus: calls.team,
   fetchConfigurationWarnings: calls.warnings,
+  fetchOperationsDailyReport: calls.daily,
 }));
+vi.mock('../services/orderService', () => ({ fetchPendingTasksOverview: calls.orders }));
 vi.mock('../Components/OfficeAiPanel', () => ({ default: () => { calls.office(); return <div>Office AI content</div>; } }));
 vi.mock('../Components/CustomerAiPanel', () => ({ default: () => <div>Customer AI content</div> }));
 vi.mock('./MyOperations', () => ({ default: () => <div>Personal task content</div> }));
@@ -18,21 +20,27 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.userGroup = 'Admin User';
   auth.permissions = {};
-  calls.team.mockResolvedValue({ data: { result: { rows: [], responsibilities: [], escalated: [], unownedTasks: [] } } });
+  calls.team.mockResolvedValue({ data: { result: { rows: [{ User_uuid: 'u1', name: 'Employee A', overdue: 2, pending: 3 }], responsibilities: [], escalated: [], unownedTasks: [] } } });
   calls.warnings.mockResolvedValue({ data: { result: [] } });
+  calls.daily.mockResolvedValue({ data: { result: { tasks: { completed: 5 } } } });
+  calls.orders.mockResolvedValue({ data: { tasks: [{ orderId: 'o1', orderNumber: 123, task: 'Design pending', assignedTo: 'Employee A', overdue: true, dueDate: '2020-01-01' }, { orderId: 'o2', orderNumber: 124, task: 'Printing pending', assignedTo: 'Unassigned', overdue: false }] } });
 });
 
 describe('Team Follow-up sub-tabs', () => {
   it('opens only the overview and defers AI and configuration requests', async () => {
     render(<MemoryRouter><TeamFollowupHome /></MemoryRouter>);
-    expect(await screen.findByText('Employee workload')).toBeInTheDocument();
+    expect(await screen.findByText('Needs attention')).toBeInTheDocument();
+    expect(screen.getByText('Design pending')).toBeInTheDocument();
+    expect(screen.getByText('Printing pending')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Overdue orders/ }));
+    expect(screen.queryByText('Printing pending')).not.toBeInTheDocument();
     expect(calls.team).toHaveBeenCalled();
     expect(calls.warnings).not.toHaveBeenCalled();
     expect(calls.office).not.toHaveBeenCalled();
     expect(screen.queryByText('Responsibility Coverage')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Office AI' }));
     expect(await screen.findByText('Office AI content')).toBeInTheDocument();
-    expect(screen.queryByText('Employee workload')).not.toBeInTheDocument();
+    expect(screen.queryByText('Needs attention')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Escalations' }));
     expect(await screen.findByText('Overdue assigned tasks')).toBeInTheDocument();
     expect(calls.warnings).toHaveBeenCalled();

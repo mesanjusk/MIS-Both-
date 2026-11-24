@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   IconButton,
@@ -12,6 +13,8 @@ import {
   Typography,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import { Link as RouterLink } from 'react-router-dom';
+import { ROUTES } from '../../constants/routes';
 import OrderTaskList from './OrderTaskList';
 import { fetchPendingTasksOverview } from '../../services/orderService';
 // Status.AssignedType on the order only stores the coarse 'user'/'vendor'
@@ -25,9 +28,9 @@ const ASSIGNED_TYPE_BADGE = { user: 'Employee', vendor: 'Account Payable' };
 // `byUser`, sorted by count descending) — no separate backend work needed.
 // Deliberately no Assign/Move actions here; those already live on the
 // Workflow board itself, this widget is just a quick per-person lookup.
-export default function PendingByAssignedWidget() {
+export default function PendingByAssignedWidget({ initialOwner = '', compact = false }) {
   const [overview, setOverview] = useState(null);
-  const [selected, setSelected] = useState('');
+  const [selected, setSelected] = useState(initialOwner);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -40,14 +43,14 @@ export default function PendingByAssignedWidget() {
       setOverview(data);
       setSelected((prev) => {
         if (prev && data?.byUser?.some((g) => g.userName === prev)) return prev;
-        return data?.byUser?.[0]?.userName || '';
+        return (compact ? data?.byUser?.find((g) => g.userName === 'Unassigned' || g.overdueCount > 0)?.userName : '') || data?.byUser?.[0]?.userName || '';
       });
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load pending tasks.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [compact]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -60,12 +63,15 @@ export default function PendingByAssignedWidget() {
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
-        <Typography variant="subtitle1" fontWeight={700}>Pending by Assigned</Typography>
+        <Typography variant="subtitle1" fontWeight={700}>{compact ? 'Pending orders' : 'Pending by Assigned'}</Typography>
+        <Stack direction="row" alignItems="center" spacing={0.5}>
+        {compact && <Button size="small" component={RouterLink} to={ROUTES.PENDING_TASKS}>Assign orders</Button>}
         <Tooltip title="Refresh">
           <IconButton size="small" onClick={load} disabled={isLoading}>
             <RefreshRoundedIcon fontSize="small" />
           </IconButton>
         </Tooltip>
+        </Stack>
       </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
@@ -78,7 +84,7 @@ export default function PendingByAssignedWidget() {
         </Typography>
       ) : (
         <>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1.25 }}>
             <TextField
               select
               size="small"

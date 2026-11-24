@@ -65,7 +65,7 @@ export default function TeamOperations({ view = 'all' }) {
   return (
     <PageContainer
       title={all ? 'Team Operations' : ({ overview: 'Overview', team: 'Team Status', responsibilities: 'Responsibilities', escalations: 'Escalations' })[view]}
-      subtitle="Live team status, resolved from attendance and the configured responsibility chain"
+      subtitle={all ? 'Live team status, resolved from attendance and the configured responsibility chain' : view === 'team' ? 'See who is available and who has delayed work.' : view === 'responsibilities' ? 'Check who is responsible and who can cover their work.' : 'Problems that need management attention.'}
       actions={(
         <>
           <TextField
@@ -83,7 +83,7 @@ export default function TeamOperations({ view = 'all' }) {
             to={ROUTES.OPERATIONS_RESPONSIBILITIES}
             startIcon={<AssignmentIndRoundedIcon />}
           >
-            Responsibilities
+            Edit owners
           </Button>}
           {all && <Button
             size="small"
@@ -147,7 +147,7 @@ export default function TeamOperations({ view = 'all' }) {
         </SectionCard>
       )}
 
-      {!loading && showTeam && priorityStrip.length ? (
+      {!loading && all && priorityStrip.length ? (
         <SectionCard
           title="Operational Priorities"
           subtitle="Assigned from each operator's profile — never hard-coded. Includes the owner and the AI assistant when they hold a code."
@@ -178,7 +178,7 @@ export default function TeamOperations({ view = 'all' }) {
         </SectionCard>
       ) : null}
 
-      {!loading && showTeam && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
+      {!loading && all && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
           <Typography variant="body2" color="text.secondary">Handled off the staff line:</Typography>
           <Chip size="small" label={`${offStaffLine.byVirtualOperators || 0} automated`} />
@@ -193,19 +193,19 @@ export default function TeamOperations({ view = 'all' }) {
               <TableHead>
                 <TableRow>
                   <TableCell>User</TableCell>
-                  <TableCell>Priority</TableCell>
-                  <TableCell>Role</TableCell>
+                  {all && <TableCell>Priority</TableCell>}
+                  {all && <TableCell>Role</TableCell>}
                   <TableCell>Attendance</TableCell>
                   <TableCell>State</TableCell>
                   <TableCell>Current Task</TableCell>
                   <TableCell align="right">Pending</TableCell>
                   <TableCell align="right">Overdue</TableCell>
-                  <TableCell align="right">Covering</TableCell>
+                  {all && <TableCell align="right">Covering</TableCell>}
                   <TableCell />
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((row) => (
+                {(all ? rows : [...rows].sort((a, b) => b.overdue - a.overdue || b.pending - a.pending)).map((row) => (
                   <TableRow key={row.User_uuid} hover>
                     <TableCell>
                       <Stack direction="row" spacing={0.5} alignItems="center">
@@ -218,8 +218,8 @@ export default function TeamOperations({ view = 'all' }) {
                         ) : null}
                       </Stack>
                     </TableCell>
-                    <TableCell>{row.priority ? <Chip size="small" label={row.priority} /> : '—'}</TableCell>
-                    <TableCell>{row.roleTitle || '—'}</TableCell>
+                    {all && <TableCell>{row.priority ? <Chip size="small" label={row.priority} /> : '—'}</TableCell>}
+                    {all && <TableCell>{row.roleTitle || '—'}</TableCell>}
                     <TableCell>
                       <Tooltip title={row.attendanceDetail || ''}>
                         <Chip size="small" color={attendanceColor(row.attendanceStatus)} label={row.attendanceStatus} />
@@ -233,7 +233,7 @@ export default function TeamOperations({ view = 'all' }) {
                     <TableCell align="right">
                       {row.overdue ? <Chip size="small" color="error" label={row.overdue} /> : 0}
                     </TableCell>
-                    <TableCell align="right">{row.transferredIn || 0}</TableCell>
+                    {all && <TableCell align="right">{row.transferredIn || 0}</TableCell>}
                     <TableCell align="right">
                       {row.isVirtual ? (
                         // A virtual operator has no user profile to open; it is
@@ -255,7 +255,7 @@ export default function TeamOperations({ view = 'all' }) {
                 ))}
                 {!rows.length ? (
                   <TableRow>
-                    <TableCell colSpan={10}>
+                    <TableCell colSpan={all ? 10 : 7}>
                       <EmptyState
                         title="No active users"
                         description="Users become active here once Active is ticked on their operational profile."
@@ -279,33 +279,33 @@ export default function TeamOperations({ view = 'all' }) {
               <TableHead>
                 <TableRow>
                   <TableCell>Responsibility</TableCell>
-                  <TableCell>Category</TableCell>
+                  {all && <TableCell>Category</TableCell>}
                   <TableCell>Owner Now</TableCell>
-                  <TableCell>Via</TableCell>
-                  <TableCell>Chain</TableCell>
+                  {all && <TableCell>Via</TableCell>}
+                  <TableCell>Primary and backups</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {responsibilities.map((item) => (
+                {(all ? responsibilities : [...responsibilities].sort((a, b) => Number(!b.currentOwner) - Number(!a.currentOwner))).map((item) => (
                   <TableRow key={item.responsibility_uuid} hover>
                     <TableCell>
                       {item.name}
                       {item.isCritical ? <Chip size="small" color="warning" label="Critical" sx={{ ml: 0.5 }} /> : null}
                     </TableCell>
-                    <TableCell>{categoryLabel(item.category)}</TableCell>
+                    {all && <TableCell>{categoryLabel(item.category)}</TableCell>}
                     <TableCell>
                       {item.currentOwner
                         ? item.currentOwner.userName
                         : <Chip size="small" color="error" label="⚠️ NO AVAILABLE OWNER" />}
                     </TableCell>
-                    <TableCell>
+                    {all && <TableCell>
                       {item.currentOwner
                         ? <Chip size="small" variant="outlined" label={ownerRoleLabel(item.currentOwner.role)} />
                         : 'Escalated'}
-                    </TableCell>
+                    </TableCell>}
                     <TableCell>
                       <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                        {item.chain.map((slot) => (
+                        {item.chain.filter((slot) => all || slot.configured).map((slot) => (
                           <Tooltip key={slot.role} title={slot.reason || ''}>
                             <Chip
                               size="small"
@@ -321,7 +321,7 @@ export default function TeamOperations({ view = 'all' }) {
                 ))}
                 {!responsibilities.length ? (
                   <TableRow>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={all ? 5 : 3}>
                       <EmptyState
                         title="No responsibilities configured"
                         description="Add them under Settings → Operations → Responsibilities."

@@ -38,7 +38,7 @@ Stat.propTypes = {
  * §25 — the closing team report. Order, production and money figures already
  * have their own report screens; this one covers people, tasks and coverage.
  */
-export default function OperationsDailyReport() {
+export default function OperationsDailyReport({ compact = false }) {
   const [date, setDate] = useState(todayIso);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -82,7 +82,7 @@ export default function OperationsDailyReport() {
 
       {!loading && report ? (
         <>
-          <SectionCard title="Attendance">
+          {!compact && <SectionCard title="Attendance">
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
               <Stat label="Present" value={report.attendance.present} color="success.main" />
               <Stat label="Absent" value={report.attendance.absent} color="error.main" />
@@ -92,12 +92,12 @@ export default function OperationsDailyReport() {
               <Stat label="Weekly Off" value={report.attendance.weeklyOff} />
               <Stat label="Day Closed" value={report.attendance.dayClosed} />
             </Stack>
-          </SectionCard>
+          </SectionCard>}
 
           <SectionCard title="Tasks">
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
               <Stat label="Total" value={report.tasks.total} />
-              <Stat label="Completed" value={report.tasks.completed} color="success.main" />
+              <Stat label={compact ? 'Closed' : 'Completed'} value={report.tasks.completed} color="success.main" />
               <Stat label="Pending" value={report.tasks.pending} />
               <Stat label="Overdue" value={report.tasks.overdue} color="error.main" />
               <Stat label="Escalated" value={report.tasks.escalated} color="error.main" />
@@ -105,16 +105,17 @@ export default function OperationsDailyReport() {
             </Stack>
           </SectionCard>
 
-          <SectionCard title="Responsibility Coverage">
+          {compact && <SectionCard title="Attendance summary"><Stack direction="row" gap={1} flexWrap="wrap"><Stat label="Present" value={report.attendance.present} color="success.main" /><Stat label="Absent" value={report.attendance.absent} color="error.main" /><Stat label="Late" value={report.attendance.late} color="warning.main" /></Stack></SectionCard>}
+          <SectionCard title={compact ? 'Ownership issues' : 'Responsibility Coverage'}>
             <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-              <Stat label="Total" value={report.responsibilities.total} />
+              {!compact && <Stat label="Total" value={report.responsibilities.total} />}
               <Stat label="By primary" value={report.responsibilities.coveredByPrimary} color="success.main" />
               <Stat label="By backup" value={report.responsibilities.coveredByBackup} color="warning.main" />
-              <Stat
+              {!compact && <Stat
                 label="By automation"
                 value={report.responsibilities.coveredByVirtualOperator || 0}
                 color="info.main"
-              />
+              />}
               <Stat label="Escalated" value={report.responsibilities.escalated} color="error.main" />
               <Stat label="Checklist done" value={report.checklist.completed} />
               <Stat label="Checklist skipped" value={report.checklist.skipped} />

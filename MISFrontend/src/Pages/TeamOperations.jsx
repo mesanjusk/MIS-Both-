@@ -20,7 +20,11 @@ import { fetchTeamStatus, fetchConfigurationWarnings } from '../services/operati
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-export default function TeamOperations() {
+export default function TeamOperations({ view = 'all' }) {
+  const all = view === 'all';
+  const showEscalations = all || view === 'escalations';
+  const showTeam = all || view === 'team';
+  const showCoverage = all || view === 'responsibilities';
   const [date, setDate] = useState(todayIso);
   const [status, setStatus] = useState(null);
   const [warnings, setWarnings] = useState([]);
@@ -33,16 +37,16 @@ export default function TeamOperations() {
     try {
       const [statusRes, warningsRes] = await Promise.all([
         fetchTeamStatus(date),
-        fetchConfigurationWarnings(),
+        showEscalations ? fetchConfigurationWarnings() : Promise.resolve(null),
       ]);
       setStatus(statusRes.data?.result || null);
-      setWarnings(warningsRes.data?.result || []);
+      setWarnings(warningsRes?.data?.result || []);
     } catch (err) {
       setError(err?.response?.data?.message || err.message || 'Failed to load team status');
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, showEscalations]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -60,7 +64,7 @@ export default function TeamOperations() {
 
   return (
     <PageContainer
-      title="Team Operations"
+      title={all ? 'Team Operations' : ({ overview: 'Overview', team: 'Team Status', responsibilities: 'Responsibilities', escalations: 'Escalations' })[view]}
       subtitle="Live team status, resolved from attendance and the configured responsibility chain"
       actions={(
         <>
@@ -73,28 +77,28 @@ export default function TeamOperations() {
             InputLabelProps={{ shrink: true }}
           />
           <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={load}>Refresh</Button>
-          <Button
+          {showCoverage && <Button
             size="small"
             component={RouterLink}
             to={ROUTES.OPERATIONS_RESPONSIBILITIES}
             startIcon={<AssignmentIndRoundedIcon />}
           >
             Responsibilities
-          </Button>
-          <Button
+          </Button>}
+          {all && <Button
             size="small"
             component={RouterLink}
             to={ROUTES.OPERATIONS_SETTINGS}
             startIcon={<SettingsRoundedIcon />}
           >
             Settings
-          </Button>
+          </Button>}
         </>
       )}
     >
       {error ? <ErrorState message={error} /> : null}
 
-      {escalated.length ? (
+      {showEscalations && escalated.length ? (
         <Alert severity="error" sx={{ borderRadius: 2 }}>
           <Typography variant="subtitle2">
             ⚠️ NO AVAILABLE OWNER — {escalated.length} responsibilit{escalated.length === 1 ? 'y' : 'ies'}
@@ -106,7 +110,7 @@ export default function TeamOperations() {
         </Alert>
       ) : null}
 
-      {blockingWarnings.length ? (
+      {showEscalations && blockingWarnings.length ? (
         <Alert severity="warning" sx={{ borderRadius: 2 }}>
           <Typography variant="subtitle2">{blockingWarnings.length} configuration problem(s)</Typography>
           <Stack component="ul" sx={{ pl: 2, m: 0 }}>
@@ -121,12 +125,29 @@ export default function TeamOperations() {
         </Alert>
       ) : null}
 
-      <OfficeAiPanel />
-      <CustomerAiPanel />
+      {all && <OfficeAiPanel />}
+      {all && <CustomerAiPanel />}
 
       {loading ? <LoadingState label="Loading team status..." /> : null}
 
-      {!loading && priorityStrip.length ? (
+      {!loading && view === 'overview' && !error && status && (
+        <SectionCard title="Employee workload" subtitle="Current operational tasks, excluding the separate order queue">
+          <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 1 }}>
+            <Chip label={`${rows.reduce((sum, row) => sum + row.pending, 0)} assigned pending`} />
+            <Chip color="error" label={`${rows.reduce((sum, row) => sum + row.overdue, 0)} assigned overdue`} />
+            <Chip color="warning" label={`${status.unownedTasks?.length || 0} unowned tasks`} />
+          </Stack>
+          <DataTableWrapper>
+            <Table size="small">
+              <TableHead><TableRow><TableCell>Employee</TableCell><TableCell align="right">Pending</TableCell><TableCell align="right">Overdue</TableCell><TableCell align="right">Covering</TableCell></TableRow></TableHead>
+              <TableBody>{rows.map((row) => <TableRow key={row.User_uuid}><TableCell>{row.name || row.User_name}</TableCell><TableCell align="right">{row.pending}</TableCell><TableCell align="right">{row.overdue}</TableCell><TableCell align="right">{row.transferredIn || 0}</TableCell></TableRow>)}</TableBody>
+            </Table>
+          </DataTableWrapper>
+          {!rows.length && <EmptyState title="No active users" />}
+        </SectionCard>
+      )}
+
+      {!loading && showTeam && priorityStrip.length ? (
         <SectionCard
           title="Operational Priorities"
           subtitle="Assigned from each operator's profile — never hard-coded. Includes the owner and the AI assistant when they hold a code."
@@ -157,7 +178,7 @@ export default function TeamOperations() {
         </SectionCard>
       ) : null}
 
-      {!loading && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
+      {!loading && showTeam && (offStaffLine.byVirtualOperators || offStaffLine.byAlwaysAvailable) ? (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
           <Typography variant="body2" color="text.secondary">Handled off the staff line:</Typography>
           <Chip size="small" label={`${offStaffLine.byVirtualOperators || 0} automated`} />
@@ -165,7 +186,7 @@ export default function TeamOperations() {
         </Stack>
       ) : null}
 
-      {!loading ? (
+      {!loading && showTeam ? (
         <SectionCard title="Team Status">
           <DataTableWrapper>
             <Table size="small">
@@ -248,7 +269,7 @@ export default function TeamOperations() {
         </SectionCard>
       ) : null}
 
-      {!loading ? (
+      {!loading && showCoverage ? (
         <SectionCard
           title="Responsibility Coverage"
           subtitle="Who actually owns each responsibility right now, given today's attendance"
@@ -314,7 +335,7 @@ export default function TeamOperations() {
         </SectionCard>
       ) : null}
 
-      {!loading && status?.unownedTasks?.length ? (
+      {!loading && showEscalations && status?.unownedTasks?.length ? (
         <SectionCard title="Tasks With No Available Owner">
           <Divider sx={{ mb: 1 }} />
           <Stack spacing={0.5}>
@@ -326,6 +347,19 @@ export default function TeamOperations() {
           </Stack>
         </SectionCard>
       ) : null}
+      {!loading && view === 'escalations' && !error && status && (
+        <SectionCard title="Overdue assigned tasks">
+          <Stack spacing={0.5}>
+            {rows.filter((row) => row.overdue > 0).map((row) => (
+              <Stack key={row.User_uuid} direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2">{row.name || row.User_name}</Typography>
+                <Chip size="small" color="error" label={`${row.overdue} overdue`} />
+              </Stack>
+            ))}
+            {!rows.some((row) => row.overdue > 0) && <EmptyState title="No assigned overdue tasks" />}
+          </Stack>
+        </SectionCard>
+      )}
     </PageContainer>
   );
 }

@@ -85,6 +85,7 @@ function SentMessages({ date, recipient, status, refresh, onReceiptChange }) {
               label={<Box sx={{ flex: 1 }}>
                 <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{file.originalName}</Typography>
                 <Typography variant="caption" color={received ? 'success.main' : 'text.secondary'}>
+                  {file.storageMethod === 'google_drive' && 'Google Drive · '}
                   {received ? 'Received at office' : 'Pending receipt'}
                 </Typography>
               </Box>} />

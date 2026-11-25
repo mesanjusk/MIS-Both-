@@ -132,6 +132,15 @@ async function saveGoogleTokensFromCode(code) {
   };
 }
 
+async function getDriveMetadataClient() {
+  if (!isGoogleDriveOAuthConfigured()) return null;
+  const saved = await GoogleDriveToken.findOne({ provider: "google_drive" }).select('refreshToken').lean();
+  if (!saved?.refreshToken) return null;
+  const client = getOAuthClient();
+  client.setCredentials({ refresh_token: saved.refreshToken });
+  return google.drive({ version: 'v3', auth: client });
+}
+
 async function getAuthorizedDriveClient() {
   if (!isGoogleDriveOAuthConfigured()) {
     const err = new Error("Google Drive OAuth is not configured on the server.");
@@ -300,6 +309,7 @@ module.exports = {
   getGoogleDriveAuthUrl,
   saveGoogleTokensFromCode,
   getAuthorizedDriveClient,
+  getDriveMetadataClient,
   copyOrderTemplateFileOAuth,
   isDriveAutomationEnabled,
   isGoogleDriveOAuthConfigured,

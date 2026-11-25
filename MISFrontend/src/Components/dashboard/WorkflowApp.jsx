@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Avatar, BottomNavigation, BottomNavigationAction, Box, Button, ButtonBase,
-  Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase,
-  LinearProgress, Menu, MenuItem, Paper, Snackbar, Stack, TextField, Typography,
+  Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, IconButton, InputBase,
+  LinearProgress, ListItemIcon, MenuItem, MenuList, Paper, Snackbar, Stack, TextField, Typography,
 } from '@mui/material';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
 import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CalendarTodayOutlined from '@mui/icons-material/CalendarTodayOutlined';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
+import CloseRounded from '@mui/icons-material/CloseRounded';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HomeRounded from '@mui/icons-material/HomeRounded';
@@ -19,11 +20,16 @@ import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
 import PauseCircleOutlineRounded from '@mui/icons-material/PauseCircleOutlineRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import {
   DESIGN_BOARD_COLUMNS, STAGE_LABELS, STAGE_TO_CAPABILITY, WORKFLOW_MOVABLE_STAGES, WORKFLOW_SECTIONS,
 } from '../../constants/orderStages';
 import { usePermission } from '../../hooks/usePermission';
+import { useRoleKey } from '../../hooks/useRouteAccess';
+import { useAuth } from '../../context/AuthContext';
+import { ACCOUNT_ROLES, isRoleAllowed } from '../../constants/roles';
+import { getVisibleHomeTabs } from '../../Pages/homeTabs';
 import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
 import { initialsFor } from '../../utils/avatarColor';
 import WorkflowTeam from './WorkflowTeam';
@@ -33,7 +39,9 @@ const ICONS = [CalendarTodayOutlined, FolderOutlined, GroupsOutlined, PauseCircl
 const NAV = [
   ['home', 'Home', HomeRounded], ['jobs', 'Jobs', LayersOutlined],
   ['account', 'Account', PersonOutlineRounded], ['team', 'Team', GroupsOutlined],
+  ['bills', 'Bills', ReceiptLongOutlined],
 ];
+const AllBills = lazy(() => import('../../Reports/allBills'));
 const EMPTY_TASKS = [];
 const DESIGN_BY_STAGE = new Map(DESIGN_BOARD_COLUMNS.map((column) => [column.stageNumber, column]));
 const DESIGN_KEYS = new Set(DESIGN_BOARD_COLUMNS.map(({ key }) => key));
@@ -157,7 +165,7 @@ export default function WorkflowApp({
   const [section, setSection] = useState('');
   const [query, setQuery] = useState('');
   const [selection, setSelection] = useState(null);
-  const [menu, setMenu] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [designFiles, setDesignFiles] = useState(null);
   const [designError, setDesignError] = useState('');
@@ -165,6 +173,21 @@ export default function WorkflowApp({
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const canManageDesign = usePermission('canManageDesignFiles');
+  const { permissions } = useAuth();
+  const roleKey = useRoleKey();
+  const homeTabs = useMemo(() => getVisibleHomeTabs(permissions), [permissions]);
+  const canViewAllBills = permissions?.canViewAccounts !== false && isRoleAllowed(ACCOUNT_ROLES, roleKey);
+  const pendingBillsTab = homeTabs.find(({ id }) => id === 'pendingBills');
+  const dashboardTab = view === 'bills'
+    ? canViewAllBills ? { label: 'Bills', Component: AllBills } : pendingBillsTab
+    : homeTabs.find(({ id }) => id === view);
+  const DashboardPage = dashboardTab?.Component;
+  const drawerPage = Boolean(DashboardPage && view !== 'bills');
+  const scrollArea = useRef(null);
+
+  useEffect(() => {
+    if (scrollArea.current) scrollArea.current.scrollTop = 0;
+  }, [view]);
 
   const loadDesignFiles = useCallback(async (force = false) => {
     setDesignLoading(true);
@@ -278,6 +301,9 @@ export default function WorkflowApp({
               <Typography component="h2" fontWeight={800} variant="body1" noWrap>{selected.name}</Typography>
               {selected.orderNumber != null && <Typography variant="caption">#{selected.orderNumber}</Typography>}
             </Box>
+          </> : dashboardTab ? <>
+            {drawerPage && <IconButton color="inherit" aria-label="Back to workflow home" onClick={() => changeView('home')}><ArrowBackRounded /></IconButton>}
+            <Typography component="h2" fontWeight={800} sx={{ flex: 1, minWidth: 0 }}>{dashboardTab.label}</Typography>
           </> : <>
             <Typography aria-label="SK Digital" sx={{ fontSize: 25, fontWeight: 900, letterSpacing: '-.07em', pr: 0.35 }}>SK</Typography>
             <Stack direction="row" alignItems="center" gap={0.65} sx={{ bgcolor: '#ddf2ff', borderRadius: 8, flex: 1, minWidth: 0, px: 1.25, color: '#084e83' }}>
@@ -289,17 +315,43 @@ export default function WorkflowApp({
               }} sx={{ fontSize: 14, color: 'inherit', minHeight: 37 }} />
             </Stack>
           </>}
-          <IconButton aria-label="Workflow menu" color="inherit" onClick={(event) => setMenu(event.currentTarget)}><MoreVertRounded /></IconButton>
-          <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
-            <MenuItem disabled={isLoading || designLoading || saving} onClick={() => { setMenu(null); refresh(); }}>Refresh jobs</MenuItem>
-            <MenuItem onClick={() => { setMenu(null); changeView('jobs'); }}>All jobs</MenuItem>
-            <MenuItem onClick={() => { setMenu(null); changeView('activity'); }}>Activity</MenuItem>
-          </Menu>
+          <IconButton aria-label="Workflow menu" aria-haspopup="menu" aria-expanded={menuOpen} color="inherit"
+            onClick={() => setMenuOpen(true)}><MoreVertRounded /></IconButton>
+          <Drawer anchor="right" open={menuOpen} onClose={() => setMenuOpen(false)}
+            PaperProps={{ sx: { width: 'min(320px, 86vw)' } }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1 }}>
+              <Typography fontWeight={800}>Dashboard</Typography>
+              <IconButton aria-label="Close workflow menu" onClick={() => setMenuOpen(false)}><CloseRounded /></IconButton>
+            </Stack>
+            <Divider />
+            <MenuList aria-label="Workflow pages">
+              {homeTabs.map(({ id, label, icon: Icon }) => (
+                <MenuItem key={id} selected={id === view || (id === 'workflow' && view === 'home')}
+                  onClick={() => { setMenuOpen(false); changeView(id === 'workflow' ? 'home' : id); }}>
+                  <ListItemIcon><Icon fontSize="small" /></ListItemIcon>{label}
+                </MenuItem>
+              ))}
+              <Divider />
+              <MenuItem onClick={() => { setMenuOpen(false); changeView('jobs'); }}>All jobs</MenuItem>
+              <MenuItem onClick={() => { setMenuOpen(false); changeView('activity'); }}>Activity</MenuItem>
+              <MenuItem disabled={isLoading || designLoading || saving} onClick={() => { setMenuOpen(false); refresh(); }}>Refresh jobs</MenuItem>
+            </MenuList>
+          </Drawer>
         </Stack>
 
         {(isLoading || saving || (showDesignStatus && designLoading)) && <LinearProgress aria-label="Updating workflow jobs" />}
         {error && <Alert severity="error">{error}</Alert>}
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, maxHeight: standalone ? undefined : 'min(68dvh, 650px)', overflowY: 'auto', ...(selected || view === 'home' ? WALLPAPER : {}) }}>
+        <Box ref={scrollArea} sx={{ flex: 1, minWidth: 0, minHeight: 0, maxHeight: standalone ? undefined : 'min(68dvh, 650px)', overflow: view === 'inbox' ? 'hidden' : 'auto', ...(selected || view === 'home' ? WALLPAPER : {}) }}>
+          {!selected && DashboardPage && (
+            <Box sx={{ p: 1.25, ...(view === 'inbox' ? { height: '100%', minHeight: 0 } : {}) }}>
+              <Suspense fallback={<LinearProgress aria-label={`Loading ${dashboardTab.label}`} />}>
+                {view === 'bills' && canViewAllBills && pendingBillsTab && (
+                  <Button onClick={() => changeView('pendingBills')} sx={{ mb: 1 }}>Pending bills</Button>
+                )}
+                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : {})} />
+              </Suspense>
+            </Box>
+          )}
           {!selected && showDesignStatus && designError && (
             <Alert severity="warning" action={<Button color="inherit" size="small" onClick={() => loadDesignFiles(true)}>Retry</Button>}>
               {designFiles ? 'Could not refresh Design Board. Showing the last loaded files.' : designError}
@@ -349,8 +401,8 @@ export default function WorkflowApp({
           )}
         </Box>
 
-        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={activity ? false : view}
-          onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, flexShrink: 0, '& .MuiBottomNavigationAction-root': { minWidth: 0 }, '& .Mui-selected': { color: '#0876bd' } }}>
+        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={activity || drawerPage ? false : view}
+          onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, flexShrink: 0, '& .MuiBottomNavigationAction-root': { minWidth: 0, px: 0.5 }, '& .Mui-selected': { color: '#0876bd' } }}>
           {NAV.map(([key, label, Icon]) => <BottomNavigationAction key={key} value={key} label={label} icon={<Icon />} aria-current={view === key ? 'page' : undefined} />)}
         </BottomNavigation>
         <Snackbar open={Boolean(feedback)} autoHideDuration={6000} onClose={() => setFeedback(null)}>

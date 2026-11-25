@@ -54,17 +54,21 @@ vi.mock('../../services/operationsService', () => ({
 // Heavy children that are not what this file is about.
 vi.mock('../../Pages/userTask', () => ({ default: () => null }));
 vi.mock('./DesignFilesWidget', () => ({ default: () => null }));
+vi.mock('../../Pages/HomeInbox', () => ({ default: () => <div>Inbox content</div> }));
+vi.mock('../../Pages/PendingBills', () => ({ default: () => <div>Pending Bills content</div> }));
+vi.mock('../../Reports/allBills', () => ({ default: () => <div>All Bills content</div> }));
 vi.mock('../../apiClient', () => ({
   default: { get: vi.fn(() => Promise.resolve({ data: {} })) },
   getApiBase: () => '',
 }));
 
-function signIn(userName, userGroup) {
+function signIn(userName, userGroup, permissions) {
   localStorage.setItem('mis_userName', userName);
   localStorage.setItem('User_name', userName);
   localStorage.setItem('mis_userGroup', userGroup);
   localStorage.setItem('User_group', userGroup);
   localStorage.setItem('mis_token', 'a-token');
+  if (permissions) localStorage.setItem('mis_permissions', JSON.stringify(permissions));
 }
 
 const renderBoard = () =>
@@ -87,7 +91,7 @@ test('mobile navigation and Team views include reports, attendance, assignment a
   });
   renderApp();
   const nav = await screen.findByRole('navigation', { name: 'Mobile workflow navigation' });
-  expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Jobs', 'Account', 'Team']);
+  expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Jobs', 'Account', 'Team', 'Bills']);
   fireEvent.click(within(nav).getByRole('button', { name: 'Team' }));
   expect(await screen.findByText('3 pending · 1 overdue')).toBeInTheDocument();
 
@@ -110,6 +114,39 @@ test('mobile navigation and Team views include reports, attendance, assignment a
   fireEvent.click(screen.getByRole('tab', { name: 'Pending Tasks' }));
   expect(await screen.findByText('Check proof')).toBeInTheDocument();
   expect(screen.queryByText('Finished job')).not.toBeInTheDocument();
+});
+
+test('mobile drawer exposes the Home pages and Bills opens inside the app shell', async () => {
+  signIn('Sanju', 'Owner');
+  renderApp();
+  fireEvent.click(await screen.findByRole('button', { name: 'Workflow menu' }));
+  const menu = await screen.findByRole('menu', { name: 'Workflow pages' });
+  for (const name of ['Workflow', 'Team Follow-up', 'Inbox', 'Day Book', 'Attendance', 'Orders',
+    'Outstanding', 'Payable', 'Rate Calculator', 'Payment Follow-up', 'Pending Bills', 'Leads', 'Activity']) {
+    expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
+  }
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Inbox' }));
+  expect(await screen.findByText('Inbox content')).toBeInTheDocument();
+  const nav = await screen.findByRole('navigation', { name: 'Mobile workflow navigation' });
+  fireEvent.click(within(nav).getByRole('button', { name: 'Bills' }));
+  expect(await screen.findByText('All Bills content')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Pending bills' }));
+  expect(await screen.findByText('Pending Bills content')).toBeInTheDocument();
+});
+
+test('the drawer follows Home permissions and staff Bills opens Pending Bills', async () => {
+  signIn('Priya', 'Office User', { canViewAccounts: false, canViewWhatsapp: false, allowedWidgets: ['workflow', 'inbox'] });
+  renderApp();
+  fireEvent.click(await screen.findByRole('button', { name: 'Workflow menu' }));
+  const menu = await screen.findByRole('menu', { name: 'Workflow pages' });
+  expect(within(menu).getByRole('menuitem', { name: 'Inbox' })).toBeInTheDocument();
+  for (const name of ['Day Book', 'Orders', 'Payable', 'Payment Follow-up', 'Leads']) {
+    expect(within(menu).queryByRole('menuitem', { name })).not.toBeInTheDocument();
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Close workflow menu' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Bills' }));
+  expect(await screen.findByText('Pending Bills content')).toBeInTheDocument();
+  expect(screen.queryByText('All Bills content')).not.toBeInTheDocument();
 });
 
 test('regular staff see their personal report and no management task assignment', async () => {

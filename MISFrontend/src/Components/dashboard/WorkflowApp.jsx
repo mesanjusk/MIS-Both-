@@ -230,8 +230,14 @@ export default function WorkflowApp({
     }] : [];
   }), [designFiles]);
   const allJobs = useMemo(() => {
-    const linked = new Set(designJobs.map(({ file }) => file.orderUuid).filter(Boolean));
-    return [...jobs.filter((job) => !DESIGN_KEYS.has(job.section) || !linked.has(job.orderId)), ...designJobs];
+    // The order overview uses Mongo IDs and the Drive scan uses order UUIDs.
+    // Both expose the unique MIS order number.
+    const linked = new Set(designJobs.filter(({ file }) => file.orderUuid).map(({ orderNumber }) => orderNumber));
+    const production = new Set(jobs.filter((job) => !DESIGN_KEYS.has(job.section)).map(({ orderNumber }) => orderNumber));
+    return [
+      ...jobs.filter((job) => !DESIGN_KEYS.has(job.section) || !linked.has(job.orderNumber)),
+      ...designJobs.filter(({ file, orderNumber }) => !file.orderUuid || !production.has(orderNumber)),
+    ];
   }, [designJobs, jobs]);
   const selected = jobs.find((job) => job.key === selection) || designJobs.find((job) => job.key === selection);
   const activeSection = WORKFLOW_SECTIONS.find((item) => item.key === section);

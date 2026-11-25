@@ -76,8 +76,11 @@ async function submitJobAction(button, picker, option, submit) {
 }
 
 test('mobile Design Board cards and file details use the existing Drive workflow', async () => {
-  const file = { fileId: 'drive-file', fileName: 'Flyer.cdr', stageNumber: 4, orderUuid: '51', orderNumber: 151, orderStage: 'ready_to_print' };
+  const file = { fileId: 'drive-file', fileName: 'Flyer.cdr', stageNumber: 4, orderUuid: 'order-uuid', orderNumber: 151, orderStage: 'ready_to_print' };
   const draft = { fileId: 'draft-file', fileName: 'Poster.cdr', stageNumber: 4 };
+  fetchPendingTasksOverview.mockResolvedValueOnce({ data: { tasks: [
+    ...TASKS, { orderId: 'mongo-id', orderNumber: 151, customerName: 'Linked order', stage: 'ready_to_print' },
+  ] } });
   scanDesignFiles.mockResolvedValue({ data: { files: [file, draft] } });
   fetchAssignees.mockResolvedValueOnce({ data: { result: [
     { id: 'designer', name: 'Design Team', type: 'payable', capabilities: ['design'] },
@@ -86,6 +89,11 @@ test('mobile Design Board cards and file details use the existing Drive workflow
   signIn('Sanju', 'Owner');
   try {
     renderApp();
+    await screen.findByRole('button', { name: '2 Ready to Print' });
+    fireEvent.click(screen.getByRole('button', { name: 'Jobs', exact: true }));
+    expect(screen.getByRole('button', { name: /Flyer.cdr/ })).toBeInTheDocument();
+    expect(screen.queryByText('Linked order')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Home', exact: true }));
     fireEvent.click(await screen.findByRole('button', { name: '2 Ready to Print' }));
     fireEvent.click(screen.getByRole('button', { name: /Poster.cdr/ }));
     expect(screen.queryByRole('button', { name: 'Move to Print' })).not.toBeInTheDocument();

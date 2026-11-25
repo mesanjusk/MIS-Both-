@@ -40,8 +40,7 @@ const ICONS = [CalendarTodayOutlined, FolderOutlined, GroupsOutlined, PauseCircl
   AssignmentOutlined, PrintOutlined, LayersOutlined, Inventory2Outlined, LocalShippingOutlined];
 const NAV = [
   ['home', 'Home', HomeRounded], ['jobs', 'Jobs', LayersOutlined],
-  ['account', 'Account', PersonOutlineRounded], ['team', 'Team', GroupsOutlined],
-  ['bills', 'Bills', ReceiptLongOutlined],
+  ['team', 'Team', GroupsOutlined], ['bills', 'Bills', ReceiptLongOutlined],
 ];
 const AllBills = lazy(() => import('../../Reports/allBills'));
 const BillPaymentFollowup = lazy(() => import('../../Pages/PaymentFollowupHome'));
@@ -208,14 +207,16 @@ export default function WorkflowApp({
       id: 'printSent', label: 'Print Sent', icon: OutboxOutlined, Component: PrintSent, props: { showTitle: false },
     },
   ].filter(Boolean);
+  const menuTabs = homeTabs.filter(({ id }) => !shortcuts.some((shortcut) => shortcut.id === id));
   const canViewAllBills = permissions?.canViewAccounts !== false && isRoleAllowed(ACCOUNT_ROLES, roleKey);
   const pendingBillsTab = homeTabs.find(({ id }) => id === 'pendingBills');
   const dashboardTab = view === 'bills'
     ? canViewAllBills ? { label: 'Bills', Component: AllBills } : pendingBillsTab
+    : view === 'account' ? { label: 'Account' }
     : view === 'billPaymentFollowup' && canViewAllBills ? { label: 'Payment follow-ups', Component: BillPaymentFollowup }
     : shortcuts.find(({ id }) => id === view) || homeTabs.find(({ id }) => id === view);
   const DashboardPage = dashboardTab?.Component;
-  const drawerPage = Boolean(DashboardPage && view !== 'bills');
+  const drawerPage = Boolean(dashboardTab && view !== 'bills');
   const scrollArea = useRef(null);
 
   useEffect(() => {
@@ -366,7 +367,11 @@ export default function WorkflowApp({
             </Stack>
             <Divider />
             <MenuList aria-label="Workflow pages">
-              {homeTabs.map(({ id, label, icon: Icon }) => (
+              <MenuItem selected={view === 'account'} onClick={() => { setMenuOpen(false); changeView('account'); }}>
+                <ListItemIcon><PersonOutlineRounded fontSize="small" /></ListItemIcon>Account
+              </MenuItem>
+              <Divider />
+              {menuTabs.map(({ id, label, icon: Icon }) => (
                 <MenuItem key={id} selected={id === view || (id === 'workflow' && view === 'home')}
                   onClick={() => { setMenuOpen(false); changeView(id === 'workflow' ? 'home' : id); }}>
                   <ListItemIcon><Icon fontSize="small" /></ListItemIcon>{label}

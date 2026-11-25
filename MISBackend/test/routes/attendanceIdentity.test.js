@@ -25,6 +25,7 @@ process.env.ACCESS_TOKEN_SECRET = 'test-secret';
 process.env.INTERNAL_API_KEY = 'device-key';
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use('/api/attendance', require('../../src/routes/Attendance'));
 app.use((err, _req, res, _next) => res.status(err.statusCode || 500).json({ message: err.message }));
@@ -109,5 +110,35 @@ describe('changing someone else\'s attendance state', () => {
       .post('/api/attendance/setAttendanceState')
       .send({ User_name: 'Suresh', State: 'Out' });
     expect(res.status).toBe(401);
+  });
+});
+
+describe('office network for starting your own day', () => {
+  beforeEach(() => { process.env.OFFICE_ATTENDANCE_IPS = '192.0.2.14'; });
+  afterEach(() => { delete process.env.OFFICE_ATTENDANCE_IPS; });
+
+  const punch = (address, type = 'In', user = 'Ramesh', token = tokenFor('Ramesh')) =>
+    request(app).post('/api/attendance/addAttendance')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Forwarded-For', address)
+      .send({ User_name: user, Type: type, Status: 'Present', Time: '09:30' });
+
+  test('rejects a self check-in seen from outside the office', async () => {
+    const res = await punch('192.0.2.14, 192.0.2.99');
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('OFFICE_NETWORK_REQUIRED');
+    expect(Users.findOne).not.toHaveBeenCalled();
+  });
+
+  test('allows the configured network, including an IPv4-mapped address', async () => {
+    Users.findOne.mockResolvedValue(null);
+    expect((await punch('::ffff:192.0.2.14')).status).toBe(404);
+  });
+
+  test('allows clock-out, vendor punches and manager punches on behalf of staff off-site', async () => {
+    Users.findOne.mockResolvedValue(null);
+    expect((await punch('192.0.2.99', 'Out')).status).toBe(404);
+    expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Priya', 'manager'))).status).toBe(404);
+    expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Ramesh', 'Vendor'))).status).toBe(404);
   });
 });

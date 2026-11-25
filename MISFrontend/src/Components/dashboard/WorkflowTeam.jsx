@@ -178,7 +178,7 @@ export default function WorkflowTeam({ userName }) {
       <Stack spacing={1.5} sx={{ p: 1.5 }}>
         {tab === 'attendance' && <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Typography component="h2" fontWeight={700} sx={{ mb: 1 }}>My attendance today</Typography>
-          <AttendanceStatus />
+          <AttendanceStatus showErrors />
         </Paper>}
         {reports && (
           <Stack direction="row" gap={1} alignItems="center">

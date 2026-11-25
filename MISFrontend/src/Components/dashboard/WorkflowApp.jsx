@@ -14,6 +14,7 @@ import HomeRounded from '@mui/icons-material/HomeRounded';
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
 import LayersOutlined from '@mui/icons-material/LayersOutlined';
 import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined';
+import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
 import PauseCircleOutlineRounded from '@mui/icons-material/PauseCircleOutlineRounded';
 import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
@@ -91,7 +92,10 @@ function JobDetail({ job }) {
   );
 }
 
-export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onRefresh, getSection, getStageLabel, userName }) {
+export default function WorkflowApp({
+  tasks = EMPTY_TASKS, isLoading, error, onRefresh, getSection, getStageLabel,
+  userName, userGroup, onSignOut, standalone = false,
+}) {
   const [view, setView] = useState('home');
   const [section, setSection] = useState('');
   const [query, setQuery] = useState('');
@@ -129,8 +133,13 @@ export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onR
   const noCounts = !jobs.length && (isLoading || error);
 
   return (
-    <Box component="section" aria-label="Mobile workflow app" sx={{ display: 'grid', placeItems: 'center', p: { xs: 0, sm: 2 }, minWidth: 0 }}>
-      <Paper variant="outlined" sx={{ width: '100%', maxWidth: 445, minHeight: 610, borderRadius: { xs: 3, sm: 5 }, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <Box component="section" aria-label="Mobile workflow app" sx={{ display: 'grid', placeItems: 'center', p: standalone ? 0 : { xs: 0, sm: 2 }, minWidth: 0 }}>
+      <Paper variant="outlined" sx={{
+        width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        ...(standalone
+          ? { height: '100vh', '@supports (height: 100dvh)': { height: '100dvh' }, border: 0, borderRadius: 0 }
+          : { maxWidth: 445, minHeight: 610, borderRadius: { xs: 3, sm: 5 } }),
+      }}>
         <Stack component="header" direction="row" gap={1.1} alignItems="center" sx={{ px: 1.25, py: 1.5, bgcolor: '#1976b8', backgroundImage: 'linear-gradient(120deg,#3498d5,#1473b5)', color: '#fff' }}>
           {selected ? <>
             <IconButton color="inherit" aria-label="Back to list" onClick={() => setSelection(null)}><ArrowBackRounded /></IconButton>
@@ -154,15 +163,16 @@ export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onR
           <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
             <MenuItem disabled={isLoading} onClick={() => { setMenu(null); onRefresh(); }}>Refresh jobs</MenuItem>
             <MenuItem onClick={() => { setMenu(null); changeView('jobs'); }}>All jobs</MenuItem>
+            <MenuItem onClick={() => { setMenu(null); changeView('account'); }}>Account</MenuItem>
           </Menu>
         </Stack>
 
         {isLoading && <LinearProgress aria-label="Loading workflow jobs" />}
         {error && <Alert severity="error">{error}</Alert>}
-        <Box sx={{ flex: 1, minWidth: 0, maxHeight: 'min(68dvh, 650px)', overflowY: 'auto', ...(selected || view === 'home' ? WALLPAPER : {}) }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, maxHeight: standalone ? undefined : 'min(68dvh, 650px)', overflowY: 'auto', ...(selected || view === 'home' ? WALLPAPER : {}) }}>
           {selected && <JobDetail job={selected} />}
           {!selected && view === 'home' && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: { xs: 0.8, sm: 1.25 }, p: { xs: 1.25, sm: 2 } }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: { xs: 0.8, sm: 1.25 }, p: { xs: 1.25, sm: 2 }, maxWidth: standalone ? 580 : undefined, mx: 'auto' }}>
               {WORKFLOW_SECTIONS.map((item, index) => {
                 const Icon = ICONS[index] || ChecklistRounded;
                 const count = jobs.filter((job) => job.section === item.key).length;
@@ -190,16 +200,18 @@ export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onR
             {visibleCount < list.length && <Button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} sx={{ m: 1, textTransform: 'none' }}>Show more</Button>}
           </>}
           {!selected && view === 'account' && (
-            <Stack spacing={1} alignItems="center" sx={{ py: 4 }}>
+            <Stack spacing={1} alignItems="center" sx={{ px: 2, py: 4 }}>
               <Avatar sx={{ bgcolor: '#1976b8', width: 56, height: 56 }}>{initialsFor(userName || '')}</Avatar>
               <Typography component="h2" variant="subtitle1" fontWeight={850}>{userName || 'Account'}</Typography>
+              {userGroup && <Typography variant="body2" color="text.secondary">{userGroup}</Typography>}
               {userName && <Typography variant="body2" color="text.secondary">{noCounts ? '—' : jobs.filter((job) => job.assignee === userName).length} assigned jobs</Typography>}
+              {userName && <Button onClick={onSignOut} startIcon={<LogoutRounded />} variant="outlined" color="error">Sign out</Button>}
             </Stack>
           )}
         </Box>
 
         <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={view}
-          onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, '& .MuiBottomNavigationAction-root': { minWidth: 0 }, '& .Mui-selected': { color: '#0876bd' } }}>
+          onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, flexShrink: 0, '& .MuiBottomNavigationAction-root': { minWidth: 0 }, '& .Mui-selected': { color: '#0876bd' } }}>
           {NAV.map(([key, label, Icon]) => <BottomNavigationAction key={key} value={key} label={label} icon={<Icon />} aria-current={view === key ? 'page' : undefined} />)}
         </BottomNavigation>
       </Paper>

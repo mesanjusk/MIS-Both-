@@ -1,11 +1,16 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import api from '../apiClient';
+import { useRoleKey } from '../hooks/useRouteAccess';
 import PrintSent from './PrintSent';
 
 vi.mock('../apiClient', () => ({ default: { get: vi.fn(), patch: vi.fn() } }));
+vi.mock('../hooks/useRouteAccess', () => ({ useRoleKey: vi.fn() }));
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  useRoleKey.mockReturnValue('Designer');
+});
 
 test('shows seven dates, opens recipient folders, and keeps each email’s attachments together', async () => {
   const dates = ['2026-11-25', '2026-11-24', '2026-11-23', '2026-11-22', '2026-11-21', '2026-11-20', '2026-11-19'];
@@ -88,6 +93,8 @@ test('tracks attachments independently and can undo a received mark on an older 
   fireEvent.click(flyer);
   expect(await screen.findByText('No pending attachments in this folder.')).toBeInTheDocument();
   expect(api.patch).toHaveBeenLastCalledWith('/api/gmail/print-sent/messages/mail-1/attachments/1', { received: true });
+  expect(api.get.mock.calls.filter(([path]) => path.endsWith('/messages'))).toHaveLength(1);
+  expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('tab', { name: 'Received' }));
   expect(await screen.findByRole('checkbox', { name: /Flyer/ })).toBeChecked();
@@ -96,4 +103,28 @@ test('tracks attachments independently and can undo a received mark on an older 
   expect(await screen.findByRole('checkbox', { name: /Poster/ })).toBeChecked();
   expect(screen.queryByRole('checkbox', { name: /Flyer/ })).not.toBeInTheDocument();
   expect(api.patch).toHaveBeenLastCalledWith('/api/gmail/print-sent/messages/mail-1/attachments/1', { received: false });
+});
+
+test('admins can save a recipient alias and see it as the folder title', async () => {
+  useRoleKey.mockReturnValue('Owner');
+  const date = '2020-01-01';
+  const email = 'print@example.com';
+  let alias = '';
+  api.get.mockImplementation(async (path) => ({ data: path.endsWith('/recipients')
+    ? { result: [{ email, alias }] }
+    : { dates: [date], folders: [{ date, email, name: 'Original Mail Name', alias, count: 1 }] } }));
+  api.patch.mockImplementation(async (_, input) => {
+    alias = input.alias;
+    return { data: input };
+  });
+  render(<PrintSent />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: `Folder alias for ${email}` }), { target: { value: 'Gondia Press' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  expect(api.patch).toHaveBeenCalledWith('/api/gmail/print-sent/recipients', { email, alias: 'Gondia Press' });
+  fireEvent.click(screen.getByRole('tab', { name: 'Pending' }));
+  fireEvent.click(await screen.findByRole('button', { name: /1 Jan.*2020/ }));
+  expect(screen.getByRole('button', { name: 'Gondia Press 1 email' })).toBeInTheDocument();
+  expect(screen.queryByText('Original Mail Name')).not.toBeInTheDocument();
+  expect(screen.queryByText(email)).not.toBeInTheDocument();
 });

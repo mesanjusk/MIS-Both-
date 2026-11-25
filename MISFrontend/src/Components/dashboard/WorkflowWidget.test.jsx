@@ -13,9 +13,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import WorkflowWidget from './WorkflowWidget';
 import { AuthProvider } from '../../context/AuthContext';
+import { fetchPendingTasksOverview } from '../../services/orderService';
 
 const TASKS = [
-  { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar', stageUpdatedAt: '2026-11-25T06:00:00Z' },
+  { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar' },
   { orderId: '2', orderNumber: 102, customerName: 'Bharat Stores', stage: 'print', task: 'Print', assignedTo: 'Deepak Print' },
   { orderId: '3', orderNumber: 103, customerName: 'Chetan and Co', stage: 'bind_packing', task: 'Bind & Packing', assignedTo: 'Rajesh Kumar' },
   { orderId: '4', orderNumber: 104, customerName: 'Deccan Mills', stage: 'ready', task: 'Ready', assignedTo: 'Priya Sharma' },
@@ -61,6 +62,9 @@ const visibleOrders = () =>
   [101, 102, 103, 104].filter((n) => screen.queryByText(`#${n}`) !== null);
 
 test('App uses live overview rows across all views and returns to the board', async () => {
+  fetchPendingTasksOverview.mockResolvedValueOnce({ data: {
+    tasks: [{ ...TASKS[0], stageUpdatedAt: '2026-11-25T06:00:00Z' }, ...TASKS.slice(1)],
+  } });
   signIn('Deepak Print', 'Office User');
   renderBoard();
   await screen.findByText('Alice Traders');

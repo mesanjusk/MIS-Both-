@@ -1,7 +1,7 @@
 // vite.config.js
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolveReleaseInfo } from './src/utils/releaseMetadata.js'
@@ -38,11 +38,13 @@ export default defineConfig({
     {
       name: 'emit-live-release-version',
       apply: 'build',
-      closeBundle() {
-        // public/version.json is copied first by Vite. Replace it with the
-        // current bundle's SHA so the existing versionChecker can reload.
-        writeFileSync(new URL('./dist/version.json', import.meta.url),
-          JSON.stringify({ version: release.version, pr: release.pr, sha: release.sha }, null, 2))
+      generateBundle() {
+        // Emit only when bundling succeeds; Rollup writes to Vite's actual output directory.
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ version: release.version, pr: release.pr, sha: release.sha }, null, 2),
+        })
       },
     },
   ],

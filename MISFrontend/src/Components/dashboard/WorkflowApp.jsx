@@ -42,6 +42,7 @@ const NAV = [
   ['bills', 'Bills', ReceiptLongOutlined],
 ];
 const AllBills = lazy(() => import('../../Reports/allBills'));
+const BillPaymentFollowup = lazy(() => import('../../Pages/PaymentFollowupHome'));
 const EMPTY_TASKS = [];
 const DESIGN_BY_STAGE = new Map(DESIGN_BOARD_COLUMNS.map((column) => [column.stageNumber, column]));
 const DESIGN_KEYS = new Set(DESIGN_BOARD_COLUMNS.map(({ key }) => key));
@@ -182,6 +183,7 @@ export default function WorkflowApp({
   const pendingBillsTab = homeTabs.find(({ id }) => id === 'pendingBills');
   const dashboardTab = view === 'bills'
     ? canViewAllBills ? { label: 'Bills', Component: AllBills } : pendingBillsTab
+    : view === 'billPaymentFollowup' && canViewAllBills ? { label: 'Payment follow-ups', Component: BillPaymentFollowup }
     : homeTabs.find(({ id }) => id === view);
   const DashboardPage = dashboardTab?.Component;
   const drawerPage = Boolean(DashboardPage && view !== 'bills');
@@ -350,7 +352,7 @@ export default function WorkflowApp({
           {!selected && DashboardPage && (
             <Box sx={{ p: 1.25, ...(view === 'inbox' ? { height: '100%', minHeight: 0 } : {}) }}>
               <Suspense fallback={<LinearProgress aria-label={`Loading ${dashboardTab.label}`} />}>
-                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'bills' && canViewAllBills ? { compact: true, headerSearch: billSearch, onPendingBills: pendingBillsTab ? () => { changeView('pendingBills'); setBillSubpage(true); } : undefined, onPaymentFollowup: homeTabs.some(tab => tab.id === 'paymentFollowup') ? () => { changeView('paymentFollowup'); setBillSubpage(true); } : undefined } : {})} />
+                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'billPaymentFollowup' ? { compact: true } : view === 'bills' && canViewAllBills ? { compact: true, headerSearch: billSearch, onPendingBills: pendingBillsTab ? () => { changeView('pendingBills'); setBillSubpage(true); } : undefined, onPaymentFollowup: homeTabs.some(tab => tab.id === 'paymentFollowup') ? () => { changeView('billPaymentFollowup'); setBillSubpage(true); } : undefined } : {})} />
               </Suspense>
             </Box>
           )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   Stack, Tooltip, Typography,
 } from '@mui/material';
 import toast from 'react-hot-toast';
@@ -11,7 +11,7 @@ import EmployeeSopDialog from './EmployeeSopDialog';
 // The personal checklist (not a group-level "someone already ticked it"
 // estimate) is now the employee's single Start Day / End Day checkpoint.
 // Attendance endpoints enforce the same policy for every attendance channel.
-export default function AttendanceStatus() {
+export default function AttendanceStatus({ showErrors = false } = {}) {
   const { userName } = useAuth();
   const [attendanceFlow, setAttendanceFlow] = useState([]);
   const [error, setError] = useState('');
@@ -91,6 +91,7 @@ export default function AttendanceStatus() {
 
   return (
     <>
+      {showErrors && error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
       <Stack direction="row" spacing={0.5} alignItems="center">
         <Tooltip title={error || (attendanceFlow.length ? attendanceFlow.join(' → ') : 'Not checked in')}>
           <Chip size="small"

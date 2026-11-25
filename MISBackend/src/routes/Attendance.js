@@ -9,10 +9,23 @@ const { formatIST } = require("../utils/dateTime");
 const { sendWhatsAppText } = require('../services/unifiedWhatsAppService');
 const normalizeWhatsAppNumber = require("../utils/normalizeNumber");
 const logger = require('../utils/logger');
-const { tierFor } = require('../utils/roleHierarchy');
+const { normalizeRole, tierFor } = require('../utils/roleHierarchy');
 const { businessDateString } = require('../utils/businessDay');
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
 const { ensureSopClockOut } = require('../services/employeeSopDayService');
+const { isIP } = require('node:net');
+
+const normalizeAttendanceIp = (ip) => String(ip || '').trim().toLowerCase().replace(/^::ffff:(?=\d+\.)/, '');
+
+function getAttendanceClientIp(req) {
+  if (process.env.RENDER !== 'true') return normalizeAttendanceIp(req.ip);
+
+  // Render's public Cloudflare ingress supplies both visitor-IP headers.
+  // The last forwarded hop can instead be a proxy on that platform.
+  const clientIp = normalizeAttendanceIp(req.get('True-Client-IP'));
+  const cloudflareIp = normalizeAttendanceIp(req.get('CF-Connecting-IP'));
+  return req.get('Rndr-Id') && isIP(clientIp) && clientIp === cloudflareIp ? clientIp : '';
+}
 
 // Pino expects structured fields before the message. Passing err.message as
 // an extra positional argument hid the provider's actual failure reason in
@@ -162,6 +175,23 @@ router.post('/addAttendance', (req, res, next) => {
       success: false,
       message: 'You can only mark your own attendance.',
     });
+  }
+
+  const officeNetworks = process.env.OFFICE_ATTENDANCE_IPS?.trim();
+  const caller = String(req.user?.userName || req.user?.User_name || '').trim().toLowerCase();
+  const selfCheckIn = !req.headers['x-internal-key'] &&
+    caller && caller === String(User_name).trim().toLowerCase() &&
+    normalizeRole(req.user?.userGroup || req.user?.User_group) !== 'vendor' &&
+    String(Type).trim().toLowerCase() === 'in';
+  if (officeNetworks && selfCheckIn) {
+    const allowed = officeNetworks.split(',').map(normalizeAttendanceIp).filter(isIP);
+    if (!allowed.includes(getAttendanceClientIp(req))) {
+      return res.status(403).json({
+        success: false,
+        code: 'OFFICE_NETWORK_REQUIRED',
+        message: 'Connect to the office Wi-Fi to start your day.',
+      });
+    }
   }
 
   const currentDate = businessDateString();

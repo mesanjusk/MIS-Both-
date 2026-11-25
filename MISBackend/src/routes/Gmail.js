@@ -15,6 +15,7 @@ const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
 const { isValidObjectId } = require('mongoose');
 const { PRINT_SOURCE, normalizeRecipients, syncPrintSentAccount } = require('../services/printSentService');
+const { PRINT_TIME_ZONE, recentPrintDates, printDateRange } = require('../utils/printSentDates');
 const corsOptions = require('../config/corsOptions');
 
 const printStaff = requireRole(['worker', 'delivery', 'office admin', 'office design', 'office marketing',
@@ -115,6 +116,43 @@ router.get('/print-sent', printStaff, async (req, res, next) => {
     ]);
     res.set('Cache-Control', 'private, no-store');
     res.json({ result: entries.slice(0, pageSize), hasMore: entries.length > pageSize });
+  } catch (error) { next(error); }
+});
+
+router.get('/print-sent/folders', printStaff, async (_req, res, next) => {
+  try {
+    const dates = recentPrintDates();
+    const folders = await EmailHistory.aggregate([
+      { $match: { source: PRINT_SOURCE, sentAt: printDateRange(dates.at(-1), dates[0]) } },
+      { $sort: { sentAt: -1, _id: -1 } },
+      { $group: {
+        _id: {
+          date: { $dateToString: { date: '$sentAt', format: '%Y-%m-%d', timezone: PRINT_TIME_ZONE } },
+          email: '$toEmail',
+        },
+        name: { $first: '$toName' },
+        count: { $sum: 1 },
+      } },
+      { $project: { _id: 0, date: '$_id.date', email: '$_id.email', name: 1, count: 1 } },
+    ]);
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ dates, folders });
+  } catch (error) { next(error); }
+});
+
+router.get('/print-sent/messages', printStaff, async (req, res, next) => {
+  try {
+    const { date, recipient } = req.query;
+    if (!recentPrintDates().includes(date) || typeof recipient !== 'string' || !recipient || recipient.length > 254) {
+      return res.status(400).json({ message: 'Choose a recent print date and recipient.' });
+    }
+    const page = Math.max(1, Math.min(1000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 12;
+    const messages = await EmailHistory.find({ source: PRINT_SOURCE, sentAt: printDateRange(date), toEmail: recipient })
+      .select('sentAt attachments.originalName attachments.thumbnail')
+      .sort({ sentAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize + 1).lean();
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ result: messages.slice(0, pageSize), hasMore: messages.length > pageSize });
   } catch (error) { next(error); }
 });
 

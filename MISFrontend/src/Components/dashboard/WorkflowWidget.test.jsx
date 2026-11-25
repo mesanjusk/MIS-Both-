@@ -57,7 +57,12 @@ vi.mock('./DesignFilesWidget', () => ({ default: ({ archiveOnly }) => archiveOnl
 vi.mock('../../Pages/HomeInbox', () => ({ default: () => <div>Inbox content</div> }));
 vi.mock('../../Pages/PrintSent', () => ({ default: () => <div>Print Sent content</div> }));
 vi.mock('../../Pages/PendingBills', () => ({ default: () => <div>Pending Bills content</div> }));
-vi.mock('../../Reports/allBills', () => ({ default: () => <div>All Bills content</div> }));
+vi.mock('../../Reports/allBills', () => ({
+  default: ({ onPendingBills }) => <div>
+    All Bills content
+    {onPendingBills && <button type="button" onClick={onPendingBills}>Pending bills</button>}
+  </div>,
+}));
 vi.mock('../../apiClient', () => ({
   default: { get: vi.fn(() => Promise.resolve({ data: {} })) },
   getApiBase: () => '',

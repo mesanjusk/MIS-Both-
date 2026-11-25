@@ -49,7 +49,7 @@ import { ORDER_SECTIONS } from '../orders/orderControlSections';
 // business summary: orders, vendor ledger, transactions and tasks), so the
 // chunk is only fetched when an admin actually opens that view.
 const OrderControlPanel = lazy(() => import('../orders/OrderControlPanel'));
-const WorkflowAppPreview = lazy(() => import('./WorkflowAppPreview'));
+const WorkflowApp = lazy(() => import('./WorkflowApp'));
 
 const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
 
@@ -84,10 +84,14 @@ function guessSectionFromLabel(label) {
 function groupBySection(tasks) {
   const buckets = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, []]));
   for (const task of tasks) {
-    const key = STAGE_TO_SECTION.get(task.stage) || guessSectionFromLabel(task.task || task.stage);
+    const key = resolveWorkflowSection(task);
     buckets.get(key).push(task);
   }
   return buckets;
+}
+
+function resolveWorkflowSection(task) {
+  return STAGE_TO_SECTION.get(task.stage) || guessSectionFromLabel(task.task || task.stage);
 }
 
 // Pipeline order the granular stage strip is sorted in — unrecognized
@@ -155,7 +159,7 @@ export default function WorkflowWidget() {
   const roleKey = useRoleKey();
   const canSeeActionQueues = isRoleAllowed(ADMIN_ROLES, roleKey);
   const [tab, setTab] = useState('board');
-  const isAppPreview = tab === 'app';
+  const isApp = tab === 'app';
   const [overview, setOverview] = useState(null);
   // Off by default: the board is the shop floor, not a personal list.
   const [onlyMine, setOnlyMine] = useState(false);
@@ -350,7 +354,7 @@ export default function WorkflowWidget() {
 
   return (
     <Box>
-      {!isAppPreview && <><UserTask /><Divider sx={{ my: 1.5 }} /></>}
+      {!isApp && <><UserTask /><Divider sx={{ my: 1.5 }} /></>}
 
       {/* Compact board toolbar: keep the information needed to operate the
           board, but remove the duplicated per-stage text strip. The columns
@@ -358,7 +362,7 @@ export default function WorkflowWidget() {
       <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 1, minWidth: 0 }}>
         <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>Workflow</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-          {isAppPreview ? 'Mobile UI preview' : `${stageBreakdown.reduce((sum, item) => sum + item.count, 0)} active jobs`}
+          {isApp ? 'Mobile workflow' : `${stageBreakdown.reduce((sum, item) => sum + item.count, 0)} active jobs`}
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Stack direction="row" gap={0.75} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}>
@@ -416,7 +420,7 @@ export default function WorkflowWidget() {
               />
             </Tooltip>
           )}
-          {!isAppPreview && <Tooltip title="Refresh">
+          {!isApp && <Tooltip title="Refresh">
             <IconButton size="small" onClick={() => load(true)} disabled={isLoading}>
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
@@ -462,7 +466,7 @@ export default function WorkflowWidget() {
           )}
         </Stack>
       )}
-      {!isAppPreview && bulkFeedback && (
+      {!isApp && bulkFeedback && (
         <Alert severity={bulkFeedback.severity} sx={{ mb: 1 }} onClose={() => setBulkFeedback(null)}>
           {bulkFeedback.message}
           {bulkFeedback.details && (
@@ -471,11 +475,18 @@ export default function WorkflowWidget() {
         </Alert>
       )}
 
-      {!isAppPreview && error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      {!isApp && error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
-      {isAppPreview ? (
+      {isApp ? (
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
-          <WorkflowAppPreview />
+          <WorkflowApp
+            tasks={overview?.tasks}
+            isLoading={isLoading}
+            error={error}
+            onRefresh={() => load(true)}
+            getSection={resolveWorkflowSection}
+            getStageLabel={resolveStageLabel}
+          />
         </Suspense>
       ) : tab === 'needsAction' ? (
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>

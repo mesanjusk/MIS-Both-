@@ -1,6 +1,6 @@
 import toast from 'react-hot-toast';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { fetchBillListPaged, updateBillStatus } from "../services/orderService";
+import { fetchBillListPaged, updateBillStatus, updateManualBillStatus } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
 import axios from "../apiClient";
 import jsPDF from "jspdf";
@@ -47,7 +47,6 @@ import {
   Card,
   CardActionArea,
   CardContent,
-  Grid,
   Skeleton,
   Tooltip,
 } from "@mui/material";
@@ -254,7 +253,7 @@ const BillCard = React.memo(function BillCard({
     </Card>
   );
 });
-export default function AllBills({ compact = false }) {
+export default function AllBills({ compact = false, headerSearch, onPendingBills, onPaymentFollowup }) {
   const canManage = isRoleAllowed(ADMIN_ROLES, useRoleKey());
   const { permissions } = useAuth();
   const canPost = permissions?.canPostTransactions !== false || canManage;
@@ -271,7 +270,7 @@ export default function AllBills({ compact = false }) {
   const [loading, setLoading] = useState(true);
 
   const [searchOrder, setSearchOrder] = useState("");
-  const debouncedSearch = useDebouncedValue(searchOrder, 250);
+  const debouncedSearch = useDebouncedValue(headerSearch ?? searchOrder, 250);
   const [searchBillNumber, setSearchBillNumber] = useState("");
   const debouncedBillNumber = useDebouncedValue(searchBillNumber, 200);
 
@@ -284,6 +283,7 @@ export default function AllBills({ compact = false }) {
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [paymentSummary, setPaymentSummary] = useState(null);
   const [hasMore, setHasMore] = useState(true);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -421,6 +421,7 @@ export default function AllBills({ compact = false }) {
 
   const isPaid = useCallback(
     (order) => {
+      if (compact) return order?.manualBillPaid === true;
       const backend = String(order?.billStatus || "").toLowerCase().trim();
       if (backend === "paid") return true;
       if (backend === "unpaid") return false;
@@ -428,7 +429,7 @@ export default function AllBills({ compact = false }) {
       const key = getOrderKey(order);
       return Boolean(paidMap?.[key]);
     },
-    [getOrderKey, paidMap]
+    [getOrderKey, paidMap, compact]
   );
 
   // 🔁 Local state upsert helper (no reload)
@@ -606,6 +607,7 @@ export default function AllBills({ compact = false }) {
           billNumber: debouncedBillNumber,
           task: taskFilter,
           paid: paidFilter,
+          paymentBasis: compact ? "manual" : "ledger",
           date: selectedDate,
         });
 
@@ -614,6 +616,7 @@ export default function AllBills({ compact = false }) {
         const dates = Array.isArray(res?.data?.dates) ? res.data.dates : [];
 
         setTotal(t);
+        setPaymentSummary(res?.data?.paymentSummary || null);
         setDateSummary(dates);
         setPage(nextPage);
 
@@ -642,6 +645,7 @@ export default function AllBills({ compact = false }) {
         if (reset) {
           setOrders([]);
           setTotal(0);
+          setPaymentSummary(null);
           setHasMore(false);
         } else {
           // Keep total/hasMore intact so a transient failure (the free-tier
@@ -653,7 +657,7 @@ export default function AllBills({ compact = false }) {
         setLoading(false);
       }
     },
-    [PAGE_SIZE, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate, getOrderKey]
+    [PAGE_SIZE, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate, getOrderKey, compact]
   );
 
   // initial load
@@ -713,7 +717,7 @@ export default function AllBills({ compact = false }) {
     return normalizedOrders.filter((o) => {
       if (!o._billable) return false;
       if (s) {
-        const customerMatch = o._customerLower.includes(s);
+        const customerMatch = o._customerLower.includes(s) || String(o.Customer_uuid || "").toLowerCase().includes(s) || (o.Items || []).some(item => String(item.Remark || "").toLowerCase().includes(s));
         const legacyBillMatch = o._billNumberLower.includes(s.replace(/^#\s*/, ""));
         if (!customerMatch && !legacyBillMatch) return false;
       }
@@ -863,6 +867,26 @@ export default function AllBills({ compact = false }) {
       ? `Showing ${filteredOrders.length}`
       : "";
 
+  const toggleManual = async (order) => {
+    const key = getOrderKey(order);
+    if (!key || billAction.current) return;
+    billAction.current = true;
+    setBusyBill(key);
+    setFeedback(null);
+    try {
+      const { data } = await updateManualBillStatus(key, !order._paid);
+      if (!data?.success) throw new Error("Confirmation not saved");
+      upsertOrderPatch(key, data.result);
+      setDetails(current => current && getOrderKey(current) === key ? { ...current, ...data.result, _paid: data.result.manualBillPaid } : current);
+      await loadBillsPage(1, true);
+    } catch (error) {
+      setFeedback({ severity: "error", message: error.response?.data?.message || "Could not save manual confirmation." });
+    } finally {
+      billAction.current = false;
+      setBusyBill("");
+    }
+  };
+
   const checkPaid = async (order) => {
     const key = getOrderKey(order);
     if (!key || billAction.current) return;
@@ -910,34 +934,30 @@ export default function AllBills({ compact = false }) {
     <>
       {(compact || followup !== null) ? (
         <Stack spacing={1}>
-          <Button size="small" onClick={() => setFollowup(followup === null ? "" : null)} sx={{ alignSelf: "flex-start" }}>
-            {followup === null ? "Payment follow-ups" : "Back to bills"}
-          </Button>
-          {followup !== null ? <PaymentFollowupHome initialCustomerUuid={followup} compact /> : <>
-            <Grid container spacing={0.75}>
-              {[
-                { label: "Matching bills", value: total, filter: "" },
-                { label: "Unpaid (shown)", value: filteredOrders.filter(o => !o._paid).length, filter: "unpaid" },
-                { label: "Paid (shown)", value: filteredOrders.filter(o => o._paid).length, filter: "paid" },
-              ].map(({ label, value, filter }) => (
-                <Grid item xs={4} key={label}>
-                  <Card variant="outlined" sx={{ borderRadius: 2, borderColor: paidFilter === filter ? "primary.main" : "divider" }}>
-                    <CardActionArea onClick={() => setPaidFilter(filter)} sx={{ p: 1 }} aria-pressed={paidFilter === filter}>
-                      <Typography variant="caption" color="text.secondary">{label}</Typography>
-                      <Typography variant="h6" fontWeight={800}>{value}</Typography>
-                    </CardActionArea>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-            <Stack direction="row" gap={0.75}>
-              <TextField label="Customer or bill #" size="small" fullWidth value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />
-              <TextField select label="Payment" size="small" value={paidFilter} onChange={(e) => setPaidFilter(e.target.value)} sx={{ minWidth: 106 }}>
-                <MenuItem value="">All</MenuItem><MenuItem value="unpaid">Unpaid</MenuItem><MenuItem value="paid">Paid</MenuItem>
-              </TextField>
+          {followup !== null ? <><Button size="small" onClick={() => setFollowup(null)} sx={{ alignSelf: "flex-start" }}>Back to bills</Button><PaymentFollowupHome initialCustomerUuid={followup} compact /></> : <>
+            <Stack direction="row" gap={0.5}>
+              {onPendingBills && <Button fullWidth size="small" variant="outlined" onClick={onPendingBills} sx={{ textTransform: "none" }}>Pending bills ›</Button>}
+              <Button fullWidth size="small" variant="outlined" onClick={() => onPaymentFollowup ? onPaymentFollowup() : setFollowup("")} sx={{ textTransform: "none" }}>Payment follow-ups ›</Button>
             </Stack>
-            <TextField type="date" label="Bill date" size="small" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
-              InputLabelProps={{ shrink: true }} sx={{ alignSelf: "flex-start" }} />
+            <Stack direction="row" gap={0.5}>
+              {[
+                { label: "All", value: paymentSummary?.all ?? (paidFilter === "" ? total : "—"), filter: "" },
+                { label: "Balance", value: paymentSummary?.balance ?? "—", filter: "unpaid" },
+                { label: "Paid", value: paymentSummary?.paid ?? "—", filter: "paid" },
+              ].map(({ label, value, filter }) => (
+                <Button key={label} fullWidth size="small" variant={paidFilter === filter ? "contained" : "outlined"}
+                  aria-pressed={paidFilter === filter} onClick={() => setPaidFilter(filter)} sx={{ textTransform: "none", py: 0.5 }}>
+                  {label} · {value}
+                </Button>
+              ))}
+            </Stack>
+            {headerSearch === undefined && <TextField label="Customer or bill #" size="small" fullWidth value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />}
+            <Stack direction="row" gap={0.5} alignItems="center">
+              <TextField type="date" label="Bill date" size="small" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
+                InputLabelProps={{ shrink: true }} sx={{ flex: 1, minWidth: 150 }} />
+              {selectedDate && <Button size="small" onClick={() => setSelectedDate("")}>Clear</Button>}
+              <Typography variant="caption" color="text.secondary" sx={{ flex: 1, textAlign: "right" }}>Manual confirmation</Typography>
+            </Stack>
             {loading && <LinearProgress aria-label="Loading bills" />}
             <Paper variant="outlined" sx={{ overflow: "hidden" }}>
               {filteredOrders.map((order) => (
@@ -948,12 +968,12 @@ export default function AllBills({ compact = false }) {
                       <Typography variant="caption" color="text.secondary" noWrap>#{order.Order_Number} · {formatDateDDMMYYYY(order.createdAt)} · ₹{formatINR(order.billTotal)}</Typography>
                     </Box>
                   </ButtonBase>
-                  {order._paid ? <Chip label="Paid" color="success" size="small" /> :
-                    <Button size="small" variant="outlined" color="success" sx={{ flexShrink: 0, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={() => checkPaid(order)}>Mark paid</Button>}
+                  <Button size="small" variant={order._paid ? "contained" : "outlined"} color={order._paid ? "success" : "warning"} aria-label={order._paid ? "Mark balance" : "Mark paid"} aria-pressed={order._paid} sx={{ flexShrink: 0, minWidth: 76, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={() => toggleManual(order)}>{order._paid ? "✓ Paid" : "Balance"}</Button>
                 </Stack>
               ))}
               {!loading && !filteredOrders.length && <Typography sx={{ p: 2 }} color="text.secondary">No bills match these filters.</Typography>}
             </Paper>
+            <Typography variant="caption" color="text.secondary" textAlign="center">{showingText}</Typography>
             {hasMore && <Button size="small" disabled={loading} onClick={() => loadBillsPage(page + 1)}>Load more</Button>}
           </>}
         </Stack>
@@ -1247,7 +1267,8 @@ export default function AllBills({ compact = false }) {
         <DialogContent>
           {details && <Stack spacing={1}>
             <Typography fontWeight={800}>{details.Customer_name || "Customer"}</Typography>
-            <Typography variant="body2">₹{formatINR(details.billTotal)} · {details._paid ? "Paid" : "Unpaid"}</Typography>
+            <Typography variant="body2">₹{formatINR(details.billTotal)}</Typography>
+            {compact && <Typography variant="body2">Manual: {details._paid ? "Paid" : "Balance"} · Ledger: {details.billStatus === "paid" ? "Paid" : "Unpaid"}</Typography>}
             {buildInvoiceItems(details).map((item, index) => (
               <Typography key={index} variant="body2">{item.name || item.Item || item.Item_name || "Item"}</Typography>
             ))}
@@ -1255,6 +1276,7 @@ export default function AllBills({ compact = false }) {
         </DialogContent>
         <DialogActions sx={{ flexWrap: "wrap" }}>
           <Button onClick={() => { openInvoice(details); setDetails(null); }}>View invoice</Button>
+          {compact && details && <Button disabled={Boolean(busyBill)} onClick={() => toggleManual(details)}>{details._paid ? "Mark balance" : "Mark paid"}</Button>
           {details?.Customer_uuid && <Button onClick={() => { setFollowup(details.Customer_uuid); setDetails(null); }}>Payment follow-up</Button>}
           {canManage && details && <Button onClick={() => { handleEditClick(details); setDetails(null); }}>Edit bill</Button>}
           {canManage && details && <Button color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}

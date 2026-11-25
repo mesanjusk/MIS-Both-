@@ -296,6 +296,8 @@ router.get("/GetBillListPaged", async (req, res) => {
     const search = String(req.query.search || "").trim();
     const billNumber = String(req.query.billNumber || "").trim();
     const paid = String(req.query.paid || "").trim().toLowerCase();
+    const manual = req.query.paymentBasis === "manual";
+    const paymentMatch = paid ? { $match: manual ? { manualBillPaid: paid === "paid" ? true : { $ne: true } } : { billStatusLower: paid } } : null;
     const date = String(req.query.date || "").trim();
     const rx = search ? new RegExp(escapeRegex(search), "i") : null;
     // Bill cards use Order_Number as the visible bill number. Keep legacy
@@ -436,7 +438,7 @@ router.get("/GetBillListPaged", async (req, res) => {
       // A bill is eligible as soon as it has a positive billable amount;
       // delivery status remains available for display but no longer gates it.
       { $match: { hasBillable: true, archivedBillAt: null } },
-      ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
+
       ...(rx ? [{ $match: { $or: searchClauses } }] : []),
       ...(dedicatedBillNumberRegex
         ? [{
@@ -454,6 +456,7 @@ router.get("/GetBillListPaged", async (req, res) => {
       {
         $facet: {
           data: [
+            ...(paymentMatch ? [paymentMatch] : []),
             ...(dateMatch ? [{ $match: dateMatch }] : []),
             {
               $addFields: {
@@ -472,10 +475,16 @@ router.get("/GetBillListPaged", async (req, res) => {
             { $limit: limit },
           ],
           total: [
+            ...(paymentMatch ? [paymentMatch] : []),
             ...(dateMatch ? [{ $match: dateMatch }] : []),
             { $count: "count" },
           ],
+          paymentSummary: [
+            ...(dateMatch ? [{ $match: dateMatch }] : []),
+            { $group: { _id: null, all: { $sum: 1 }, paid: { $sum: { $cond: [manual ? { $eq: ["$manualBillPaid", true] } : { $eq: ["$billStatusLower", "paid"] }, 1, 0] } } } },
+          ],
           dates: [
+            ...(paymentMatch ? [paymentMatch] : []),
             {
               $group: {
                 _id: {
@@ -501,6 +510,7 @@ router.get("/GetBillListPaged", async (req, res) => {
       success: true,
       result: bucket.data || [],
       total: bucket.total?.[0]?.count || 0,
+      paymentSummary: { all: bucket.paymentSummary?.[0]?.all || 0, paid: bucket.paymentSummary?.[0]?.paid || 0, balance: (bucket.paymentSummary?.[0]?.all || 0) - (bucket.paymentSummary?.[0]?.paid || 0) },
       dates: (bucket.dates || []).map((row) => ({ date: row._id, count: row.count })),
       page,
       limit,

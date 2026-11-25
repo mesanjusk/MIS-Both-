@@ -42,6 +42,7 @@ const NAV = [
   ['bills', 'Bills', ReceiptLongOutlined],
 ];
 const AllBills = lazy(() => import('../../Reports/allBills'));
+const BillPaymentFollowup = lazy(() => import('../../Pages/PaymentFollowupHome'));
 const EMPTY_TASKS = [];
 const DESIGN_BY_STAGE = new Map(DESIGN_BOARD_COLUMNS.map((column) => [column.stageNumber, column]));
 const DESIGN_KEYS = new Set(DESIGN_BOARD_COLUMNS.map(({ key }) => key));
@@ -164,6 +165,8 @@ export default function WorkflowApp({
   const [view, setView] = useState('home');
   const [section, setSection] = useState('');
   const [query, setQuery] = useState('');
+  const [billSearch, setBillSearch] = useState('');
+  const [billSubpage, setBillSubpage] = useState(false);
   const [selection, setSelection] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -180,6 +183,7 @@ export default function WorkflowApp({
   const pendingBillsTab = homeTabs.find(({ id }) => id === 'pendingBills');
   const dashboardTab = view === 'bills'
     ? canViewAllBills ? { label: 'Bills', Component: AllBills } : pendingBillsTab
+    : view === 'billPaymentFollowup' && canViewAllBills ? { label: 'Payment follow-ups', Component: BillPaymentFollowup }
     : homeTabs.find(({ id }) => id === view);
   const DashboardPage = dashboardTab?.Component;
   const drawerPage = Boolean(DashboardPage && view !== 'bills');
@@ -277,6 +281,8 @@ export default function WorkflowApp({
 
   const changeView = (next, nextSection = '') => {
     setView(next);
+    setBillSubpage(false);
+    if (next === 'bills') setBillSearch('');
     setSection(nextSection);
     setQuery('');
     setSelection(null);
@@ -302,8 +308,9 @@ export default function WorkflowApp({
               {selected.orderNumber != null && <Typography variant="caption">#{selected.orderNumber}</Typography>}
             </Box>
           </> : dashboardTab ? <>
-            {drawerPage && <IconButton color="inherit" aria-label="Back to workflow home" onClick={() => changeView('home')}><ArrowBackRounded /></IconButton>}
-            <Typography component="h2" fontWeight={800} sx={{ flex: 1, minWidth: 0 }}>{dashboardTab.label}</Typography>
+            {drawerPage && <IconButton color="inherit" aria-label="Back to workflow home" onClick={() => changeView(billSubpage ? 'bills' : 'home')}><ArrowBackRounded /></IconButton>}
+            <Typography component="h2" fontWeight={800} sx={{ flex: view === "bills" && canViewAllBills ? "0 0 auto" : 1, minWidth: 0 }}>{dashboardTab.label}</Typography>
+            {view === "bills" && canViewAllBills && <Stack direction="row" alignItems="center" gap={0.5} sx={{ bgcolor: "#ddf2ff", color: "#084e83", borderRadius: 8, flex: 1, minWidth: 0, px: 1 }}><SearchRounded fontSize="small" /><InputBase fullWidth type="search" placeholder="Search bills" value={billSearch} onChange={e => setBillSearch(e.target.value)} inputProps={{ "aria-label": "Search bills" }} sx={{ fontSize: 14, color: "inherit", minHeight: 36 }} /></Stack>}
           </> : <>
             <Typography aria-label="SK Digital" sx={{ fontSize: 25, fontWeight: 900, letterSpacing: '-.07em', pr: 0.35 }}>SK</Typography>
             <Stack direction="row" alignItems="center" gap={0.65} sx={{ bgcolor: '#ddf2ff', borderRadius: 8, flex: 1, minWidth: 0, px: 1.25, color: '#084e83' }}>
@@ -345,10 +352,7 @@ export default function WorkflowApp({
           {!selected && DashboardPage && (
             <Box sx={{ p: 1.25, ...(view === 'inbox' ? { height: '100%', minHeight: 0 } : {}) }}>
               <Suspense fallback={<LinearProgress aria-label={`Loading ${dashboardTab.label}`} />}>
-                {view === 'bills' && canViewAllBills && pendingBillsTab && (
-                  <Button onClick={() => changeView('pendingBills')} sx={{ mb: 1 }}>Pending bills</Button>
-                )}
-                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'bills' && canViewAllBills ? { compact: true } : {})} />
+                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'billPaymentFollowup' ? { compact: true } : view === 'bills' && canViewAllBills ? { compact: true, headerSearch: billSearch, onPendingBills: pendingBillsTab ? () => { changeView('pendingBills'); setBillSubpage(true); } : undefined, onPaymentFollowup: homeTabs.some(tab => tab.id === 'paymentFollowup') ? () => { changeView('billPaymentFollowup'); setBillSubpage(true); } : undefined } : {})} />
               </Suspense>
             </Box>
           )}

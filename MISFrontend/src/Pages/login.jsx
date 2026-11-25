@@ -41,12 +41,14 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const workflowRequested = location.state?.from === ROUTES.WORKFLOW_APP;
+  const inWorkflowApp = workflowRequested && navigator.userAgent.endsWith(' SKWorkflow/2.0');
   const [User_name, setUser_Name] = useState('');
   const [Password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState('');
   const [googleCheckStarted, setGoogleCheckStarted] = useState(false);
-  const { setAuthData, userName, userGroup } = useAuth();
+  const [awaitingDrive, setAwaitingDrive] = useState(false);
+  const { setAuthData, clearAuth, userName, userGroup } = useAuth();
   const hasStoredSession = Boolean(userName && getStoredToken());
 
   const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
@@ -68,11 +70,16 @@ export default function Login() {
         return true;
       }
 
+      if (inWorkflowApp && awaitingDrive) {
+        return false;
+      }
+
       // Do not duplicate backend role logic here. Stored roles include aliases
       // such as "Admin User" / "Super Admin"; requireAdmin on /auth-url is the
       // source of truth and already resolves those aliases correctly.
       const returnTo = `${window.location.origin}${target}`;
       const redirecting = await startGoogleDriveConnect(returnTo);
+      if (redirecting && inWorkflowApp) setAwaitingDrive(true);
       if (!redirecting) {
         setErrorText(
           'Google Drive connection is mandatory. If you are an administrator, please try again; otherwise an Admin/Owner/Manager must reconnect Google Drive.'
@@ -84,7 +91,7 @@ export default function Login() {
       setErrorText(error?.response?.data?.message || 'Google Drive is mandatory and its connection could not be verified. Please try again.');
       return false;
     }
-  }, [navigate, workflowRequested]);
+  }, [navigate, workflowRequested, inWorkflowApp, awaitingDrive]);
 
   useEffect(() => {
     if (!hasStoredSession || googleCheckStarted) return;
@@ -107,6 +114,7 @@ export default function Login() {
       if (data.status === 'invalid') { setErrorText('Invalid credentials. Please check username and password.'); setLoading(false); return; }
       if (!data.token) { setErrorText('Login succeeded but token was not received from the server.'); setLoading(false); return; }
       setStoredToken(data.token);
+      setPassword('');
       setGoogleCheckStarted(true);
       setAuthData({
         userName: User_name,
@@ -124,7 +132,7 @@ export default function Login() {
     }
   }
 
-  if (hasStoredSession && !errorText) {
+  if (hasStoredSession && !errorText && !awaitingDrive) {
     return (
       <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <CircularProgress size={32} />
@@ -135,7 +143,7 @@ export default function Login() {
   return (
     <Box
       sx={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -176,10 +184,10 @@ export default function Login() {
               userSelect: 'none',
             }}
           >
-            SK Digital MIS
+            {workflowRequested ? 'SK Workflow' : 'SK Digital MIS'}
           </Typography>
           <Typography sx={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.78)', fontWeight: 500 }}>
-            Management Information System
+            {workflowRequested ? 'SK Digital' : 'Management Information System'}
           </Typography>
         </Box>
 
@@ -199,7 +207,7 @@ export default function Login() {
                 <ColoredBrand text="Welcome back" />
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Sign in to access your dashboard
+                {workflowRequested ? 'Sign in with your MIS account' : 'Sign in to access your dashboard'}
               </Typography>
             </Box>
 
@@ -209,50 +217,69 @@ export default function Login() {
               </Alert>
             )}
 
-            <TextField
-              label="Username"
-              autoComplete="username"
-              value={User_name}
-              onChange={(e) => setUser_Name(e.target.value)}
-              required
-              fullWidth
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PersonRoundedIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-              }}
-            />
+            {hasStoredSession && inWorkflowApp ? (
+              <>
+                {awaitingDrive && <Alert severity="info">Finish reconnecting Google Drive in your browser, then return here and check the connection.</Alert>}
+                <Button variant="contained" disabled={loading} onClick={async () => {
+                  setLoading(true);
+                  await ensureMandatoryGoogleDrive(userGroup);
+                  setLoading(false);
+                }}>Check Google Drive</Button>
+                <Button onClick={() => {
+                  clearAuth();
+                  setAwaitingDrive(false);
+                  setGoogleCheckStarted(false);
+                  setErrorText('');
+                }}>Use another account</Button>
+              </>
+            ) : (
+              <>
+                <TextField
+                  label="Username"
+                  autoComplete="username"
+                  value={User_name}
+                  onChange={(e) => setUser_Name(e.target.value)}
+                  required
+                  fullWidth
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonRoundedIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
 
-            <TextField
-              label="Password"
-              type="password"
-              autoComplete="current-password"
-              value={Password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              fullWidth
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <LockRoundedIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-              }}
-            />
+                <TextField
+                  label="Password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={Password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  fullWidth
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <LockRoundedIcon fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
 
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              size="large"
-              disabled={loading}
-              endIcon={loading ? <CircularProgress size={18} color="inherit" /> : <LoginRoundedIcon />}
-              sx={{ py: 1.25, borderRadius: 2.5, fontWeight: 800, fontSize: '0.95rem' }}
-            >
-              {loading ? 'Please wait…' : 'Sign In'}
-            </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  disabled={loading}
+                  endIcon={loading ? <CircularProgress size={18} color="inherit" /> : <LoginRoundedIcon />}
+                  sx={{ py: 1.25, borderRadius: 2.5, fontWeight: 800, fontSize: '0.95rem' }}
+                >
+                  {loading ? 'Please wait…' : 'Sign In'}
+                </Button>
+              </>
+            )}
           </Stack>
         </Box>
       </Paper>

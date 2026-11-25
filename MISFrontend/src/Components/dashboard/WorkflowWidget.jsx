@@ -151,7 +151,7 @@ function groupByStageLabel(tasks) {
 // widgets that didn't reference each other. Attendance (start/end day) has
 // moved out of here entirely, next to the user's name in the top nav.
 export default function WorkflowWidget({ standalone = false }) {
-  const { userName } = useAuth();
+  const { userName, userGroup, clearAuth } = useAuth();
   // The action queues receive customer payments and pay vendors, so they use
   // the same strict Admin/Owner decision as the route guards — not
   // AuthContext's `isAdmin`, which is a substring test that admits
@@ -359,6 +359,9 @@ export default function WorkflowWidget({ standalone = false }) {
       <WorkflowApp
         tasks={overview?.tasks}
         userName={userName}
+        userGroup={userGroup}
+        onSignOut={clearAuth}
+        standalone={standalone}
         isLoading={isLoading}
         error={error}
         onRefresh={() => load(true)}
@@ -369,7 +372,7 @@ export default function WorkflowWidget({ standalone = false }) {
   );
 
   if (standalone) {
-    return <Box component="main" sx={{ width: '100%', maxWidth: 500, mx: 'auto' }}>{app}</Box>;
+    return <Box component="main">{app}</Box>;
   }
 
   return (

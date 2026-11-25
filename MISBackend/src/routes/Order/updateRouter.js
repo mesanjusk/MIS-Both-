@@ -53,6 +53,28 @@ router.delete("/bills/:id", requireAdminOrOwner, async (req, res) => {
   }
 });
 
+// Manual office confirmation only; never post receipts or refresh the ledger.
+router.patch("/bills/:id/manual-confirmation", requirePermission("canViewAccounts"), async (req, res) => {
+  try {
+    const filter = idToFilter(req.params.id);
+    const paid = req.body?.paid;
+    if (!filter || typeof paid !== "boolean") return res.status(400).json({ success: false, message: "Valid bill ID and boolean paid required." });
+    const order = await Orders.findOne(filter).lean();
+    if (!hasBill(order) || order.archivedBillAt) return res.status(404).json({ success: false, message: "Bill not found" });
+    const patch = {
+      manualBillPaid: paid,
+      manualBillConfirmedAt: new Date(),
+      manualBillConfirmedBy: String(req.user?.userName || req.user?.User_name || req.user?.id || ""),
+    };
+    const updated = await Orders.updateOne({ _id: order._id, archivedBillAt: null }, { $set: patch });
+    if (!updated.matchedCount) return res.status(404).json({ success: false, message: "Bill not found" });
+    return res.json({ success: true, result: patch });
+  } catch (error) {
+    logger.error("Manual bill confirmation failed:", error);
+    return res.status(500).json({ success: false, message: "Could not save manual confirmation." });
+  }
+});
+
 /* ----------------------- UPDATE ORDER (generic) ----------------------- */
 router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, res) => {
   try {
@@ -73,6 +95,9 @@ router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, r
     }
     delete otherFields.archivedBillAt;
     delete otherFields.archivedBillBy;
+    delete otherFields.manualBillPaid;
+    delete otherFields.manualBillConfirmedAt;
+    delete otherFields.manualBillConfirmedBy;
 
 
     if (Items) {

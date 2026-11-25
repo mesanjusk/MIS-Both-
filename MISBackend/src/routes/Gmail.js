@@ -119,11 +119,22 @@ router.get('/print-sent', printStaff, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get('/print-sent/folders', printStaff, async (_req, res, next) => {
+function printReceiptFilter(status) {
+  if (status === 'all') return {};
+  if (status === 'received') return { attachments: { $elemMatch: { received: true } } };
+  if (status === 'pending') return { attachments: { $elemMatch: { received: { $ne: true } } } };
+  return null;
+}
+
+router.get('/print-sent/folders', printStaff, async (req, res, next) => {
   try {
+    const status = req.query.status ?? 'all';
+    const receiptFilter = printReceiptFilter(status);
+    if (!receiptFilter) return res.status(400).json({ message: 'Choose All, Received, or Pending.' });
     const dates = recentPrintDates();
+    const dateFilter = status === 'all' ? { sentAt: printDateRange(dates.at(-1), dates[0]) } : {};
     const folders = await EmailHistory.aggregate([
-      { $match: { source: PRINT_SOURCE, sentAt: printDateRange(dates.at(-1), dates[0]) } },
+      { $match: { source: PRINT_SOURCE, ...dateFilter, ...receiptFilter } },
       { $sort: { sentAt: -1, _id: -1 } },
       { $group: {
         _id: {
@@ -136,24 +147,50 @@ router.get('/print-sent/folders', printStaff, async (_req, res, next) => {
       { $project: { _id: 0, date: '$_id.date', email: '$_id.email', name: 1, count: 1 } },
     ]);
     res.set('Cache-Control', 'private, no-store');
-    res.json({ dates, folders });
+    res.json({
+      dates: status === 'all' ? dates : [...new Set(folders.map(({ date }) => date))].sort().reverse(),
+      folders,
+    });
   } catch (error) { next(error); }
 });
 
 router.get('/print-sent/messages', printStaff, async (req, res, next) => {
   try {
     const { date, recipient } = req.query;
-    if (!recentPrintDates().includes(date) || typeof recipient !== 'string' || !recipient || recipient.length > 254) {
-      return res.status(400).json({ message: 'Choose a recent print date and recipient.' });
+    const status = req.query.status ?? 'all';
+    const receiptFilter = printReceiptFilter(status);
+    const timestamp = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(date) : NaN;
+    if (!receiptFilter || !Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date
+      || (status === 'all' && !recentPrintDates().includes(date))
+      || typeof recipient !== 'string' || !recipient || recipient.length > 254) {
+      return res.status(400).json({ message: 'Choose a print date, recipient, and status.' });
     }
     const page = Math.max(1, Math.min(1000, Number.parseInt(req.query.page, 10) || 1));
     const pageSize = 12;
-    const messages = await EmailHistory.find({ source: PRINT_SOURCE, sentAt: printDateRange(date), toEmail: recipient })
-      .select('sentAt attachments.originalName attachments.thumbnail')
+    const messages = await EmailHistory.find({ source: PRINT_SOURCE, sentAt: printDateRange(date), toEmail: recipient, ...receiptFilter })
+      .select('sentAt attachments.originalName attachments.thumbnail attachments.received')
       .sort({ sentAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize + 1).lean();
     res.set('Cache-Control', 'private, no-store');
     res.json({ result: messages.slice(0, pageSize), hasMore: messages.length > pageSize });
   } catch (error) { next(error); }
+});
+
+router.patch('/print-sent/messages/:id/attachments/:index', printStaff, async (req, res, next) => {
+  const { id, index } = req.params;
+  const received = req.body?.received;
+  if (!isValidObjectId(id) || !/^\d{1,6}$/.test(index) || typeof received !== 'boolean') {
+    return res.status(400).json({ message: 'Choose an attachment and its received status.' });
+  }
+  try {
+    // Synced attachment arrays are insert-only, so their positions stay stable.
+    const path = `attachments.${Number(index)}`;
+    const result = await EmailHistory.updateOne(
+      { _id: id, source: PRINT_SOURCE, [path]: { $exists: true } },
+      { $set: { [`${path}.received`]: received } },
+    );
+    if (!result.matchedCount) return res.status(404).json({ message: 'Print attachment not found.' });
+    return res.json({ received });
+  } catch (error) { return next(error); }
 });
 
 router.use('/print-sent/accounts', requireAdminOrOwner, requirePermission('canUseEmail'));

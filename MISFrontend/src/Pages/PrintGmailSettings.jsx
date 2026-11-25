@@ -48,6 +48,8 @@ function GmailAccountSettings({ account, onChange }) {
       )}>{account.printSentEnabled ? 'Pause sync' : 'Resume sync'}</Button>
     </Stack>
     <Typography variant="caption" color="text.secondary">{account.printSentLastSync ? `Last sync ${new Date(account.printSentLastSync).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST` : 'Waiting for first sync'}</Typography>
+    {account.printSentEnabled && account.printSentHistoryComplete !== true &&
+      <Typography variant="caption" color="text.secondary">Importing older sent emails</Typography>}
   </Stack></Paper>;
 }
 
@@ -77,7 +79,7 @@ export default function PrintGmailSettings({ connectionResult }) {
       <Typography variant="h6" fontWeight={800}>Gmail for Print Sent</Typography>
       <Button size="small" variant="contained" disabled={connecting} onClick={connect}>Add or reconnect Gmail</Button>
     </Stack>
-    <Typography variant="body2" color="text.secondary">Print Sent shows the last seven days of sent emails from connected accounts to staff with access. Connect the Gmail you use for print jobs. Pause old accounts after switching Gmail.</Typography>
+    <Typography variant="body2" color="text.secondary">Print Sent keeps pending attachments visible until they are marked received. Connect the Gmail you use for print jobs. Pause old accounts after switching Gmail.</Typography>
     {connectionResult === 'connected' && <Alert severity="success">Gmail connected. Sent emails will sync automatically.</Alert>}
     {connectionResult === 'cancelled' && <Alert severity="info">Gmail connection cancelled.</Alert>}
     {connectionResult === 'error' && <Alert severity="error">Gmail connection failed. Try reconnecting and allow read access when Google asks.</Alert>}

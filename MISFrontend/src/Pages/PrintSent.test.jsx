@@ -9,7 +9,7 @@ beforeEach(() => vi.resetAllMocks());
 
 test('shows seven dates, opens recipient folders, and keeps each email’s attachments together', async () => {
   const dates = ['2026-11-25', '2026-11-24', '2026-11-23', '2026-11-22', '2026-11-21', '2026-11-20', '2026-11-19'];
-  api.get.mockResolvedValueOnce({ data: { dates, folders: [
+  api.get.mockResolvedValueOnce({ data: { dates: [], folders: [] } }).mockResolvedValueOnce({ data: { dates, folders: [
     { date: dates[0], email: 'gondia@example.com', name: 'Gondia Press', count: 1 },
     { date: dates[0], email: 'nagpur@example.com', name: 'Nagpur Press', count: 2 },
     { date: dates[1], email: 'gondia@example.com', name: 'Gondia Press', count: 1 },
@@ -21,11 +21,12 @@ test('shows seven dates, opens recipient folders, and keeps each email’s attac
   }] } });
 
   render(<PrintSent />);
+  fireEvent.click(screen.getByRole('tab', { name: 'All' }));
   const dateList = await screen.findByRole('list', { name: 'Print dates' });
   expect(within(dateList).getAllByRole('button')).toHaveLength(7);
   fireEvent.click(within(dateList).getByRole('button', { name: /25 Nov.*2026.*3 emails/ }));
   expect(screen.getByRole('button', { name: /Nagpur Press.*2 emails/ })).toBeInTheDocument();
-  expect(api.get).toHaveBeenCalledTimes(1);
+  expect(api.get).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('button', { name: /Gondia Press.*1 email/ }));
   expect(await screen.findByText('Poster.pdf')).toBeInTheDocument();
   expect(screen.getByText('Flyer.cdr')).toBeInTheDocument();
@@ -38,6 +39,29 @@ test('shows seven dates, opens recipient folders, and keeps each email’s attac
   fireEvent.click(screen.getByRole('button', { name: 'Dates' }));
   fireEvent.click(within(screen.getByRole('list', { name: 'Print dates' })).getByRole('button', { name: /23 Nov.*2026/ }));
   expect(screen.getByText('No print emails sent on this date.')).toBeInTheDocument();
+});
+
+test.each([
+  ['date', '2020-01-01', /1 Jan.*2020/],
+  ['week', '2019-12-30', /30 Dec.*5 Jan/],
+  ['month', '2020-01-01', /January 2020/],
+])('confirms a bulk receipt by %s from the default Pending tab', async (unit, start, label) => {
+  const date = '2020-01-01';
+  api.get.mockImplementation(async (_, { params }) => ({ data: {
+    dates: [date], folders: [{ date, email: 'print@example.com', name: 'Press', count: 2 }],
+    periods: params.groupBy === 'week' ? [{ start, end: '2020-01-05', dates: [date] }]
+      : [{ start, end: '2020-01-31', dates: [date] }],
+  } }));
+  api.patch.mockResolvedValue({ data: { updatedEmails: 2 } });
+  render(<PrintSent />);
+  expect(screen.getByRole('tab', { name: 'Pending' })).toHaveAttribute('aria-selected', 'true');
+  if (unit !== 'date') fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${unit}$`, 'i') }));
+  fireEvent.click(await screen.findByRole('button', { name: label }));
+  fireEvent.click(screen.getByRole('button', { name: `Mark ${unit} received` }));
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Mark received' }));
+  expect(await screen.findByText('Marked pending attachments received across 2 emails.')).toBeInTheDocument();
+  expect(api.patch).toHaveBeenCalledWith('/api/gmail/print-sent/bulk-receive', { date: start, period: unit });
 });
 
 test('tracks attachments independently and can undo a received mark on an older job', async () => {

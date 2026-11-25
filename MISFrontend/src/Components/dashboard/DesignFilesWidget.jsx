@@ -1912,7 +1912,7 @@ function FolderTile({ name, caption, onOpen, summary }) {
   );
 }
 
-function ArchivePanel({ onConfirm, confirmation, onEditPrintJob, viewMode }) {
+function ArchivePanel({ onConfirm, confirmation, onEditPrintJob, viewMode, autoLoad = false }) {
   const { userName } = useAuth();
   const [archiveData, setArchiveData] = useState(() => readArchiveCache(userName));
   const [loading, setLoading] = useState(false);
@@ -1956,6 +1956,10 @@ function ArchivePanel({ onConfirm, confirmation, onEditPrintJob, viewMode }) {
       setError(err?.response?.data?.message || err.message || 'Could not load archive.');
     } finally { setLoading(false); }
   }, [userName]);
+
+  useEffect(() => {
+    if (autoLoad && userName && !readArchiveCache(userName)) void loadArchive();
+  }, [autoLoad, loadArchive, userName]);
 
   // The successful POST is authoritative: patch the card and folder counters
   // in memory, with no second Google Drive scan or server request.
@@ -2039,7 +2043,7 @@ function ArchivePanel({ onConfirm, confirmation, onEditPrintJob, viewMode }) {
     ? dateFolders.find((d) => d.dateName === browsePath[1]) || null
     : null;
 
-  if (!loaded && !loading) {
+  if (!loaded && !loading && !error) {
     return (
       <Box sx={{ py: 4, textAlign: 'center' }}>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>Scan the month archive to find historical files.</Typography>
@@ -3009,16 +3013,16 @@ function DesignBoardPanel({ files, onRename, onAssign, onRelink, onDeliver, onCo
 }
 
 // ─── Main widget ──────────────────────────────────────────────────────────────
-export default function DesignFilesWidget() {
+export default function DesignFilesWidget({ archiveOnly = false } = {}) {
   const { userName, isAdmin } = useAuth();
   const { isApiDisabled, togglesLoaded } = usePageToggles();
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(archiveOnly);
   const [error, setError] = useState('');
   const [configMissing, setConfigMissing] = useState(false);
   const [archiveConfigured, setArchiveConfigured] = useState(false);
   const [reconnectRequired, setReconnectRequired] = useState(false);
-  const [activeTab, setActiveTab] = useState('board');
+  const [activeTab, setActiveTab] = useState(archiveOnly ? 'archive' : 'board');
   // List/grid toggle removed by request — grid is the only view now.
   const viewMode = 'grid';
   const [confirmFile, setConfirmFile] = useState(null);
@@ -3049,8 +3053,9 @@ export default function DesignFilesWidget() {
     setLoading(true); setError('');
     try {
       const cfgRes = await axios.get('/api/design-files/config-check');
-      if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
       setArchiveConfigured(!!cfgRes.data?.archiveConfigured);
+      if (archiveOnly) return;
+      if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
       setMaintenanceTools(cfgRes.data?.maintenanceTools !== false);
       const res = await scanDesignFiles();
       setData(res.data);
@@ -3072,7 +3077,7 @@ export default function DesignFilesWidget() {
       if (err?.response?.status === 400) { setConfigMissing(true); return; }
       setError(msg || 'Could not load Drive files.');
     } finally { setLoading(false); }
-  }, []);
+  }, [archiveOnly]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -3159,6 +3164,12 @@ export default function DesignFilesWidget() {
     );
   }
 
+  if (archiveOnly && !archiveConfigured) {
+    if (loading) return <LinearProgress aria-label="Loading archive" />;
+    if (error) return <Alert severity="error" action={<Button onClick={load}>Retry</Button>}>{error}</Alert>;
+    return <Alert severity="info">The design archive folder has not been configured.</Alert>;
+  }
+
   const files = data?.files || [];
   const staleLinks = data?.staleLinks || [];
 
@@ -3187,7 +3198,7 @@ export default function DesignFilesWidget() {
     <Box sx={{ borderRadius: 2, border: 'none', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', md: 480 } }}>
 
       {/* ── Toolbar: tabs + actions + refresh, single row ── */}
-      <Stack
+      {!archiveOnly && <Stack
         direction="row" alignItems="center" spacing={0.75}
         sx={{ px: 1.5, py: 0.65, flexShrink: 0, flexWrap: 'wrap', rowGap: 0.5, bgcolor: 'grey.50' }}
       >
@@ -3312,7 +3323,7 @@ export default function DesignFilesWidget() {
             {loading ? <CircularProgress size={14} /> : <RefreshRoundedIcon sx={{ fontSize: 16 }} />}
           </IconButton>
         </Tooltip>
-      </Stack>
+      </Stack>}
 
       {/* ── Right panel ── */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
@@ -3364,6 +3375,7 @@ export default function DesignFilesWidget() {
               confirmation={archiveConfirmation}
               onEditPrintJob={setEditPrintJobFile}
               viewMode={viewMode}
+              autoLoad={archiveOnly}
             />
           </Box>
         ) : (

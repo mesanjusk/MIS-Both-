@@ -5,6 +5,7 @@ import {
   LinearProgress, ListItemIcon, MenuItem, MenuList, Paper, Snackbar, Stack, TextField, Typography,
 } from '@mui/material';
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
+import ArchiveOutlined from '@mui/icons-material/ArchiveOutlined';
 import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
 import CalendarTodayOutlined from '@mui/icons-material/CalendarTodayOutlined';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
@@ -22,13 +23,14 @@ import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
 import PrintOutlined from '@mui/icons-material/PrintOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import SearchRounded from '@mui/icons-material/SearchRounded';
+import OutboxOutlined from '@mui/icons-material/OutboxOutlined';
 import {
   DESIGN_BOARD_COLUMNS, STAGE_LABELS, STAGE_TO_CAPABILITY, WORKFLOW_MOVABLE_STAGES, WORKFLOW_SECTIONS,
 } from '../../constants/orderStages';
 import { usePermission } from '../../hooks/usePermission';
 import { useRoleKey } from '../../hooks/useRouteAccess';
 import { useAuth } from '../../context/AuthContext';
-import { ACCOUNT_ROLES, isRoleAllowed } from '../../constants/roles';
+import { ACCOUNT_ROLES, canViewPrintSent, isRoleAllowed } from '../../constants/roles';
 import { getVisibleHomeTabs } from '../../Pages/homeTabs';
 import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
 import { initialsFor } from '../../utils/avatarColor';
@@ -43,6 +45,8 @@ const NAV = [
 ];
 const AllBills = lazy(() => import('../../Reports/allBills'));
 const BillPaymentFollowup = lazy(() => import('../../Pages/PaymentFollowupHome'));
+const DesignArchive = lazy(() => import('./DesignFilesWidget'));
+const PrintSent = lazy(() => import('../../Pages/PrintSent'));
 const EMPTY_TASKS = [];
 const DESIGN_BY_STAGE = new Map(DESIGN_BOARD_COLUMNS.map((column) => [column.stageNumber, column]));
 const DESIGN_KEYS = new Set(DESIGN_BOARD_COLUMNS.map(({ key }) => key));
@@ -58,6 +62,20 @@ const indiaDateTime = new Intl.DateTimeFormat('en-IN', {
 });
 const timestamp = (value) => value ? new Date(value).getTime() : NaN;
 const formatTime = (time) => Number.isFinite(time) ? indiaDateTime.format(time) : '';
+
+function HomeCard({ icon: Icon, label, count, onClick }) {
+  return (
+    <ButtonBase onClick={onClick} sx={{
+      aspectRatio: '1', minWidth: 0, flexDirection: 'column', gap: 0.35, p: 0.5,
+      borderRadius: 3, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+      boxShadow: '0 3px 8px rgba(7, 73, 125, .12)',
+    }}>
+      <Icon sx={{ fontSize: { xs: 25, sm: 34 }, color: '#0876bd' }} />
+      {count != null && <Typography variant="body2" fontWeight={850}>{count}</Typography>}
+      <Typography variant="caption" fontWeight={700} sx={{ lineHeight: 1.15, textAlign: 'center' }}>{label}</Typography>
+    </ButtonBase>
+  );
+}
 
 function JobList({ jobs, activity, onOpen }) {
   return (
@@ -181,12 +199,21 @@ export default function WorkflowApp({
   const { permissions } = useAuth();
   const roleKey = useRoleKey();
   const homeTabs = useMemo(() => getVisibleHomeTabs(permissions), [permissions]);
+  const shortcuts = [
+    homeTabs.some(({ id }) => id === 'workflow') && {
+      id: 'designArchive', label: 'Archive', icon: ArchiveOutlined, Component: DesignArchive, props: { archiveOnly: true },
+    },
+    homeTabs.find(({ id }) => id === 'inbox'),
+    homeTabs.some(({ id }) => id === 'teamFollowup') && canViewPrintSent(roleKey) && {
+      id: 'printSent', label: 'Print Sent', icon: OutboxOutlined, Component: PrintSent, props: { showTitle: false },
+    },
+  ].filter(Boolean);
   const canViewAllBills = permissions?.canViewAccounts !== false && isRoleAllowed(ACCOUNT_ROLES, roleKey);
   const pendingBillsTab = homeTabs.find(({ id }) => id === 'pendingBills');
   const dashboardTab = view === 'bills'
     ? canViewAllBills ? { label: 'Bills', Component: AllBills } : pendingBillsTab
     : view === 'billPaymentFollowup' && canViewAllBills ? { label: 'Payment follow-ups', Component: BillPaymentFollowup }
-    : homeTabs.find(({ id }) => id === view);
+    : shortcuts.find(({ id }) => id === view) || homeTabs.find(({ id }) => id === view);
   const DashboardPage = dashboardTab?.Component;
   const drawerPage = Boolean(DashboardPage && view !== 'bills');
   const scrollArea = useRef(null);
@@ -359,7 +386,7 @@ export default function WorkflowApp({
           {!selected && DashboardPage && (
             <Box sx={{ p: 1.25, ...(view === 'inbox' ? { height: '100%', minHeight: 0 } : {}) }}>
               <Suspense fallback={<LinearProgress aria-label={`Loading ${dashboardTab.label}`} />}>
-                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'billPaymentFollowup' ? { compact: true } : view === 'bills' && canViewAllBills ? { compact: true, headerSearch: billSearch, selectedBill, onSelectBill: setSelectedBill, onPendingBills: pendingBillsTab ? () => { changeView('pendingBills'); setBillSubpage(true); } : undefined, onPaymentFollowup: homeTabs.some(tab => tab.id === 'paymentFollowup') ? () => { changeView('billPaymentFollowup'); setBillSubpage(true); } : undefined } : {})} />
+                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'billPaymentFollowup' ? { compact: true } : view === 'bills' && canViewAllBills ? { compact: true, headerSearch: billSearch, selectedBill, onSelectBill: setSelectedBill, onPendingBills: pendingBillsTab ? () => { changeView('pendingBills'); setBillSubpage(true); } : undefined, onPaymentFollowup: homeTabs.some(tab => tab.id === 'paymentFollowup') ? () => { changeView('billPaymentFollowup'); setBillSubpage(true); } : undefined } : dashboardTab.props)} />
               </Suspense>
             </Box>
           )}
@@ -377,18 +404,11 @@ export default function WorkflowApp({
                 const count = DESIGN_KEYS.has(item.key)
                   ? designFiles ? designJobs.filter((job) => job.section === item.key).length : '—'
                   : noCounts ? '—' : jobs.filter((job) => job.section === item.key).length;
-                return (
-                  <ButtonBase key={item.key} onClick={() => changeView('jobs', item.key)} sx={{
-                    aspectRatio: '1', minWidth: 0, flexDirection: 'column', gap: 0.35, p: 0.5,
-                    borderRadius: 3, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
-                    boxShadow: '0 3px 8px rgba(7, 73, 125, .12)',
-                  }}>
-                    <Icon sx={{ fontSize: { xs: 25, sm: 34 }, color: '#0876bd' }} />
-                    <Typography variant="body2" fontWeight={850}>{count}</Typography>
-                    <Typography variant="caption" fontWeight={700} sx={{ lineHeight: 1.15, textAlign: 'center' }}>{item.label}</Typography>
-                  </ButtonBase>
-                );
+                return <HomeCard key={item.key} icon={Icon} label={item.label} count={count} onClick={() => changeView('jobs', item.key)} />;
               })}
+              {shortcuts.map(({ id, icon, label }) => (
+                <HomeCard key={id} icon={icon} label={label} onClick={() => changeView(id)} />
+              ))}
             </Box>
           )}
           {!selected && (view === 'jobs' || activity) && <>

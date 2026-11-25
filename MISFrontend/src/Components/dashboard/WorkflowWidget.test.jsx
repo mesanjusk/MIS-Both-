@@ -53,8 +53,9 @@ vi.mock('../../services/operationsService', () => ({
 }));
 // Heavy children that are not what this file is about.
 vi.mock('../../Pages/userTask', () => ({ default: () => null }));
-vi.mock('./DesignFilesWidget', () => ({ default: () => null }));
+vi.mock('./DesignFilesWidget', () => ({ default: ({ archiveOnly }) => archiveOnly ? <div>Archive content</div> : null }));
 vi.mock('../../Pages/HomeInbox', () => ({ default: () => <div>Inbox content</div> }));
+vi.mock('../../Pages/PrintSent', () => ({ default: () => <div>Print Sent content</div> }));
 vi.mock('../../Pages/PendingBills', () => ({ default: () => <div>Pending Bills content</div> }));
 vi.mock('../../Reports/allBills', () => ({ default: () => <div>All Bills content</div> }));
 vi.mock('../../apiClient', () => ({
@@ -82,6 +83,27 @@ const renderBoard = () =>
 
 const renderApp = () =>
   render(<AuthProvider><MemoryRouter><WorkflowWidget standalone /></MemoryRouter></AuthProvider>);
+
+test.each([
+  ['Archive', 'Archive content'],
+  ['Inbox', 'Inbox content'],
+  ['Print Sent', 'Print Sent content'],
+])('the mobile Home %s card opens its existing screen inside the app', async (label, content) => {
+  signIn('Sanju', 'Owner');
+  renderApp();
+  fireEvent.click(await screen.findByRole('button', { name: label, exact: true }));
+  expect(await screen.findByText(content)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to workflow home' }));
+  expect(screen.getByRole('button', { name: label, exact: true })).toBeInTheDocument();
+});
+
+test('Home shortcuts respect the configured dashboard tabs', async () => {
+  signIn('Priya', 'Office User', { allowedWidgets: ['workflow'] });
+  renderApp();
+  expect(await screen.findByRole('button', { name: 'Archive' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Inbox' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Print Sent' })).not.toBeInTheDocument();
+});
 
 test('mobile navigation and Team views include reports, attendance, assignment and pending tasks', async () => {
   signIn('Sanju', 'Owner');

@@ -87,6 +87,10 @@ export const ACCOUNT_ROLES = Object.freeze([
   NAV_ROLES.ADMIN, NAV_ROLES.OWNER, NAV_ROLES.ACCOUNTS,
 ]);
 
+export const canViewPrintSent = (role = '') =>
+  OFFICE_ROLES.includes(role) || ACCOUNT_ROLES.includes(role)
+  || ['manager', 'worker', 'delivery', 'office staff', 'accounts user'].includes(role.toLowerCase());
+
 /** Every signed-in user, whatever their group. Matches the menus' `['all']`. */
 export const ANY_ROLE = 'all';
 

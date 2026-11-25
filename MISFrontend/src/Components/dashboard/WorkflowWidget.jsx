@@ -481,6 +481,7 @@ export default function WorkflowWidget() {
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
           <WorkflowApp
             tasks={overview?.tasks}
+            userName={userName}
             isLoading={isLoading}
             error={error}
             onRefresh={() => load(true)}

@@ -31,6 +31,7 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ViewKanbanRoundedIcon from '@mui/icons-material/ViewKanbanRounded';
 import PeopleAltRoundedIcon from '@mui/icons-material/PeopleAltRounded';
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded';
+import SmartphoneRoundedIcon from '@mui/icons-material/SmartphoneRounded';
 import UserTask from '../../Pages/userTask';
 import OrderTaskList from './OrderTaskList';
 import DesignFilesWidget from './DesignFilesWidget';
@@ -48,6 +49,7 @@ import { ORDER_SECTIONS } from '../orders/orderControlSections';
 // business summary: orders, vendor ledger, transactions and tasks), so the
 // chunk is only fetched when an admin actually opens that view.
 const OrderControlPanel = lazy(() => import('../orders/OrderControlPanel'));
+const WorkflowAppPreview = lazy(() => import('./WorkflowAppPreview'));
 
 const SECTION_BY_KEY = new Map(WORKFLOW_SECTIONS.map((section) => [section.key, section]));
 
@@ -153,6 +155,7 @@ export default function WorkflowWidget() {
   const roleKey = useRoleKey();
   const canSeeActionQueues = isRoleAllowed(ADMIN_ROLES, roleKey);
   const [tab, setTab] = useState('board');
+  const isAppPreview = tab === 'app';
   const [overview, setOverview] = useState(null);
   // Off by default: the board is the shop floor, not a personal list.
   const [onlyMine, setOnlyMine] = useState(false);
@@ -347,26 +350,26 @@ export default function WorkflowWidget() {
 
   return (
     <Box>
-      <UserTask />
-
-      <Divider sx={{ my: 1.5 }} />
+      {!isAppPreview && <><UserTask /><Divider sx={{ my: 1.5 }} /></>}
 
       {/* Compact board toolbar: keep the information needed to operate the
           board, but remove the duplicated per-stage text strip. The columns
           below already show stage names and live counts. */}
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+      <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 1, minWidth: 0 }}>
         <Typography variant="subtitle1" fontWeight={700} sx={{ flexShrink: 0 }}>Workflow</Typography>
         <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
-          {stageBreakdown.reduce((sum, item) => sum + item.count, 0)} active jobs
+          {isAppPreview ? 'Mobile UI preview' : `${stageBreakdown.reduce((sum, item) => sum + item.count, 0)} active jobs`}
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0 }}>
+        <Stack direction="row" gap={0.75} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}>
           <ToggleButtonGroup
             size="small"
             exclusive
+            aria-label="Workflow views"
             value={tab}
             onChange={(_, next) => { if (next) { setTab(next); setSelectedIds(new Set()); setBulkDialogOpen(false); } }}
             sx={{
+              maxWidth: '100%', overflowX: 'auto',
               '& .MuiToggleButton-root': {
                 px: 1,
                 py: 0.35,
@@ -374,6 +377,8 @@ export default function WorkflowWidget() {
                 fontWeight: 600,
                 lineHeight: 1.2,
                 borderColor: 'divider',
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
               },
             }}
           >
@@ -391,6 +396,10 @@ export default function WorkflowWidget() {
                 Needs Action
               </ToggleButton>
             )}
+            <ToggleButton value="app">
+              <SmartphoneRoundedIcon fontSize="small" sx={{ mr: 0.5 }} />
+              App
+            </ToggleButton>
           </ToggleButtonGroup>
           {tab === 'board' && (
             <Tooltip title={onlyMine ? 'Showing only orders assigned to you' : 'Showing the whole pipeline'}>
@@ -407,11 +416,11 @@ export default function WorkflowWidget() {
               />
             </Tooltip>
           )}
-          <Tooltip title="Refresh">
+          {!isAppPreview && <Tooltip title="Refresh">
             <IconButton size="small" onClick={() => load(true)} disabled={isLoading}>
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
-          </Tooltip>
+          </Tooltip>}
         </Stack>
       </Stack>
 
@@ -453,7 +462,7 @@ export default function WorkflowWidget() {
           )}
         </Stack>
       )}
-      {bulkFeedback && (
+      {!isAppPreview && bulkFeedback && (
         <Alert severity={bulkFeedback.severity} sx={{ mb: 1 }} onClose={() => setBulkFeedback(null)}>
           {bulkFeedback.message}
           {bulkFeedback.details && (
@@ -462,9 +471,13 @@ export default function WorkflowWidget() {
         </Alert>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      {!isAppPreview && error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
-      {tab === 'needsAction' ? (
+      {isAppPreview ? (
+        <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
+          <WorkflowAppPreview />
+        </Suspense>
+      ) : tab === 'needsAction' ? (
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
           <OrderControlPanel sections={ORDER_SECTIONS} embedded />
         </Suspense>

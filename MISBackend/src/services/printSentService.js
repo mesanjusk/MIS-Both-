@@ -128,6 +128,7 @@ async function syncPrintSentAccount(accountId) {
   }, { $set: { printSentLease: lease } }, { new: true }).select('+printSentToken').lean();
   if (!account) return false;
   const activeLease = { _id: account._id, printSentLease: lease };
+  let importingHistory = false;
   try {
     const gmail = getPrintSentClient(account.printSentToken);
     let driveClient;
@@ -147,26 +148,42 @@ async function syncPrintSentAccount(accountId) {
     const cursor = account.printSentSyncVersion === SYNC_VERSION ? account.printSentCursor : null;
     const continuing = cursor && account.printSentPageToken && account.printSentWindowEnd;
     const earliest = printDateRange(recentPrintDates(now).at(-1)).$gte.getTime();
-    const start = (continuing ? cursor.getTime() : Math.max(cursor?.getTime() ?? earliest, earliest)) - SYNC_OVERLAP;
+    const start = (cursor?.getTime() ?? earliest) - SYNC_OVERLAP;
     const end = continuing ? account.printSentWindowEnd : new Date(Math.floor(now.getTime() / 1000) * 1000);
     const query = `after:${Math.floor(start / 1000)} before:${Math.floor(end.getTime() / 1000)}`;
-    const { data } = await gmail.users.messages.list({
-      userId: 'me', labelIds: ['SENT'], q: query, maxResults: 10,
-      pageToken: continuing ? account.printSentPageToken : undefined,
-    }, REQUEST_OPTIONS);
-    for (const { id } of data.messages || []) {
-      try {
-        await saveMessage(gmail, account, id, lookupDriveName);
-      } catch (error) {
-        if (Number(error.response?.status || error.code) !== 404) throw error;
+    const syncPage = async (q, pageToken) => {
+      const { data } = await gmail.users.messages.list({
+        userId: 'me', labelIds: ['SENT'], q, maxResults: 10, pageToken,
+      }, REQUEST_OPTIONS);
+      for (const { id } of data.messages || []) {
+        try {
+          await saveMessage(gmail, account, id, lookupDriveName);
+        } catch (error) {
+          if (Number(error.response?.status || error.code) !== 404) throw error;
+        }
       }
-    }
+      return data.nextPageToken || '';
+    };
+    const nextPage = await syncPage(query, continuing ? account.printSentPageToken : undefined);
     await GmailAccount.updateOne(activeLease, { $set: {
-      printSentLastSync: new Date(), printSentError: '', printSentPageToken: data.nextPageToken || '',
+      printSentLastSync: new Date(), printSentError: '', printSentPageToken: nextPage,
       printSentSyncVersion: SYNC_VERSION,
-      printSentWindowEnd: data.nextPageToken ? end : null,
-      printSentCursor: data.nextPageToken ? new Date(start + SYNC_OVERLAP) : end,
+      printSentWindowEnd: nextPage ? end : null,
+      printSentCursor: nextPage ? new Date(start + SYNC_OVERLAP) : end,
     } });
+    if (!nextPage && !account.printSentHistoryComplete && await GmailAccount.exists(activeLease)) {
+      // Import an older page after the current-mail scan, so older mail cannot
+      // delay routine sync. Keep its cutoff fixed across invocations.
+      const before = account.printSentHistoryBefore || new Date(Math.min(earliest, start + SYNC_OVERLAP));
+      const historicalQuery = `before:${Math.floor(before.getTime() / 1000)}`;
+      importingHistory = true;
+      const historyPage = await syncPage(historicalQuery, account.printSentHistoryPageToken || undefined);
+      await GmailAccount.updateOne(activeLease, { $set: {
+        printSentHistoryBefore: before,
+        printSentHistoryPageToken: historyPage,
+        printSentHistoryComplete: !historyPage,
+      } });
+    }
     return true;
   } catch (error) {
     const status = Number(error.response?.status || error.code);
@@ -175,7 +192,8 @@ async function syncPrintSentAccount(accountId) {
     await GmailAccount.updateOne(activeLease, { $set: {
       printSentError: message,
       ...(revoked ? { printSentEnabled: false } : {}),
-      ...(status === 400 && account.printSentPageToken ? { printSentPageToken: '', printSentWindowEnd: null } : {}),
+      ...(status === 400 && !importingHistory && account.printSentPageToken ? { printSentPageToken: '', printSentWindowEnd: null } : {}),
+      ...(status === 400 && importingHistory && account.printSentHistoryPageToken ? { printSentHistoryPageToken: '' } : {}),
     } });
     return false;
   } finally {

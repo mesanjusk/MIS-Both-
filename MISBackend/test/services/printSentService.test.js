@@ -70,7 +70,7 @@ test('backfills a previously filtered account and saves an email without attachm
 test('backfills Drive filenames by appending new file IDs to an existing recipient row', async () => {
   const emailId = `print-sent-${require('node:crypto').createHash('sha256').update('account:message:print@example.com').digest('hex')}`;
   jest.spyOn(GmailAccount, 'findOneAndUpdate').mockReturnValue({
-    select: () => ({ lean: async () => ({ _id: 'account', accountId: 'gmail', printSentToken: 'encrypted' }) }),
+    select: () => ({ lean: async () => ({ _id: 'account', accountId: 'gmail', printSentToken: 'encrypted', printSentHistoryComplete: true }) }),
   });
   jest.spyOn(GmailAccount, 'exists').mockResolvedValue(true);
   jest.spyOn(GmailAccount, 'updateOne').mockResolvedValue({});
@@ -97,6 +97,28 @@ test('backfills Drive filenames by appending new file IDs to an existing recipie
     { emailId, source: 'print_sent', 'attachments.driveFileId': { $ne: fileId } },
     { $push: { attachments: { originalName: 'Large banner.cdr', storageMethod: 'google_drive', driveFileId: fileId } } },
   );
+});
+
+test('continues importing old sent mail after incremental sync without a seven-day cutoff', async () => {
+  const before = new Date('2026-02-10T18:30:00Z');
+  const account = {
+    _id: 'account', printSentToken: 'encrypted', printSentSyncVersion: 3,
+    printSentCursor: new Date(), printSentHistoryBefore: before, printSentHistoryPageToken: 'next-old',
+  };
+  jest.spyOn(GmailAccount, 'findOneAndUpdate').mockReturnValue({ select: () => ({ lean: async () => account }) });
+  jest.spyOn(GmailAccount, 'exists').mockResolvedValue(true);
+  const update = jest.spyOn(GmailAccount, 'updateOne').mockResolvedValue({});
+  const list = jest.fn().mockResolvedValue({ data: {} });
+  getPrintSentClient.mockReturnValue({ users: { messages: { list } } });
+
+  expect(await syncPrintSentAccount('account')).toBe(true);
+  expect(list).toHaveBeenNthCalledWith(1, expect.objectContaining({ q: expect.stringMatching(/^after:/) }), expect.any(Object));
+  expect(list).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    labelIds: ['SENT'], q: `before:${before.getTime() / 1000}`, pageToken: 'next-old',
+  }), expect.any(Object));
+  expect(update).toHaveBeenCalledWith(expect.any(Object), { $set: {
+    printSentHistoryBefore: before, printSentHistoryPageToken: '', printSentHistoryComplete: true,
+  } });
 });
 
 test('enumerates nested attachments without inline signatures or forwarded attachments', () => {

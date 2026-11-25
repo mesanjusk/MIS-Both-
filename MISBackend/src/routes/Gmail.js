@@ -15,7 +15,7 @@ const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
 const { isValidObjectId } = require('mongoose');
 const { PRINT_SOURCE, SYNCABLE_ACCOUNTS, normalizeRecipients, syncPrintSentAccount } = require('../services/printSentService');
-const { PRINT_TIME_ZONE, recentPrintDates, printDateRange } = require('../utils/printSentDates');
+const { PRINT_TIME_ZONE, recentPrintDates, printDateRange, printPeriod, groupPrintDates } = require('../utils/printSentDates');
 const corsOptions = require('../config/corsOptions');
 
 const printStaff = requireRole(['worker', 'delivery', 'office admin', 'office design', 'office marketing',
@@ -129,8 +129,10 @@ function printReceiptFilter(status) {
 router.get('/print-sent/folders', printStaff, async (req, res, next) => {
   try {
     const status = req.query.status ?? 'all';
+    const groupBy = req.query.groupBy ?? 'date';
     const receiptFilter = printReceiptFilter(status);
     if (!receiptFilter) return res.status(400).json({ message: 'Choose All, Received, or Pending.' });
+    if (!['date', 'week', 'month'].includes(groupBy)) return res.status(400).json({ message: 'Choose date, week, or month.' });
     const dates = recentPrintDates();
     const dateFilter = status === 'all' ? { sentAt: printDateRange(dates.at(-1), dates[0]) } : {};
     const folders = await EmailHistory.aggregate([
@@ -147,10 +149,9 @@ router.get('/print-sent/folders', printStaff, async (req, res, next) => {
       { $project: { _id: 0, date: '$_id.date', email: '$_id.email', name: 1, count: 1 } },
     ]);
     res.set('Cache-Control', 'private, no-store');
-    res.json({
-      dates: status === 'all' ? dates : [...new Set(folders.map(({ date }) => date))].sort().reverse(),
-      folders,
-    });
+    const visibleDates = status === 'all' ? dates : [...new Set(folders.map(({ date }) => date))].sort().reverse();
+    const periods = status === 'pending' && groupBy !== 'date' ? groupPrintDates(visibleDates, groupBy) : undefined;
+    res.json({ dates: visibleDates, folders, periods });
   } catch (error) { next(error); }
 });
 
@@ -159,8 +160,7 @@ router.get('/print-sent/messages', printStaff, async (req, res, next) => {
     const { date, recipient } = req.query;
     const status = req.query.status ?? 'all';
     const receiptFilter = printReceiptFilter(status);
-    const timestamp = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(date) : NaN;
-    if (!receiptFilter || !Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date
+    if (!receiptFilter || !printPeriod(date, 'date')
       || (status === 'all' && !recentPrintDates().includes(date))
       || typeof recipient !== 'string' || !recipient || recipient.length > 254) {
       return res.status(400).json({ message: 'Choose a print date, recipient, and status.' });
@@ -173,6 +173,24 @@ router.get('/print-sent/messages', printStaff, async (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.json({ result: messages.slice(0, pageSize), hasMore: messages.length > pageSize });
   } catch (error) { next(error); }
+});
+
+router.patch('/print-sent/bulk-receive', printStaff, async (req, res, next) => {
+  const { date, period } = req.body ?? {};
+  const range = printPeriod(date, period);
+  if (!range || range.start !== date || date > recentPrintDates()[0]) {
+    return res.status(400).json({ message: 'Choose a valid date, week, or month.' });
+  }
+  try {
+    const result = await EmailHistory.updateMany({
+      source: PRINT_SOURCE,
+      sentAt: printDateRange(range.start, range.end),
+      ...printReceiptFilter('pending'),
+    }, { $set: { 'attachments.$[attachment].received': true } }, {
+      arrayFilters: [{ 'attachment.received': { $ne: true } }],
+    });
+    return res.json({ updatedEmails: result.modifiedCount });
+  } catch (error) { return next(error); }
 });
 
 router.patch('/print-sent/messages/:id/attachments/:index', printStaff, async (req, res, next) => {
@@ -198,7 +216,7 @@ router.use('/print-sent/accounts', requireAdminOrOwner, requirePermission('canUs
 router.get('/print-sent/accounts', async (_req, res, next) => {
   try {
     const accounts = await GmailAccount.find({ printSentToken: { $exists: true } })
-      .select('email printSentEnabled printRecipients printSentLastSync printSentError').sort({ createdAt: -1 }).lean();
+      .select('email printSentEnabled printRecipients printSentLastSync printSentError printSentHistoryComplete').sort({ createdAt: -1 }).lean();
     res.set('Cache-Control', 'private, no-store');
     res.json({ result: accounts });
   } catch (error) { next(error); }
@@ -272,7 +290,8 @@ router.get('/accounts', async (req, res) => {
   try {
     const accounts = await GmailAccount
       .find({ refreshToken: { $exists: true } }, { refreshToken: 0, accessToken: 0, printSentToken: 0,
-        printRecipients: 0, printSentSyncVersion: 0, printSentCursor: 0, printSentWindowEnd: 0, printSentPageToken: 0, printSentLease: 0 })
+        printRecipients: 0, printSentSyncVersion: 0, printSentCursor: 0, printSentWindowEnd: 0, printSentPageToken: 0,
+        printSentLease: 0, printSentHistoryBefore: 0, printSentHistoryPageToken: 0, printSentHistoryComplete: 0 })
       .sort({ createdAt: 1 })
       .lean();
     const today = new Date().toISOString().slice(0, 10);

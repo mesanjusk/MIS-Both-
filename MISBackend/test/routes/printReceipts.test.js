@@ -44,3 +44,21 @@ test('checks and unchecks one attachment on a Print Sent email', async () => {
   expect((await request(app).patch(url).set('x-test-role', 'customer').send({ received: true })).status).toBe(403);
   expect(update).toHaveBeenCalledTimes(2);
 });
+
+test('bulk receipt marks only pending attachments within the selected IST period', async () => {
+  const update = jest.spyOn(EmailHistory, 'updateMany').mockResolvedValue({ modifiedCount: 4 });
+  const url = '/print-sent/bulk-receive';
+  expect((await request(app).patch(url).send({ date: '2020-01-03', period: 'week' })).status).toBe(400);
+  expect((await request(app).patch(url).set('x-test-role', 'customer').send({ date: '2020-01-01', period: 'month' })).status).toBe(403);
+  const response = await request(app).patch(url).send({ date: '2020-01-01', period: 'month' });
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ updatedEmails: 4 });
+  expect(update).toHaveBeenCalledWith({
+    source: 'print_sent',
+    sentAt: { $gte: new Date('2019-12-31T18:30:00Z'), $lt: new Date('2020-01-31T18:30:00Z') },
+    attachments: { $elemMatch: { received: { $ne: true } } },
+  }, { $set: { 'attachments.$[attachment].received': true } }, {
+    arrayFilters: [{ 'attachment.received': { $ne: true } }],
+  });
+  expect(update).toHaveBeenCalledTimes(1);
+});

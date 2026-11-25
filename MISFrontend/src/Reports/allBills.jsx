@@ -1276,7 +1276,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
         </DialogContent>
         <DialogActions sx={{ flexWrap: "wrap" }}>
           <Button onClick={() => { openInvoice(details); setDetails(null); }}>View invoice</Button>
-          {compact && details && <Button disabled={Boolean(busyBill)} onClick={() => toggleManual(details)}>{details._paid ? "Mark balance" : "Mark paid"}</Button>
+          {compact && details && <Button disabled={Boolean(busyBill)} onClick={() => toggleManual(details)}>{details._paid ? "Mark balance" : "Mark paid"}</Button>}
           {details?.Customer_uuid && <Button onClick={() => { setFollowup(details.Customer_uuid); setDetails(null); }}>Payment follow-up</Button>}
           {canManage && details && <Button onClick={() => { handleEditClick(details); setDetails(null); }}>Edit bill</Button>}
           {canManage && details && <Button color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}

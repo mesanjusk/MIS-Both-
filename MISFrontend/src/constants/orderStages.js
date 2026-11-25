@@ -164,6 +164,14 @@ export const WORKFLOW_SECTIONS = [
   },
 ];
 
+export const DESIGN_BOARD_COLUMNS = [
+  { stageNumber: 1, key: 'todaysNew' },
+  { stageNumber: 2, key: 'oldPending' },
+  { stageNumber: 7, key: 'designApproval' },
+  { stageNumber: 3, key: 'hold' },
+  { stageNumber: 4, key: 'readyToPrint' },
+].map((column) => ({ ...column, label: WORKFLOW_SECTIONS.find(({ key }) => key === column.key).label }));
+
 // Purely a rendering concern for the Workflow board: groups the production
 // sub-stage columns above under wide parent buckets, each with a fixed
 // share of the board's row width. Does not affect stage bucketing/

@@ -13,7 +13,9 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import WorkflowWidget from './WorkflowWidget';
 import { AuthProvider } from '../../context/AuthContext';
-import { fetchPendingTasksOverview } from '../../services/orderService';
+import { assignOrderToUser, fetchPendingTasksOverview, moveOrderStage } from '../../services/orderService';
+import { fetchAssignees } from '../../services/assigneeService';
+import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
 
 const TASKS = [
   { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar' },
@@ -31,6 +33,11 @@ vi.mock('../../services/orderService', () => ({
 }));
 vi.mock('../../services/assigneeService', () => ({
   fetchAssignees: vi.fn(() => Promise.resolve({ data: { result: [] } })),
+}));
+vi.mock('../../services/designFileService', () => ({
+  scanDesignFiles: vi.fn(async () => ({ data: { files: [] } })),
+  assignDesignFile: vi.fn(),
+  moveDesignFileOrderToPrint: vi.fn(),
 }));
 // Heavy children that are not what this file is about.
 vi.mock('../../Pages/userTask', () => ({ default: () => null }));
@@ -56,6 +63,70 @@ const renderBoard = () =>
       </MemoryRouter>
     </AuthProvider>
   );
+
+const renderApp = () =>
+  render(<AuthProvider><MemoryRouter><WorkflowWidget standalone /></MemoryRouter></AuthProvider>);
+
+async function submitJobAction(button, picker, option, submit) {
+  fireEvent.click(await screen.findByRole('button', { name: button, exact: true }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: picker }));
+  fireEvent.click(await screen.findByRole('option', { name: option }));
+  fireEvent.click(within(dialog).getByRole('button', { name: submit, exact: true }));
+}
+
+test('mobile Design Board cards and file details use the existing Drive workflow', async () => {
+  const file = { fileId: 'drive-file', fileName: 'Flyer.cdr', stageNumber: 4, orderUuid: 'order-uuid', orderNumber: 151, orderStage: 'ready_to_print' };
+  const draft = { fileId: 'draft-file', fileName: 'Poster.cdr', stageNumber: 4 };
+  fetchPendingTasksOverview.mockResolvedValueOnce({ data: { tasks: [
+    ...TASKS, { orderId: 'mongo-id', orderNumber: 151, customerName: 'Linked order', stage: 'ready_to_print' },
+  ] } });
+  scanDesignFiles.mockResolvedValue({ data: { files: [file, draft] } });
+  fetchAssignees.mockResolvedValueOnce({ data: { result: [
+    { id: 'designer', name: 'Design Team', type: 'payable', capabilities: ['design'] },
+    { id: 'printer', name: 'Print Team', type: 'payable', capabilities: ['print'] },
+  ] } });
+  signIn('Sanju', 'Owner');
+  try {
+    renderApp();
+    await screen.findByRole('button', { name: '2 Ready to Print' });
+    fireEvent.click(screen.getByRole('button', { name: 'Jobs', exact: true }));
+    expect(screen.getByRole('button', { name: /Flyer.cdr/ })).toBeInTheDocument();
+    expect(screen.queryByText('Linked order')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Home', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: '2 Ready to Print' }));
+    fireEvent.click(screen.getByRole('button', { name: /Poster.cdr/ }));
+    expect(screen.queryByRole('button', { name: 'Move to Print' })).not.toBeInTheDocument();
+    await submitJobAction('Assign', 'Assign to', 'Design Team', 'Assign');
+    expect(assignDesignFile).toHaveBeenCalledWith(draft, 'designer', 'Sanju');
+    await screen.findByText('Assigned to Design Team.');
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to list' }));
+    fireEvent.click(screen.getByRole('button', { name: /Flyer.cdr/ }));
+    await submitJobAction('Move to Print', 'Assign to', 'Print Team', 'Move');
+    expect(moveDesignFileOrderToPrint).toHaveBeenCalledWith(file, 'printer');
+    await screen.findByText('Moved to Print and assigned to Print Team.');
+    expect(scanDesignFiles).toHaveBeenCalledWith(true);
+  } finally {
+    scanDesignFiles.mockResolvedValue({ data: { files: [] } });
+  }
+});
+
+test('mobile job details can reassign and move production orders', async () => {
+  fetchAssignees.mockResolvedValueOnce({ data: { result: [
+    { id: 'printer', name: 'Print Team', type: 'payable', capabilities: ['print'] },
+  ] } });
+  signIn('Sanju', 'Owner');
+  renderApp();
+  fireEvent.click(await screen.findByRole('button', { name: '2 Print' }));
+  fireEvent.click(screen.getByRole('button', { name: /Alice Traders/ }));
+  await submitJobAction('Assign', 'Assign to', 'Print Team', 'Assign');
+  expect(assignOrderToUser).toHaveBeenCalledWith('1', { assignedTo: 'printer', assignedToType: 'vendor', assignedBy: 'Sanju' });
+  await screen.findByText('Assigned to Print Team.');
+  await submitJobAction('Move stage', 'Destination stage', 'Fitting', 'Move');
+  expect(moveOrderStage).toHaveBeenCalledWith('1', 'fitting');
+  await screen.findByText('Moved to Fitting.');
+  expect(fetchPendingTasksOverview).toHaveBeenCalledWith({ cache: false });
+});
 
 /** Order numbers rendered as cards on the board. */
 const visibleOrders = () =>

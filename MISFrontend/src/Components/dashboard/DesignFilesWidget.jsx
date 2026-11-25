@@ -85,11 +85,13 @@ import { FEATURE_TOGGLE_KEYS } from '../../constants/featureToggles';
 import { useAuth } from '../../context/AuthContext';
 import { usePageToggles } from '../../hooks/usePageToggles';
 import { fetchAssignees } from '../../services/assigneeService';
+import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
 import {
   STAGE_TO_CAPABILITY,
   CAPABILITY_LABELS,
   WORKFLOW_SECTIONS,
   WORKFLOW_GROUPS,
+  DESIGN_BOARD_COLUMNS as BOARD_COLUMNS,
 } from '../../constants/orderStages';
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -130,13 +132,6 @@ const TABS = [
 // FOLDER_STAGE_TO_ORDER_STAGE); Final(5)/Printing(6) files are deliberately
 // excluded here — those are handled by the explicit Confirm Final / Create
 // Print Job actions in the other tabs, not by this board.
-const BOARD_COLUMNS = [
-  { stageNumber: 1, key: 'todaysNew', label: "Today's New" },
-  { stageNumber: 2, key: 'oldPending', label: 'Old Pending' },
-  { stageNumber: 7, key: 'designApproval', label: 'Design Approval' },
-  { stageNumber: 3, key: 'hold', label: 'Hold' },
-  { stageNumber: 4, key: 'readyToPrint', label: 'Ready to Print' },
-];
 const BOARD_STAGE_NUMBERS = new Set(BOARD_COLUMNS.map((c) => c.stageNumber));
 
 // Printing (stage 6) — its files are hidden in the Archive tab, which lists
@@ -3057,7 +3052,7 @@ export default function DesignFilesWidget() {
       if (!cfgRes.data?.configured) { setConfigMissing(true); return; }
       setArchiveConfigured(!!cfgRes.data?.archiveConfigured);
       setMaintenanceTools(cfgRes.data?.maintenanceTools !== false);
-      const res = await axios.get('/api/design-files/scan');
+      const res = await scanDesignFiles();
       setData(res.data);
       setSelectedIds(new Set());
 
@@ -3091,13 +3086,7 @@ export default function DesignFilesWidget() {
   // and their name goes on the order's Printing folder.
   const handleMoveToPrint = useCallback(async (file, party) => {
     try {
-      const res = await axios.post('/api/design-files/move-to-print', {
-        fileId: file.fileId,
-        fileName: file.fileName,
-        orderUuid: file.orderUuid,
-        orderNumber: file.orderNumber,
-        assigneeId: party.id,
-      });
+      const res = await moveDesignFileOrderToPrint(file, party.id);
       const folder = res.data?.printFolderName ? ` · Printing/${res.data.printFolderName}` : '';
       setToast({
         message: `Order #${res.data?.orderNumber ?? file.orderNumber} moved to Print · ${res.data?.assignedToName || party.name}${folder}`,
@@ -3129,11 +3118,7 @@ export default function DesignFilesWidget() {
 
   const handleAssign = useCallback(async (file, party) => {
     try {
-      const res = await axios.post('/api/design-files/assign', {
-        fileId: file.fileId, fileName: file.fileName,
-        orderUuid: file.orderUuid || null, orderNumber: file.orderNumber || null,
-        assigneeId: party.id, assignedBy: userName,
-      });
+      const res = await assignDesignFile(file, party.id, userName);
       setToast({ message: `Assigned to ${res.data?.assignedToName || party.name}`, severity: 'success' });
       load();
     } catch (err) {

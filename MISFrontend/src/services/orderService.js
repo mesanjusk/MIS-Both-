@@ -38,10 +38,11 @@ export const fetchBillListPaged = ({
   billNumber = "",
   task = "",
   paid = "", // "", "paid", "unpaid"
+  paymentBasis = "ledger",
   date = "", // YYYY-MM-DD (order/bill date)
 } = {}) => {
   return axios.get("/api/orders/GetBillListPaged", {
-    params: { page, limit, search, billNumber, task, paid, date },
+    params: { page, limit, search, billNumber, task, paid, date, paymentBasis },
   });
 };
 
@@ -50,6 +51,8 @@ export const fetchBillListPaged = ({
  * PATCH /api/orders/bills/:id/status
  * Body MUST be: { billStatus: "paid" | "unpaid", paidBy?, paidNote?, txnUuid?, txnId? }
  */
+export const updateManualBillStatus = (orderId, paid) => axios.patch(`/api/orders/bills/${encodeURIComponent(orderId)}/manual-confirmation`, { paid });
+
 export const updateBillStatus = (orderId, billStatus, meta = {}) => {
   return axios.patch(`/api/orders/bills/${orderId}/status`, {
     billStatus,

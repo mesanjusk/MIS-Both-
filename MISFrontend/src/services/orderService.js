@@ -51,7 +51,7 @@ export const fetchBillListPaged = ({
  * PATCH /api/orders/bills/:id/status
  * Body MUST be: { billStatus: "paid" | "unpaid", paidBy?, paidNote?, txnUuid?, txnId? }
  */
-export const updateManualBillStatus = (orderId, paid) => axios.patch(`/api/orders/bills/${encodeURIComponent(orderId)}/manual-confirmation`, { paid });
+export const updateManualBillStatus = (orderId, status) => axios.patch(`/api/orders/bills/${encodeURIComponent(orderId)}/manual-confirmation`, { status });
 
 export const updateBillStatus = (orderId, billStatus, meta = {}) => {
   return axios.patch(`/api/orders/bills/${orderId}/status`, {

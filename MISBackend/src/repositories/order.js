@@ -205,6 +205,7 @@ const OrdersSchema = new mongoose.Schema(
     stepsCostTotal: { type: Number, default: 0 },
     vendorAssignmentsTotal: { type: Number, default: 0 },
     workRowsEstimatedCost: { type: Number, default: 0 },
+    manualBillStatus: { type: String, enum: ["balance", "paid", "account"], default: undefined },
     manualBillPaid: { type: Boolean, default: false },
     manualBillConfirmedAt: { type: Date, default: null },
     manualBillConfirmedBy: { type: String, default: null },

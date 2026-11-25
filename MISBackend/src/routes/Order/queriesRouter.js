@@ -297,7 +297,8 @@ router.get("/GetBillListPaged", async (req, res) => {
     const billNumber = String(req.query.billNumber || "").trim();
     const paid = String(req.query.paid || "").trim().toLowerCase();
     const manual = req.query.paymentBasis === "manual";
-    const paymentMatch = paid ? { $match: manual ? { manualBillPaid: paid === "paid" ? true : { $ne: true } } : { billStatusLower: paid } } : null;
+    const manualStatus = { $ifNull: ["$manualBillStatus", { $cond: [{ $eq: ["$manualBillPaid", true] }, "paid", "balance"] }] };
+    const paymentMatch = paid ? { $match: manual ? { $expr: { $eq: [manualStatus, paid === "unpaid" ? "balance" : paid] } } : { billStatusLower: paid } } : null;
     const date = String(req.query.date || "").trim();
     const rx = search ? new RegExp(escapeRegex(search), "i") : null;
     // Bill cards use Order_Number as the visible bill number. Keep legacy
@@ -481,7 +482,7 @@ router.get("/GetBillListPaged", async (req, res) => {
           ],
           paymentSummary: [
             ...(dateMatch ? [{ $match: dateMatch }] : []),
-            { $group: { _id: null, all: { $sum: 1 }, paid: { $sum: { $cond: [manual ? { $eq: ["$manualBillPaid", true] } : { $eq: ["$billStatusLower", "paid"] }, 1, 0] } } } },
+            { $group: { _id: null, all: { $sum: 1 }, paid: { $sum: { $cond: [manual ? { $eq: [manualStatus, "paid"] } : { $eq: ["$billStatusLower", "paid"] }, 1, 0] } }, account: { $sum: { $cond: [manual ? { $eq: [manualStatus, "account"] } : false, 1, 0] } } } },
           ],
           dates: [
             ...(paymentMatch ? [paymentMatch] : []),
@@ -510,7 +511,7 @@ router.get("/GetBillListPaged", async (req, res) => {
       success: true,
       result: bucket.data || [],
       total: bucket.total?.[0]?.count || 0,
-      paymentSummary: { all: bucket.paymentSummary?.[0]?.all || 0, paid: bucket.paymentSummary?.[0]?.paid || 0, balance: (bucket.paymentSummary?.[0]?.all || 0) - (bucket.paymentSummary?.[0]?.paid || 0) },
+      paymentSummary: { all: bucket.paymentSummary?.[0]?.all || 0, paid: bucket.paymentSummary?.[0]?.paid || 0, account: bucket.paymentSummary?.[0]?.account || 0, balance: (bucket.paymentSummary?.[0]?.all || 0) - (bucket.paymentSummary?.[0]?.paid || 0) - (bucket.paymentSummary?.[0]?.account || 0) },
       dates: (bucket.dates || []).map((row) => ({ date: row._id, count: row.count })),
       page,
       limit,

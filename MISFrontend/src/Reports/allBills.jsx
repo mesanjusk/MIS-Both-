@@ -36,6 +36,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Menu,
   Button,
   Chip,
   Divider,
@@ -69,6 +70,10 @@ import { ADMIN_ROLES, isRoleAllowed } from "../constants/roles";
 import AddTransaction from "../Pages/AddTransaction";
 import PaymentFollowupHome from "../Pages/PaymentFollowupHome";
 import ExportGuard from "../Components/ExportGuard";
+
+const manualStatusOf = (order) => order?.manualBillStatus || (order?.manualBillPaid === true ? "paid" : "balance");
+const manualLabels = { balance: "Balance", paid: "Paid", account: "Account" };
+const manualColors = { balance: "error", paid: "success", account: "warning" };
 
 /* ----------------------- small hooks ----------------------- */
 function useDebouncedValue(value, delay = 200) {
@@ -258,6 +263,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
   const { permissions } = useAuth();
   const canPost = permissions?.canPostTransactions !== false || canManage;
   const [details, setDetails] = useState(null);
+  const [actionMenu, setActionMenu] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [removeBill, setRemoveBill] = useState(null);
   const [followup, setFollowup] = useState(null);
@@ -421,7 +427,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
 
   const isPaid = useCallback(
     (order) => {
-      if (compact) return order?.manualBillPaid === true;
+      if (compact) return manualStatusOf(order) === "paid";
       const backend = String(order?.billStatus || "").toLowerCase().trim();
       if (backend === "paid") return true;
       if (backend === "unpaid") return false;
@@ -727,12 +733,13 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
       if (fTask && !o._taskLower.includes(fTask)) return false;
 
       if (fPaid === "paid" && !o._paid) return false;
-      if (fPaid === "unpaid" && o._paid) return false;
+      if (fPaid === "unpaid" && (compact ? manualStatusOf(o) !== "balance" : o._paid)) return false;
+      if (fPaid === "account" && manualStatusOf(o) !== "account") return false;
       if (selectedDate && o._orderDate !== selectedDate) return false;
 
       return true;
     });
-  }, [normalizedOrders, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate]);
+  }, [normalizedOrders, debouncedSearch, debouncedBillNumber, taskFilter, paidFilter, selectedDate, compact]);
 
   const totals = useMemo(() => {
     const count = filteredOrders.length;
@@ -867,14 +874,15 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
       ? `Showing ${filteredOrders.length}`
       : "";
 
-  const toggleManual = async (order) => {
+  const toggleManual = async (order, status) => {
+    setActionMenu(null);
     const key = getOrderKey(order);
     if (!key || billAction.current) return;
     billAction.current = true;
     setBusyBill(key);
     setFeedback(null);
     try {
-      const { data } = await updateManualBillStatus(key, !order._paid);
+      const { data } = await updateManualBillStatus(key, status);
       if (!data?.success) throw new Error("Confirmation not saved");
       upsertOrderPatch(key, data.result);
       setDetails(current => current && getOrderKey(current) === key ? { ...current, ...data.result, _paid: data.result.manualBillPaid } : current);
@@ -944,9 +952,10 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
                 { label: "All", value: paymentSummary?.all ?? (paidFilter === "" ? total : "—"), filter: "" },
                 { label: "Balance", value: paymentSummary?.balance ?? "—", filter: "unpaid" },
                 { label: "Paid", value: paymentSummary?.paid ?? "—", filter: "paid" },
+                { label: "Account", value: paymentSummary?.account ?? "—", filter: "account" },
               ].map(({ label, value, filter }) => (
                 <Button key={label} fullWidth size="small" variant={paidFilter === filter ? "contained" : "outlined"}
-                  aria-pressed={paidFilter === filter} onClick={() => setPaidFilter(filter)} sx={{ textTransform: "none", py: 0.5 }}>
+                  aria-pressed={paidFilter === filter} onClick={() => setPaidFilter(filter)} sx={{ textTransform: "none", py: 0.5, px: 0.25, minWidth: 0, fontSize: "0.72rem" }}>
                   {label} · {value}
                 </Button>
               ))}
@@ -968,7 +977,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
                       <Typography variant="caption" color="text.secondary" noWrap>#{order.Order_Number} · {formatDateDDMMYYYY(order.createdAt)} · ₹{formatINR(order.billTotal)}</Typography>
                     </Box>
                   </ButtonBase>
-                  <Button size="small" variant={order._paid ? "contained" : "outlined"} color={order._paid ? "success" : "warning"} aria-label={order._paid ? "Mark balance" : "Mark paid"} aria-pressed={order._paid} sx={{ flexShrink: 0, minWidth: 76, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={() => toggleManual(order)}>{order._paid ? "✓ Paid" : "Balance"}</Button>
+                  <Button size="small" variant="contained" color={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? "warning" : manualColors[manualStatusOf(order)]} aria-label={`Action for bill ${order.Order_Number}: ${manualLabels[manualStatusOf(order)]}`} aria-haspopup="menu" aria-expanded={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? true : undefined} sx={{ flexShrink: 0, minWidth: 76, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={event => setActionMenu({ anchor: event.currentTarget, order })}>Action ▾</Button>
                 </Stack>
               ))}
               {!loading && !filteredOrders.length && <Typography sx={{ p: 2 }} color="text.secondary">No bills match these filters.</Typography>}
@@ -1262,13 +1271,18 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
 
       )}
 
+      <Menu anchorEl={actionMenu?.anchor || null} open={Boolean(actionMenu)} onClose={() => setActionMenu(null)}>
+        {actionMenu && Object.entries(manualLabels).filter(([status]) => status !== manualStatusOf(actionMenu.order)).map(([status, label]) => (
+          <MenuItem key={status} onClick={() => toggleManual(actionMenu.order, status)} sx={{ color: `${manualColors[status]}.main`, fontWeight: 700 }}>{label}</MenuItem>
+        ))}
+      </Menu>
       <Dialog open={Boolean(details)} onClose={() => setDetails(null)} fullWidth maxWidth="xs">
         <DialogTitle>Bill #{details?.Order_Number}</DialogTitle>
         <DialogContent>
           {details && <Stack spacing={1}>
             <Typography fontWeight={800}>{details.Customer_name || "Customer"}</Typography>
             <Typography variant="body2">₹{formatINR(details.billTotal)}</Typography>
-            {compact && <Typography variant="body2">Manual: {details._paid ? "Paid" : "Balance"} · Ledger: {details.billStatus === "paid" ? "Paid" : "Unpaid"}</Typography>}
+            {compact && <Typography variant="body2">Manual: {manualLabels[manualStatusOf(details)]} · Ledger: {details.billStatus === "paid" ? "Paid" : "Unpaid"}</Typography>}
             {buildInvoiceItems(details).map((item, index) => (
               <Typography key={index} variant="body2">{item.name || item.Item || item.Item_name || "Item"}</Typography>
             ))}
@@ -1276,7 +1290,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
         </DialogContent>
         <DialogActions sx={{ flexWrap: "wrap" }}>
           <Button onClick={() => { openInvoice(details); setDetails(null); }}>View invoice</Button>
-          {compact && details && <Button disabled={Boolean(busyBill)} onClick={() => toggleManual(details)}>{details._paid ? "Mark balance" : "Mark paid"}</Button>}
+          {compact && details && <Button color={manualColors[manualStatusOf(details)]} disabled={Boolean(busyBill)} onClick={event => setActionMenu({ anchor: event.currentTarget, order: details })}>Action · {manualLabels[manualStatusOf(details)]}</Button>}
           {details?.Customer_uuid && <Button onClick={() => { setFollowup(details.Customer_uuid); setDetails(null); }}>Payment follow-up</Button>}
           {canManage && details && <Button onClick={() => { handleEditClick(details); setDetails(null); }}>Edit bill</Button>}
           {canManage && details && <Button color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}

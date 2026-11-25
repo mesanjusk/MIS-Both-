@@ -57,14 +57,15 @@ router.delete("/bills/:id", requireAdminOrOwner, async (req, res) => {
 router.patch("/bills/:id/manual-confirmation", requirePermission("canViewAccounts"), async (req, res) => {
   try {
     const filter = idToFilter(req.params.id);
-    const paid = req.body?.paid;
+    const status = req.body?.status ?? (typeof req.body?.paid === "boolean" ? (req.body.paid ? "paid" : "balance") : null);
     const role = String(req.user?.userGroup || req.user?.User_group || "").toLowerCase().replace(/\s+/g, "");
     if (!canEditBills(req) && !["accounts", "accountant", "accountsuser"].includes(role)) return res.status(403).json({ success: false, message: "Accounts access required." });
-    if (!filter || typeof paid !== "boolean") return res.status(400).json({ success: false, message: "Valid bill ID and boolean paid required." });
+    if (!filter || !["balance", "paid", "account"].includes(status)) return res.status(400).json({ success: false, message: "Valid bill ID and manual status required." });
     const order = await Orders.findOne(filter).lean();
     if (!hasBill(order) || order.archivedBillAt) return res.status(404).json({ success: false, message: "Bill not found" });
     const patch = {
-      manualBillPaid: paid,
+      manualBillStatus: status,
+      manualBillPaid: status === "paid",
       manualBillConfirmedAt: new Date(),
       manualBillConfirmedBy: String(req.user?.userName || req.user?.User_name || req.user?.id || ""),
     };
@@ -97,6 +98,7 @@ router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, r
     }
     delete otherFields.archivedBillAt;
     delete otherFields.archivedBillBy;
+    delete otherFields.manualBillStatus;
     delete otherFields.manualBillPaid;
     delete otherFields.manualBillConfirmedAt;
     delete otherFields.manualBillConfirmedBy;

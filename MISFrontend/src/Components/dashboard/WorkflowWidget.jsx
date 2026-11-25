@@ -150,7 +150,7 @@ function groupByStageLabel(tasks) {
 // design file behind it are all in one place instead of split across two
 // widgets that didn't reference each other. Attendance (start/end day) has
 // moved out of here entirely, next to the user's name in the top nav.
-export default function WorkflowWidget() {
+export default function WorkflowWidget({ standalone = false }) {
   const { userName } = useAuth();
   // The action queues receive customer payments and pay vendors, so they use
   // the same strict Admin/Owner decision as the route guards — not
@@ -158,7 +158,7 @@ export default function WorkflowWidget() {
   // "Office Admin" and excludes "Owner".
   const roleKey = useRoleKey();
   const canSeeActionQueues = isRoleAllowed(ADMIN_ROLES, roleKey);
-  const [tab, setTab] = useState('board');
+  const [tab, setTab] = useState(() => standalone ? 'app' : 'board');
   const isApp = tab === 'app';
   const [overview, setOverview] = useState(null);
   // Off by default: the board is the shop floor, not a personal list.
@@ -201,8 +201,10 @@ export default function WorkflowWidget() {
   useEffect(() => {
     if (!userName) return;
     load();
-    fetchAssignees().then((res) => setAssignees(res?.data?.result || [])).catch(() => setAssignees([]));
-  }, [load, userName]);
+    if (!standalone) {
+      fetchAssignees().then((res) => setAssignees(res?.data?.result || [])).catch(() => setAssignees([]));
+    }
+  }, [load, standalone, userName]);
 
   const handleAssign = async (orderId, assignedTo, assignedToType = 'user') => {
     setAssigningId(orderId);
@@ -352,6 +354,24 @@ export default function WorkflowWidget() {
     }
   };
 
+  const app = (
+    <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
+      <WorkflowApp
+        tasks={overview?.tasks}
+        userName={userName}
+        isLoading={isLoading}
+        error={error}
+        onRefresh={() => load(true)}
+        getSection={resolveWorkflowSection}
+        getStageLabel={resolveStageLabel}
+      />
+    </Suspense>
+  );
+
+  if (standalone) {
+    return <Box component="main" sx={{ width: '100%', maxWidth: 500, mx: 'auto' }}>{app}</Box>;
+  }
+
   return (
     <Box>
       {!isApp && <><UserTask /><Divider sx={{ my: 1.5 }} /></>}
@@ -477,19 +497,7 @@ export default function WorkflowWidget() {
 
       {!isApp && error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
 
-      {isApp ? (
-        <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
-          <WorkflowApp
-            tasks={overview?.tasks}
-            userName={userName}
-            isLoading={isLoading}
-            error={error}
-            onRefresh={() => load(true)}
-            getSection={resolveWorkflowSection}
-            getStageLabel={resolveStageLabel}
-          />
-        </Suspense>
-      ) : tab === 'needsAction' ? (
+      {isApp ? app : tab === 'needsAction' ? (
         <Suspense fallback={<Stack alignItems="center" sx={{ py: 3 }}><CircularProgress size={24} /></Stack>}>
           <OrderControlPanel sections={ORDER_SECTIONS} embedded />
         </Suspense>

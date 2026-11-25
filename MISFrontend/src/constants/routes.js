@@ -3,6 +3,7 @@ export const ROUTES = {
   LOGIN: '/login',
   REGISTER: '/register',
   HOME: '/home',
+  WORKFLOW_APP: '/workflow-app',
   DASHBOARD: '/dashboard',
 
   ATTENDANCE: '/attendance',

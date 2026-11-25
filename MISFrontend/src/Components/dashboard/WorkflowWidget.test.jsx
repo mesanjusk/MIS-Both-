@@ -15,7 +15,7 @@ import WorkflowWidget from './WorkflowWidget';
 import { AuthProvider } from '../../context/AuthContext';
 
 const TASKS = [
-  { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar' },
+  { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar', stageUpdatedAt: '2026-11-25T06:00:00Z' },
   { orderId: '2', orderNumber: 102, customerName: 'Bharat Stores', stage: 'print', task: 'Print', assignedTo: 'Deepak Print' },
   { orderId: '3', orderNumber: 103, customerName: 'Chetan and Co', stage: 'bind_packing', task: 'Bind & Packing', assignedTo: 'Rajesh Kumar' },
   { orderId: '4', orderNumber: 104, customerName: 'Deccan Mills', stage: 'ready', task: 'Ready', assignedTo: 'Priya Sharma' },
@@ -60,17 +60,21 @@ const renderBoard = () =>
 const visibleOrders = () =>
   [101, 102, 103, 104].filter((n) => screen.queryByText(`#${n}`) !== null);
 
-test('App is a separate sample-data view and returns to the board', async () => {
+test('App uses live overview rows across all views and returns to the board', async () => {
   signIn('Deepak Print', 'Office User');
   renderBoard();
   await screen.findByText('Alice Traders');
 
   fireEvent.click(screen.getByRole('button', { name: 'App' }));
-  const preview = await screen.findByRole('region', { name: 'Mobile app layout preview' });
-  expect(within(preview).getByText('Sample data')).toBeInTheDocument();
-  expect(screen.queryByText('Alice Traders')).not.toBeInTheDocument();
+  const preview = await screen.findByRole('region', { name: 'Mobile workflow app' });
+  expect(within(preview).getByText('Alice Traders')).toBeInTheDocument();
+  expect(within(preview).getByText('#101 · Rajesh Kumar')).toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole('button', { name: 'Jobs' }));
+  expect(within(preview).getByText('Deccan Mills')).toBeInTheDocument();
   fireEvent.click(within(preview).getByRole('button', { name: 'Activity' }));
   expect(within(preview).getByText('Recent updates')).toBeInTheDocument();
+  expect(within(preview).getByText(/25 Nov 2026/)).toBeInTheDocument();
+  expect(within(preview).queryByText('Deccan Mills')).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Board' }));
   expect(await screen.findByText('Alice Traders')).toBeInTheDocument();

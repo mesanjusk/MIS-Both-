@@ -10,7 +10,6 @@ import CalendarTodayOutlined from '@mui/icons-material/CalendarTodayOutlined';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
 import FolderOutlined from '@mui/icons-material/FolderOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
-import HistoryRounded from '@mui/icons-material/HistoryRounded';
 import HomeRounded from '@mui/icons-material/HomeRounded';
 import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
 import LayersOutlined from '@mui/icons-material/LayersOutlined';
@@ -27,12 +26,13 @@ import {
 import { usePermission } from '../../hooks/usePermission';
 import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
 import { initialsFor } from '../../utils/avatarColor';
+import WorkflowTeam from './WorkflowTeam';
 
 const ICONS = [CalendarTodayOutlined, FolderOutlined, GroupsOutlined, PauseCircleOutlineRounded,
   AssignmentOutlined, PrintOutlined, LayersOutlined, Inventory2Outlined, LocalShippingOutlined];
 const NAV = [
   ['home', 'Home', HomeRounded], ['jobs', 'Jobs', LayersOutlined],
-  ['activity', 'Activity', HistoryRounded], ['account', 'Account', PersonOutlineRounded],
+  ['account', 'Account', PersonOutlineRounded], ['team', 'Team', GroupsOutlined],
 ];
 const EMPTY_TASKS = [];
 const DESIGN_BY_STAGE = new Map(DESIGN_BOARD_COLUMNS.map((column) => [column.stageNumber, column]));
@@ -283,7 +283,7 @@ export default function WorkflowApp({
             <Stack direction="row" alignItems="center" gap={0.65} sx={{ bgcolor: '#ddf2ff', borderRadius: 8, flex: 1, minWidth: 0, px: 1.25, color: '#084e83' }}>
               <SearchRounded fontSize="small" />
               <InputBase fullWidth type="search" placeholder="Search jobs" value={query} inputProps={{ 'aria-label': 'Search jobs' }} onChange={(event) => {
-                if (view === 'home' || view === 'account') changeView('jobs');
+                if (view !== 'jobs' && !activity) changeView('jobs');
                 setQuery(event.target.value);
                 setVisibleCount(PAGE_SIZE);
               }} sx={{ fontSize: 14, color: 'inherit', minHeight: 37 }} />
@@ -293,7 +293,7 @@ export default function WorkflowApp({
           <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
             <MenuItem disabled={isLoading || designLoading || saving} onClick={() => { setMenu(null); refresh(); }}>Refresh jobs</MenuItem>
             <MenuItem onClick={() => { setMenu(null); changeView('jobs'); }}>All jobs</MenuItem>
-            <MenuItem onClick={() => { setMenu(null); changeView('account'); }}>Account</MenuItem>
+            <MenuItem onClick={() => { setMenu(null); changeView('activity'); }}>Activity</MenuItem>
           </Menu>
         </Stack>
 
@@ -337,6 +337,7 @@ export default function WorkflowApp({
             {!list.length && !isLoading && !error && (!designSection || (!designLoading && designFiles)) && <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>{activity && !filter ? 'No dated updates for active jobs.' : 'No matching jobs.'}</Typography>}
             {visibleCount < list.length && <Button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} sx={{ m: 1, textTransform: 'none' }}>Show more</Button>}
           </>}
+          {!selected && view === 'team' && <WorkflowTeam userName={userName} />}
           {!selected && view === 'account' && (
             <Stack spacing={1} alignItems="center" sx={{ px: 2, py: 4 }}>
               <Avatar sx={{ bgcolor: '#1976b8', width: 56, height: 56 }}>{initialsFor(userName || '')}</Avatar>
@@ -348,7 +349,7 @@ export default function WorkflowApp({
           )}
         </Box>
 
-        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={view}
+        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={activity ? false : view}
           onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, flexShrink: 0, '& .MuiBottomNavigationAction-root': { minWidth: 0 }, '& .Mui-selected': { color: '#0876bd' } }}>
           {NAV.map(([key, label, Icon]) => <BottomNavigationAction key={key} value={key} label={label} icon={<Icon />} aria-current={view === key ? 'page' : undefined} />)}
         </BottomNavigation>

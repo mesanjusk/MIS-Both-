@@ -141,4 +141,20 @@ describe('office network for starting your own day', () => {
     expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Priya', 'manager'))).status).toBe(404);
     expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Ramesh', 'Vendor'))).status).toBe(404);
   });
+
+  test('on Render uses ingress visitor headers and fails closed when they disagree or are missing', async () => {
+    process.env.RENDER = 'true';
+    try {
+      Users.findOne.mockResolvedValue(null);
+      expect((await punch('192.0.2.14')).body.code).toBe('OFFICE_NETWORK_REQUIRED');
+      const proxied = (ip) => punch('192.0.2.99')
+        .set('Rndr-Id', 'proxy-id')
+        .set('True-Client-IP', '192.0.2.14')
+        .set('CF-Connecting-IP', ip);
+      expect((await proxied('192.0.2.99')).body.code).toBe('OFFICE_NETWORK_REQUIRED');
+      expect((await proxied('192.0.2.14')).status).toBe(404);
+    } finally {
+      delete process.env.RENDER;
+    }
+  });
 });

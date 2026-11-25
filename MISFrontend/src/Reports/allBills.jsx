@@ -471,55 +471,6 @@ export default function AllBills({ compact = false }) {
     [hasBillableAmount, getOrderKey, selectedOrder, invoiceOrder]
   );
 
-  // ✅ Paid toggle → backend persists (optimistic)
-  // ✅ Fix: DO NOT show false alert if network/500 (because DB can still be updated)
-  const togglePaid = useCallback(
-    async (order) => {
-      const key = getOrderKey(order);
-      if (!key) return;
-
-      const currentlyPaid = isPaid(order);
-      const nextStatus = currentlyPaid ? "unpaid" : "paid";
-
-      // optimistic UI
-      upsertOrderPatch(key, {
-        billStatus: nextStatus,
-        billPaidAt: nextStatus === "paid" ? new Date().toISOString() : null,
-      });
-
-      try {
-        await updateBillStatus(key, nextStatus, { paidBy: "admin" });
-
-        // remove local fallback for this order once saved in backend
-        setPaidMap((prev) => {
-          const copy = { ...(prev || {}) };
-          delete copy[key];
-          return copy;
-        });
-      } catch (e) {
-        const status = e?.response?.status; // may be undefined for network error
-        const isNetwork = !e?.response;
-
-        console.error("Failed to update bill status:", e?.message || e);
-
-        // ✅ If no response OR server 5xx => likely updated but response failed / timeout
-        // Keep optimistic UI and DON'T show scary alert
-        if (isNetwork || (typeof status === "number" && status >= 500)) {
-          return;
-        }
-
-        // ❌ Real 4xx failure => rollback
-        upsertOrderPatch(key, {
-          billStatus: currentlyPaid ? "paid" : "unpaid",
-          billPaidAt: currentlyPaid ? order?.billPaidAt || null : null,
-        });
-
-        toast.error("Failed to update bill status. Please try again.");
-      }
-    },
-    [getOrderKey, isPaid, upsertOrderPatch]
-  );
-
   const loadNetworkFileSettings = useCallback(async () => {
     const res = await axios.get("/api/network-files/settings");
     const root = normalizeWindowsPath(res?.data?.result?.networkShareRoot || "");
@@ -965,7 +916,7 @@ export default function AllBills({ compact = false }) {
           {followup !== null ? <PaymentFollowupHome initialCustomerUuid={followup} compact /> : <>
             <Grid container spacing={0.75}>
               {[
-                { label: "All bills", value: total, filter: "" },
+                { label: "Matching bills", value: total, filter: "" },
                 { label: "Unpaid (shown)", value: filteredOrders.filter(o => !o._paid).length, filter: "unpaid" },
                 { label: "Paid (shown)", value: filteredOrders.filter(o => o._paid).length, filter: "paid" },
               ].map(({ label, value, filter }) => (

@@ -120,7 +120,7 @@ const BillCard = React.memo(function BillCard({
         boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
       }}
     >
-      <Tooltip title={paid ? "Mark as unpaid" : "Mark bill as paid"}>
+      <Tooltip title={paid ? "Paid — ledger verified" : "Mark bill as paid"}>
         <IconButton
           size="small"
           onClick={(e) => {
@@ -138,6 +138,7 @@ const BillCard = React.memo(function BillCard({
             border: "1px solid",
             borderColor: "divider",
           }}
+          disabled={paid}
           aria-label="toggle paid"
         >
           {paid ? (
@@ -468,55 +469,6 @@ export default function AllBills({ compact = false }) {
       }
     },
     [hasBillableAmount, getOrderKey, selectedOrder, invoiceOrder]
-  );
-
-  // ✅ Paid toggle → backend persists (optimistic)
-  // ✅ Fix: DO NOT show false alert if network/500 (because DB can still be updated)
-  const togglePaid = useCallback(
-    async (order) => {
-      const key = getOrderKey(order);
-      if (!key) return;
-
-      const currentlyPaid = isPaid(order);
-      const nextStatus = currentlyPaid ? "unpaid" : "paid";
-
-      // optimistic UI
-      upsertOrderPatch(key, {
-        billStatus: nextStatus,
-        billPaidAt: nextStatus === "paid" ? new Date().toISOString() : null,
-      });
-
-      try {
-        await updateBillStatus(key, nextStatus, { paidBy: "admin" });
-
-        // remove local fallback for this order once saved in backend
-        setPaidMap((prev) => {
-          const copy = { ...(prev || {}) };
-          delete copy[key];
-          return copy;
-        });
-      } catch (e) {
-        const status = e?.response?.status; // may be undefined for network error
-        const isNetwork = !e?.response;
-
-        console.error("Failed to update bill status:", e?.message || e);
-
-        // ✅ If no response OR server 5xx => likely updated but response failed / timeout
-        // Keep optimistic UI and DON'T show scary alert
-        if (isNetwork || (typeof status === "number" && status >= 500)) {
-          return;
-        }
-
-        // ❌ Real 4xx failure => rollback
-        upsertOrderPatch(key, {
-          billStatus: currentlyPaid ? "paid" : "unpaid",
-          billPaidAt: currentlyPaid ? order?.billPaidAt || null : null,
-        });
-
-        toast.error("Failed to update bill status. Please try again.");
-      }
-    },
-    [getOrderKey, isPaid, upsertOrderPatch]
   );
 
   const loadNetworkFileSettings = useCallback(async () => {
@@ -956,12 +908,28 @@ export default function AllBills({ compact = false }) {
 
   return (
     <>
-      {compact ? (
+      {(compact || followup !== null) ? (
         <Stack spacing={1}>
           <Button size="small" onClick={() => setFollowup(followup === null ? "" : null)} sx={{ alignSelf: "flex-start" }}>
             {followup === null ? "Payment follow-ups" : "Back to bills"}
           </Button>
           {followup !== null ? <PaymentFollowupHome initialCustomerUuid={followup} compact /> : <>
+            <Grid container spacing={0.75}>
+              {[
+                { label: "Matching bills", value: total, filter: "" },
+                { label: "Unpaid (shown)", value: filteredOrders.filter(o => !o._paid).length, filter: "unpaid" },
+                { label: "Paid (shown)", value: filteredOrders.filter(o => o._paid).length, filter: "paid" },
+              ].map(({ label, value, filter }) => (
+                <Grid item xs={4} key={label}>
+                  <Card variant="outlined" sx={{ borderRadius: 2, borderColor: paidFilter === filter ? "primary.main" : "divider" }}>
+                    <CardActionArea onClick={() => setPaidFilter(filter)} sx={{ p: 1 }} aria-pressed={paidFilter === filter}>
+                      <Typography variant="caption" color="text.secondary">{label}</Typography>
+                      <Typography variant="h6" fontWeight={800}>{value}</Typography>
+                    </CardActionArea>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
             <Stack direction="row" gap={0.75}>
               <TextField label="Customer or bill #" size="small" fullWidth value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />
               <TextField select label="Payment" size="small" value={paidFilter} onChange={(e) => setPaidFilter(e.target.value)} sx={{ minWidth: 106 }}>
@@ -974,14 +942,14 @@ export default function AllBills({ compact = false }) {
             <Paper variant="outlined" sx={{ overflow: "hidden" }}>
               {filteredOrders.map((order) => (
                 <Stack key={getOrderKey(order)} direction="row" alignItems="center" gap={0.5} sx={{ px: 1, borderBottom: "1px solid", borderColor: "divider" }}>
-                  <ButtonBase onClick={() => setDetails(order)} sx={{ flex: 1, minWidth: 0, py: 0.8, justifyContent: "flex-start", textAlign: "left" }}>
+                  <ButtonBase onClick={() => setDetails(order)} sx={{ flex: 1, minWidth: 0, py: 0.5, justifyContent: "flex-start", textAlign: "left" }}>
                     <Box sx={{ minWidth: 0 }}>
                       <Typography fontWeight={800} variant="body2" noWrap>{order.Customer_name || "Customer"}</Typography>
                       <Typography variant="caption" color="text.secondary" noWrap>#{order.Order_Number} · {formatDateDDMMYYYY(order.createdAt)} · ₹{formatINR(order.billTotal)}</Typography>
                     </Box>
                   </ButtonBase>
                   {order._paid ? <Chip label="Paid" color="success" size="small" /> :
-                    <Button size="small" variant="outlined" disabled={busyBill !== ""} onClick={() => checkPaid(order)}>Mark paid</Button>}
+                    <Button size="small" variant="outlined" color="success" sx={{ flexShrink: 0, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={() => checkPaid(order)}>Mark paid</Button>}
                 </Stack>
               ))}
               {!loading && !filteredOrders.length && <Typography sx={{ p: 2 }} color="text.secondary">No bills match these filters.</Typography>}
@@ -1242,8 +1210,8 @@ export default function AllBills({ compact = false }) {
                         key={key}
                         order={order}
                         paid={Boolean(order?._paid)}
-                        onTogglePaid={togglePaid}
-                        onEdit={handleEditClick}
+                        onTogglePaid={checkPaid}
+                        onEdit={setDetails}
                         onOpenInvoice={openInvoice}
                         onOpenLocalPath={openBillLocalPath}
                         localShareRoot={localShareRoot}

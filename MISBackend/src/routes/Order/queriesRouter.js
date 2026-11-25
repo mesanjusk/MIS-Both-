@@ -279,7 +279,7 @@ router.get("/GetBillList", async (_req, res) => {
       // Bills represent every order with a positive billable line amount.
       // Delivery is a separate workflow/report and must not gate billing.
       { $addFields: { wasDelivered: { $or: [{ $in: [{ $toLower: { $trim: { input: { $ifNull: ["$stage", ""] } } } }, ["delivered", "paid"]] }, { $anyElementTrue: { $map: { input: { $ifNull: ["$Status", []] }, as: "s", in: { $regexMatch: { input: { $ifNull: ["$$s.Task", ""] }, regex: "delivered", options: "i" } } } } }] } } },
-      { $match: { hasBillable: true } },
+      { $match: { hasBillable: true, archivedBillAt: null } },
     ]);
     res.json({ success: true, result: rows });
   } catch (err) {
@@ -435,7 +435,7 @@ router.get("/GetBillListPaged", async (req, res) => {
       },
       // A bill is eligible as soon as it has a positive billable amount;
       // delivery status remains available for display but no longer gates it.
-      { $match: { hasBillable: true } },
+      { $match: { hasBillable: true, archivedBillAt: null } },
       ...(paid ? [{ $match: { billStatusLower: paid } }] : []),
       ...(rx ? [{ $match: { $or: searchClauses } }] : []),
       ...(dedicatedBillNumberRegex

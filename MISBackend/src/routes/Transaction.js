@@ -1,4 +1,5 @@
 const { requireAuth } = require('../middleware/auth');
+const { tierFor } = require('../utils/roleHierarchy');
 const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
 const router  = express.Router();
@@ -12,7 +13,7 @@ const { getStatementInvoiceDetails } = require('../services/statementInvoiceDeta
 const { refreshOrderPaymentStatus }    = require('../services/businessWorkflowService');
 const { validateBalancedJournal }      = require('../services/accountingPostingService');
 const { resolve: resolveAccount, isUuid, applyBalanceMovement } = require('../services/accountRegistry');
-const { v4: uuid } = require('uuid');
+const { v4: uuid, validate: isUuidFormat } = require('uuid');
 
 const cloudinary = require('../utils/cloudinary.js');
 const logger     = require('../utils/logger');
@@ -212,7 +213,19 @@ router.use(requirePermission('canViewAccounts'));
 // POST /addTransaction  – create a new manual transaction
 // ---------------------------------------------------------------------------
 
+const canEditInvoice = (req, transaction) => {
+  const source = String(transaction?.Source || '').toLowerCase();
+  return !['invoice', 'business:customer_invoice'].some((prefix) => source === prefix || source.startsWith(prefix + ':'))
+    || tierFor(req.user?.userGroup || req.user?.User_group) >= 4;
+};
+
 router.post('/addTransaction', requirePermission('canPostTransactions'), boundRequest, upload.single('image'), async (req, res) => {
+  const requestId = String(req.body?.Bill_receipt_request_id || '').trim();
+  const actor = actingUser(req);
+  const orderUuid = String(req.body?.Order_uuid || '').trim();
+  const findRetry = () => Transaction.findOne({
+    Transaction_uuid: requestId, Order_uuid: orderUuid, Created_by: actor, Source: 'business:customer_receipt',
+  }).lean();
   try {
     const {
       Description,
@@ -239,7 +252,17 @@ router.post('/addTransaction', requirePermission('canPostTransactions'), boundRe
 
     // The actor is whoever holds the token. Taking it from the body let any
     // caller attribute a posting to someone else.
-    const actor = actingUser(req);
+    if (requestId) {
+      if (!isUuidFormat(requestId) || !orderUuid || Source !== 'business:customer_receipt') {
+        return res.status(400).json({ success: false, message: 'Invalid bill receipt request.' });
+      }
+      const existing = await findRetry();
+      if (existing) return res.json({ success: true, result: existing });
+      const bill = await Orders.findOne({ Order_uuid: orderUuid, archivedBillAt: null }).lean();
+      if (!bill || String(bill.Customer_uuid) !== String(Customer_uuid) || Number(bill.Order_Number) !== Number(Order_number)) {
+        return res.status(409).json({ success: false, message: 'The bill or its customer changed. Reopen the bill and try again.' });
+      }
+    }
 
     // Parse Journal_entry
     let rawJournal = [];
@@ -276,7 +299,7 @@ router.post('/addTransaction', requirePermission('canPostTransactions'), boundRe
     const nextTransactionId = await transactionNumber.allocate();
 
     const newTransaction = new Transaction({
-      Transaction_uuid: uuid(),
+      Transaction_uuid: requestId || uuid(),
       Transaction_id:   nextTransactionId,
       Order_uuid:       Order_uuid  || null,
       Order_number:     toNum(Order_number) || null,
@@ -297,7 +320,14 @@ router.post('/addTransaction', requirePermission('canPostTransactions'), boundRe
       Source:           Source           || '',
     });
 
-    await newTransaction.save();
+    try {
+      await newTransaction.save();
+    } catch (error) {
+      if (!requestId || error.code !== 11000) throw error;
+      const existing = await findRetry();
+      if (!existing) throw error;
+      return res.json({ success: true, result: existing });
+    }
 
     await recordAudit(req, { action: 'create', transaction: newTransaction, after: newTransaction });
 
@@ -493,6 +523,7 @@ router.patch('/:uuid/description', requirePermission('canEditTransactions'), asy
     if (!key || key.length > 100) return res.status(400).json({ success: false, message: 'Invalid transaction ID' });
     const before = await Transaction.findOne({ Transaction_uuid: key }).lean();
     if (!before) return res.status(404).json({ success: false, message: 'Transaction not found' });
+    if (!canEditInvoice(req, before)) return res.status(403).json({ success: false, message: 'Only admins and owners can edit invoices.' });
     const updated = await Transaction.findOneAndUpdate(
       { Transaction_uuid: key },
       { $set: { Description: description.trim() } },
@@ -583,6 +614,7 @@ router.put('/:uuid', requirePermission('canEditTransactions'), boundRequest, upl
     // the audit trail's "before". Read before the update so it is not lost.
     const previous = await Transaction.findOne({ Transaction_uuid: transactionUuid }).lean();
     if (!previous) return res.status(404).json({ success: false, message: 'Transaction not found' });
+    if (!canEditInvoice(req, previous)) return res.status(403).json({ success: false, message: 'Only admins and owners can edit invoices.' });
 
     const imageUrl    = req.file ? await uploadToCloudinary(req.file) : undefined;
 
@@ -649,6 +681,8 @@ router.delete('/:uuid', requirePermission('canDeleteTransactions'), async (req, 
   try {
     const tx = await Transaction.findOne({ Transaction_uuid: req.params.uuid }).lean();
     if (!tx) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+    if (!canEditInvoice(req, tx)) return res.status(403).json({ success: false, message: 'Only admins and owners can delete invoices.' });
 
     await Transaction.findOneAndDelete({ Transaction_uuid: req.params.uuid });
 

@@ -206,6 +206,8 @@ const OrdersSchema = new mongoose.Schema(
     vendorAssignmentsTotal: { type: Number, default: 0 },
     workRowsEstimatedCost: { type: Number, default: 0 },
     billStatus: { type: String, enum: ["unpaid", "paid"], default: "unpaid", index: true },
+    archivedBillAt: { type: Date, default: null },
+    archivedBillBy: { type: String, default: null },
     billPaidAt: { type: Date, default: null },
     billPaidBy: { type: String, default: null },
     billPaidNote: { type: String, default: null },

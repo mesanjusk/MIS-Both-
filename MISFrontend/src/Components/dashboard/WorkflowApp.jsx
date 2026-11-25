@@ -348,7 +348,7 @@ export default function WorkflowApp({
                 {view === 'bills' && canViewAllBills && pendingBillsTab && (
                   <Button onClick={() => changeView('pendingBills')} sx={{ mb: 1 }}>Pending bills</Button>
                 )}
-                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : {})} />
+                <DashboardPage {...(view === 'teamFollowup' ? { active: true } : view === 'bills' && canViewAllBills ? { compact: true } : {})} />
               </Suspense>
             </Box>
           )}

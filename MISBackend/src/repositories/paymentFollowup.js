@@ -18,6 +18,7 @@ const paymentFollowupSchema = new mongoose.Schema(
     last_reminder: { type: Date, default: null },
     reminder_count: { type: Number, default: 0 },
     reminder_lock_until: { type: Date, default: null },
+    archived_at: { type: Date, default: null },
     closed_at: { type: Date, default: null },
     closure_reason: { type: String, default: '' },
     history: [{

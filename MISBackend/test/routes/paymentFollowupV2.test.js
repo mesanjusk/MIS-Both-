@@ -30,6 +30,7 @@ const customer = { Customer_uuid: 'customer-1', Customer_name: 'Customer One', M
 const app = express();
 app.use(express.json());
 app.use('/api/paymentfollowup', require('../../src/routes/paymentFollowup'));
+app.use((error, _req, res, _next) => res.status(error.statusCode || 500).json({ message: error.message }));
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -40,6 +41,17 @@ beforeEach(() => {
 });
 
 describe('payment follow-up V2 API', () => {
+  test('staff may log calls and complete follow-ups, while edit and delete require admin', async () => {
+    Followup.findOneAndUpdate.mockReturnValue({ lean: async () => ({ _id: id }) });
+    const path = '/api/paymentfollowup/' + id;
+    expect((await request(app).patch(path).send({ remark: 'Change' })).status).toBe(403);
+    expect((await request(app).delete(path)).status).toBe(403);
+    expect((await request(app).post(path + '/call').send({ note: 'Call back tomorrow' })).status).toBe(200);
+    expect(Followup.findOneAndUpdate.mock.calls[0][1].$push.history.$each[0]).toMatchObject({
+      action: 'call_logged', note: 'Call back tomorrow',
+    });
+    expect((await request(app).patch(path + '/status').send({ status: 'done' })).status).toBe(200);
+  });
   test('uses a verified customer UUID and ledger snapshot for new follow-ups', async () => {
     Followup.create.mockImplementation(async (row) => ({ _id: id, ...row }));
     const response = await request(app).post('/api/paymentfollowup/add').send({

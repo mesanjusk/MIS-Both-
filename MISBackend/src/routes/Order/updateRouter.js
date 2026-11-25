@@ -6,6 +6,8 @@ const Orders = require("../../repositories/order");
 const { assignOrderToUser } = require("../../services/orderTaskService");
 const logger = require("../../utils/logger");
 const { refreshOrderPaymentStatus } = require("../../services/businessWorkflowService");
+const { requireAdminOrOwner } = require("../../middleware/authorize");
+const { tierFor } = require("../../utils/roleHierarchy");
 const { requirePermission } = require("../../middleware/requirePermission");
 const { norm, toDate, idToFilter, normalizeItems, normalizeSteps } = require("../../utils/orderHelpers");
 const {
@@ -14,6 +16,42 @@ const {
   enrichOrderItemsAndBuildWorkRows,
   syncVendorJobsForOrder,
 } = require("./_shared");
+
+const hasBill = (order) => Boolean(order?.invoiceTxnUuid) || (order?.Items || []).some(
+  (item) => Number(String(item?.Amount ?? "").replace(/[₹,\s]/g, "")) > 0
+);
+const canEditBills = (req) => tierFor(req.user?.userGroup || req.user?.User_group) >= 4;
+const billFields = ["Customer_uuid", "Items", "Amount", "extraCharges", "invoiceTxnUuid", "invoiceTxnId",
+  "saleSubtotal", "totalAmount", "finalAmount", "grandTotal", "billStatus", "billPaidAt",
+  "billPaidBy", "billPaidNote", "billPaidTxnUuid", "billPaidTxnId"];
+
+function changesBill(req, order) {
+  return billFields.some((field) => {
+    if (!Object.hasOwn(req.body, field)) return false;
+    if (field === "Items") return JSON.stringify(normalizeItems(req.body.Items)) !== JSON.stringify(normalizeItems(order.Items));
+    if (field === "extraCharges") {
+      const charges = (value) => (Array.isArray(value) ? value : []).map(({ label, amount }) => [label, Number(amount)]);
+      return JSON.stringify(charges(req.body.extraCharges)) !== JSON.stringify(charges(order.extraCharges));
+    }
+    return String(req.body[field] ?? "") !== String(order[field] ?? "");
+  });
+}
+
+router.delete("/bills/:id", requireAdminOrOwner, async (req, res) => {
+  try {
+    const filter = idToFilter(req.params.id);
+    if (!filter) return res.status(400).json({ success: false, message: "Invalid bill ID" });
+    const order = await Orders.findOne(filter).lean();
+    if (!hasBill(order)) return res.status(404).json({ success: false, message: "Bill not found" });
+    await Orders.updateOne({ _id: order._id, archivedBillAt: null }, { $set: {
+      archivedBillAt: new Date(), archivedBillBy: req.user?.userName || req.user?.User_name || req.user?.id,
+    } });
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error("Error archiving bill:", error);
+    return res.status(500).json({ success: false, message: "Could not remove the bill." });
+  }
+});
 
 /* ----------------------- UPDATE ORDER (generic) ----------------------- */
 router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, res) => {
@@ -30,6 +68,12 @@ router.put("/updateOrder/:id", requirePermission("canEditOrders"), async (req, r
       : { Order_uuid: req.params.id };
     const order = await Orders.findOne(filter);
     if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (!canEditBills(req) && hasBill(order) && changesBill(req, order)) {
+      return res.status(403).json({ success: false, message: "Only admins and owners can edit existing bill details." });
+    }
+    delete otherFields.archivedBillAt;
+    delete otherFields.archivedBillBy;
+
 
     if (Items) {
       const incomingItems = normalizeItems(Items);
@@ -165,6 +209,13 @@ router.put("/updateDelivery/:id", async (req, res) => {
     const hasCharges = Array.isArray(extraCharges);
     if (!Customer_uuid && incoming.length === 0 && !invoiceTxnUuid && !hasCharges) {
       return res.status(400).json({ success: false, message: "Nothing to update" });
+    }
+    if (!canEditBills(req)) {
+      const prior = await Orders.findOne(filter).lean();
+      if (!prior) return res.status(404).json({ success: false, message: "Order not found" });
+      if (hasBill(prior)) {
+        return res.status(403).json({ success: false, message: "Only admins and owners can edit existing bill details." });
+      }
     }
     const update = {};
     const setFields = {};

@@ -9,6 +9,8 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SendRoundedIcon from '@mui/icons-material/SendRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import axios from '../apiClient';
+import { useRoleKey } from '../hooks/useRouteAccess';
+import { ADMIN_ROLES, isRoleAllowed } from '../constants/roles';
 
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const dateISO = (value) => {
@@ -29,7 +31,12 @@ const statusLabel = (row) => {
 const statusColor = (row) =>
   rowStatus(row) === 'done' ? 'success' : row.overdue ? 'error' : row.dueToday ? 'warning' : 'info';
 
-export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillKey = '' }) {
+export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillKey = '', compact = false }) {
+  const canManage = isRoleAllowed(ADMIN_ROLES, useRoleKey());
+  const [formOpen, setFormOpen] = useState(() => !compact || Boolean(initialCustomerUuid));
+  const [call, setCall] = useState(null);
+  const [callNote, setCallNote] = useState('');
+  const [remove, setRemove] = useState(null);
   const [rows, setRows] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -180,10 +187,31 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
       '/send-reminder', { confirmed: true }), 'WhatsApp reminder submitted and recorded.');
   };
 
+  const pathFor = (row) => '/api/paymentfollowup/' + encodeURIComponent(row._id);
+  const changeStatus = (row) => {
+    const status = rowStatus(row) === 'done' ? 'pending' : 'done';
+    return mutate(() => axios.patch(pathFor(row) + '/status', { status,
+      note: status === 'done' ? 'Manually completed' : 'Manually reopened',
+    }), 'Follow-up status updated.');
+  };
+
+  const actions = (row) => (
+    <Stack direction="row" gap={0.5} flexWrap="wrap">
+      <Button size="small" disabled={busy} onClick={() => { setCallNote(''); setCall(row); }}>Log call</Button>
+      <Button size="small" disabled={busy || Boolean(row.autoSettled)} onClick={() => changeStatus(row)}>
+        {rowStatus(row) === 'done' ? 'Reopen' : 'Mark done'}
+      </Button>
+      {rowStatus(row) === 'pending' && <Button size="small" startIcon={<SendRoundedIcon />} onClick={() => sendReminder(row)}
+        disabled={busy || !row.customer_mobile || row.liveOutstanding === null || amountRemaining(row) <= 0}>Remind</Button>}
+      {canManage && <Button size="small" startIcon={<EditRoundedIcon />} disabled={busy} onClick={() => openEdit(row)}>Edit</Button>}
+      {canManage && <Button size="small" color="error" disabled={busy} onClick={() => setRemove(row)}>Delete</Button>}
+    </Stack>
+  );
+
   const updateDraft = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={compact ? 1 : 2}>
       <Stack direction={{ xs: 'column', md: 'row' }} gap={1} alignItems={{ xs: 'stretch', md: 'center' }}
         justifyContent="space-between">
         <Box>
@@ -197,7 +225,7 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
       </Stack>
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
-      <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>
+      <Stack direction={{ xs: compact ? 'row' : 'column', sm: 'row' }} gap={1} flexWrap="wrap">
         {[
           ['Pending', summary.pending], ['Overdue', summary.overdue],
           ['Due today', summary.dueToday], ['Follow-up remaining', money(summary.outstanding)],
@@ -209,7 +237,10 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
         ))}
       </Stack>
 
-      <Paper component="form" onSubmit={create} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+      {compact && <Button startIcon={<AddRoundedIcon />} onClick={() => setFormOpen((open) => !open)} sx={{ alignSelf: 'flex-start' }}>
+        {formOpen ? 'Close follow-up form' : 'Add follow-up'}
+      </Button>}
+      {formOpen && <Paper component="form" onSubmit={create} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
         <Stack spacing={1.5}>
           <Typography variant="subtitle1" fontWeight={800}>New customer follow-up</Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} gap={1.5}>
@@ -250,7 +281,7 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
             customer-level ledger movement from creation; new invoices may require manual review.
           </Typography>
         </Stack>
-      </Paper>
+      </Paper>}
 
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mb: 1.5 }}>
@@ -266,6 +297,25 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
           </TextField>
         </Stack>
         {loading && <CircularProgress size={20} />}
+        {compact ? <Stack spacing={0.75}>
+          {filtered.map((row) => (
+            <Paper variant="outlined" key={row._id} sx={{ px: 1, py: 0.75 }}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
+                <Typography variant="body2" fontWeight={800}>{row.customer_name}</Typography>
+                <Chip size="small" color={statusColor(row)} label={statusLabel(row)} />
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                {money(amountRemaining(row))} · {dateISO(row.followup_date) || 'No date'}
+              </Typography>
+              {row.title && <Typography variant="body2">{row.title}</Typography>}
+              {row.history?.at(-1)?.action === 'call_logged' && <Typography variant="caption" display="block">
+                Call · {row.history.at(-1).by} · {row.history.at(-1).note || 'Logged'}
+              </Typography>}
+              {actions(row)}
+            </Paper>
+          ))}
+          {!loading && !filtered.length && <Typography variant="body2">No follow-ups match these filters.</Typography>}
+        </Stack> : (
         <TableContainer sx={{ maxHeight: '65vh' }}>
           <Table size="small" stickyHeader sx={{ minWidth: 820 }}>
             <TableHead><TableRow>
@@ -297,15 +347,7 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
                 <TableCell>{row.assigned_to || 'Unassigned'}</TableCell>
                 <TableCell><Chip size="small" color={statusColor(row)} label={statusLabel(row)} /></TableCell>
                 <TableCell align="right">
-                  <Stack direction="row" gap={0.5} justifyContent="flex-end">
-                    <Button size="small" variant="outlined" startIcon={<EditRoundedIcon />}
-                      onClick={() => openEdit(row)}>Manage</Button>
-                    {rowStatus(row) === 'pending' && <Button size="small"
-                      startIcon={<SendRoundedIcon />} onClick={() => sendReminder(row)}
-                      disabled={busy || !row.customer_mobile || row.liveOutstanding === null || amountRemaining(row) <= 0}>
-                      Remind
-                    </Button>}
-                  </Stack>
+                  {actions(row)}
                 </TableCell>
               </TableRow>)}
               {!filtered.length && !loading && <TableRow><TableCell align="center" colSpan={7}>
@@ -314,10 +356,11 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
             </TableBody>
           </Table>
         </TableContainer>
+        )}
         <Typography variant="caption" color="text.secondary">Latest 500 follow-ups · Reminder sends require confirmation and a 48-hour cooldown.</Typography>
       </Paper>
 
-      <Dialog open={Boolean(editing)} onClose={() => !busy && setEditing(null)} fullWidth maxWidth="sm">
+      <Dialog open={canManage && Boolean(editing)} onClose={() => !busy && setEditing(null)} fullWidth maxWidth="sm">
         <DialogTitle>Manage follow-up — {editing?.customer_name}</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
@@ -342,18 +385,36 @@ export default function PaymentFollowupHome({ initialCustomerUuid = '', prefillK
         </DialogContent>
         <DialogActions sx={{ flexWrap: 'wrap', px: 3, pb: 2 }}>
           <Button onClick={() => setEditing(null)} disabled={busy}>Cancel</Button>
-          {editing && <Button color={rowStatus(editing) === 'done' ? 'warning' : 'success'}
-            disabled={busy || Boolean(editing.autoSettled)}
-            onClick={() => mutate(() => axios.patch('/api/paymentfollowup/' +
-              encodeURIComponent(editing._id) + '/status', {
-                status: rowStatus(editing) === 'done' ? 'pending' : 'done',
-                note: rowStatus(editing) === 'done' ? 'Manually reopened' : 'Manually completed',
-              }), 'Follow-up status updated.')}>
-            {rowStatus(editing) === 'done' ? 'Reopen' : 'Mark done'}
-          </Button>}
           {editing && <Button variant="contained" disabled={busy || !draft.followup_date}
             onClick={() => mutate(() => axios.patch('/api/paymentfollowup/' +
               encodeURIComponent(editing._id), draft), 'Follow-up updated.')}>Save</Button>}
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(call)} onClose={() => !busy && setCall(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Payment call · {call?.customer_name}</DialogTitle>
+        <DialogContent>
+          {call?.customer_mobile && <Button href={`tel:${String(call.customer_mobile).replace(/[^+\d]/g, '')}`}>Call customer</Button>}
+          <TextField label="Call outcome" multiline minRows={2} size="small" fullWidth margin="dense"
+            value={callNote} onChange={(event) => setCallNote(event.target.value)} />
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={busy} onClick={() => setCall(null)}>Cancel</Button>
+          <Button variant="contained" disabled={busy || !callNote.trim()}
+            onClick={() => mutate(async () => {
+              await axios.post(pathFor(call) + '/call', { note: callNote });
+              setCall(null);
+            }, 'Payment call logged.')}>Save call</Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={canManage && Boolean(remove)} onClose={() => !busy && setRemove(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Delete follow-up for {remove?.customer_name}?</DialogTitle>
+        <DialogContent>The follow-up will be archived and its history retained.</DialogContent>
+        <DialogActions>
+          <Button disabled={busy} onClick={() => setRemove(null)}>Cancel</Button>
+          <Button color="error" disabled={busy} onClick={() => mutate(async () => {
+            await axios.delete(pathFor(remove));
+            setRemove(null);
+          }, 'Follow-up deleted.')}>Delete</Button>
         </DialogActions>
       </Dialog>
     </Stack>

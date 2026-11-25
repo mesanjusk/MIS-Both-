@@ -7,7 +7,7 @@
 // working it. `isAdmin` is also a substring test that is false for "Owner",
 // so the owner was given the personal view too.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
@@ -59,6 +59,22 @@ const renderBoard = () =>
 /** Order numbers rendered as cards on the board. */
 const visibleOrders = () =>
   [101, 102, 103, 104].filter((n) => screen.queryByText(`#${n}`) !== null);
+
+test('App is a separate sample-data view and returns to the board', async () => {
+  signIn('Deepak Print', 'Office User');
+  renderBoard();
+  await screen.findByText('Alice Traders');
+
+  fireEvent.click(screen.getByRole('button', { name: 'App' }));
+  const preview = await screen.findByRole('region', { name: 'Mobile app layout preview' });
+  expect(within(preview).getByText('Sample data')).toBeInTheDocument();
+  expect(screen.queryByText('Alice Traders')).not.toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole('button', { name: 'Activity' }));
+  expect(within(preview).getByText('Recent updates')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+  expect(await screen.findByText('Alice Traders')).toBeInTheDocument();
+});
 
 afterEach(() => {
   localStorage.clear();

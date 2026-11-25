@@ -47,7 +47,6 @@ import {
   Card,
   CardActionArea,
   CardContent,
-  Grid,
   Skeleton,
   Tooltip,
 } from "@mui/material";
@@ -718,7 +717,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
     return normalizedOrders.filter((o) => {
       if (!o._billable) return false;
       if (s) {
-        const customerMatch = o._customerLower.includes(s);
+        const customerMatch = o._customerLower.includes(s) || String(o.Customer_uuid || "").toLowerCase().includes(s) || (o.Items || []).some(item => String(item.Remark || "").toLowerCase().includes(s));
         const legacyBillMatch = o._billNumberLower.includes(s.replace(/^#\s*/, ""));
         if (!customerMatch && !legacyBillMatch) return false;
       }

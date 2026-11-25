@@ -272,6 +272,13 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
   const [receipt, setReceipt] = useState(null);
   const [removeBill, setRemoveBill] = useState(null);
   const [followup, setFollowup] = useState(null);
+  const followupFromBill = useRef(false);
+  useEffect(() => {
+    if (followupFromBill.current && !details) {
+      followupFromBill.current = false;
+      setFollowup(null);
+    }
+  }, [details]);
   const [feedback, setFeedback] = useState(null);
   const [busyBill, setBusyBill] = useState('');
   const billAction = useRef(false);
@@ -844,6 +851,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
           rate,
           amount,
           remark: String(it?.Remark || ""),
+          Remark: String(it?.Remark || ""),
 
           Item: name,
           Qty: qty,
@@ -952,7 +960,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
           <Stack direction="row" flexWrap="wrap" gap={0.75}>
             <Button size="small" variant="contained" startIcon={<ShareIcon />} onClick={() => openInvoice(details)}>Share bill</Button>
             <Button size="small" variant="outlined" onClick={() => openInvoice(details)}>View invoice</Button>
-            {details.Customer_uuid && <Button size="small" variant="outlined" onClick={() => setFollowup(details.Customer_uuid)}>Payment follow-up</Button>}
+            {details.Customer_uuid && <Button size="small" variant="outlined" onClick={() => { followupFromBill.current = true; setFollowup(details.Customer_uuid); }}>Payment follow-up</Button>}
             {canManage && <Button size="small" variant="outlined" onClick={() => handleEditClick(details)}>Edit bill</Button>}
             {canManage && <Button size="small" variant="outlined" color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}
             {(details.driveFile?.fileId || details.driveFile?.name || details.driveFile?.relativePath || details.driveFile?.localRelativePath) && <>
@@ -986,7 +994,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
         </Stack>
       ) : (compact || followup !== null) ? (
         <Stack spacing={1}>
-          {followup !== null ? <><Button size="small" onClick={() => setFollowup(null)} sx={{ alignSelf: "flex-start" }}>{details ? "Back to bill" : "Back to bills"}</Button><PaymentFollowupHome initialCustomerUuid={followup} compact /></> : <>
+          {followup !== null ? <><Button size="small" onClick={() => { followupFromBill.current = false; setFollowup(null); }} sx={{ alignSelf: "flex-start" }}>{details ? "Back to bill" : "Back to bills"}</Button><PaymentFollowupHome initialCustomerUuid={followup} compact /></> : <>
             <Stack direction="row" gap={0.5}>
               {onPendingBills && <Button fullWidth size="small" variant="outlined" onClick={onPendingBills} sx={{ textTransform: "none" }}>Pending bills ›</Button>}
               <Button fullWidth size="small" variant="outlined" onClick={() => onPaymentFollowup ? onPaymentFollowup() : setFollowup("")} sx={{ textTransform: "none" }}>Payment follow-ups ›</Button>

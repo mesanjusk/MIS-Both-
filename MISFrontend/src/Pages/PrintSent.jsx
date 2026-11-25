@@ -3,7 +3,7 @@ import { Alert, Box, Button, LinearProgress, Paper, Stack, Table, TableBody, Tab
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import api from '../apiClient';
 
-export default function PrintSent() {
+export default function PrintSent({ showTitle = true } = {}) {
   const [page, setPage] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [data, setData] = useState(null);
@@ -19,8 +19,8 @@ export default function PrintSent() {
   }, [page, refresh]);
 
   return <Stack spacing={1}>
-    <Stack direction="row" alignItems="center" justifyContent="space-between">
-      <Typography variant="h6" fontWeight={800}>Print Sent</Typography>
+    <Stack direction="row" alignItems="center" justifyContent={showTitle ? 'space-between' : 'flex-end'}>
+      {showTitle && <Typography variant="h6" fontWeight={800}>Print Sent</Typography>}
       <Button size="small" onClick={() => { setPage(1); setRefresh((value) => value + 1); }}>Refresh</Button>
     </Stack>
     {error && <Alert severity="error">{error}</Alert>}

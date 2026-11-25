@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react';
 import { Box, LinearProgress, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
-import { ACCOUNT_ROLES, ADMIN_ROLES, OFFICE_ROLES, isRoleAllowed } from '../constants/roles';
+import { ADMIN_ROLES, canViewPrintSent, isRoleAllowed } from '../constants/roles';
 import { useRoleKey } from '../hooks/useRouteAccess';
 
 const TeamOperations = lazy(() => import('./TeamOperations'));
@@ -28,13 +28,11 @@ export default function TeamFollowupHome({ active = true, gmailConnectionResult 
   const { permissions } = useAuth();
   const role = useRoleKey();
   const isAdmin = isRoleAllowed(ADMIN_ROLES, role);
-  const canViewPrintSent = isAdmin || [...OFFICE_ROLES, ...ACCOUNT_ROLES].includes(role)
-    || ['manager', 'worker', 'delivery', 'office staff', 'accounts user'].includes(role.toLowerCase());
   const [selected, setSelected] = useState(gmailConnectionResult && isAdmin ? 'settings' : isAdmin ? 'overview' : 'mine');
   const [orderOwner, setOrderOwner] = useState('');
   const navigateView = (next, owner = '') => { setOrderOwner(owner); setSelected(next); };
   const visibleViews = isAdmin ? VIEWS.filter(([id]) => id !== 'whatsapp' || permissions?.canViewWhatsapp !== false)
-    : VIEWS.filter(([id]) => id === 'mine' || (id === 'printSent' && canViewPrintSent));
+    : VIEWS.filter(([id]) => id === 'mine' || (id === 'printSent' && canViewPrintSent(role)));
   const view = visibleViews.some(([id]) => id === selected) ? selected : visibleViews[0][0];
   if (!active) return null;
 

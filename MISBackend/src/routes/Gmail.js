@@ -11,6 +11,7 @@ const { generateAuthUrl, saveTokensFromCode } = require('../services/gmailOAuthS
 const { sendEmail } = require('../services/gmailSendService');
 const GmailAccount  = require('../repositories/GmailAccount');
 const EmailHistory  = require('../repositories/EmailHistory');
+const { AppSetting } = require('../repositories/appSetting');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
 const { isValidObjectId } = require('mongoose');
@@ -21,6 +22,13 @@ const corsOptions = require('../config/corsOptions');
 const printStaff = requireRole(['worker', 'delivery', 'office admin', 'office design', 'office marketing',
   'office staff', 'officestaff', 'otheroffice', 'designer', 'dataentry', 'dataentryuser', 'accounts', 'accounts user', 'accountsuser', 'accountant']);
 const defaultPrintSettingsUrl = 'https://dash.sanjusk.in/home';
+const printAliasPrefix = 'print_sent_recipient_alias:';
+const printAliasKey = (email) => `${printAliasPrefix}${email}`;
+
+async function printAliases() {
+  const records = await AppSetting.find({ key: /^print_sent_recipient_alias:/ }).select('key value').lean();
+  return new Map(records.map(({ key, value }) => [key.slice(printAliasPrefix.length), value]));
+}
 
 // 20 files of 100 MB each let one request hold roughly 2 GB in memory. Gmail
 // itself refuses a message over 25 MB, so anything larger could never have been
@@ -151,7 +159,12 @@ router.get('/print-sent/folders', printStaff, async (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     const visibleDates = status === 'all' ? dates : [...new Set(folders.map(({ date }) => date))].sort().reverse();
     const periods = status === 'pending' && groupBy !== 'date' ? groupPrintDates(visibleDates, groupBy) : undefined;
-    res.json({ dates: visibleDates, folders, periods });
+    const aliases = folders.length ? await printAliases() : new Map();
+    res.json({
+      dates: visibleDates,
+      folders: folders.map((folder) => aliases.has(folder.email) ? { ...folder, alias: aliases.get(folder.email) } : folder),
+      periods,
+    });
   } catch (error) { next(error); }
 });
 
@@ -208,6 +221,44 @@ router.patch('/print-sent/messages/:id/attachments/:index', printStaff, async (r
     );
     if (!result.matchedCount) return res.status(404).json({ message: 'Print attachment not found.' });
     return res.json({ received });
+  } catch (error) { return next(error); }
+});
+
+router.use('/print-sent/recipients', requireAdminOrOwner);
+
+router.get('/print-sent/recipients', async (_req, res, next) => {
+  try {
+    const [emails, aliases] = await Promise.all([
+      EmailHistory.distinct('toEmail', { source: PRINT_SOURCE }),
+      printAliases(),
+    ]);
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ result: emails.sort().map((email) => ({ email, alias: aliases.get(email) || '' })) });
+  } catch (error) { next(error); }
+});
+
+router.patch('/print-sent/recipients', async (req, res, next) => {
+  const { email, alias } = req.body ?? {};
+  if (typeof email !== 'string' || !email || email.length > 254 || typeof alias !== 'string' || alias.length > 120) {
+    return res.status(400).json({ message: 'Choose a recipient and enter a name of up to 120 characters.' });
+  }
+  const name = alias.trim();
+  try {
+    if (!await EmailHistory.exists({ source: PRINT_SOURCE, toEmail: email })) {
+      return res.status(404).json({ message: 'Recipient not found.' });
+    }
+    const key = printAliasKey(email);
+    if (name) {
+      try {
+        await AppSetting.upsertSetting({ key, value: name, description: 'Print Sent recipient alias' });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+        await AppSetting.updateOne({ key }, { $set: { value: name } });
+      }
+    } else {
+      await AppSetting.deleteOne({ key });
+    }
+    return res.json({ email, alias: name });
   } catch (error) { return next(error); }
 });
 

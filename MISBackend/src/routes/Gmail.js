@@ -14,7 +14,7 @@ const EmailHistory  = require('../repositories/EmailHistory');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
 const { isValidObjectId } = require('mongoose');
-const { PRINT_SOURCE, normalizeRecipients, syncPrintSentAccount } = require('../services/printSentService');
+const { PRINT_SOURCE, SYNCABLE_ACCOUNTS, normalizeRecipients, syncPrintSentAccount } = require('../services/printSentService');
 const { PRINT_TIME_ZONE, recentPrintDates, printDateRange } = require('../utils/printSentDates');
 const corsOptions = require('../config/corsOptions');
 
@@ -200,8 +200,8 @@ router.patch('/print-sent/accounts/:id', async (req, res, next) => {
 router.post('/print-sent/accounts/:id/sync', async (req, res, next) => {
   if (!isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Gmail account not found.' });
   try {
-    const enabled = await GmailAccount.exists({ _id: req.params.id, printSentEnabled: true, 'printRecipients.0': { $exists: true } });
-    if (!enabled) return res.status(409).json({ message: 'Enable sync and save a printer email first.' });
+    const enabled = await GmailAccount.exists({ _id: req.params.id, ...SYNCABLE_ACCOUNTS });
+    if (!enabled) return res.status(409).json({ message: 'Connect Gmail and enable sync first.' });
     void syncPrintSentAccount(req.params.id).catch((error) => logger.warn({ code: error.code }, '[print-sent] manual sync failed'));
     return res.status(202).json({ success: true });
   } catch (error) { return next(error); }
@@ -235,7 +235,7 @@ router.get('/accounts', async (req, res) => {
   try {
     const accounts = await GmailAccount
       .find({ refreshToken: { $exists: true } }, { refreshToken: 0, accessToken: 0, printSentToken: 0,
-        printRecipients: 0, printSentCursor: 0, printSentWindowEnd: 0, printSentPageToken: 0, printSentLease: 0 })
+        printRecipients: 0, printSentSyncVersion: 0, printSentCursor: 0, printSentWindowEnd: 0, printSentPageToken: 0, printSentLease: 0 })
       .sort({ createdAt: 1 })
       .lean();
     const today = new Date().toISOString().slice(0, 10);

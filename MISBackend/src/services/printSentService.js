@@ -5,10 +5,13 @@ const EmailHistory = require('../repositories/EmailHistory');
 const { getPrintSentClient } = require('./gmailOAuthService');
 const { makeThumbnail } = require('./printSentThumbnail');
 const logger = require('../utils/logger');
+const { recentPrintDates, printDateRange } = require('../utils/printSentDates');
 
 const PRINT_SOURCE = 'print_sent';
 const MINUTE = 60_000;
-const INITIAL_LOOKBACK = 30 * 24 * 60 * MINUTE;
+const SYNC_VERSION = 2;
+const SYNC_OVERLAP = 2 * MINUTE;
+const SYNCABLE_ACCOUNTS = { printSentEnabled: true, printSentToken: { $exists: true } };
 const REQUEST_OPTIONS = { timeout: 10_000, retry: false };
 const ADDRESS = /^[a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,63}$/i;
 let sweepRunning = false;
@@ -24,16 +27,17 @@ function normalizeRecipients(entries) {
   return [...result.values()];
 }
 
-function matchingRecipients(headers, recipients) {
-  const printers = new Map(recipients.map((entry) => [entry.email, entry]));
+function sentRecipients(headers, recipients = []) {
+  const names = new Map(recipients.map((entry) => [entry.email, entry.name]));
   const matches = new Map();
   for (const header of headers || []) {
-    if (String(header.name).toLowerCase() !== 'to') continue;
+    if (!['to', 'cc', 'bcc'].includes(String(header.name).toLowerCase())) continue;
     const addresses = parseAddressList({ input: String(header.value || ''), flatten: true }) || [];
     for (const address of addresses) {
       const email = String(address.address || '').toLowerCase();
-      const printer = printers.get(email);
-      if (printer) matches.set(email, { email, name: printer.name || String(address.name || email).slice(0, 254) });
+      if (!email || email.length > 254) continue;
+      const name = names.get(email) || address.name || matches.get(email)?.name || email;
+      matches.set(email, { email, name: String(name).slice(0, 254) });
     }
   }
   return [...matches.values()];
@@ -59,9 +63,9 @@ async function saveMessage(gmail, account, messageId) {
     userId: 'me', id: messageId, format: 'full', fields: 'labelIds,internalDate,payload',
   }, REQUEST_OPTIONS);
   if (!message?.labelIds?.includes('SENT') || message.labelIds.includes('TRASH')) return;
-  const matches = matchingRecipients(message.payload?.headers, account.printRecipients);
+  const matches = sentRecipients(message.payload?.headers, account.printRecipients);
+  if (!matches.length) return;
   const files = attachmentParts(message.payload);
-  if (!matches.length || !files.length) return;
 
   const identifiers = matches.map((recipient) => rowId(account, messageId, recipient.email));
   const existing = new Set(await EmailHistory.distinct('emailId', { emailId: { $in: identifiers } }));
@@ -98,20 +102,24 @@ async function syncPrintSentAccount(accountId) {
   const now = new Date();
   const lease = new Date(now.getTime() + 10 * MINUTE);
   const account = await GmailAccount.findOneAndUpdate({
-    _id: accountId, printSentEnabled: true, 'printRecipients.0': { $exists: true },
+    _id: accountId, ...SYNCABLE_ACCOUNTS,
     $or: [{ printSentLease: null }, { printSentLease: { $lt: now } }],
   }, { $set: { printSentLease: lease } }, { new: true }).select('+printSentToken').lean();
   if (!account) return false;
   const activeLease = { _id: account._id, printSentLease: lease };
   try {
     const gmail = getPrintSentClient(account.printSentToken);
-    const start = account.printSentCursor ? account.printSentCursor.getTime() - 2 * MINUTE : now.getTime() - INITIAL_LOOKBACK;
-    const end = account.printSentWindowEnd || new Date(Math.floor(now.getTime() / 1000) * 1000);
-    const recipientQuery = account.printRecipients.map(({ email }) => `to:${email}`).join(' ');
-    const query = `has:attachment after:${Math.floor(start / 1000)} before:${Math.floor(end.getTime() / 1000)} {${recipientQuery}}`;
+    // Page tokens are tied to their original query. Start a fresh seven-day backfill
+    // when the filter changes, then keep the window fixed until all pages are read.
+    const cursor = account.printSentSyncVersion === SYNC_VERSION ? account.printSentCursor : null;
+    const continuing = cursor && account.printSentPageToken && account.printSentWindowEnd;
+    const earliest = printDateRange(recentPrintDates(now).at(-1)).$gte.getTime();
+    const start = (continuing ? cursor.getTime() : Math.max(cursor?.getTime() ?? earliest, earliest)) - SYNC_OVERLAP;
+    const end = continuing ? account.printSentWindowEnd : new Date(Math.floor(now.getTime() / 1000) * 1000);
+    const query = `after:${Math.floor(start / 1000)} before:${Math.floor(end.getTime() / 1000)}`;
     const { data } = await gmail.users.messages.list({
       userId: 'me', labelIds: ['SENT'], q: query, maxResults: 10,
-      pageToken: account.printSentPageToken || undefined,
+      pageToken: continuing ? account.printSentPageToken : undefined,
     }, REQUEST_OPTIONS);
     for (const { id } of data.messages || []) {
       try {
@@ -122,8 +130,9 @@ async function syncPrintSentAccount(accountId) {
     }
     await GmailAccount.updateOne(activeLease, { $set: {
       printSentLastSync: new Date(), printSentError: '', printSentPageToken: data.nextPageToken || '',
+      printSentSyncVersion: SYNC_VERSION,
       printSentWindowEnd: data.nextPageToken ? end : null,
-      printSentCursor: data.nextPageToken ? new Date(start + 2 * MINUTE) : end,
+      printSentCursor: data.nextPageToken ? new Date(start + SYNC_OVERLAP) : end,
     } });
     return true;
   } catch (error) {
@@ -145,7 +154,7 @@ async function sweep() {
   if (sweepRunning) return;
   sweepRunning = true;
   try {
-    const accounts = await GmailAccount.find({ printSentEnabled: true, 'printRecipients.0': { $exists: true } })
+    const accounts = await GmailAccount.find(SYNCABLE_ACCOUNTS)
       .select('_id').lean();
     for (const { _id } of accounts) await syncPrintSentAccount(_id);
   } catch (error) {
@@ -160,4 +169,4 @@ function initPrintSentSync() {
   void sweep();
 }
 
-module.exports = { PRINT_SOURCE, initPrintSentSync, syncPrintSentAccount, normalizeRecipients, matchingRecipients, attachmentParts };
+module.exports = { PRINT_SOURCE, SYNCABLE_ACCOUNTS, initPrintSentSync, syncPrintSentAccount, normalizeRecipients, sentRecipients, attachmentParts };

@@ -118,7 +118,7 @@ test('mobile navigation and Team views include reports, attendance, assignment a
   });
   renderApp();
   const nav = await screen.findByRole('navigation', { name: 'Mobile workflow navigation' });
-  expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Jobs', 'Account', 'Team', 'Bills']);
+  expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Jobs', 'Team', 'Bills']);
   fireEvent.click(within(nav).getByRole('button', { name: 'Team' }));
   expect(await screen.findByText('3 pending · 1 overdue')).toBeInTheDocument();
 
@@ -143,17 +143,29 @@ test('mobile navigation and Team views include reports, attendance, assignment a
   expect(screen.queryByText('Finished job')).not.toBeInTheDocument();
 });
 
-test('mobile drawer exposes the Home pages and Bills opens inside the app shell', async () => {
+test('mobile drawer includes Account and leaves Home card shortcuts on Home', async () => {
   signIn('Sanju', 'Owner');
   renderApp();
   fireEvent.click(await screen.findByRole('button', { name: 'Workflow menu' }));
   const menu = await screen.findByRole('menu', { name: 'Workflow pages' });
-  for (const name of ['Workflow', 'Team Follow-up', 'Inbox', 'Day Book', 'Attendance', 'Orders',
+  for (const name of ['Account', 'Workflow', 'Team Follow-up', 'Day Book', 'Attendance', 'Orders',
     'Outstanding', 'Payable', 'Rate Calculator', 'Payment Follow-up', 'Pending Bills', 'Leads', 'Activity']) {
     expect(within(menu).getByRole('menuitem', { name })).toBeInTheDocument();
   }
-  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Inbox' }));
-  expect(await screen.findByText('Inbox content')).toBeInTheDocument();
+  for (const name of ['Inbox', 'Archive', 'Print Sent']) {
+    expect(within(menu).queryByRole('menuitem', { name })).not.toBeInTheDocument();
+  }
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Account' }));
+  expect(await screen.findByRole('heading', { name: 'Account' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Sanju' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Back to workflow home' }));
+  expect(screen.getByRole('button', { name: 'Inbox' })).toBeInTheDocument();
+});
+
+test('Bills opens inside the mobile app shell', async () => {
+  signIn('Sanju', 'Owner');
+  renderApp();
   const nav = await screen.findByRole('navigation', { name: 'Mobile workflow navigation' });
   fireEvent.click(within(nav).getByRole('button', { name: 'Bills' }));
   expect(await screen.findByText('All Bills content')).toBeInTheDocument();
@@ -166,11 +178,13 @@ test('the drawer follows Home permissions and staff Bills opens Pending Bills', 
   renderApp();
   fireEvent.click(await screen.findByRole('button', { name: 'Workflow menu' }));
   const menu = await screen.findByRole('menu', { name: 'Workflow pages' });
-  expect(within(menu).getByRole('menuitem', { name: 'Inbox' })).toBeInTheDocument();
+  expect(within(menu).getByRole('menuitem', { name: 'Account' })).toBeInTheDocument();
+  expect(within(menu).queryByRole('menuitem', { name: 'Inbox' })).not.toBeInTheDocument();
   for (const name of ['Day Book', 'Orders', 'Payable', 'Payment Follow-up', 'Leads']) {
     expect(within(menu).queryByRole('menuitem', { name })).not.toBeInTheDocument();
   }
   fireEvent.click(screen.getByRole('button', { name: 'Close workflow menu' }));
+  expect(await screen.findByRole('button', { name: 'Inbox' })).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: 'Bills' }));
   expect(await screen.findByText('Pending Bills content')).toBeInTheDocument();
   expect(screen.queryByText('All Bills content')).not.toBeInTheDocument();

@@ -201,18 +201,18 @@ export default function WorkflowWidget({ standalone = false }) {
   useEffect(() => {
     if (!userName) return;
     load();
-    if (!standalone) {
-      fetchAssignees().then((res) => setAssignees(res?.data?.result || [])).catch(() => setAssignees([]));
-    }
-  }, [load, standalone, userName]);
+    fetchAssignees().then((res) => setAssignees(res?.data?.result || [])).catch(() => setAssignees([]));
+  }, [load, userName]);
 
   const handleAssign = async (orderId, assignedTo, assignedToType = 'user') => {
     setAssigningId(orderId);
     try {
       await assignOrderToUser(orderId, { assignedTo, assignedToType, assignedBy: userName });
       await load(true);
+      return true;
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to update assignment.');
+      return false;
     } finally {
       setAssigningId('');
     }
@@ -228,8 +228,10 @@ export default function WorkflowWidget({ standalone = false }) {
     try {
       await moveOrderStage(orderId, stage);
       await load(true);
+      return true;
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to move order.');
+      return false;
     } finally {
       setMovingId('');
     }
@@ -361,6 +363,9 @@ export default function WorkflowWidget({ standalone = false }) {
         userName={userName}
         userGroup={userGroup}
         onSignOut={clearAuth}
+        assignees={assignees}
+        onAssign={handleAssign}
+        onMoveStage={handleMoveStage}
         standalone={standalone}
         isLoading={isLoading}
         error={error}

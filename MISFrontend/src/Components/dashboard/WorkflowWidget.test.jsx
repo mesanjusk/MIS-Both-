@@ -71,8 +71,13 @@ test('App uses live overview rows across all views and returns to the board', as
 
   fireEvent.click(screen.getByRole('button', { name: 'App' }));
   const preview = await screen.findByRole('region', { name: 'Mobile workflow app' });
-  expect(within(preview).getByText('Alice Traders')).toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole('button', { name: /^2 Print$/i }));
   expect(within(preview).getByText('#101 · Rajesh Kumar')).toBeInTheDocument();
+  expect(within(preview).queryByText('Deccan Mills')).not.toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole('button', { name: /Alice Traders/ }));
+  expect(within(preview).getByText('Assigned to')).toBeInTheDocument();
+  expect(within(preview).getByText('Rajesh Kumar')).toBeInTheDocument();
+  fireEvent.click(within(preview).getByRole('button', { name: 'Back to list' }));
   fireEvent.click(within(preview).getByRole('button', { name: 'Jobs' }));
   expect(within(preview).getByText('Deccan Mills')).toBeInTheDocument();
   fireEvent.click(within(preview).getByRole('button', { name: 'Activity' }));

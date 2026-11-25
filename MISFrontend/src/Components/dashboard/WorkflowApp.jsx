@@ -1,132 +1,206 @@
 import { useMemo, useState } from 'react';
 import {
-  Alert, BottomNavigation, BottomNavigationAction, Box, Button, Chip, Divider, IconButton, LinearProgress, Paper, Stack, Typography,
+  Alert, Avatar, BottomNavigation, BottomNavigationAction, Box, Button, ButtonBase,
+  Chip, IconButton, InputBase, LinearProgress, Menu, MenuItem, Paper, Stack, Typography,
 } from '@mui/material';
-import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import ChecklistRoundedIcon from '@mui/icons-material/ChecklistRounded';
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
-import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
-import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
-import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
-import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined';
-import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded';
+import AssignmentOutlined from '@mui/icons-material/AssignmentOutlined';
+import CalendarTodayOutlined from '@mui/icons-material/CalendarTodayOutlined';
+import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
+import FolderOutlined from '@mui/icons-material/FolderOutlined';
+import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
+import HistoryRounded from '@mui/icons-material/HistoryRounded';
+import HomeRounded from '@mui/icons-material/HomeRounded';
+import Inventory2Outlined from '@mui/icons-material/Inventory2Outlined';
+import LayersOutlined from '@mui/icons-material/LayersOutlined';
+import LocalShippingOutlined from '@mui/icons-material/LocalShippingOutlined';
+import MoreVertRounded from '@mui/icons-material/MoreVertRounded';
+import PauseCircleOutlineRounded from '@mui/icons-material/PauseCircleOutlineRounded';
+import PersonOutlineRounded from '@mui/icons-material/PersonOutlineRounded';
+import PrintOutlined from '@mui/icons-material/PrintOutlined';
+import SearchRounded from '@mui/icons-material/SearchRounded';
+import { WORKFLOW_SECTIONS } from '../../constants/orderStages';
+import { initialsFor } from '../../utils/avatarColor';
 
-const stages = {
-  other: { icon: RateReviewOutlinedIcon, background: '#eee8ff', color: '#5d36a6' },
-  print: { icon: PrintOutlinedIcon, background: '#fff1dd', color: '#875000' },
-  ready: { icon: LocalShippingOutlinedIcon, background: '#e0f5ea', color: '#176649' },
-};
-
-const PAGE_SIZE = 20;
+const ICONS = [CalendarTodayOutlined, FolderOutlined, GroupsOutlined, PauseCircleOutlineRounded,
+  AssignmentOutlined, PrintOutlined, LayersOutlined, Inventory2Outlined, LocalShippingOutlined];
+const NAV = [
+  ['home', 'Home', HomeRounded], ['jobs', 'Jobs', LayersOutlined],
+  ['activity', 'Activity', HistoryRounded], ['account', 'Account', PersonOutlineRounded],
+];
 const EMPTY_TASKS = [];
+const PAGE_SIZE = 20;
+const WALLPAPER = {
+  bgcolor: 'action.hover',
+  backgroundImage: 'radial-gradient(circle, rgba(65,151,221,.16) 1px, transparent 1.5px)',
+  backgroundSize: '16px 16px',
+};
 const indiaDateTime = new Intl.DateTimeFormat('en-IN', {
   timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
 });
+const timestamp = (value) => value ? new Date(value).getTime() : NaN;
+const formatTime = (time) => Number.isFinite(time) ? indiaDateTime.format(time) : '';
 
-const views = {
-  today: { title: 'Today', icon: HomeRoundedIcon },
-  jobs: { title: 'Jobs', icon: ChecklistRoundedIcon },
-  activity: { title: 'Activity', icon: HistoryRoundedIcon },
-};
-
-function JobRow({ job, showActivity }) {
-  const stage = stages[job.section] || stages.other;
-  const Icon = stage.icon;
+function JobList({ jobs, activity, onOpen }) {
   return (
-    <Stack component="li" direction="row" alignItems="center" gap={1.25} sx={{ p: 1.25, minWidth: 0 }}>
-      <Box sx={{ width: 36, height: 36, flexShrink: 0, display: 'grid', placeItems: 'center', borderRadius: 2, bgcolor: stage.background, color: stage.color }}>
-        <Icon fontSize="small" />
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" fontWeight={750} sx={{ overflowWrap: 'anywhere', lineHeight: 1.3 }}>{job.name}</Typography>
-        <Typography variant="caption" color="text.secondary" display="block" sx={{ overflowWrap: 'anywhere' }}>
-          {[job.number != null && `#${job.number}`, showActivity ? indiaDateTime.format(job.updatedAt) : job.assignee].filter(Boolean).join(' · ')}
-        </Typography>
-        {!showActivity && job.overdue && <Typography variant="caption" color="error.main" fontWeight={700}>Overdue</Typography>}
-      </Box>
-      <Chip size="small" label={job.stageLabel} sx={{ maxWidth: '40%', bgcolor: stage.background, color: stage.color, fontWeight: 700, fontSize: '0.65rem', height: 'auto', minHeight: 23, '& .MuiChip-label': { whiteSpace: 'normal', overflowWrap: 'anywhere', py: 0.35 } }} />
+    <Stack component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
+      {jobs.map((job) => (
+        <Box component="li" key={job.orderId} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
+          <ButtonBase onClick={() => onOpen(job.orderId)} sx={{ width: '100%', textAlign: 'left', gap: 1.25, p: 1.25, justifyContent: 'flex-start' }}>
+            <Avatar sx={{ bgcolor: job.overdue ? '#fce4e7' : '#dcefff', color: job.overdue ? '#9b273e' : '#075699', width: 42, height: 42, fontSize: 15 }}>
+              {initialsFor(job.name)}
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" fontWeight={800} noWrap>{job.name}</Typography>
+              <Typography variant="caption" color="text.secondary" component="div" noWrap>
+                {[job.orderNumber != null && `#${job.orderNumber}`, activity ? job.stageLabel : job.assignee].filter(Boolean).join(' · ')}
+              </Typography>
+            </Box>
+            <Typography variant="caption" color={job.overdue ? 'error.main' : 'text.secondary'} textAlign="right" sx={{ maxWidth: '32%', overflowWrap: 'anywhere' }}>
+              {activity ? formatTime(job.updatedAt) : job.overdue ? 'Overdue' : job.stageLabel}
+            </Typography>
+          </ButtonBase>
+        </Box>
+      ))}
     </Stack>
   );
 }
 
-export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onRefresh, getSection, getStageLabel }) {
-  const [view, setView] = useState('today');
+function JobDetail({ job }) {
+  const entries = [
+    ['Current stage', job.stageLabel, formatTime(job.updatedAt)],
+    ['Assigned to', job.assignee],
+    ['Due', formatTime(timestamp(job.dueDate)), job.overdue ? 'Overdue' : ''],
+    ['Order note', job.description],
+    ['Source file', job.sourceFile],
+  ];
+  return (
+    <Stack spacing={1.4} sx={{ p: 2 }}>
+      {entries.filter(([, value]) => value).map(([label, value, caption], index) => (
+        <Paper elevation={1} key={label} sx={{
+          maxWidth: '92%', alignSelf: index % 2 ? 'flex-end' : 'flex-start',
+          p: 1.3, px: 1.65, borderRadius: 3, minWidth: 130,
+          ...(index % 2 ? { bgcolor: '#d9f0ff', color: '#113953', borderTopRightRadius: 0 } : { borderTopLeftRadius: 0 }),
+        }}>
+          <Typography variant="caption" fontWeight={800}>{label}</Typography>
+          <Typography variant="body2" sx={{ overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{value}</Typography>
+          {caption && <Typography variant="caption" component="div" sx={{ textAlign: 'right', opacity: 0.8, mt: 0.35 }}>{caption}</Typography>}
+        </Paper>
+      ))}
+    </Stack>
+  );
+}
+
+export default function WorkflowApp({ tasks = EMPTY_TASKS, isLoading, error, onRefresh, getSection, getStageLabel, userName }) {
+  const [view, setView] = useState('home');
+  const [section, setSection] = useState('');
+  const [query, setQuery] = useState('');
+  const [selection, setSelection] = useState(null);
+  const [menu, setMenu] = useState(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const isToday = view === 'today';
-  const showActivity = view === 'activity';
   const jobs = useMemo(() => tasks.map((task) => ({
-    id: task.orderId,
-    number: task.orderNumber,
-    name: task.description || task.sourceFile || task.customerName || (task.orderNumber != null ? `Order #${task.orderNumber}` : 'Untitled job'),
+    ...task,
+    name: task.customerName || task.sourceFile || task.description || (task.orderNumber != null ? `Order #${task.orderNumber}` : 'Untitled job'),
     assignee: task.assignedTo || 'Unassigned',
-    overdue: Boolean(task.overdue),
     section: getSection(task),
     stageLabel: getStageLabel(task),
-    updatedAt: task.stageUpdatedAt ? Date.parse(task.stageUpdatedAt) : NaN,
-  })).sort((a, b) => Number(b.overdue) - Number(a.overdue)), [tasks, getSection, getStageLabel]);
-  const counts = [
-    ['Active jobs', jobs.length],
-    ['In print', jobs.filter((job) => job.section === 'print').length],
-    ['Ready', jobs.filter((job) => job.section === 'ready').length],
-  ];
-  const list = showActivity
-    ? jobs.filter((job) => Number.isFinite(job.updatedAt)).sort((a, b) => b.updatedAt - a.updatedAt)
-    : jobs;
-  const countsUnavailable = !jobs.length && (isLoading || error);
-  const changeView = (next) => { setView(next); setVisibleCount(PAGE_SIZE); };
+    updatedAt: timestamp(task.stageUpdatedAt),
+  })).sort((a, b) => Number(Boolean(b.overdue)) - Number(Boolean(a.overdue))), [tasks, getSection, getStageLabel]);
+
+  const selected = jobs.find((job) => job.orderId === selection);
+  const activeSection = WORKFLOW_SECTIONS.find((item) => item.key === section);
+  const activity = view === 'activity';
+  const filter = query.trim().toLowerCase();
+  const list = jobs.filter((job) => {
+    if (activity && !Number.isFinite(job.updatedAt)) return false;
+    if (view === 'jobs' && section && job.section !== section) return false;
+    return [job.name, job.orderNumber, job.description, job.sourceFile, job.assignee, job.stageLabel]
+      .some((value) => String(value ?? '').toLowerCase().includes(filter.replace(/^#/, '')));
+  });
+  if (activity) list.sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const changeView = (next, nextSection = '') => {
+    setView(next);
+    setSection(nextSection);
+    setQuery('');
+    setSelection(null);
+    setVisibleCount(PAGE_SIZE);
+  };
+  const noCounts = !jobs.length && (isLoading || error);
 
   return (
-    <Box component="section" aria-label="Mobile workflow app" sx={{ display: 'grid', placeItems: 'center', p: { xs: 0, sm: 3 }, borderRadius: 3, bgcolor: { sm: 'action.hover' } }}>
-      <Paper variant="outlined" sx={{ width: '100%', maxWidth: 400, minHeight: 575, borderRadius: { xs: 3, sm: 5 }, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: { sm: '0 14px 40px rgba(36, 25, 76, 0.10)' } }}>
-        <Stack component="header" direction="row" alignItems="center" justifyContent="space-between" gap={1} sx={{ px: 2, py: 1.5 }}>
-          <Stack direction="row" alignItems="center" spacing={0.9}>
-            <Box sx={{ width: 32, height: 32, display: 'grid', placeItems: 'center', bgcolor: '#382461', color: '#fff', borderRadius: 2 }}>
-              <ChecklistRoundedIcon fontSize="small" />
+    <Box component="section" aria-label="Mobile workflow app" sx={{ display: 'grid', placeItems: 'center', p: { xs: 0, sm: 2 }, minWidth: 0 }}>
+      <Paper variant="outlined" sx={{ width: '100%', maxWidth: 445, minHeight: 610, borderRadius: { xs: 3, sm: 5 }, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Stack component="header" direction="row" gap={1.1} alignItems="center" sx={{ px: 1.25, py: 1.5, bgcolor: '#1976b8', backgroundImage: 'linear-gradient(120deg,#3498d5,#1473b5)', color: '#fff' }}>
+          {selected ? <>
+            <IconButton color="inherit" aria-label="Back to list" onClick={() => setSelection(null)}><ArrowBackRounded /></IconButton>
+            <Avatar sx={{ bgcolor: '#076eae', width: 38, height: 38 }}>{initialsFor(selected.name)}</Avatar>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography component="h2" fontWeight={800} variant="body1" noWrap>{selected.name}</Typography>
+              {selected.orderNumber != null && <Typography variant="caption">#{selected.orderNumber}</Typography>}
             </Box>
-            <Typography variant="subtitle2" fontWeight={850}>SK Digital</Typography>
-          </Stack>
-          <IconButton size="small" aria-label="Refresh jobs" onClick={onRefresh} disabled={isLoading}><RefreshRoundedIcon /></IconButton>
-        </Stack>
-
-        <Stack spacing={2} sx={{ p: { xs: 1.5, sm: 2 }, flex: 1, bgcolor: 'action.hover' }}>
-          {isLoading && <LinearProgress aria-label="Loading workflow jobs" />}
-          {error && <Alert severity="error">{error}</Alert>}
-          <Box sx={{ p: 2, borderRadius: 3, color: '#fff', bgcolor: '#382461', backgroundImage: 'linear-gradient(130deg, #382461, #58418c)' }}>
-            <Typography component="h2" variant="h5" fontWeight={850}>{views[view].title}</Typography>
-            {isToday && (
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.75, mt: 1.5 }}>
-                {counts.map(([label, count]) => (
-                  <Box key={label} sx={{ px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.12)' }}>
-                    <Typography fontWeight={850} fontSize="1.2rem">{countsUnavailable ? '—' : count}</Typography>
-                    <Typography variant="caption" sx={{ color: '#f3eaff' }}>{label}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Box>
-
-          <Stack spacing={0.75}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-              <Typography component="h3" variant="subtitle2" fontWeight={850}>{showActivity ? 'Recent updates' : 'Active jobs'}</Typography>
-              {isToday && (
-                <Button size="small" endIcon={<ArrowForwardRoundedIcon />} onClick={() => changeView('jobs')} sx={{ textTransform: 'none' }}>View jobs</Button>
-              )}
+          </> : <>
+            <Typography aria-label="SK Digital" sx={{ fontSize: 25, fontWeight: 900, letterSpacing: '-.07em', pr: 0.35 }}>SK</Typography>
+            <Stack direction="row" alignItems="center" gap={0.65} sx={{ bgcolor: '#ddf2ff', borderRadius: 8, flex: 1, minWidth: 0, px: 1.25, color: '#084e83' }}>
+              <SearchRounded fontSize="small" />
+              <InputBase fullWidth type="search" placeholder="Search jobs" value={query} inputProps={{ 'aria-label': 'Search jobs' }} onChange={(event) => {
+                if (view === 'home' || view === 'account') changeView('jobs');
+                setQuery(event.target.value);
+                setVisibleCount(PAGE_SIZE);
+              }} sx={{ fontSize: 14, color: 'inherit', minHeight: 37 }} />
             </Stack>
-            <Paper variant="outlined" sx={{ borderRadius: 3, maxHeight: 'min(48dvh, 460px)', overflowY: 'auto' }}>
-              <Stack component="ul" divider={<Divider component="li" aria-hidden="true" />} sx={{ listStyle: 'none', p: 0, m: 0 }}>
-                {list.slice(0, isToday ? 3 : visibleCount).map((job) => <JobRow key={job.id} job={job} showActivity={showActivity} />)}
-                {!list.length && !isLoading && !error && <Typography component="li" variant="body2" color="text.secondary" sx={{ p: 1.5 }}>{showActivity ? 'No dated updates for active jobs.' : 'No active jobs.'}</Typography>}
-              </Stack>
-              {!isToday && visibleCount < list.length && <Button size="small" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} sx={{ m: 1, textTransform: 'none' }}>Show more</Button>}
-            </Paper>
-          </Stack>
+          </>}
+          <IconButton aria-label="Workflow menu" color="inherit" onClick={(event) => setMenu(event.currentTarget)}><MoreVertRounded /></IconButton>
+          <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
+            <MenuItem disabled={isLoading} onClick={() => { setMenu(null); onRefresh(); }}>Refresh jobs</MenuItem>
+            <MenuItem onClick={() => { setMenu(null); changeView('jobs'); }}>All jobs</MenuItem>
+          </Menu>
         </Stack>
 
-        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={view} onChange={(_, next) => changeView(next)}
-          sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 60, '& .MuiBottomNavigationAction-root': { minWidth: 0, flex: 1 } }}>
-          {Object.entries(views).map(([key, { title, icon: Icon }]) => (
-            <BottomNavigationAction key={key} value={key} label={title} icon={<Icon fontSize="small" />} aria-current={view === key ? 'page' : undefined} />
-          ))}
+        {isLoading && <LinearProgress aria-label="Loading workflow jobs" />}
+        {error && <Alert severity="error">{error}</Alert>}
+        <Box sx={{ flex: 1, minWidth: 0, maxHeight: 'min(68dvh, 650px)', overflowY: 'auto', ...(selected || view === 'home' ? WALLPAPER : {}) }}>
+          {selected && <JobDetail job={selected} />}
+          {!selected && view === 'home' && (
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: { xs: 0.8, sm: 1.25 }, p: { xs: 1.25, sm: 2 } }}>
+              {WORKFLOW_SECTIONS.map((item, index) => {
+                const Icon = ICONS[index] || ChecklistRounded;
+                const count = jobs.filter((job) => job.section === item.key).length;
+                return (
+                  <ButtonBase key={item.key} onClick={() => changeView('jobs', item.key)} sx={{
+                    aspectRatio: '1', minWidth: 0, flexDirection: 'column', gap: 0.35, p: 0.5,
+                    borderRadius: 3, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider',
+                    boxShadow: '0 3px 8px rgba(7, 73, 125, .12)',
+                  }}>
+                    <Icon sx={{ fontSize: { xs: 25, sm: 34 }, color: '#0876bd' }} />
+                    <Typography variant="body2" fontWeight={850}>{noCounts ? '—' : count}</Typography>
+                    <Typography variant="caption" fontWeight={700} sx={{ lineHeight: 1.15, textAlign: 'center' }}>{item.label}</Typography>
+                  </ButtonBase>
+                );
+              })}
+            </Box>
+          )}
+          {!selected && (view === 'jobs' || activity) && <>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 1.5, py: 1, bgcolor: 'action.hover' }}>
+              <Typography component="h2" variant="subtitle2" fontWeight={850}>{activity ? 'Recent updates' : activeSection?.label || 'All jobs'}</Typography>
+              {activeSection ? <Chip size="small" label="Clear stage" onClick={() => { setSection(''); setVisibleCount(PAGE_SIZE); }} /> : <Typography variant="caption" color="text.secondary">{noCounts ? '—' : list.length}</Typography>}
+            </Stack>
+            <JobList jobs={list.slice(0, visibleCount)} activity={activity} onOpen={setSelection} />
+            {!list.length && !isLoading && !error && <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>{activity && !filter ? 'No dated updates for active jobs.' : 'No matching jobs.'}</Typography>}
+            {visibleCount < list.length && <Button onClick={() => setVisibleCount((count) => count + PAGE_SIZE)} sx={{ m: 1, textTransform: 'none' }}>Show more</Button>}
+          </>}
+          {!selected && view === 'account' && (
+            <Stack spacing={1} alignItems="center" sx={{ py: 4 }}>
+              <Avatar sx={{ bgcolor: '#1976b8', width: 56, height: 56 }}>{initialsFor(userName || '')}</Avatar>
+              <Typography component="h2" variant="subtitle1" fontWeight={850}>{userName || 'Account'}</Typography>
+              {userName && <Typography variant="body2" color="text.secondary">{noCounts ? '—' : jobs.filter((job) => job.assignee === userName).length} assigned jobs</Typography>}
+            </Stack>
+          )}
+        </Box>
+
+        <BottomNavigation component="nav" aria-label="Mobile workflow navigation" showLabels value={view}
+          onChange={(_, next) => changeView(next)} sx={{ borderTop: '1px solid', borderColor: 'divider', minHeight: 57, '& .MuiBottomNavigationAction-root': { minWidth: 0 }, '& .Mui-selected': { color: '#0876bd' } }}>
+          {NAV.map(([key, label, Icon]) => <BottomNavigationAction key={key} value={key} label={label} icon={<Icon />} aria-current={view === key ? 'page' : undefined} />)}
         </BottomNavigation>
       </Paper>
     </Box>

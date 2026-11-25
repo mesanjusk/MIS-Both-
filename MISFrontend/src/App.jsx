@@ -19,6 +19,7 @@ const EMAIL_ROLES = [...ACCOUNT_ROLES.filter((role) => role !== NAV_ROLES.ACCOUN
 
 const Login = lazy(() => import('./Pages/login'));
 const Dashboard = lazy(() => import('./Pages/home'));
+const MobileWorkflow = lazy(() => import('./Components/dashboard/WorkflowWidget'));
 const AllAttandance = lazy(() => import('./Pages/AllAttandance'));
 const AttendanceReport = lazy(() => import('./Pages/AttendanceReport'));
 const PendingTasks = lazy(() => import('./Pages/PendingTasks'));
@@ -162,6 +163,7 @@ export default function App() {
           <Route path={ROUTES.REGISTER} element={<Navigate to={ROUTES.LOGIN} replace />} />
           <Route path={ROUTES.UPI_COLLECT_PUBLIC} element={withSuspense(<UpiCollectPublic />)} />
           <Route path={ROUTES.PUBLIC_INVOICE} element={withSuspense(<PublicInvoice />)} />
+          <Route path={ROUTES.WORKFLOW_APP} element={<RequireAuth>{withSuspense(<MobileWorkflow standalone />)}</RequireAuth>} />
 
           <Route element={<RequireAuth><ErrorBoundary><Layout /></ErrorBoundary></RequireAuth>}>
             <Route path={ROUTES.HOME} element={withSuspense(<Dashboard />)} />

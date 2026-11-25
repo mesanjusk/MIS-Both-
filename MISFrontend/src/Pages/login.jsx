@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -20,6 +20,7 @@ import { startGoogleDriveConnect } from '../utils/googleDriveConnect';
 import { toast } from '../Components';
 import { useAuth } from '../context/AuthContext';
 import { getStoredToken, setStoredToken } from '../utils/authStorage';
+import { ROUTES } from '../constants/routes';
 
 const GOOGLE_COLORS = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
 
@@ -38,6 +39,8 @@ function ColoredBrand({ text }) {
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const workflowRequested = location.state?.from === ROUTES.WORKFLOW_APP;
   const [User_name, setUser_Name] = useState('');
   const [Password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,7 +50,9 @@ export default function Login() {
   const hasStoredSession = Boolean(userName && getStoredToken());
 
   const ensureMandatoryGoogleDrive = useCallback(async (userGroupValue) => {
-    const target = userGroupValue === 'Vendor' ? '/vendorHome' : '/home';
+    let target = ROUTES.HOME;
+    if (userGroupValue === 'Vendor') target = '/vendorHome';
+    else if (workflowRequested) target = ROUTES.WORKFLOW_APP;
 
     try {
       const statusRes = await axios.get('/api/google-drive/status', { params: { check: 1 } });
@@ -79,7 +84,7 @@ export default function Login() {
       setErrorText(error?.response?.data?.message || 'Google Drive is mandatory and its connection could not be verified. Please try again.');
       return false;
     }
-  }, [navigate]);
+  }, [navigate, workflowRequested]);
 
   useEffect(() => {
     if (!hasStoredSession || googleCheckStarted) return;

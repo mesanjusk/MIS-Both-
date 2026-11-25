@@ -3,13 +3,15 @@ const { parseAddressList } = require('email-addresses');
 const GmailAccount = require('../repositories/GmailAccount');
 const EmailHistory = require('../repositories/EmailHistory');
 const { getPrintSentClient } = require('./gmailOAuthService');
+const { getDriveMetadataClient } = require('./googleDriveOAuthService');
 const { makeThumbnail } = require('./printSentThumbnail');
+const { findPrintDriveLinks } = require('./printSentDriveLinks');
 const logger = require('../utils/logger');
 const { recentPrintDates, printDateRange } = require('../utils/printSentDates');
 
 const PRINT_SOURCE = 'print_sent';
 const MINUTE = 60_000;
-const SYNC_VERSION = 2;
+const SYNC_VERSION = 3;
 const SYNC_OVERLAP = 2 * MINUTE;
 const SYNCABLE_ACCOUNTS = { printSentEnabled: true, printSentToken: { $exists: true } };
 const REQUEST_OPTIONS = { timeout: 10_000, retry: false };
@@ -43,37 +45,46 @@ function sentRecipients(headers, recipients = []) {
   return [...matches.values()];
 }
 
-function attachmentParts(root) {
+function* messageParts(root) {
   const queue = [root];
-  const files = [];
   while (queue.length) {
     const part = queue.pop();
     if (!part || part.mimeType === 'message/rfc822') continue;
-    const disposition = (part.headers || []).find((header) => String(header.name).toLowerCase() === 'content-disposition');
-    if (part.filename && !/^inline\b/i.test(String(disposition?.value || '').trim())) files.push(part);
+    yield part;
     for (const child of [...(part.parts || [])].reverse()) queue.push(child);
   }
-  return files;
+}
+
+function attachmentParts(root) {
+  return [...messageParts(root)].filter((part) => {
+    const disposition = (part.headers || []).find((header) => String(header.name).toLowerCase() === 'content-disposition');
+    return part.filename && !/^inline\b/i.test(String(disposition?.value || '').trim());
+  });
 }
 
 const rowId = (account, messageId, email) => `print-sent-${createHash('sha256').update(`${account._id}:${messageId}:${email}`).digest('hex')}`;
 
-async function saveMessage(gmail, account, messageId) {
+async function saveMessage(gmail, account, messageId, lookupDriveName) {
   const { data: message } = await gmail.users.messages.get({
     userId: 'me', id: messageId, format: 'full', fields: 'labelIds,internalDate,payload',
   }, REQUEST_OPTIONS);
   if (!message?.labelIds?.includes('SENT') || message.labelIds.includes('TRASH')) return;
   const matches = sentRecipients(message.payload?.headers, account.printRecipients);
   if (!matches.length) return;
-  const files = attachmentParts(message.payload);
-
   const identifiers = matches.map((recipient) => rowId(account, messageId, recipient.email));
   const existing = new Set(await EmailHistory.distinct('emailId', { emailId: { $in: identifiers } }));
-  if (identifiers.every((id) => existing.has(id))) return;
+  const needsInsert = identifiers.some((id) => !existing.has(id));
+  const links = await findPrintDriveLinks(gmail, messageId, messageParts(message.payload), REQUEST_OPTIONS);
+  if (!needsInsert && !links.length) return;
 
+  const driveFiles = await Promise.all(links.map(async ({ id, resourceKey, name }, index) => ({
+    originalName: name || (index < 10 ? await lookupDriveName(id, resourceKey) : '') || 'Google Drive file',
+    storageMethod: 'google_drive',
+    driveFileId: id,
+  })));
   const attachments = [];
   const previewDeadline = Date.now() + 15_000;
-  for (const part of files) {
+  for (const part of needsInsert ? attachmentParts(message.payload) : []) {
     attachments.push({
       originalName: String(part.filename).slice(0, 500),
       mimeType: String(part.mimeType || '').slice(0, 120),
@@ -86,11 +97,21 @@ async function saveMessage(gmail, account, messageId) {
   if (!stillEnabled) return;
   for (const [index, recipient] of matches.entries()) {
     const emailId = identifiers[index];
-    if (existing.has(emailId)) continue;
+    if (existing.has(emailId)) {
+      // Keep the existing attachment positions and receipt flags. An atomic
+      // append also makes retries safe when the same Drive link is seen again.
+      for (const driveFile of driveFiles) {
+        await EmailHistory.updateOne(
+          { emailId, source: PRINT_SOURCE, 'attachments.driveFileId': { $ne: driveFile.driveFileId } },
+          { $push: { attachments: driveFile } },
+        );
+      }
+      continue;
+    }
     try {
       await EmailHistory.updateOne({ emailId }, { $setOnInsert: {
         source: PRINT_SOURCE, fromGmailAccountId: account.accountId, toEmail: recipient.email,
-        toName: recipient.name, gmailMessageId: messageId, sentAt, status: 'sent', attachments,
+        toName: recipient.name, gmailMessageId: messageId, sentAt, status: 'sent', attachments: [...attachments, ...driveFiles],
       } }, { upsert: true });
     } catch (error) {
       if (error.code !== 11000) throw error;
@@ -109,8 +130,20 @@ async function syncPrintSentAccount(accountId) {
   const activeLease = { _id: account._id, printSentLease: lease };
   try {
     const gmail = getPrintSentClient(account.printSentToken);
-    // Page tokens are tied to their original query. Start a fresh seven-day backfill
-    // when the filter changes, then keep the window fixed until all pages are read.
+    let driveClient;
+    const lookupDriveName = async (fileId, resourceKey) => {
+      try {
+        driveClient ||= getDriveMetadataClient().catch(() => null);
+        const drive = await driveClient;
+        if (!drive) return '';
+        const headers = resourceKey ? { 'X-Goog-Drive-Resource-Keys': `${fileId}/${resourceKey}` } : {};
+        const { data } = await drive.files.get({ fileId, fields: 'name', supportsAllDrives: true },
+          { headers, timeout: 5000, retry: false });
+        return String(data?.name || '').trim().slice(0, 500);
+      } catch { return ''; }
+    };
+    // Backfill the seven visible days when parsing changes, and keep the
+    // search window fixed until the last page of each Gmail query.
     const cursor = account.printSentSyncVersion === SYNC_VERSION ? account.printSentCursor : null;
     const continuing = cursor && account.printSentPageToken && account.printSentWindowEnd;
     const earliest = printDateRange(recentPrintDates(now).at(-1)).$gte.getTime();
@@ -123,7 +156,7 @@ async function syncPrintSentAccount(accountId) {
     }, REQUEST_OPTIONS);
     for (const { id } of data.messages || []) {
       try {
-        await saveMessage(gmail, account, id);
+        await saveMessage(gmail, account, id, lookupDriveName);
       } catch (error) {
         if (Number(error.response?.status || error.code) !== 404) throw error;
       }

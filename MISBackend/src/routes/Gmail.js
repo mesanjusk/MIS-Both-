@@ -168,7 +168,7 @@ router.get('/print-sent/messages', printStaff, async (req, res, next) => {
     const page = Math.max(1, Math.min(1000, Number.parseInt(req.query.page, 10) || 1));
     const pageSize = 12;
     const messages = await EmailHistory.find({ source: PRINT_SOURCE, sentAt: printDateRange(date), toEmail: recipient, ...receiptFilter })
-      .select('sentAt attachments.originalName attachments.thumbnail attachments.received')
+      .select('sentAt attachments.originalName attachments.thumbnail attachments.received attachments.storageMethod')
       .sort({ sentAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize + 1).lean();
     res.set('Cache-Control', 'private, no-store');
     res.json({ result: messages.slice(0, pageSize), hasMore: messages.length > pageSize });

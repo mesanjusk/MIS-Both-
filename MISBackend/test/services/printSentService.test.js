@@ -3,8 +3,10 @@ const { makeThumbnail } = require('../../src/services/printSentThumbnail');
 const GmailAccount = require('../../src/repositories/GmailAccount');
 const EmailHistory = require('../../src/repositories/EmailHistory');
 const { getPrintSentClient } = require('../../src/services/gmailOAuthService');
+const { getDriveMetadataClient } = require('../../src/services/googleDriveOAuthService');
 
 jest.mock('../../src/services/gmailOAuthService', () => ({ getPrintSentClient: jest.fn() }));
+jest.mock('../../src/services/googleDriveOAuthService', () => ({ getDriveMetadataClient: jest.fn() }));
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -58,11 +60,43 @@ test('backfills a previously filtered account and saves an email without attachm
       toEmail: 'new@example.com', toName: 'New Printer', attachments: [],
     }) }, { upsert: true });
     expect(checkpoint).toHaveBeenCalledWith(expect.any(Object), { $set: expect.objectContaining({
-      printSentSyncVersion: 2, printSentPageToken: 'new-filter',
+      printSentSyncVersion: 3, printSentPageToken: 'new-filter',
     }) });
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('backfills Drive filenames by appending new file IDs to an existing recipient row', async () => {
+  const emailId = `print-sent-${require('node:crypto').createHash('sha256').update('account:message:print@example.com').digest('hex')}`;
+  jest.spyOn(GmailAccount, 'findOneAndUpdate').mockReturnValue({
+    select: () => ({ lean: async () => ({ _id: 'account', accountId: 'gmail', printSentToken: 'encrypted' }) }),
+  });
+  jest.spyOn(GmailAccount, 'exists').mockResolvedValue(true);
+  jest.spyOn(GmailAccount, 'updateOne').mockResolvedValue({});
+  jest.spyOn(EmailHistory, 'distinct').mockResolvedValue([emailId]);
+  const update = jest.spyOn(EmailHistory, 'updateOne').mockResolvedValue({});
+  const fileId = '1kG_Oh4XMnvR11v6Iv';
+  const url = `https://drive.google.com/file/d/${fileId}/view?resourcekey=0-example`;
+  getPrintSentClient.mockReturnValue({ users: { messages: {
+    list: jest.fn().mockResolvedValue({ data: { messages: [{ id: 'message' }] } }),
+    get: jest.fn().mockResolvedValue({ data: { labelIds: ['SENT'], payload: {
+      mimeType: 'text/plain',
+      headers: [{ name: 'To', value: 'print@example.com' }],
+      body: { data: Buffer.from(url).toString('base64url') },
+    } } }),
+  } } });
+  const get = jest.fn().mockResolvedValue({ data: { name: 'Large banner.cdr' } });
+  getDriveMetadataClient.mockResolvedValue({ files: { get } });
+
+  expect(await syncPrintSentAccount('account')).toBe(true);
+  expect(get).toHaveBeenCalledWith({ fileId, fields: 'name', supportsAllDrives: true }, expect.objectContaining({
+    headers: { 'X-Goog-Drive-Resource-Keys': `${fileId}/0-example` },
+  }));
+  expect(update).toHaveBeenCalledWith(
+    { emailId, source: 'print_sent', 'attachments.driveFileId': { $ne: fileId } },
+    { $push: { attachments: { originalName: 'Large banner.cdr', storageMethod: 'google_drive', driveFileId: fileId } } },
+  );
 });
 
 test('enumerates nested attachments without inline signatures or forwarded attachments', () => {

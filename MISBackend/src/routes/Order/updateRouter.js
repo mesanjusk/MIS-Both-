@@ -58,6 +58,8 @@ router.patch("/bills/:id/manual-confirmation", requirePermission("canViewAccount
   try {
     const filter = idToFilter(req.params.id);
     const paid = req.body?.paid;
+    const role = String(req.user?.userGroup || req.user?.User_group || "").toLowerCase().replace(/\s+/g, "");
+    if (!canEditBills(req) && !["accounts", "accountant", "accountsuser"].includes(role)) return res.status(403).json({ success: false, message: "Accounts access required." });
     if (!filter || typeof paid !== "boolean") return res.status(400).json({ success: false, message: "Valid bill ID and boolean paid required." });
     const order = await Orders.findOne(filter).lean();
     if (!hasBill(order) || order.archivedBillAt) return res.status(404).json({ success: false, message: "Bill not found" });

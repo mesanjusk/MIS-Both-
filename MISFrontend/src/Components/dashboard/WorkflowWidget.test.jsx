@@ -16,6 +16,8 @@ import { AuthProvider } from '../../context/AuthContext';
 import { assignOrderToUser, fetchPendingTasksOverview, moveOrderStage } from '../../services/orderService';
 import { fetchAssignees } from '../../services/assigneeService';
 import { assignDesignFile, moveDesignFileOrderToPrint, scanDesignFiles } from '../../services/designFileService';
+import { createOperationsTask, fetchMyOperationsTasks } from '../../services/operationsService';
+import axios from '../../apiClient';
 
 const TASKS = [
   { orderId: '1', orderNumber: 101, customerName: 'Alice Traders', stage: 'print', task: 'Print', assignedTo: 'Rajesh Kumar' },
@@ -38,6 +40,16 @@ vi.mock('../../services/designFileService', () => ({
   scanDesignFiles: vi.fn(async () => ({ data: { files: [] } })),
   assignDesignFile: vi.fn(),
   moveDesignFileOrderToPrint: vi.fn(),
+}));
+vi.mock('../../services/operationsService', () => ({
+  fetchTeamStatus: vi.fn(async () => ({ data: { result: { rows: [
+    { User_uuid: 'staff-1', User_name: 'Priya', attendanceStatus: 'Present', pending: 3, overdue: 1, inTime: '09:30' },
+  ] } } })),
+  fetchOperationsUsers: vi.fn(async () => ({ data: { result: [{ User_uuid: 'staff-1', User_name: 'Priya' }] } })),
+  fetchMyOperationsTasks: vi.fn(async () => ({ data: { result: {
+    availability: { attendanceStatus: 'Present' }, buckets: { overdue: [{}] },
+  } } })),
+  createOperationsTask: vi.fn(async () => ({ data: { success: true } })),
 }));
 // Heavy children that are not what this file is about.
 vi.mock('../../Pages/userTask', () => ({ default: () => null }));
@@ -66,6 +78,48 @@ const renderBoard = () =>
 
 const renderApp = () =>
   render(<AuthProvider><MemoryRouter><WorkflowWidget standalone /></MemoryRouter></AuthProvider>);
+
+test('mobile navigation and Team views include reports, attendance, assignment and pending tasks', async () => {
+  signIn('Sanju', 'Owner');
+  axios.get.mockImplementationOnce(async (path) => {
+    if (path.includes('/attendance/')) return { data: { flow: ['In'] } };
+    return { data: {} };
+  });
+  renderApp();
+  const nav = await screen.findByRole('navigation', { name: 'Mobile workflow navigation' });
+  expect(within(nav).getAllByRole('button').map((button) => button.textContent)).toEqual(['Home', 'Jobs', 'Account', 'Team']);
+  fireEvent.click(within(nav).getByRole('button', { name: 'Team' }));
+  expect(await screen.findByText('3 pending · 1 overdue')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Attendance' }));
+  expect(await screen.findByText('In 09:30')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'My attendance today' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Assign Task' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Task name' }), { target: { value: 'Check proof' } });
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Assign to' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Priya' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Assign task' }));
+  await screen.findByText('Task assigned.');
+  expect(createOperationsTask).toHaveBeenCalledWith(expect.objectContaining({ Usertask_name: 'Check proof', primaryUserUuid: 'staff-1' }));
+
+  axios.get.mockResolvedValueOnce({ data: { result: [
+    { Usertask_uuid: '1', Usertask_name: 'Check proof', User: 'Priya', Status: 'Pending' },
+    { Usertask_uuid: '2', Usertask_name: 'Finished job', User: 'Priya', Status: 'Completed' },
+  ] } });
+  fireEvent.click(screen.getByRole('tab', { name: 'Pending Tasks' }));
+  expect(await screen.findByText('Check proof')).toBeInTheDocument();
+  expect(screen.queryByText('Finished job')).not.toBeInTheDocument();
+});
+
+test('regular staff see their personal report and no management task assignment', async () => {
+  signIn('Priya', 'Office User');
+  renderApp();
+  fireEvent.click(await screen.findByRole('button', { name: 'Team' }));
+  expect(await screen.findByText('1 pending · 1 overdue')).toBeInTheDocument();
+  expect(fetchMyOperationsTasks).toHaveBeenCalled();
+  expect(screen.queryByRole('tab', { name: 'Assign Task' })).not.toBeInTheDocument();
+});
 
 async function submitJobAction(button, picker, option, submit) {
   fireEvent.click(await screen.findByRole('button', { name: button, exact: true }));
@@ -151,7 +205,8 @@ test('App uses live overview rows across all views and returns to the board', as
   fireEvent.click(within(preview).getByRole('button', { name: 'Back to list' }));
   fireEvent.click(within(preview).getByRole('button', { name: 'Jobs' }));
   expect(within(preview).getByText('Deccan Mills')).toBeInTheDocument();
-  fireEvent.click(within(preview).getByRole('button', { name: 'Activity' }));
+  fireEvent.click(within(preview).getByRole('button', { name: 'Workflow menu' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Activity' }));
   expect(within(preview).getByText('Recent updates')).toBeInTheDocument();
   expect(within(preview).getByText(/25 Nov 2026/)).toBeInTheDocument();
   expect(within(preview).queryByText('Deccan Mills')).not.toBeInTheDocument();

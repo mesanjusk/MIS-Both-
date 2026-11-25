@@ -24,16 +24,17 @@ import { sendAdminAlertText } from '../utils/whatsapp';
 import { FullscreenAddFormLayout } from '../Components/ui';
 import { compactCardSx, compactFieldSx } from '../Components/ui/addFormStyles';
 
-export default function AddTransaction({ editMode, existingData, onClose, onSuccess }) {
+export default function AddTransaction({ editMode, existingData, onClose, onSuccess, linkedBill }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [receiptRequestId] = useState(() => linkedBill ? globalThis.crypto.randomUUID() : '');
 
-  const [Description, setDescription] = useState('');
+  const [Description, setDescription] = useState(() => linkedBill ? `Receipt for bill #${linkedBill.Order_Number}` : '');
   const [Amount, setAmount] = useState('');
   const [Transaction_date, setTransaction_date] = useState('');
   const [group, setGroup] = useState('');
-  const [customers, setCustomers] = useState('');
-  const [Customer_name, setCustomer_Name] = useState('');
+  const [customers, setCustomers] = useState(linkedBill?.Customer_uuid || '');
+  const [Customer_name, setCustomer_Name] = useState(linkedBill?.Customer_name || '');
   const [selectedImage, setSelectedImage] = useState(null);
   const [isDateChecked, setIsDateChecked] = useState(false);
   const [isAdminUser, setIsAdminUser] = useState(false);
@@ -116,6 +117,7 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
 
   const submit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     if (!Amount || Number.isNaN(Number(Amount)) || Number(Amount) <= 0) {
       return toast.error('Enter valid amount.');
     }
@@ -143,6 +145,13 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
     formData.append('Transaction_date', isAdminUser && isDateChecked ? (Transaction_date || todayDate) : todayDate);
     formData.append('Journal_entry', JSON.stringify(journal));
     if (editMode && existingData?._id) formData.append('_id', existingData._id);
+    if (linkedBill) {
+      formData.append('Bill_receipt_request_id', receiptRequestId);
+      formData.append('Order_uuid', linkedBill.Order_uuid);
+      formData.append('Order_number', linkedBill.Order_Number);
+      formData.append('Customer_uuid', linkedBill.Customer_uuid);
+      formData.append('Source', 'business:customer_receipt');
+    }
     if (selectedImage) formData.append('image', selectedImage);
 
     try {
@@ -164,8 +173,8 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
 
       onSuccess?.();
       closeModal();
-    } catch {
-      toast.error('Submission error');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Submission error');
     } finally {
       setLoading(false);
     }
@@ -222,6 +231,7 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
         <Paper sx={compactCardSx}>
           <Stack spacing={1}>
             <Autocomplete
+              disabled={Boolean(linkedBill)}
               loading={optionsLoading}
               options={allCustomerOptions}
               value={selectedCustomer}
@@ -240,9 +250,9 @@ export default function AddTransaction({ editMode, existingData, onClose, onSucc
               renderInput={(params) => <TextField {...params} label="Customer" placeholder="Search by customer name" size="small" sx={compactFieldSx} />}
             />
 
-            <Button type="button" variant="outlined" size="small" startIcon={<PersonAddAlt1RoundedIcon />} onClick={() => navigate('/addCustomer')} sx={{ borderRadius: 2 }}>
+            {!linkedBill && <Button type="button" variant="outlined" size="small" startIcon={<PersonAddAlt1RoundedIcon />} onClick={() => navigate('/addCustomer')} sx={{ borderRadius: 2 }}>
               Add Customer
-            </Button>
+            </Button>}
 
             <TextField label="Description" value={Description} onChange={(e) => setDescription(e.target.value)} placeholder="Receipt description" size="small" sx={compactFieldSx} />
 

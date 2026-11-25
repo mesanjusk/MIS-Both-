@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { fetchBillListPaged, updateBillStatus } from "../services/orderService";
 import { fetchCustomers } from "../services/customerService";
 import axios from "../apiClient";
@@ -19,7 +19,11 @@ import {
 
 /* ✅ MUI (UI only) */
 import {
+  Alert,
   AppBar,
+  ButtonBase,
+  DialogActions,
+  Snackbar,
   Toolbar,
   Typography,
   Box,
@@ -60,6 +64,11 @@ import FolderOpenIcon from "@mui/icons-material/FolderOpen";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import EventIcon from "@mui/icons-material/Event";
 import ComputerRoundedIcon from "@mui/icons-material/ComputerRounded";
+import { useAuth } from "../context/AuthContext";
+import { useRoleKey } from "../hooks/useRouteAccess";
+import { ADMIN_ROLES, isRoleAllowed } from "../constants/roles";
+import AddTransaction from "../Pages/AddTransaction";
+import PaymentFollowupHome from "../Pages/PaymentFollowupHome";
 import ExportGuard from "../Components/ExportGuard";
 
 /* ----------------------- small hooks ----------------------- */
@@ -244,7 +253,18 @@ const BillCard = React.memo(function BillCard({
     </Card>
   );
 });
-export default function AllBills() {
+export default function AllBills({ compact = false }) {
+  const canManage = isRoleAllowed(ADMIN_ROLES, useRoleKey());
+  const { permissions } = useAuth();
+  const canPost = permissions?.canPostTransactions !== false || canManage;
+  const [details, setDetails] = useState(null);
+  const [receipt, setReceipt] = useState(null);
+  const [removeBill, setRemoveBill] = useState(null);
+  const [followup, setFollowup] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [busyBill, setBusyBill] = useState('');
+  const billAction = useRef(false);
+
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -817,6 +837,7 @@ export default function AllBills() {
   };
 
   const handleEditClick = (order) => {
+    if (!canManage) return openInvoice(order);
     const id = order?._id || order?.Order_id || order?.Order_uuid || null;
     if (!id) {
       toast.error("Invalid order ID. Cannot open edit modal.");
@@ -890,8 +911,85 @@ export default function AllBills() {
       ? `Showing ${filteredOrders.length}`
       : "";
 
+  const checkPaid = async (order) => {
+    const key = getOrderKey(order);
+    if (!key || billAction.current) return;
+    billAction.current = true;
+    setBusyBill(key);
+    setFeedback(null);
+    try {
+      const { data } = await updateBillStatus(key, "paid");
+      upsertOrderPatch(key, data.result);
+      setFeedback({ severity: "success", message: `Bill #${order.Order_Number} is paid.` });
+    } catch (error) {
+      const result = error.response?.data?.result;
+      if (result) upsertOrderPatch(key, result);
+      if (error.response?.status === 409 && canPost && order.Customer_uuid && order.Order_uuid) {
+        setReceipt(order);
+      } else {
+        setFeedback({ severity: "error", message: error.response?.data?.message || "Could not verify payment." });
+      }
+    } finally {
+      billAction.current = false;
+      setBusyBill('');
+    }
+  };
+
+  const confirmRemove = async () => {
+    const key = getOrderKey(removeBill);
+    if (!canManage || !key || billAction.current) return;
+    billAction.current = true;
+    setBusyBill(key);
+    try {
+      await axios.delete(`/api/orders/bills/${encodeURIComponent(key)}`);
+      setRemoveBill(null);
+      setDetails(null);
+      await loadBillsPage(1, true);
+      setFeedback({ severity: "success", message: "Bill removed from the list." });
+    } catch (error) {
+      setFeedback({ severity: "error", message: error.response?.data?.message || "Could not remove the bill." });
+    } finally {
+      billAction.current = false;
+      setBusyBill('');
+    }
+  };
+
   return (
     <>
+      {compact ? (
+        <Stack spacing={1}>
+          <Button size="small" onClick={() => setFollowup(followup === null ? "" : null)} sx={{ alignSelf: "flex-start" }}>
+            {followup === null ? "Payment follow-ups" : "Back to bills"}
+          </Button>
+          {followup !== null ? <PaymentFollowupHome initialCustomerUuid={followup} compact /> : <>
+            <Stack direction="row" gap={0.75}>
+              <TextField label="Customer or bill #" size="small" fullWidth value={searchOrder} onChange={(e) => setSearchOrder(e.target.value)} />
+              <TextField select label="Payment" size="small" value={paidFilter} onChange={(e) => setPaidFilter(e.target.value)} sx={{ minWidth: 106 }}>
+                <MenuItem value="">All</MenuItem><MenuItem value="unpaid">Unpaid</MenuItem><MenuItem value="paid">Paid</MenuItem>
+              </TextField>
+            </Stack>
+            <TextField type="date" label="Bill date" size="small" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
+              InputLabelProps={{ shrink: true }} sx={{ alignSelf: "flex-start" }} />
+            {loading && <LinearProgress aria-label="Loading bills" />}
+            <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+              {filteredOrders.map((order) => (
+                <Stack key={getOrderKey(order)} direction="row" alignItems="center" gap={0.5} sx={{ px: 1, borderBottom: "1px solid", borderColor: "divider" }}>
+                  <ButtonBase onClick={() => setDetails(order)} sx={{ flex: 1, minWidth: 0, py: 0.8, justifyContent: "flex-start", textAlign: "left" }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography fontWeight={800} variant="body2" noWrap>{order.Customer_name || "Customer"}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>#{order.Order_Number} · {formatDateDDMMYYYY(order.createdAt)} · ₹{formatINR(order.billTotal)}</Typography>
+                    </Box>
+                  </ButtonBase>
+                  {order._paid ? <Chip label="Paid" color="success" size="small" /> :
+                    <Button size="small" variant="outlined" disabled={busyBill !== ""} onClick={() => checkPaid(order)}>Mark paid</Button>}
+                </Stack>
+              ))}
+              {!loading && !filteredOrders.length && <Typography sx={{ p: 2 }} color="text.secondary">No bills match these filters.</Typography>}
+            </Paper>
+            {hasMore && <Button size="small" disabled={loading} onClick={() => loadBillsPage(page + 1)}>Load more</Button>}
+          </>}
+        </Stack>
+      ) : (
       <Box sx={{ display: "flex", minHeight: "80vh", gap: 1.5, p: { xs: 0.5, md: 1 } }}>
         {/* Delivery-style date sidebar */}
         <Paper
@@ -1174,9 +1272,46 @@ export default function AllBills() {
         </Box>
       </Box>
 
+      )}
+
+      <Dialog open={Boolean(details)} onClose={() => setDetails(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Bill #{details?.Order_Number}</DialogTitle>
+        <DialogContent>
+          {details && <Stack spacing={1}>
+            <Typography fontWeight={800}>{details.Customer_name || "Customer"}</Typography>
+            <Typography variant="body2">₹{formatINR(details.billTotal)} · {details._paid ? "Paid" : "Unpaid"}</Typography>
+            {buildInvoiceItems(details).map((item, index) => (
+              <Typography key={index} variant="body2">{item.name || item.Item || item.Item_name || "Item"}</Typography>
+            ))}
+          </Stack>}
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: "wrap" }}>
+          <Button onClick={() => { openInvoice(details); setDetails(null); }}>View invoice</Button>
+          {details?.Customer_uuid && <Button onClick={() => { setFollowup(details.Customer_uuid); setDetails(null); }}>Payment follow-up</Button>}
+          {canManage && details && <Button onClick={() => { handleEditClick(details); setDetails(null); }}>Edit bill</Button>}
+          {canManage && details && <Button color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}
+          <Button onClick={() => setDetails(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(removeBill)} onClose={() => !busyBill && setRemoveBill(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Remove bill #{removeBill?.Order_Number}?</DialogTitle>
+        <DialogContent>This hides the bill from the Bills list. The original order and ledger entries are retained.</DialogContent>
+        <DialogActions>
+          <Button disabled={Boolean(busyBill)} onClick={() => setRemoveBill(null)}>Cancel</Button>
+          <Button disabled={Boolean(busyBill)} color="error" onClick={confirmRemove}>Remove</Button>
+        </DialogActions>
+      </Dialog>
+
+      {receipt && <AddTransaction key={getOrderKey(receipt)} linkedBill={receipt} onClose={() => setReceipt(null)}
+        onSuccess={() => { void loadBillsPage(1, true); setFeedback({ severity: "success", message: "Receipt recorded." }); }} />}
+      <Snackbar open={Boolean(feedback)} autoHideDuration={6000} onClose={() => setFeedback(null)}>
+        {feedback ? <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.message}</Alert> : undefined}
+      </Snackbar>
+
       {/* ✅ UpdateDelivery Modal */}
       <Dialog
-        open={editOpen}
+        open={editOpen && canManage}
         onClose={closeEditModal}
         fullWidth
         maxWidth="lg"

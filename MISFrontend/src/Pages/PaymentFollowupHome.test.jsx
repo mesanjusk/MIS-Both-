@@ -55,7 +55,9 @@ describe('Home payment follow-up integration', () => {
     expect(screen.getByText('Invoice 12')).toBeInTheDocument();
     // Appears in both the outstanding summary card and the matching table row.
     expect(screen.getAllByText('₹500').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole('button', { name: /Manage/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log call' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mark done' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     await waitFor(() => expect(get).toHaveBeenCalledWith(
       '/api/paymentfollowup/list', expect.objectContaining({ cache: false }),
     ));

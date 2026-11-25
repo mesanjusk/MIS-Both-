@@ -64,6 +64,12 @@ describe('order endpoints require a session', () => {
     await expectRejectsAnonymous(app, 'get', '/api/orders/GetOrderList');
   });
 
+  test('a signed-in office user cannot remove a bill', async () => {
+    const res = await request(app).delete('/api/orders/bills/abc')
+      .set('Authorization', `Bearer ${tokenFor()}`);
+    expect(res.status).toBe(403);
+  });
+
   test('an expired or forged token is refused like no token at all', async () => {
     const res = await request(app)
       .put('/api/orders/updateDelivery/abc')

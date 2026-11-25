@@ -1,4 +1,5 @@
 const { requireAuth, requireInternalKey } = require('../middleware/auth');
+const { requireAdminOrOwner } = require('../middleware/authorize');
 const { requirePermission } = require('../middleware/requirePermission');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -113,7 +114,7 @@ router.post('/add', async (req, res) => {
     const duplicates = [{ customer_name: canonicalName }];
     if (resolvedUuid) duplicates.push({ customer_uuid: resolvedUuid });
     const exists = await PaymentFollowup.findOne({
-      $or: duplicates, amount, status: 'pending', followup_date: { $gte: from, $lt: to },
+      $or: duplicates, archived_at: null, amount, status: 'pending', followup_date: { $gte: from, $lt: to },
     }).lean();
     if (exists) return res.status(409).json({
       success: false, message: 'An open follow-up already exists for this customer, date and amount',
@@ -139,7 +140,7 @@ router.post('/add', async (req, res) => {
 // today's actual journal before filtering; this also handles partial receipts.
 router.get('/list', async (req, res) => {
   try {
-    const filter = {};
+    const filter = { archived_at: null };
     if (norm(req.query.customer)) filter.customer_name = norm(req.query.customer);
     const status = norm(req.query.status).toLowerCase();
     if (status && !['pending', 'done'].includes(status)) {
@@ -162,7 +163,7 @@ router.get('/list', async (req, res) => {
 
 // Edit next contact date, ownership, customer promise, title and notes. Never
 // update ledger balances or pretend a promised payment was actually received.
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireAdminOrOwner, async (req, res) => {
   try {
     const payload = req.body || {};
     const update = {};
@@ -183,7 +184,7 @@ router.patch('/:id', async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(payload, 'title')) update.title = norm(payload.title).slice(0, 200);
     if (!Object.keys(update).length) return res.status(400).json({ success: false, message: 'No valid changes provided' });
 
-    const updated = await PaymentFollowup.findByIdAndUpdate(req.params.id, {
+    const updated = await PaymentFollowup.findOneAndUpdate({ _id: req.params.id, archived_at: null }, {
       $set: update,
       $push: { history: { $each: [historyEvent(req, 'updated', 'Updated follow-up details')], $slice: -60 } },
     }, { new: true, runValidators: true }).lean();
@@ -201,7 +202,7 @@ router.patch('/:id/status', async (req, res) => {
     if (!['pending', 'done'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }
-    const updated = await PaymentFollowup.findByIdAndUpdate(req.params.id, {
+    const updated = await PaymentFollowup.findOneAndUpdate({ _id: req.params.id, archived_at: null }, {
       $set: {
         status, closed_at: status === 'done' ? new Date() : null,
         closure_reason: status === 'done' ? 'manual' : '',
@@ -217,10 +218,38 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
+router.post('/:id/call', async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid follow-up ID' });
+  try {
+    const updated = await PaymentFollowup.findOneAndUpdate({ _id: req.params.id, archived_at: null }, {
+      $push: { history: { $each: [historyEvent(req, 'call_logged', req.body?.note)], $slice: -60 } },
+    }, { new: true }).lean();
+    if (!updated) return res.status(404).json({ success: false, message: 'Follow-up not found' });
+    return res.json({ success: true, result: updated });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Log payment follow-up call failed');
+    return res.status(500).json({ success: false, message: 'Could not log the call' });
+  }
+});
+
+router.delete('/:id', requireAdminOrOwner, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ success: false, message: 'Invalid follow-up ID' });
+  try {
+    const updated = await PaymentFollowup.findOneAndUpdate({ _id: req.params.id, archived_at: null }, {
+      $set: { archived_at: new Date() },
+      $push: { history: { $each: [historyEvent(req, 'archived')], $slice: -60 } },
+    }, { new: true }).lean();
+    return res.json({ success: true, result: Boolean(updated) });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Archive payment follow-up failed');
+    return res.status(500).json({ success: false, message: 'Could not remove the follow-up' });
+  }
+});
+
 async function dispatchReminder(id, actor) {
   if (!mongoose.isValidObjectId(id)) return { status: 400, message: 'Invalid follow-up ID' };
   const stored = await PaymentFollowup.findById(id).lean();
-  if (!stored) return { status: 404, message: 'Follow-up not found' };
+  if (!stored || stored.archived_at) return { status: 404, message: 'Follow-up not found' };
   const [row] = await enrichFollowups([stored]);
   if (row.effectiveStatus !== 'pending' || row.remainingAmount <= 0 || row.liveOutstanding === null) {
     return { status: 409, message: 'No verified unpaid receivable for this follow-up' };
@@ -235,7 +264,7 @@ async function dispatchReminder(id, actor) {
   // Atomic short-lived claim: two staff members cannot double-send the same
   // approved template by clicking concurrently. Failures release the claim.
   const claim = await PaymentFollowup.findOneAndUpdate({
-    _id: id, status: 'pending',
+    _id: id, archived_at: null, status: 'pending',
     $and: [
       { $or: [{ reminder_lock_until: null }, { reminder_lock_until: { $lte: now } }] },
       { $or: [{ last_reminder: null }, { last_reminder: { $lte: cutoff } }] },
@@ -303,7 +332,7 @@ router.post('/send-overdue-reminders', requireInternalKey, async (req, res) => {
     const minDays = Math.max(0, Math.min(30, Number(req.body?.minDaysOverdue ?? 3) || 3));
     const cutoff = new Date(Date.now() - minDays * 86400000);
     const stored = await PaymentFollowup.find({
-      status: 'pending', followup_date: { $lte: cutoff },
+      archived_at: null, status: 'pending', followup_date: { $lte: cutoff },
     }).lean();
     const current = (await enrichFollowups(stored)).filter((row) => row.effectiveStatus === 'pending');
     if (req.body?.dryRun !== false) return res.json({ success: true, preview: true, total: current.length });

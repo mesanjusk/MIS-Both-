@@ -2,7 +2,7 @@ const express = require('express');
 const { createUpload, limitRequestSize, MB } = require('../middleware/uploadLimits');
 const router  = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const { requireAdmin } = require('../middleware/authorize');
+const { requireAdmin, requireAdminOrOwner, requireRole } = require('../middleware/authorize');
 const { requirePermission } = require('../middleware/requirePermission');
 const { createState, consumeState } = require('../services/oauthStateService');
 
@@ -13,6 +13,13 @@ const GmailAccount  = require('../repositories/GmailAccount');
 const EmailHistory  = require('../repositories/EmailHistory');
 const PurchaseOrder = require('../repositories/purchaseOrder');
 const logger        = require('../utils/logger');
+const { isValidObjectId } = require('mongoose');
+const { PRINT_SOURCE, normalizeRecipients, syncPrintSentAccount } = require('../services/printSentService');
+const corsOptions = require('../config/corsOptions');
+
+const printStaff = requireRole(['worker', 'delivery', 'office admin', 'office design', 'office marketing',
+  'office staff', 'officestaff', 'otheroffice', 'designer', 'dataentry', 'dataentryuser', 'accounts', 'accounts user', 'accountsuser', 'accountant']);
+const defaultPrintSettingsUrl = 'https://dash.sanjusk.in/home';
 
 // 20 files of 100 MB each let one request hold roughly 2 GB in memory. Gmail
 // itself refuses a message over 25 MB, so anything larger could never have been
@@ -32,7 +39,7 @@ const escapeHtml = (s) =>
 // ── OAuth callback — NO auth middleware (Google redirects here directly) ──────
 router.get('/callback', async (req, res) => {
   const { code, state } = req.query;
-  if (!code) return res.status(400).send('Missing authorization code');
+  if (!code && !state) return res.status(400).send('Missing authorization code');
 
   // Redeem the state this server issued. Both the connecting user and the
   // redirect come from that row — the callback used to be trusted for both.
@@ -50,6 +57,19 @@ router.get('/callback', async (req, res) => {
 
   const addedBy  = issued.user_name || 'system';
   const returnTo = issued.return_to || `${process.env.FRONTEND_URL || ''}/gmail/accounts`;
+
+  if (issued.meta?.printSent === true) {
+    const settingsUrl = issued.return_to || defaultPrintSettingsUrl;
+    if (!code) return res.redirect(`${settingsUrl}?printSentGmail=cancelled`);
+    try {
+      await saveTokensFromCode(code, addedBy, { printSent: true });
+      return res.redirect(`${settingsUrl}?printSentGmail=connected`);
+    } catch (error) {
+      logger.warn({ code: error.code }, '[print-sent] Gmail authorization failed');
+      return res.redirect(`${settingsUrl}?printSentGmail=error`);
+    }
+  }
+  if (!code) return res.status(400).send('Missing authorization code');
 
   try {
     const result = await saveTokensFromCode(code, addedBy);
@@ -78,6 +98,77 @@ router.get('/callback', async (req, res) => {
 // ── All routes below require a valid JWT ──────────────────────────────────────
 router.use(requireAuth);
 
+router.get('/print-sent', printStaff, async (req, res, next) => {
+  try {
+    const page = Math.max(1, Math.min(1000, Number.parseInt(req.query.page, 10) || 1));
+    const pageSize = 24;
+    const entries = await EmailHistory.aggregate([
+      { $match: { source: PRINT_SOURCE } },
+      { $sort: { sentAt: -1, _id: -1 } },
+      { $unwind: { path: '$attachments', includeArrayIndex: 'attachmentIndex' } },
+      { $skip: (page - 1) * pageSize },
+      { $limit: pageSize + 1 },
+      { $project: {
+        _id: 0, id: { $concat: [{ $toString: '$_id' }, '-', { $toString: '$attachmentIndex' }] },
+        recipient: '$toName', filename: '$attachments.originalName', thumbnail: '$attachments.thumbnail',
+      } },
+    ]);
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ result: entries.slice(0, pageSize), hasMore: entries.length > pageSize });
+  } catch (error) { next(error); }
+});
+
+router.use('/print-sent/accounts', requireAdminOrOwner, requirePermission('canUseEmail'));
+
+router.get('/print-sent/accounts', async (_req, res, next) => {
+  try {
+    const accounts = await GmailAccount.find({ printSentToken: { $exists: true } })
+      .select('email printSentEnabled printRecipients printSentLastSync printSentError').sort({ createdAt: -1 }).lean();
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ result: accounts });
+  } catch (error) { next(error); }
+});
+
+router.post('/print-sent/accounts/connect', async (req, res, next) => {
+  try {
+    const origin = req.get('origin');
+    const trusted = origin && await new Promise((resolve) => corsOptions.origin(origin, (error, allowed) => resolve(!error && allowed)));
+    const state = await createState({ purpose: OAUTH_PURPOSE, user: req.user,
+      returnTo: trusted ? `${origin}/home` : defaultPrintSettingsUrl, meta: { printSent: true } });
+    res.json({ authUrl: generateAuthUrl(state, { printSent: true }) });
+  } catch (error) { next(error); }
+});
+
+router.patch('/print-sent/accounts/:id', async (req, res, next) => {
+  if (!isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Gmail account not found.' });
+  const updates = {};
+  if (req.body?.recipients !== undefined) {
+    try {
+      updates.printRecipients = normalizeRecipients(req.body.recipients);
+    } catch (error) { return res.status(400).json({ message: error.message }); }
+    Object.assign(updates, { printSentCursor: null, printSentWindowEnd: null, printSentPageToken: '' });
+  }
+  if (typeof req.body?.enabled === 'boolean') updates.printSentEnabled = req.body.enabled;
+  if (!Object.keys(updates).length) return res.status(400).json({ message: 'No Gmail settings supplied.' });
+  try {
+    const result = await GmailAccount.updateOne({ _id: req.params.id, printSentToken: { $exists: true } }, {
+      $set: { ...updates, printSentLease: null },
+    });
+    if (!result.matchedCount) return res.status(404).json({ message: 'Gmail account not found.' });
+    return res.json({ success: true });
+  } catch (error) { return next(error); }
+});
+
+router.post('/print-sent/accounts/:id/sync', async (req, res, next) => {
+  if (!isValidObjectId(req.params.id)) return res.status(404).json({ message: 'Gmail account not found.' });
+  try {
+    const enabled = await GmailAccount.exists({ _id: req.params.id, printSentEnabled: true, 'printRecipients.0': { $exists: true } });
+    if (!enabled) return res.status(409).json({ message: 'Enable sync and save a printer email first.' });
+    void syncPrintSentAccount(req.params.id).catch((error) => logger.warn({ code: error.code }, '[print-sent] manual sync failed'));
+    return res.status(202).json({ success: true });
+  } catch (error) { return next(error); }
+});
+
 // Mail reaches customers under the business's own address, and the connected
 // account list is an integration credential. A valid token alone used to be
 // enough for all of it — including disconnecting an account and sending to an
@@ -105,7 +196,8 @@ router.get('/auth-url', requireAdmin, async (req, res) => {
 router.get('/accounts', async (req, res) => {
   try {
     const accounts = await GmailAccount
-      .find({}, { refreshToken: 0, accessToken: 0 })
+      .find({ refreshToken: { $exists: true } }, { refreshToken: 0, accessToken: 0, printSentToken: 0,
+        printRecipients: 0, printSentCursor: 0, printSentWindowEnd: 0, printSentPageToken: 0, printSentLease: 0 })
       .sort({ createdAt: 1 })
       .lean();
     const today = new Date().toISOString().slice(0, 10);
@@ -175,7 +267,7 @@ router.post('/send', boundRequest, upload.array('files', MAX_ATTACHMENTS), async
 router.get('/history', async (req, res) => {
   try {
     const { page = 1, limit = 30, toEmail, vendorUuid, status, fromDate, toDate, subject } = req.query;
-    const filter = {};
+    const filter = { source: { $ne: PRINT_SOURCE } };
     if (toEmail)    filter.toEmail   = { $regex: String(toEmail), $options: 'i' };
     if (subject)    filter.subject   = { $regex: String(subject), $options: 'i' };
     if (vendorUuid) filter.vendorUuid = String(vendorUuid);
@@ -210,7 +302,7 @@ router.get('/stats', async (req, res) => {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const [todaySent, pendingPricing, accounts] = await Promise.all([
-      EmailHistory.countDocuments({ sentAt: { $gte: todayStart }, status: 'sent' }),
+      EmailHistory.countDocuments({ sentAt: { $gte: todayStart }, status: 'sent', source: { $ne: PRINT_SOURCE } }),
       PurchaseOrder.countDocuments({ totalAmount: { $lte: 1 }, status: 'draft' }),
       GmailAccount.find({ isActive: true }, { refreshToken: 0, accessToken: 0 }).lean(),
     ]);

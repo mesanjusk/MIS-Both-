@@ -92,6 +92,7 @@ const { initSocket } = require("./socket");
 const DiaryDraft = require("./routes/DiaryDraft");
 const BankStatement = require("./routes/BankStatement");
 const Gmail = require("./routes/Gmail");
+const { initPrintSentSync } = require('./services/printSentService');
 const AccountsRouter = require("./routes/Accounts");
 const SopRouter = require("./routes/sop");
 const OperationsRouter = require("./routes/Operations");
@@ -435,6 +436,7 @@ async function runLedgerIntegrityStartupTask() {
     logger.error({ err: toggleError }, 'Default-off feature toggle setup failed');
   }
   initScheduler();
+  initPrintSentSync();
   initTaskDigestScheduler();
   initProofFollowupScheduler();
   initAttendanceReminderScheduler({ sendText: dispatchTextMessage, sendButtons: dispatchInteractiveButtons });

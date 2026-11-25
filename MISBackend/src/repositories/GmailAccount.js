@@ -8,7 +8,7 @@ const gmailAccountSchema = new mongoose.Schema(
     displayName:    { type: String, default: '' },
     addedBy:        { type: String, default: '' },
     // AES-256-GCM encrypted (via src/utils/crypto.js)
-    refreshToken:   { type: String, required: true },
+    refreshToken:   { type: String, required() { return this.isActive; } },
     accessToken:    { type: String, default: null },
     tokenExpiry:    { type: Number, default: null },
     // Daily quota tracking
@@ -21,6 +21,15 @@ const gmailAccountSchema = new mongoose.Schema(
     lastUsedAt:     { type: Date, default: null },
     lastError:      { type: String, default: '' },
     lastErrorAt:    { type: Date, default: null },
+    printSentToken: { type: String, select: false },
+    printSentEnabled: { type: Boolean, default: false },
+    printRecipients: [{ _id: false, email: String, name: String }],
+    printSentCursor: { type: Date, default: null },
+    printSentWindowEnd: { type: Date, default: null },
+    printSentPageToken: { type: String, default: '' },
+    printSentLastSync: { type: Date, default: null },
+    printSentError: { type: String, default: '' },
+    printSentLease: { type: Date, default: null },
   },
   { timestamps: true }
 );

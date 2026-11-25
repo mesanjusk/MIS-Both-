@@ -24,6 +24,7 @@ const gmailAccountSchema = new mongoose.Schema(
     printSentToken: { type: String, select: false },
     printSentEnabled: { type: Boolean, default: false },
     printRecipients: [{ _id: false, email: String, name: String }],
+    printSentSyncVersion: { type: Number, default: 0 },
     printSentCursor: { type: Date, default: null },
     printSentWindowEnd: { type: Date, default: null },
     printSentPageToken: { type: String, default: '' },

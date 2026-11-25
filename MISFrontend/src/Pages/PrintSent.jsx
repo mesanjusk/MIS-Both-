@@ -49,6 +49,7 @@ function SentMessages({ date, recipient }) {
     {!data.result.length && <Typography color="text.secondary">No emails in this folder.</Typography>}
     {data.result.map((message) => <Paper key={message._id} variant="outlined" sx={{ p: 1.25 }}>
       <Typography variant="subtitle2" fontWeight={800}>{timeFormat.format(new Date(message.sentAt))}</Typography>
+      {!message.attachments.length && <Typography variant="body2" color="text.secondary">No attachments</Typography>}
       <Stack divider={<Divider />} sx={{ mt: 0.5 }}>
         {message.attachments.map((file, index) => <Stack key={index} direction="row" alignItems="center" gap={1.25} sx={{ py: 0.75 }}>
           <Box sx={{ width: 52, height: 44, display: 'grid', placeItems: 'center', flexShrink: 0 }}>

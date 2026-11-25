@@ -14,6 +14,8 @@ test('shows seven dates, opens recipient folders, and keeps each email’s attac
   ] } }).mockResolvedValueOnce({ data: { hasMore: false, result: [{
     _id: 'mail-1', sentAt: '2026-11-25T04:30:00.000Z',
     attachments: [{ originalName: 'Poster.pdf', thumbnail: 'aW1n' }, { originalName: 'Flyer.cdr' }],
+  }, {
+    _id: 'mail-2', sentAt: '2026-11-25T04:00:00.000Z', attachments: [],
   }] } });
 
   render(<PrintSent />);
@@ -25,6 +27,7 @@ test('shows seven dates, opens recipient folders, and keeps each email’s attac
   fireEvent.click(screen.getByRole('button', { name: /Gondia Press.*1 email/ }));
   expect(await screen.findByText('Poster.pdf')).toBeInTheDocument();
   expect(screen.getByText('Flyer.cdr')).toBeInTheDocument();
+  expect(screen.getByText('No attachments')).toBeInTheDocument();
   expect(screen.getByAltText('')).toHaveAttribute('src', 'data:image/jpeg;base64,aW1n');
   expect(api.get).toHaveBeenLastCalledWith('/api/gmail/print-sent/messages',
     expect.objectContaining({ params: { date: dates[0], recipient: 'gondia@example.com', page: 1 } }));

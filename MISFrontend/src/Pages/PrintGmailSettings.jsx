@@ -25,7 +25,7 @@ function GmailAccountSettings({ account, onChange }) {
       setMessage({ severity: 'error', label: error.response?.data?.message || 'Could not update this account.' });
     } finally { setBusy(false); }
   };
-  const status = !account.printSentEnabled ? 'Paused' : saved ? 'Enabled' : 'Add printer emails';
+  const status = account.printSentEnabled ? 'Enabled' : 'Paused';
   return <Paper variant="outlined" sx={{ p: 1.5 }}><Stack spacing={1}>
     <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center">
       <Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{account.email}</Typography>
@@ -33,14 +33,14 @@ function GmailAccountSettings({ account, onChange }) {
     </Stack>
     {account.printSentError && <Alert severity="warning">{account.printSentError}</Alert>}
     {message && <Alert severity={message.severity}>{message.label}</Alert>}
-    <TextField size="small" multiline minRows={2} maxRows={6} label="Printer email addresses" value={input}
-      placeholder="printer@example.com | ABC Printing" helperText="One per line. Add | and a display name if needed."
+    <TextField size="small" multiline minRows={2} maxRows={6} label="Recipient display names (optional)" value={input}
+      placeholder="printer@example.com | ABC Printing" helperText="One email and display name per line, separated by |."
       onChange={(event) => setInput(event.target.value)} inputProps={{ maxLength: 10000 }} />
     <Stack direction="row" flexWrap="wrap" gap={0.5}>
       <Button size="small" variant="contained" disabled={busy || saved === input} onClick={() => update(
-        () => api.patch(`${base}/${account._id}`, { recipients: parseRecipients(input) }), 'Printer email addresses saved.',
-      )}>Save printer emails</Button>
-      <Button size="small" disabled={busy || !saved || !account.printSentEnabled} onClick={() => update(
+        () => api.patch(`${base}/${account._id}`, { recipients: parseRecipients(input) }), 'Recipient display names saved.',
+      )}>Save display names</Button>
+      <Button size="small" disabled={busy || !account.printSentEnabled} onClick={() => update(
         () => api.post(`${base}/${account._id}/sync`), 'Sync requested. Check Print Sent in a moment.',
       )}>Sync now</Button>
       <Button size="small" disabled={busy} onClick={() => update(
@@ -77,8 +77,8 @@ export default function PrintGmailSettings({ connectionResult }) {
       <Typography variant="h6" fontWeight={800}>Gmail for Print Sent</Typography>
       <Button size="small" variant="contained" disabled={connecting} onClick={connect}>Add or reconnect Gmail</Button>
     </Stack>
-    <Typography variant="body2" color="text.secondary">Connect the Gmail used for print jobs, then save the printer email addresses. The first sync looks back 30 days. Pause old accounts after switching Gmail.</Typography>
-    {connectionResult === 'connected' && <Alert severity="success">Gmail connected. Save the printer addresses to start syncing.</Alert>}
+    <Typography variant="body2" color="text.secondary">Print Sent shows the last seven days of sent emails from connected accounts to staff with access. Connect the Gmail you use for print jobs. Pause old accounts after switching Gmail.</Typography>
+    {connectionResult === 'connected' && <Alert severity="success">Gmail connected. Sent emails will sync automatically.</Alert>}
     {connectionResult === 'cancelled' && <Alert severity="info">Gmail connection cancelled.</Alert>}
     {connectionResult === 'error' && <Alert severity="error">Gmail connection failed. Try reconnecting and allow read access when Google asks.</Alert>}
     {error && <Alert severity="error" action={<Button size="small" onClick={() => { setError(''); load().catch(() => setError('Could not load Gmail settings.')); }}>Retry</Button>}>{error}</Alert>}

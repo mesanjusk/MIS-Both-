@@ -56,6 +56,9 @@ import SearchIcon from "@mui/icons-material/Search";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import GridOnIcon from "@mui/icons-material/GridOn";
 import CloseIcon from "@mui/icons-material/Close";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import ShareIcon from "@mui/icons-material/Share";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import TodayIcon from "@mui/icons-material/Today";
 import DoneAllIcon from "@mui/icons-material/DoneAll";
@@ -258,11 +261,13 @@ const BillCard = React.memo(function BillCard({
     </Card>
   );
 });
-export default function AllBills({ compact = false, headerSearch, onPendingBills, onPaymentFollowup }) {
+export default function AllBills({ compact = false, headerSearch, onPendingBills, onPaymentFollowup, selectedBill, onSelectBill }) {
   const canManage = isRoleAllowed(ADMIN_ROLES, useRoleKey());
   const { permissions } = useAuth();
   const canPost = permissions?.canPostTransactions !== false || canManage;
-  const [details, setDetails] = useState(null);
+  const [localDetails, setLocalDetails] = useState(null);
+  const details = onSelectBill ? selectedBill : localDetails;
+  const setDetails = onSelectBill || setLocalDetails;
   const [actionMenu, setActionMenu] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [removeBill, setRemoveBill] = useState(null);
@@ -466,6 +471,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
       setOrders((prev) =>
         prev.map((o) => (getOrderKey(o) === String(orderId) ? { ...o, ...patch } : o))
       );
+      setDetails(current => current && getOrderKey(current) === String(orderId) ? { ...current, ...patch } : current);
 
       if (selectedOrder && getOrderKey(selectedOrder) === String(orderId)) {
         setSelectedOrder((s) => (s ? { ...s, ...patch } : s));
@@ -475,7 +481,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
         setInvoiceOrder((s) => (s ? { ...s, ...patch } : s));
       }
     },
-    [hasBillableAmount, getOrderKey, selectedOrder, invoiceOrder]
+    [hasBillableAmount, getOrderKey, selectedOrder, invoiceOrder, setDetails]
   );
 
   const loadNetworkFileSettings = useCallback(async () => {
@@ -940,9 +946,47 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
 
   return (
     <>
-      {(compact || followup !== null) ? (
+      {compact && details && followup === null ? (
+        <Stack component="section" aria-label="Bill details" spacing={1.4} sx={{ p: 1, minWidth: 0 }}>
+          {!onSelectBill && <Button startIcon={<ArrowBackIcon />} onClick={() => setDetails(null)} sx={{ alignSelf: "flex-start" }}>Back to bills</Button>}
+          <Stack direction="row" flexWrap="wrap" gap={0.75}>
+            <Button size="small" variant="contained" startIcon={<ShareIcon />} onClick={() => openInvoice(details)}>Share bill</Button>
+            <Button size="small" variant="outlined" onClick={() => openInvoice(details)}>View invoice</Button>
+            {details.Customer_uuid && <Button size="small" variant="outlined" onClick={() => setFollowup(details.Customer_uuid)}>Payment follow-up</Button>}
+            {canManage && <Button size="small" variant="outlined" onClick={() => handleEditClick(details)}>Edit bill</Button>}
+            {canManage && <Button size="small" variant="outlined" color="error" onClick={() => setRemoveBill(details)}>Remove from Bills</Button>}
+            {(details.driveFile?.fileId || details.driveFile?.name || details.driveFile?.relativePath || details.driveFile?.localRelativePath) && <>
+              <Button size="small" onClick={() => openBillLocalPath(details, false)}>Open file</Button>
+              <Button size="small" onClick={() => openBillLocalPath(details, true)}>Open folder</Button>
+            </>}
+          </Stack>
+          <Paper elevation={1} sx={{ alignSelf: "flex-start", p: 1.5, borderRadius: 3, borderTopLeftRadius: 0, maxWidth: "95%" }}>
+            <Typography variant="caption" fontWeight={800}>Bill #{details.Order_Number}</Typography>
+            <Typography fontWeight={800}>{details.Customer_name || "Customer"}</Typography>
+            <Typography variant="h6" fontWeight={800}>₹{formatINR(buildInvoiceItems(details).reduce((sum, item) => sum + item.amount, 0) + (details.extraCharges || []).reduce((sum, item) => sum + toNumber(item.amount), 0))}</Typography>
+            <Typography variant="caption" color="text.secondary">{formatDateDDMMYYYY(details.createdAt)}</Typography>
+          </Paper>
+          <Paper elevation={1} sx={{ alignSelf: "flex-end", bgcolor: "#d9f0ff", color: "#113953", p: 1.5, borderRadius: 3, borderTopRightRadius: 0, maxWidth: "100%" }}>
+            <Typography variant="caption" fontWeight={800}>Manual confirmation</Typography>
+            <Stack direction="row" gap={0.5} flexWrap="wrap" sx={{ mt: 0.75 }}>
+              {Object.entries(manualLabels).map(([status, label]) => <Button key={status} size="small" color={manualColors[status]} variant={manualStatusOf(details) === status ? "contained" : "outlined"} aria-pressed={manualStatusOf(details) === status} disabled={Boolean(busyBill) || manualStatusOf(details) === status} onClick={() => toggleManual(details, status)} sx={{ textTransform: "none" }}>{label}</Button>)}
+            </Stack>
+            <Typography variant="caption" component="div" sx={{ mt: 0.75 }}>Ledger: {details.billStatus === "paid" ? "Paid" : "Unpaid"} (separate)</Typography>
+            {details.manualBillConfirmedAt && <Typography variant="caption" component="div">{details.manualBillConfirmedBy || ""} · {formatDateDDMMYYYY(details.manualBillConfirmedAt)}</Typography>}
+          </Paper>
+          <Paper elevation={1} sx={{ alignSelf: "flex-start", p: 1.5, borderRadius: 3, borderTopLeftRadius: 0, width: "min(100%, 380px)" }}>
+            <Typography variant="caption" fontWeight={800}>Bill items</Typography>
+            {buildInvoiceItems(details).map((item, index) => <Box key={index} sx={{ py: 0.75, borderBottom: "1px solid", borderColor: "divider" }}>
+              <Stack direction="row" gap={1} justifyContent="space-between"><Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>{item.name}</Typography><Typography variant="body2" fontWeight={700}>₹{formatINR(item.amount)}</Typography></Stack>
+              <Typography variant="caption" color="text.secondary">{item.qty} × ₹{formatINR(item.rate)}{item.remark ? " · " + item.remark : ""}</Typography>
+            </Box>)}
+            {(details.extraCharges || []).map((item, index) => <Stack key={index} direction="row" justifyContent="space-between" sx={{ py: 0.5 }}><Typography variant="body2">{item.label}</Typography><Typography variant="body2">₹{formatINR(item.amount)}</Typography></Stack>)}
+          </Paper>
+          {details.orderNote && <Paper elevation={1} sx={{ alignSelf: "flex-end", bgcolor: "#d9f0ff", color: "#113953", p: 1.5, borderRadius: 3, borderTopRightRadius: 0, maxWidth: "95%" }}><Typography variant="caption" fontWeight={800}>Order note</Typography><Typography variant="body2" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{details.orderNote}</Typography></Paper>}
+        </Stack>
+      ) : (compact || followup !== null) ? (
         <Stack spacing={1}>
-          {followup !== null ? <><Button size="small" onClick={() => setFollowup(null)} sx={{ alignSelf: "flex-start" }}>Back to bills</Button><PaymentFollowupHome initialCustomerUuid={followup} compact /></> : <>
+          {followup !== null ? <><Button size="small" onClick={() => setFollowup(null)} sx={{ alignSelf: "flex-start" }}>{details ? "Back to bill" : "Back to bills"}</Button><PaymentFollowupHome initialCustomerUuid={followup} compact /></> : <>
             <Stack direction="row" gap={0.5}>
               {onPendingBills && <Button fullWidth size="small" variant="outlined" onClick={onPendingBills} sx={{ textTransform: "none" }}>Pending bills ›</Button>}
               <Button fullWidth size="small" variant="outlined" onClick={() => onPaymentFollowup ? onPaymentFollowup() : setFollowup("")} sx={{ textTransform: "none" }}>Payment follow-ups ›</Button>
@@ -977,7 +1021,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
                       <Typography variant="caption" color="text.secondary" noWrap>#{order.Order_Number} · {formatDateDDMMYYYY(order.createdAt)} · ₹{formatINR(order.billTotal)}</Typography>
                     </Box>
                   </ButtonBase>
-                  <Button size="small" variant="contained" color={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? "warning" : manualColors[manualStatusOf(order)]} aria-label={`Action for bill ${order.Order_Number}: ${manualLabels[manualStatusOf(order)]}`} aria-haspopup="menu" aria-expanded={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? true : undefined} sx={{ flexShrink: 0, minWidth: 76, textTransform: "none", px: 0.75 }} disabled={busyBill !== ""} onClick={event => setActionMenu({ anchor: event.currentTarget, order })}>Action ▾</Button>
+                  <Button size="small" variant="contained" color={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? "warning" : manualColors[manualStatusOf(order)]} aria-label={`Action for bill ${order.Order_Number}: ${manualLabels[manualStatusOf(order)]}`} aria-haspopup="menu" aria-expanded={actionMenu?.order && getOrderKey(actionMenu.order) === getOrderKey(order) ? true : undefined} sx={{ flexShrink: 0, minWidth: 34, width: 34, height: 34, p: 0, borderRadius: 1.5 }} disabled={busyBill !== ""} onClick={event => setActionMenu({ anchor: event.currentTarget, order })}><MoreVertIcon fontSize="small" /></Button>
                 </Stack>
               ))}
               {!loading && !filteredOrders.length && <Typography sx={{ p: 2 }} color="text.secondary">No bills match these filters.</Typography>}
@@ -1276,7 +1320,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
           <MenuItem key={status} onClick={() => toggleManual(actionMenu.order, status)} sx={{ color: `${manualColors[status]}.main`, fontWeight: 700 }}>{label}</MenuItem>
         ))}
       </Menu>
-      <Dialog open={Boolean(details)} onClose={() => setDetails(null)} fullWidth maxWidth="xs">
+      <Dialog open={!compact && Boolean(details)} onClose={() => setDetails(null)} fullWidth maxWidth="xs">
         <DialogTitle>Bill #{details?.Order_Number}</DialogTitle>
         <DialogContent>
           {details && <Stack spacing={1}>
@@ -1341,6 +1385,7 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
               if (!full) return;
               const key = getOrderKey(full);
               if (!key) return;
+              setDetails(current => current && getOrderKey(current) === key ? { ...current, ...full } : current);
               setOrders((prev) => {
                 const idx = prev.findIndex((o) => getOrderKey(o) === key);
                 if (idx === -1) return [full, ...prev];
@@ -1360,6 +1405,8 @@ export default function AllBills({ compact = false, headerSearch, onPendingBills
         orderNumber={invoiceOrder?.Order_Number || ""}
         partyName={invoiceOrder?.Customer_name || "Customer"}
         items={buildInvoiceItems(invoiceOrder)}
+        extraCharges={invoiceOrder?.extraCharges || []}
+        dateStr={formatDateDDMMYYYY(invoiceOrder?.createdAt)}
         onWhatsApp={(url) => sendInvoiceOnWhatsApp(url, invoiceOrder)}
       />
     </>

@@ -16,6 +16,7 @@ const attachmentSchema = new mongoose.Schema(
     parsedItem:        { type: String, default: '' },
     parseSuccess:      { type: Boolean, default: false },
     thumbnail:        { type: String, default: '' },
+    received:         { type: Boolean },
   },
   { _id: false }
 );

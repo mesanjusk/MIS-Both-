@@ -2,6 +2,8 @@ const { google } = require('googleapis');
 const GmailAccount = require('../repositories/GmailAccount');
 const { encrypt, decrypt } = require('../utils/crypto');
 const logger = require('../utils/logger');
+const { randomUUID } = require('node:crypto');
+const PRINT_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 
 const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
@@ -20,12 +22,12 @@ function getOAuthClient() {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-function generateAuthUrl(state = '') {
+function generateAuthUrl(state = '', { printSent = false } = {}) {
   const client = getOAuthClient();
   return client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',   // force consent so refresh_token is always issued
-    scope: GMAIL_SCOPES,
+    prompt: printSent ? 'consent select_account' : 'consent',
+    scope: printSent ? [PRINT_READ_SCOPE, GMAIL_SCOPES[1]] : GMAIL_SCOPES,
     state,
   });
 }
@@ -39,7 +41,7 @@ async function fetchAccountEmail(oauth2Client) {
   }
 }
 
-async function saveTokensFromCode(code, addedBy = '') {
+async function saveTokensFromCode(code, addedBy = '', { printSent = false } = {}) {
   const client = getOAuthClient();
   const { tokens } = await client.getToken(code);
   client.setCredentials(tokens);
@@ -53,21 +55,44 @@ async function saveTokensFromCode(code, addedBy = '') {
     );
   }
 
+  if (printSent) {
+    if (!String(tokens.scope || '').split(/\s+/).includes(PRINT_READ_SCOPE)) {
+      throw new Error('Google did not grant permission to read Gmail. Connect again and select the read permission.');
+    }
+    const account = await GmailAccount.findOneAndUpdate(
+      { email },
+      {
+        $set: { printSentToken: encrypt(tokens.refresh_token), printSentEnabled: true, printSentError: '', printSentLease: null },
+        $setOnInsert: { email, accountId: randomUUID(), addedBy, isActive: false, isConnected: false },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return { email: account.email, accountId: account.accountId };
+  }
+
   const account = await GmailAccount.findOneAndUpdate(
     { email },
     {
-      email,
-      refreshToken: encrypt(tokens.refresh_token),
-      ...(tokens.access_token ? { accessToken: encrypt(tokens.access_token) } : {}),
-      tokenExpiry: tokens.expiry_date || null,
-      isConnected: true,
-      isActive: true,
-      addedBy,
+      $setOnInsert: { email, accountId: randomUUID() },
+      $set: {
+        refreshToken: encrypt(tokens.refresh_token),
+        ...(tokens.access_token ? { accessToken: encrypt(tokens.access_token) } : {}),
+        tokenExpiry: tokens.expiry_date || null,
+        isConnected: true,
+        isActive: true,
+        addedBy,
+      },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
   return { email: account.email, accountId: account.accountId };
+}
+
+function getPrintSentClient(encryptedToken) {
+  const client = getOAuthClient();
+  client.setCredentials({ refresh_token: decrypt(encryptedToken) });
+  return google.gmail({ version: 'v1', auth: client });
 }
 
 async function getAuthorizedGmailClient(accountId) {
@@ -141,4 +166,4 @@ async function selectBestAccount(preferredAccountId = null) {
   throw new Error('All Gmail accounts have reached their daily sending limit. Add another account.');
 }
 
-module.exports = { generateAuthUrl, saveTokensFromCode, getAuthorizedGmailClient, selectBestAccount };
+module.exports = { generateAuthUrl, saveTokensFromCode, getAuthorizedGmailClient, selectBestAccount, getPrintSentClient };

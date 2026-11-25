@@ -15,6 +15,7 @@ const attachmentSchema = new mongoose.Schema(
     parsedQty:         { type: Number, default: 0 },
     parsedItem:        { type: String, default: '' },
     parseSuccess:      { type: Boolean, default: false },
+    thumbnail:        { type: String, default: '' },
   },
   { _id: false }
 );
@@ -36,12 +37,15 @@ const emailHistorySchema = new mongoose.Schema(
     poUuid:             { type: String, default: '' },
     status:             { type: String, enum: ['sent', 'failed'], default: 'sent', index: true },
     gmailMessageId:     { type: String, default: '' },
+    source:             { type: String, enum: ['print_sent'] },
     retryCount:         { type: Number, default: 0 },
     lastError:          { type: String, default: '' },
     sentAt:             { type: Date, default: Date.now, index: true },
   },
   { timestamps: true }
 );
+
+emailHistorySchema.index({ source: 1, sentAt: -1, _id: -1 });
 
 emailHistorySchema.pre('validate', function (next) {
   if (!this.emailId) this.emailId = uuidv4();

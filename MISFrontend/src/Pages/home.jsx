@@ -152,6 +152,7 @@ export default function Home() {
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [activeTab, setActiveTab] = useState(storedHomeTab);
   const [mountedTabs, setMountedTabs] = useState(() => new Set([storedHomeTab()]));
+  const gmailConnectionResult = new URLSearchParams(location.search).get('printSentGmail') || '';
 
   const visibleTabs = useMemo(() => {
     const accountVisibleTabs = HOME_TABS.filter((tab) => (!tab.requiresAccounts || permissions?.canViewAccounts !== false) && (!tab.requiresWhatsApp || permissions?.canViewWhatsapp !== false));
@@ -175,6 +176,13 @@ export default function Home() {
     setMountedTabs((current) => new Set([...current, 'paymentFollowup']));
     try { sessionStorage.setItem(HOME_TAB_STORAGE_KEY, 'paymentFollowup'); } catch { /* preference only */ }
   }, [location.state?.openTab, location.key, permissions?.canViewAccounts]);
+
+  useEffect(() => {
+    if (!['connected', 'cancelled', 'error'].includes(gmailConnectionResult)
+      || !visibleTabs.some((tab) => tab.id === 'teamFollowup')) return;
+    setActiveTab('teamFollowup');
+    setMountedTabs((current) => new Set([...current, 'teamFollowup']));
+  }, [gmailConnectionResult, visibleTabs]);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
@@ -243,7 +251,7 @@ export default function Home() {
               }}
             >
               <Suspense fallback={<LinearProgress sx={{ borderRadius: 1 }} />}>
-                <TabComponent {...(tab.id === 'teamFollowup' ? { active: isActive } : tab.id === 'paymentFollowup'
+                <TabComponent {...(tab.id === 'teamFollowup' ? { active: isActive, gmailConnectionResult } : tab.id === 'paymentFollowup'
                   ? { initialCustomerUuid: location.state?.followupCustomerUuid || '', prefillKey: location.key }
                   : {})} />
               </Suspense>

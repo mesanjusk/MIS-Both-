@@ -26,20 +26,23 @@ beforeEach(() => {
   fetchBillListPaged.mockResolvedValue({ data: { success: true, total: 1, result: [order] } });
 });
 
-test('Manual paid and balance toggles do not call the ledger payment endpoint', async () => {
+test('Action menu offers alternate manual statuses without touching the ledger', async () => {
   let current = { ...order };
   fetchBillListPaged.mockImplementation(async () => ({ data: { success: true, total: 1, result: [current] } }));
-  updateManualBillStatus.mockImplementation(async (_, paid) => {
-    current = { ...current, manualBillPaid: paid };
-    return { data: { success: true, result: { manualBillPaid: paid } } };
+  updateManualBillStatus.mockImplementation(async (_, status) => {
+    const patch = { manualBillStatus: status, manualBillPaid: status === 'paid' };
+    current = { ...current, ...patch };
+    return { data: { success: true, result: patch } };
   });
   render(<AllBills compact />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Mark paid' }));
-  await waitFor(() => expect(updateManualBillStatus).toHaveBeenCalledWith('order-1', true));
-  const marked = await screen.findByRole('button', { name: 'Mark balance' });
-  await waitFor(() => expect(marked).toBeEnabled());
-  fireEvent.click(marked);
-  await waitFor(() => expect(updateManualBillStatus).toHaveBeenCalledWith('order-1', false));
+  for (const [before, next, excluded] of [['Balance', 'Paid', 'Balance'], ['Paid', 'Account', 'Paid'], ['Account', 'Balance', 'Account']]) {
+    const button = await screen.findByRole('button', { name: 'Action for bill 73: ' + before });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    expect(screen.queryByRole('menuitem', { name: excluded })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('menuitem', { name: next }));
+    await waitFor(() => expect(updateManualBillStatus).toHaveBeenLastCalledWith('order-1', next.toLowerCase()));
+  }
   expect(updateBillStatus).not.toHaveBeenCalled();
   expect(screen.queryByText('Receipt for #73')).not.toBeInTheDocument();
 });

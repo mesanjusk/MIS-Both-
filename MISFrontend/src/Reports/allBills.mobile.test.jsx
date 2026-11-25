@@ -52,9 +52,13 @@ test.each([['Accounts', false], ['Admin User', true]])('%s bill details respect 
     auth.userGroup = role;
     render(<AllBills compact />);
     fireEvent.click(await screen.findByRole('button', { name: /Asha Prints/ }));
-    await screen.findByRole('dialog');
+    await screen.findByRole('region', { name: 'Bill details' });
     for (const name of ['Edit bill', 'Remove from Bills']) {
       expect(Boolean(screen.queryByRole('button', { name }))).toBe(editable);
     }
     expect(screen.getByRole('button', { name: 'View invoice' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Share bill' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to bills' }));
+    expect(await screen.findByRole('button', { name: /Asha Prints/ })).toBeInTheDocument();
   });

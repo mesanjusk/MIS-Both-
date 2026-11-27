@@ -113,48 +113,25 @@ describe('changing someone else\'s attendance state', () => {
   });
 });
 
-describe('office network for starting your own day', () => {
-  beforeEach(() => { process.env.OFFICE_ATTENDANCE_IPS = '192.0.2.14'; });
-  afterEach(() => { delete process.env.OFFICE_ATTENDANCE_IPS; });
-
-  const punch = (address, type = 'In', user = 'Ramesh', token = tokenFor('Ramesh')) =>
-    request(app).post('/api/attendance/addAttendance')
-      .set('Authorization', `Bearer ${token}`)
-      .set('X-Forwarded-For', address)
-      .send({ User_name: user, Type: type, Status: 'Present', Time: '09:30' });
-
-  test('rejects a self check-in seen from outside the office', async () => {
-    const res = await punch('192.0.2.14, 192.0.2.99');
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('OFFICE_NETWORK_REQUIRED');
-    expect(Users.findOne).not.toHaveBeenCalled();
-  });
-
-  test('allows the configured network, including an IPv4-mapped address', async () => {
-    Users.findOne.mockResolvedValue(null);
-    expect((await punch('::ffff:192.0.2.14')).status).toBe(404);
-  });
-
-  test('allows clock-out, vendor punches and manager punches on behalf of staff off-site', async () => {
-    Users.findOne.mockResolvedValue(null);
-    expect((await punch('192.0.2.99', 'Out')).status).toBe(404);
-    expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Priya', 'manager'))).status).toBe(404);
-    expect((await punch('192.0.2.99', 'In', 'Ramesh', tokenFor('Ramesh', 'Vendor'))).status).toBe(404);
-  });
-
-  test('on Render uses ingress visitor headers and fails closed when they disagree or are missing', async () => {
+describe('attendance from any network', () => {
+  test('self check-in does not require office IP or Render headers', async () => {
+    const oldIps = process.env.OFFICE_ATTENDANCE_IPS;
+    const oldRender = process.env.RENDER;
+    process.env.OFFICE_ATTENDANCE_IPS = '192.0.2.14';
     process.env.RENDER = 'true';
     try {
       Users.findOne.mockResolvedValue(null);
-      expect((await punch('192.0.2.14')).body.code).toBe('OFFICE_NETWORK_REQUIRED');
-      const proxied = (ip) => punch('192.0.2.99')
-        .set('Rndr-Id', 'proxy-id')
-        .set('True-Client-IP', '192.0.2.14')
-        .set('CF-Connecting-IP', ip);
-      expect((await proxied('192.0.2.99')).body.code).toBe('OFFICE_NETWORK_REQUIRED');
-      expect((await proxied('192.0.2.14')).status).toBe(404);
+      const res = await request(app).post('/api/attendance/addAttendance')
+        .set('Authorization', `Bearer ${tokenFor('Ramesh')}`)
+        .set('X-Forwarded-For', '192.0.2.99')
+        .send({ User_name: 'Ramesh', Type: 'In', Status: 'Present', Time: '09:30' });
+      expect(res.status).toBe(404);
+      expect(Users.findOne).toHaveBeenCalledWith({ User_name: 'Ramesh' });
     } finally {
-      delete process.env.RENDER;
+      if (oldIps === undefined) delete process.env.OFFICE_ATTENDANCE_IPS;
+      else process.env.OFFICE_ATTENDANCE_IPS = oldIps;
+      if (oldRender === undefined) delete process.env.RENDER;
+      else process.env.RENDER = oldRender;
     }
   });
 });

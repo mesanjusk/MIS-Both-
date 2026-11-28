@@ -74,6 +74,11 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
     }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (subcategories.length && !subcategories.some(group => group.code === brand)) {
+      setBrand(subcategories[0].code);
+    }
+  }, [subcategories, brand]);
 
   const brandLabel = code => subcategories.find(group => group.code === code)?.label || 'SK (' + code + ')';
   const visible = useMemo(() => rows.filter(row =>

@@ -23,16 +23,20 @@ const groupById = id => Itemgroup.findOne({
   ],
 });
 router.get("/rate-categories", requireAdminOrOwner, asyncHandler(async (_req, res) => {
-  const [groups, itemCounts, rateCounts] = await Promise.all([
+  const [groups, itemCounts, rateCounts, bomCounts] = await Promise.all([
     Itemgroup.find({ Item_group: { $exists: true, $ne: "" } }).lean(),
     Items.aggregate([{ $match: { Item_group: { $nin: ["", null] } } },
       { $group: { _id: "$Item_group", count: { $sum: 1 } } }]),
     RateCard.aggregate([{ $match: { category: { $nin: ["", null] } } },
       { $group: { _id: "$category", count: { $sum: 1 } } }]),
+    Items.aggregate([{ $unwind: "$bom" },
+      { $match: { "bom.itemGroup": { $nin: ["", null] } } },
+      { $group: { _id: "$bom.itemGroup", count: { $sum: 1 } } }]),
   ]);
   const countMap = items => new Map(items.map(x => [String(x._id).toLowerCase(), x.count]));
   const itemsByName = countMap(itemCounts);
   const ratesByName = countMap(rateCounts);
+  const bomsByName = countMap(bomCounts);
   const categories = groups.map(g => ({
     uuid: g.Item_group_uuid || String(g._id),
     name: g.Item_group,
@@ -40,6 +44,7 @@ router.get("/rate-categories", requireAdminOrOwner, asyncHandler(async (_req, re
     parentName: g.parentGroup || "",
     itemCount: itemsByName.get(g.Item_group.toLowerCase()) || 0,
     rateCardCount: ratesByName.get(g.Item_group.toLowerCase()) || 0,
+    bomCount: bomsByName.get(g.Item_group.toLowerCase()) || 0,
     childCount: groups.filter(c => c.parentGroup_uuid === g.Item_group_uuid).length,
     managed: true,
   }));
@@ -51,7 +56,9 @@ router.get("/rate-categories", requireAdminOrOwner, asyncHandler(async (_req, re
     if (!name || existingNames.has(name.toLowerCase())) continue;
     categories.push({ uuid: null, name, parentUuid: "", parentName: "",
       itemCount: itemsByName.get(name.toLowerCase()) || 0,
-      rateCardCount: row.count, childCount: 0, managed: false });
+      rateCardCount: row.count,
+      bomCount: bomsByName.get(name.toLowerCase()) || 0,
+      childCount: 0, managed: false });
     existingNames.add(name.toLowerCase());
   }
   categories.sort((a, b) => a.name.localeCompare(b.name));
@@ -113,15 +120,17 @@ router.delete("/rate-categories/:uuid", requireAdminOrOwner, asyncHandler(async 
   const group = groupDoc?.toObject();
   if (!group) return res.status(404).json({ success: false, message: "Category not found" });
   const ref = nameRegex(group.Item_group);
-  const [items, rateCards, children] = await Promise.all([
+  const [items, rateCards, children, bomParts] = await Promise.all([
     Items.countDocuments({ Item_group: ref }),
     RateCard.countDocuments({ category: ref }),
     Itemgroup.countDocuments({ parentGroup_uuid: group.Item_group_uuid || id }),
+    Items.countDocuments({ "bom.itemGroup": ref }),
   ]);
-  if (items || rateCards || children) {
+  if (items || rateCards || children || bomParts) {
     return res.status(409).json({ success: false,
       message: "Category is in use (" + items + " items, " + rateCards +
-        " rate cards, " + children + " subcategories). Move or reassign them before deleting." });
+        " rate cards, " + children + " subcategories, " + bomParts +
+        " bills of materials). Move or reassign them before deleting." });
   }
   await Itemgroup.deleteOne({ _id: group._id });
   res.json({ success: true, message: "Unused category deleted" });

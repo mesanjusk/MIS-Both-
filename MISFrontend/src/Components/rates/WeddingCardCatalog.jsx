@@ -11,9 +11,11 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import ShoppingCartRoundedIcon from '@mui/icons-material/ShoppingCartRounded';
 import PhotoCameraRoundedIcon from '@mui/icons-material/PhotoCameraRounded';
 import WeddingBulkSpreadsheetDialog from './WeddingBulkSpreadsheetDialog';
+import WeddingSubcategoryManager from './WeddingSubcategoryManager';
 import { useAuth } from '../../context/AuthContext';
 import {
-  fetchWeddingCardRates, quoteWeddingCard, createWeddingCardRate,
+  fetchWeddingCardRates, fetchWeddingCardSubcategories,
+  quoteWeddingCard, createWeddingCardRate,
   updateWeddingCardRate, deleteWeddingCardRate,
   uploadWeddingCardPhoto, removeWeddingCardPhoto
 } from '../../services/weddingCardService';
@@ -34,6 +36,8 @@ const limits = { originalPrice: 10000000, markupPercent: 1000, discountPercent: 
 export default function WeddingCardCatalog({ onAddToQuote }) {
   const { isSuperAdmin } = useAuth();
   const [rows, setRows] = useState([]);
+  const [subcategories, setSubcategories] = useState([]);
+  const [subcategoriesOpen, setSubcategoriesOpen] = useState(false);
   const [brand, setBrand] = useState('M');
   const [search, setSearch] = useState('');
   const [qty, setQty] = useState('100');
@@ -57,8 +61,11 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await fetchWeddingCardRates();
+      const [data, groups] = await Promise.all([
+        fetchWeddingCardRates(), fetchWeddingCardSubcategories()
+      ]);
       setRows(Array.isArray(data) ? data : []);
+      setSubcategories(Array.isArray(groups) ? groups : []);
       setError('');
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to load wedding card designs');
@@ -68,6 +75,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
   };
   useEffect(() => { load(); }, []);
 
+  const brandLabel = code => subcategories.find(group => group.code === code)?.label || 'SK (' + code + ')';
   const visible = useMemo(() => rows.filter(row =>
     row.brand === brand &&
     (!search.trim() || row.code.includes(search.trim()))
@@ -102,7 +110,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
     if (!quote || !active) return;
     onAddToQuote({
       key: 'wedding-' + brand + '-' + activeCode + '-' + Date.now(),
-      itemName: 'Wedding Card / SK (' + brand + ') / No. ' + activeCode,
+      itemName: 'Wedding Card / ' + brandLabel(brand) + ' / No. ' + activeCode,
       pricingType: 'per_piece', qty: Number(qty), unit: 'Nos',
       amount: quote.amount, gstPercent: 0, gst: 0, total: quote.amount
     });
@@ -217,13 +225,16 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
     <Paper variant="outlined" sx={{ p: { xs: 1, sm: 1.5 }, mb: 2, borderRadius: 3 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} justifyContent="space-between" sx={{ mb: 1.5 }}>
         <Box>
-          <Typography fontWeight={900}>Wedding Card · SK (M) / SK (K)</Typography>
+          <Typography fontWeight={900}>Wedding Card · Subcategories</Typography>
           <Typography variant="caption" color="text.secondary">
             Search a card number and quantity to get the final order price. Cost details are admin-only in Edit.
           </Typography>
         </Box>
         {isSuperAdmin && (
-          <Stack direction="row" gap={1}>
+          <Stack direction="row" gap={1} flexWrap="wrap">
+            <Button size="small" variant="outlined" onClick={() => setSubcategoriesOpen(true)}>
+              Manage Subcategories
+            </Button>
             <Button size="small" variant="outlined" disabled={selectedRows.length === 0}
               onClick={openBulk}>
               Bulk Edit ({selectedRows.length})
@@ -234,7 +245,9 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
       </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mb: 1.5 }}>
         <TextField select label="Subcategory" size="small" value={brand} onChange={e => changeBrand(e.target.value)} sx={{ minWidth: 165 }}>
-          <MenuItem value="M">SK (M)</MenuItem><MenuItem value="K">SK (K)</MenuItem>
+          {subcategories.map(group => (
+            <MenuItem key={group.code} value={group.code}>{group.label}</MenuItem>
+          ))}
         </TextField>
         <TextField label="Search Card No." size="small" value={search} onChange={e => changeSearch(e.target.value)} sx={{ flex: 1 }} />
         <TextField label="Quantity" size="small" type="number" inputProps={{ min: 1, step: 1 }}
@@ -246,7 +259,7 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
           <Stack direction="row" alignItems="center" gap={1.5}>
             {active.imageUrl && <Box component="img" src={active.imageUrl} alt="" sx={{ width: 58, height: 58, objectFit: 'cover', borderRadius: 1 }} />}
             <Box sx={{ flex: 1 }}>
-              <Typography variant="caption">Wedding Card · SK ({active.brand}) · No. {active.code}</Typography>
+              <Typography variant="caption">Wedding Card · {brandLabel(active.brand)} · No. {active.code}</Typography>
               <Typography fontWeight={900} color="primary.main" variant="h6">
                 {quoteBusy ? 'Calculating…' : quote ? money(quote.amount) : 'Enter quantity'}
               </Typography>
@@ -305,7 +318,9 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
             <Stack direction="row" gap={1}>
               <TextField select size="small" label="Subcategory" fullWidth value={form.brand}
                 disabled={!!editing} onChange={e => updateField('brand', e.target.value)}>
-                <MenuItem value="M">SK (M)</MenuItem><MenuItem value="K">SK (K)</MenuItem>
+                {subcategories.map(group => (
+                  <MenuItem key={group.code} value={group.code}>{group.label}</MenuItem>
+                ))}
               </TextField>
               <TextField size="small" label="Card Number" fullWidth value={form.code}
                 disabled={!!editing} onChange={e => updateField('code', e.target.value.replace(/\D/g, ''))} />
@@ -371,6 +386,20 @@ export default function WeddingCardCatalog({ onAddToQuote }) {
         </DialogActions>
       </Dialog>
 
+      <WeddingSubcategoryManager
+        open={subcategoriesOpen}
+        onClose={() => setSubcategoriesOpen(false)}
+        onChanged={async change => {
+          await load();
+          setSelected([]);
+          setActiveCode('');
+          setQuote(null);
+          setQuoteRevision(n => n + 1);
+          if (change.type === 'add') setBrand(change.code);
+          else if (change.type === 'rename' && brand === change.oldCode) setBrand(change.code);
+          else if (change.type === 'delete' && brand === change.code) setBrand('M');
+        }}
+      />
       <WeddingBulkSpreadsheetDialog
         open={bulkOpen} rows={bulkTargets}
         onClose={() => setBulkOpen(false)}

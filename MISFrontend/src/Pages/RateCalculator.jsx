@@ -35,7 +35,7 @@ const idFor = row => row.type === 'wedding'
   ? 'wedding:' + row.brand + ':' + row.code
   : 'other:' + row.rateCard_uuid;
 const toLabel = row => row.type === 'wedding'
-  ? 'Wedding Card / SK (' + row.brand + ') / No. ' + row.code
+  ? 'Wedding Card / ' + (row.brandLabel || 'SK (' + row.brand + ')') + ' / No. ' + row.code
   : row.itemName + (row.category ? ' / ' + row.category : '');
 
 export default function RateCalculator() {
@@ -101,7 +101,7 @@ export default function RateCalculator() {
       const rowCategory = row.type === 'wedding' ? 'Wedding Card' : (row.category || '');
       if (categoryFilter !== 'all' && rowCategory.toLowerCase() !== categoryFilter.toLowerCase()) return false;
       const target = row.type === 'wedding'
-        ? row.code + ' wedding card sk ' + row.brand
+        ? row.code + ' wedding card sk ' + row.brand + ' ' + (row.brandLabel || '')
         : (row.itemName || '') + ' ' + (row.category || '');
       return target.toLowerCase().includes(q);
     });
@@ -266,7 +266,7 @@ export default function RateCalculator() {
               </Stack>
               {active.type === 'wedding' && (
                 <WeddingServiceChecklist
-                  brand={active.brand} code={active.code}
+                  brand={active.brand} brandLabel={active.brandLabel} code={active.code}
                   quote={weddingQuote} qty={count} selected={prefs.selected}
                   nameLabelQty={prefs.nameLabelQty === '' ? qty : prefs.nameLabelQty}
                   otherQty={prefs.otherQty} deliveryDays={prefs.deliveryDays}

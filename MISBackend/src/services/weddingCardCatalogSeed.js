@@ -2,6 +2,7 @@ const { v4: uuid } = require("uuid");
 const RateCard = require("../repositories/rateCard");
 const Items = require("../repositories/items");
 const { WEDDING_CARD_SEED } = require("../data/weddingCardSeed");
+const { initialSubcategories } = require("../utils/weddingCardSubcategories");
 
 const WEDDING_CARD_NAME = /^\s*wedding cards?\s*$/i;
 
@@ -31,25 +32,30 @@ async function getOrCreateWeddingCardParent() {
   });
 }
 
-// Idempotent additive seed inside existing Items (or legacy RateCard) collection. Preserves
-// edits and tombstones; no Mongo collection creation or Items-master writes.
+// Import the built-in M/K catalog only once. Later renames/removals must not
+// silently recreate SK(M)/SK(K) or the removed card codes after restart.
 async function seedWeddingCardCatalog() {
   const parent = await getOrCreateWeddingCardParent();
-  const existingCodes = new Set((parent.weddingCardVariants || [])
-    .map((item) => `${item.brand}:${item.code}`));
-  const missing = WEDDING_CARD_SEED.filter(({ brand, code }) => !existingCodes.has(`${brand}:${code}`))
-    .map(({ brand, code, originalPrice, notes = "" }) => ({
-      brand, code, originalPrice, notes,
-      printingCharge: 0, packingCharge: 0, designCharge: 0, isDeleted: false,
-    }));
-  if (missing.length) {
-    // Push only newly added code variants, retaining any edits/deletions.
-    parent.weddingCardVariants.push(...missing);
-    await parent.save();
+  if (parent.weddingCardCatalogInitialized) {
+    return {
+      inserted: 0, sourceEntries: WEDDING_CARD_SEED.length,
+      parentItem: parent.Item_uuid || parent.rateCard_uuid, alreadyInitialized: true,
+    };
   }
+  const existingCodes = new Set((parent.weddingCardVariants || [])
+    .map(item => `${item.brand}:${item.code}`));
+  const missing = WEDDING_CARD_SEED
+    .filter(({ brand, code }) => !existingCodes.has(`${brand}:${code}`))
+    .map(({ brand, code, originalPrice, notes = "" }) => ({
+      brand, code, originalPrice, notes, isDeleted: false,
+      printingCharge: 0, packingCharge: 0, designCharge: 0,
+    }));
+  parent.weddingCardVariants.push(...missing);
+  parent.weddingCardSubcategories = initialSubcategories(parent.weddingCardVariants);
+  parent.weddingCardCatalogInitialized = true;
+  await parent.save();
   return {
-    inserted: missing.length,
-    sourceEntries: WEDDING_CARD_SEED.length,
+    inserted: missing.length, sourceEntries: WEDDING_CARD_SEED.length,
     parentItem: parent.Item_uuid || parent.rateCard_uuid,
   };
 }

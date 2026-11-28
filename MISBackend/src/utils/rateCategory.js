@@ -12,7 +12,8 @@ const categoryNameError = name => {
 };
 
 const nameRegex = value => {
-  const safe = String(value).replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
+  const special = new Set(["\\", ".", "^", "$", "*", "+", "?", "(", ")", "[", "]", "{", "}", "|"]);
+  const safe = Array.from(String(value)).map(ch => special.has(ch) ? "\\" + ch : ch).join("");
   return new RegExp("^" + safe + "$", "i");
 };
 module.exports = { normalizeCategoryName, categoryNameError, nameRegex };

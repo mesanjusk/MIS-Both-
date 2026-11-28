@@ -4,14 +4,20 @@ const { requireAdminOrOwner } = require("../middleware/authorize");
 const { tierFor } = require("../utils/roleHierarchy");
 const { createUpload, limitRequestSize, MB } = require("../middleware/uploadLimits");
 const cloudinary = require("../utils/cloudinary");
-const { findWeddingCardParent, getOrCreateWeddingCardParent } = require("../services/weddingCardCatalogSeed");
+const {
+  findWeddingCardParent, getOrCreateWeddingCardParent, seedWeddingCardCatalog
+} = require("../services/weddingCardCatalogSeed");
+const {
+  normalizeCode, isSubcategoryCode, normalizeLabel, validateLabel,
+  subcategoriesFor
+} = require("../utils/weddingCardSubcategories");
 const { roundMoney, withCalculatedPrices, calculateWeddingQuote, calculateWeddingBreakdown, encodePrice } = require("../utils/weddingCardPricing");
 const logger = require("../utils/logger");
 
 const router = express.Router();
 router.use(requireAuth);
 const canEdit = (req) => tierFor(req.user?.userGroup) >= 4;
-const isBrand = (value) => value === "M" || value === "K";
+const isBrand = isSubcategoryCode;
 const isCode = (value) => /^\d{3,5}$/.test(String(value ?? ""));
 const fieldLimits = {
   originalPrice: 10000000, printingCharge: 10000000,
@@ -57,16 +63,123 @@ const handleError = (res, err, label) => {
   return res.status(500).json({ success: false, message: "Unable to process Wedding Card request" });
 };
 
+// Subcategories remain embedded under the ONE Wedding Card Item / legacy
+// RateCard. They do not create independent Items or MongoDB collections.
+const ensureInitializedParent = async () => {
+  const parent = await getOrCreateWeddingCardParent();
+  if (parent.weddingCardCatalogInitialized) return parent;
+  await seedWeddingCardCatalog();
+  return findWeddingCardParent();
+};
+const getSubcategory = (parent, code) =>
+  subcategoriesFor(parent).find(row => row.code === normalizeCode(code));
+const uniqueLabel = (categories, label, exceptCode = "") =>
+  categories.some(row => row.code !== exceptCode &&
+    row.label.toLowerCase() === label.toLowerCase());
+
+router.get("/subcategories", async (req, res) => {
+  try {
+    const parent = await findWeddingCardParent();
+    const data = subcategoriesFor(parent).map(category => ({
+      ...category,
+      activeCount: (parent?.weddingCardVariants || []).filter(row =>
+        row.brand === category.code && !row.isDeleted).length,
+      archivedCount: (parent?.weddingCardVariants || []).filter(row =>
+        row.brand === category.code && row.isDeleted).length,
+    }));
+    return res.json({ success: true, result: data });
+  } catch (err) { return handleError(res, err, "Wedding Card subcategories fetch failed"); }
+});
+
+router.post("/subcategories", requireAdminOrOwner, async (req, res) => {
+  const code = normalizeCode(req.body?.code);
+  const label = normalizeLabel(req.body?.label, code);
+  if (!isBrand(code) || !validateLabel(label)) {
+    return res.status(400).json({ success: false, message: "Use a 1-12 character code starting with A-Z and a label of 2-60 characters" });
+  }
+  try {
+    const parent = await ensureInitializedParent();
+    const categories = subcategoriesFor(parent);
+    if (categories.some(row => row.code === code) || uniqueLabel(categories, label)) {
+      return res.status(409).json({ success: false, message: "Subcategory code or name already exists" });
+    }
+    if (categories.length >= 100) return res.status(409).json({ success: false, message: "Maximum 100 Wedding Card subcategories" });
+    parent.weddingCardSubcategories.push({ code, label });
+    await parent.save();
+    return res.status(201).json({ success: true, result: { code, label, activeCount: 0, archivedCount: 0 } });
+  } catch (err) { return handleError(res, err, "Wedding Card subcategory create failed"); }
+});
+
+router.put("/subcategories/:code", requireAdminOrOwner, async (req, res) => {
+  const oldCode = normalizeCode(req.params.code);
+  const code = normalizeCode(req.body?.code);
+  const label = normalizeLabel(req.body?.label, code);
+  if (!isBrand(oldCode) || !isBrand(code) || !validateLabel(label)) {
+    return res.status(400).json({ success: false, message: "Invalid subcategory code or name" });
+  }
+  try {
+    const parent = await ensureInitializedParent();
+    const categories = subcategoriesFor(parent);
+    const current = parent.weddingCardSubcategories.find(row => row.code === oldCode);
+    if (!current) return res.status(404).json({ success: false, message: "Subcategory not found" });
+    if (categories.some(row => row.code === code && row.code !== oldCode) ||
+        uniqueLabel(categories, label, oldCode)) {
+      return res.status(409).json({ success: false, message: "Subcategory code or name already exists" });
+    }
+    // Safely migrate *both active and archived* products, preserving original
+    // prices, card numbers, images, and all user edited charges.
+    if (oldCode !== code) {
+      const conflicting = new Set((parent.weddingCardVariants || [])
+        .filter(row => row.brand === code).map(row => row.code));
+      if (parent.weddingCardVariants.some(row =>
+        row.brand === oldCode && conflicting.has(row.code))) {
+        return res.status(409).json({ success: false, message: "The destination subcategory already has matching card numbers" });
+      }
+      for (const row of parent.weddingCardVariants) {
+        if (row.brand === oldCode) row.brand = code;
+      }
+    }
+    current.code = code;
+    current.label = label;
+    await parent.save();
+    return res.json({ success: true, result: {
+      previousCode: oldCode, code, label,
+      moved: parent.weddingCardVariants.filter(row => row.brand === code).length,
+    } });
+  } catch (err) { return handleError(res, err, "Wedding Card subcategory update failed"); }
+});
+
+router.delete("/subcategories/:code", requireAdminOrOwner, async (req, res) => {
+  const code = normalizeCode(req.params.code);
+  if (!isBrand(code)) return res.status(400).json({ success: false, message: "Invalid subcategory code" });
+  try {
+    const parent = await ensureInitializedParent();
+    const category = getSubcategory(parent, code);
+    if (!category) return res.status(404).json({ success: false, message: "Subcategory not found" });
+    const used = parent.weddingCardVariants.filter(row => row.brand === code).length;
+    if (used) return res.status(409).json({
+      success: false,
+      message: `This subcategory still has ${used} card records (including archived). Move or reassign the products before deleting it.`,
+    });
+    parent.weddingCardSubcategories = parent.weddingCardSubcategories.filter(row => row.code !== code);
+    await parent.save();
+    return res.json({ success: true, message: "Empty subcategory deleted" });
+  } catch (err) { return handleError(res, err, "Wedding Card subcategory delete failed"); }
+});
+
 router.get("/", async (req, res) => {
   try {
-    const brand = String(req.query.brand || "").toUpperCase();
+    const brand = normalizeCode(req.query.brand || "");
     if (brand && !isBrand(brand)) return res.status(400).json({ success: false, message: "Unknown subcategory" });
     const parent = await findWeddingCardParent();
     const records = (parent?.weddingCardVariants || []).filter(row => !row.isDeleted && (!brand || row.brand === brand))
       .map(row => row.toObject());
     records.sort((a, b) => a.brand.localeCompare(b.brand) || Number(a.code) - Number(b.code));
     // Staff can search all product codes but never receives supplier prices or charge breakdown.
-    return res.json({ success: true, result: canEdit(req) ? records.map(withCalculatedPrices) : records.map(summary) });
+    const labelFor = row => getSubcategory(parent, row.brand)?.label || `SK (${row.brand})`;
+    return res.json({ success: true, result: canEdit(req)
+      ? records.map(row => ({ ...withCalculatedPrices(row), brandLabel: labelFor(row) }))
+      : records.map(row => ({ ...summary(row), brandLabel: labelFor(row) })) });
   } catch (err) {
     return handleError(res, err, "Wedding Card list failed");
   }
@@ -75,7 +188,7 @@ router.get("/", async (req, res) => {
 // The search screen gets ONLY the final quote amount; nothing about costs, code mapping
 // or internal margin is returned to a regular staff member.
 router.get("/quote", async (req, res) => {
-  const brand = String(req.query.brand || "").toUpperCase();
+  const brand = normalizeCode(req.query.brand || "");
   const code = String(req.query.code || "");
   const qty = Number(req.query.qty);
   if (!isBrand(brand) || !isCode(code) || !Number.isSafeInteger(qty) || qty < 1 || qty > 1000000) {
@@ -120,7 +233,8 @@ router.get("/quote", async (req, res) => {
     return res.json({
       success: true,
       result: {
-        ...summary(row), qty, amount: calculated.amount, unit: "Nos",
+        ...summary(row), brandLabel: getSubcategory(parent, row.brand)?.label || `SK (${row.brand})`,
+        qty, amount: calculated.amount, unit: "Nos",
         lines: calculated.lines, selected: calculated.selected,
         deliveryDays: calculated.deliveryDays, nameLabelQty: calculated.nameLabelQty,
         otherQty: calculated.otherQty, ...extra,
@@ -132,12 +246,15 @@ router.get("/quote", async (req, res) => {
 });
 
 router.post("/", requireAdminOrOwner, async (req, res) => {
-  const brand = String(req.body?.brand || "").toUpperCase();
+  const brand = normalizeCode(req.body?.brand || "");
   const code = String(req.body?.code || "").trim();
   if (!isBrand(brand) || !isCode(code)) return res.status(400).json({ success: false, message: "Choose subcategory and 3–5 digit number" });
   try {
     const changes = normalizeChanges(req.body);
-    const parent = await getOrCreateWeddingCardParent();
+    const parent = await ensureInitializedParent();
+    if (!getSubcategory(parent, brand)) {
+      return res.status(400).json({ success: false, message: "Create this Wedding Card subcategory before adding product codes" });
+    }
     const existing = findVariant(parent, brand, code);
     if (existing && !existing.isDeleted) return res.status(409).json({ success: false, message: "This code already exists" });
     if (existing) existing.set({ ...changes, isDeleted: false });

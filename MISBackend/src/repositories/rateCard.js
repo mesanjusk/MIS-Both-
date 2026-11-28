@@ -14,7 +14,7 @@ const slabSchema = new mongoose.Schema(
 // No per-design Items-master entries or extra MongoDB collections are created.
 const weddingCardVariantSchema = new mongoose.Schema(
   {
-    brand: { type: String, required: true, enum: ["M", "K"] },
+    brand: { type: String, required: true, match: /^[A-Z][A-Z0-9_-]{0,11}$/ },
     code: { type: String, required: true, match: /^\d{3,5}$/ },
     originalPrice: { type: Number, required: true, min: 0 },
     printingCharge: { type: Number, default: 0, min: 0 },
@@ -63,6 +63,11 @@ const RateCardSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     notes: { type: String, default: "" },
     weddingCardVariants: { type: [weddingCardVariantSchema], default: [] },
+    weddingCardSubcategories: { type: [{
+      code: { type: String, required: true, match: /^[A-Z][A-Z0-9_-]{0,11}$/ },
+      label: { type: String, required: true, trim: true, maxlength: 60 },
+    }], default: [] },
+    weddingCardCatalogInitialized: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -43,7 +43,11 @@ function drawWeddingLabel(pdf, x, y, width, height, item) {
   pdf.setTextColor(98, 54, 8);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(titleSize);
-  pdf.text('SK (' + clean(item.brand) + ')', x + pad, y + 5.3 + titleSize * 0.2);
+  const printedBrand = clean(item.brandLabel || 'SK (' + item.brand + ')');
+  const brandMax = width * 0.66;
+  const brandWidth = pdf.getTextWidth(printedBrand);
+  pdf.setFontSize(Math.max(6, Math.min(titleSize, titleSize * brandMax / Math.max(1, brandWidth))));
+  pdf.text(printedBrand, x + pad, y + 5.3 + titleSize * 0.2);
   pdf.setTextColor(169, 35, 28);
   pdf.setFontSize(titleSize * 0.92);
   pdf.text(clean(item.code), x + width - pad, y + 5.3 + titleSize * 0.2, { align: 'right' });
@@ -120,7 +124,11 @@ function drawWeddingJobLabel(pdf, x, y, width, height, item) {
   pdf.rect(x, y, width, height, 'S');
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(Math.min(10.5, width / 8.8));
-  pdf.text('SK(' + clean(item.brand) + ')  ' + clean(item.code), x + pad, y + 7.5);
+  const header = clean(item.brandLabel || 'SK(' + item.brand + ')') + '  ' + clean(item.code);
+  const usable = item.codedPrice ? width * 0.66 : width - pad * 2;
+  const headerWidth = pdf.getTextWidth(header);
+  pdf.setFontSize(Math.max(6, Math.min(10.5, 10.5 * usable / Math.max(1, headerWidth))));
+  pdf.text(header, x + pad, y + 7.5);
   if (item.codedPrice) {
     pdf.setFontSize(8.2);
     pdf.text(clean(item.codedPrice), x + width - pad, y + 7.5, { align: 'right' });

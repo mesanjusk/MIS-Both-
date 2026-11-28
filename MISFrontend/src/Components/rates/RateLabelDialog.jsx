@@ -41,6 +41,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
   const labelItem = {
     type: isJob ? 'job' : (isWedding ? 'wedding' : 'other'),
     brand: item?.brand || '',
+    brandLabel: item?.brandLabel || '',
     code: item?.code || '',
     name: isWedding ? 'Wedding Card' : (item?.itemName || item?.name || 'SK Digital Product') +
       ' (Qty ' + qty + ')',
@@ -77,7 +78,7 @@ export default function RateLabelDialog({ open, onClose, item, quote, quantity, 
       <DialogContent sx={{ pt: '8px !important' }}>
         <Stack spacing={1.6}>
           <Typography variant="body2" color="text.secondary">
-            {isWedding ? 'Wedding Card · SK (' + item.brand + ') · No. ' + item.code
+            {isWedding ? 'Wedding Card · ' + (item.brandLabel || 'SK (' + item.brand + ')') + ' · No. ' + item.code
               : item?.itemName || 'Rate Card Item'}
           </Typography>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>

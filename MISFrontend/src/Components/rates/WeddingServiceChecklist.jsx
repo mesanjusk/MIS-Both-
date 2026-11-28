@@ -15,7 +15,7 @@ const EMPTY_ROWS = [
 ];
 
 export default function WeddingServiceChecklist({
-  brand, code, quote, qty, selected, onToggle, nameLabelQty,
+  brand, brandLabel, code, quote, qty, selected, onToggle, nameLabelQty,
   onNameLabelQty, otherQty, onOtherQty, deliveryDays, onDeliveryDays,
   loading = false, isAdmin = false,
 }) {
@@ -28,7 +28,7 @@ export default function WeddingServiceChecklist({
       <Box sx={{ px: { xs: 1.25, md: 2 }, py: 1.1 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
           <Typography variant="h6" sx={{ fontWeight: 800, color: '#252525', letterSpacing: '-0.01em' }}>
-            SK({brand}) {code}
+            {brandLabel || 'SK(' + brand + ')'} {code}
           </Typography>
           {isAdmin && quote?.codedPrice && (
             <Typography sx={{ fontWeight: 800, color: '#3c3c3c', fontSize: 15 }}>

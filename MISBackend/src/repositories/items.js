@@ -31,7 +31,7 @@ const bomComponentschema = new mongoose.Schema(
 // All card-number variants are embedded; this creates NO new collection.
 const weddingCardVariantSchema = new mongoose.Schema(
   {
-    brand: { type: String, required: true, enum: ["M", "K"] },
+    brand: { type: String, required: true, match: /^[A-Z][A-Z0-9_-]{0,11}$/ },
     code: { type: String, required: true, match: /^\d{3,5}$/ },
     originalPrice: { type: Number, required: true, min: 0 },
     printingCharge: { type: Number, default: 0, min: 0 },
@@ -86,6 +86,11 @@ const ItemsSchema = new mongoose.Schema(
     bom: { type: [bomComponentschema], default: [] },
     isActive: { type: Boolean, default: true },
     weddingCardVariants: { type: [weddingCardVariantSchema], default: [] },
+    weddingCardSubcategories: { type: [{
+      code: { type: String, required: true, match: /^[A-Z][A-Z0-9_-]{0,11}$/ },
+      label: { type: String, required: true, trim: true, maxlength: 60 },
+    }], default: [] },
+    weddingCardCatalogInitialized: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

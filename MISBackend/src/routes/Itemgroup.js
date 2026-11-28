@@ -8,6 +8,7 @@ const AppError = require("../utils/AppError");
 
 router.use(requireAuth);
 
+const mongoose = require("mongoose");
 const Items = require("../repositories/items");
 const RateCard = require("../repositories/rateCard");
 const { requireAdminOrOwner } = require("../middleware/authorize");
@@ -15,6 +16,12 @@ const { normalizeCategoryName, categoryNameError, nameRegex } = require("../util
 
 // Rate Calculator categories reuse existing Item Group storage. This creates
 // NO new MongoDB collection and does not create an Items-master product.
+const groupById = id => Itemgroup.findOne({
+  $or: [
+    { Item_group_uuid: id },
+    ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : []),
+  ],
+});
 router.get("/rate-categories", requireAdminOrOwner, asyncHandler(async (_req, res) => {
   const [groups, itemCounts, rateCounts] = await Promise.all([
     Itemgroup.find({ Item_group: { $exists: true, $ne: "" } }).lean(),
@@ -27,7 +34,7 @@ router.get("/rate-categories", requireAdminOrOwner, asyncHandler(async (_req, re
   const itemsByName = countMap(itemCounts);
   const ratesByName = countMap(rateCounts);
   const categories = groups.map(g => ({
-    uuid: g.Item_group_uuid,
+    uuid: g.Item_group_uuid || String(g._id),
     name: g.Item_group,
     parentUuid: g.parentGroup_uuid || "",
     parentName: g.parentGroup || "",
@@ -71,11 +78,11 @@ router.put("/rate-categories/:uuid", requireAdminOrOwner, asyncHandler(async (re
   const name = normalizeCategoryName(req.body?.name);
   const err = categoryNameError(name);
   if (err) return res.status(400).json({ success: false, message: err });
-  const group = await Itemgroup.findOne({ Item_group_uuid: id });
+  const group = await groupById(id);
   if (!group) return res.status(404).json({ success: false, message: "Category not found" });
   const previous = group.Item_group;
   if (previous === name) return res.json({ success: true, result: { uuid: id, name, changed: false } });
-  if (await Itemgroup.exists({ Item_group: nameRegex(name), Item_group_uuid: { $ne: id } })) {
+  if (await Itemgroup.exists({ Item_group: nameRegex(name), _id: { $ne: group._id } })) {
     return res.status(409).json({ success: false, message: "Category name already exists" });
   }
 
@@ -86,7 +93,15 @@ router.put("/rate-categories/:uuid", requireAdminOrOwner, asyncHandler(async (re
   const oldName = nameRegex(previous);
   await Items.updateMany({ Item_group: oldName }, { $set: { Item_group: name } });
   await RateCard.updateMany({ category: oldName }, { $set: { category: name } });
-  await Itemgroup.updateMany({ parentGroup_uuid: id }, { $set: { parentGroup: name } });
+  await Items.updateMany(
+    { "bom.itemGroup": oldName },
+    { $set: { "bom.$[part].itemGroup": name } },
+    { arrayFilters: [{ "part.itemGroup": oldName }] }
+  );
+  await Itemgroup.updateMany(
+    { parentGroup_uuid: group.Item_group_uuid || id },
+    { $set: { parentGroup: name } }
+  );
   group.Item_group = name;
   await group.save();
   res.json({ success: true, result: { uuid: id, name, previous, changed: true } });
@@ -94,20 +109,21 @@ router.put("/rate-categories/:uuid", requireAdminOrOwner, asyncHandler(async (re
 
 router.delete("/rate-categories/:uuid", requireAdminOrOwner, asyncHandler(async (req, res) => {
   const id = String(req.params.uuid || "");
-  const group = await Itemgroup.findOne({ Item_group_uuid: id }).lean();
+  const groupDoc = await groupById(id);
+  const group = groupDoc?.toObject();
   if (!group) return res.status(404).json({ success: false, message: "Category not found" });
   const ref = nameRegex(group.Item_group);
   const [items, rateCards, children] = await Promise.all([
     Items.countDocuments({ Item_group: ref }),
     RateCard.countDocuments({ category: ref }),
-    Itemgroup.countDocuments({ parentGroup_uuid: id }),
+    Itemgroup.countDocuments({ parentGroup_uuid: group.Item_group_uuid || id }),
   ]);
   if (items || rateCards || children) {
     return res.status(409).json({ success: false,
       message: "Category is in use (" + items + " items, " + rateCards +
         " rate cards, " + children + " subcategories). Move or reassign them before deleting." });
   }
-  await Itemgroup.deleteOne({ Item_group_uuid: id });
+  await Itemgroup.deleteOne({ _id: group._id });
   res.json({ success: true, message: "Unused category deleted" });
 }));
 

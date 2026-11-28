@@ -22,6 +22,7 @@ import WeddingCardCatalog from '../Components/rates/WeddingCardCatalog';
 import RateLabelDialog from '../Components/rates/RateLabelDialog';
 import WeddingServiceChecklist from '../Components/rates/WeddingServiceChecklist';
 import RateCategoryManager from '../Components/rates/RateCategoryManager';
+import { fetchRateCategories } from '../services/rateCategoryService';
 import { computeRateCardAmount, computeGst } from '../utils/rateCardPricing';
 
 const money = (n) => '₹' + (Number(n) || 0).toFixed(2);
@@ -40,6 +41,7 @@ const toLabel = row => row.type === 'wedding'
 export default function RateCalculator() {
   const { isSuperAdmin } = useAuth();
   const [rateCards, setRateCards] = useState([]);
+  const [managedCategories, setManagedCategories] = useState([]);
   const [weddingCodes, setWeddingCodes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [customerName, setCustomerName] = useState('');
@@ -68,21 +70,26 @@ export default function RateCalculator() {
 
   const load = async () => {
     setLoading(true);
-    const [rates, wedding] = await Promise.allSettled([
-      fetchRateCards(true), fetchWeddingCardRates()
+    const [rates, wedding, groups] = await Promise.allSettled([
+      fetchRateCards(true), fetchWeddingCardRates(),
+      isSuperAdmin ? fetchRateCategories() : Promise.resolve([])
     ]);
     if (rates.status === 'fulfilled' && Array.isArray(rates.value)) setRateCards(rates.value);
     else toast.error('Could not load other rate categories');
     if (wedding.status === 'fulfilled' && Array.isArray(wedding.value)) setWeddingCodes(wedding.value);
     else toast.error('Could not load Wedding Card designs');
+    if (groups.status === 'fulfilled' && Array.isArray(groups.value)) {
+      setManagedCategories(groups.value.map(row => row.name));
+    }
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [isSuperAdmin]);
 
   const availableCategories = useMemo(() =>
-    ['Wedding Card', ...new Set(rateCards.map(rc => String(rc.category || '').trim()).filter(Boolean))]
+    ['Wedding Card', ...managedCategories,
+      ...new Set(rateCards.map(rc => String(rc.category || '').trim()).filter(Boolean))]
       .filter((name, idx, array) => array.findIndex(other => other.toLowerCase() === name.toLowerCase()) === idx)
-      .sort((a, b) => a.localeCompare(b)), [rateCards]);
+      .sort((a, b) => a.localeCompare(b)), [rateCards, managedCategories]);
 
   const matches = useMemo(() => {
     const q = search.toLowerCase().trim();

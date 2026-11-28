@@ -4,6 +4,12 @@ const base = '/api/rate-cards/wedding-cards';
 const unwrap = (response) => response?.data?.result ?? response?.data ?? [];
 
 export const fetchWeddingCardRates = async () => unwrap(await axios.get(base));
+export const fetchWeddingCardSubcategories = async () => unwrap(await axios.get(base + '/subcategories'));
+export const createWeddingCardSubcategory = async data => unwrap(await axios.post(base + '/subcategories', data));
+export const updateWeddingCardSubcategory = async (code, data) =>
+  unwrap(await axios.put(base + '/subcategories/' + encodeURIComponent(code), data));
+export const deleteWeddingCardSubcategory = async code =>
+  unwrap(await axios.delete(base + '/subcategories/' + encodeURIComponent(code)));
 export const quoteWeddingCard = async (brand, code, qty, overrides = {}) =>
   unwrap(await axios.get(base + '/quote', { params: { brand, code, qty, ...overrides } }));
 export const createWeddingCardRate = async (data) => unwrap(await axios.post(base, data));

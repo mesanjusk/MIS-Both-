@@ -79,9 +79,9 @@ export default function RateCategoryManager({ open, onClose, onChanged }) {
     } finally { setBusy(false); }
   };
   const remove = async row => {
-    const used = row.itemCount + row.rateCardCount + row.childCount;
+    const used = row.itemCount + row.rateCardCount + row.childCount + (row.bomCount || 0);
     if (used) {
-      setMessage({ severity: 'error', text: 'Reassign linked items, rate cards and subcategories before deleting.' });
+      setMessage({ severity: 'error', text: 'Reassign linked items, rate cards, BOM components and subcategories before deleting.' });
       return;
     }
     if (!window.confirm('Delete unused category "' + row.name + '"? This cannot be undone.')) return;
@@ -102,7 +102,7 @@ export default function RateCategoryManager({ open, onClose, onChanged }) {
           <Alert severity="info">
             Categories use the shared Item Group master. Renaming a category also
             updates linked Items and Rate Cards. Deletion is allowed only when
-            no item, rate card or subcategory uses it.
+            no item, rate card, BOM component or subcategory uses it.
           </Alert>
           {message && (
             <Alert severity={message.severity} onClose={() => setMessage(null)}>
@@ -161,7 +161,12 @@ export default function RateCategoryManager({ open, onClose, onChanged }) {
                           </Stack>
                         )}
                       </TableCell>
-                      <TableCell align="center">{row.itemCount}</TableCell>
+                      <TableCell align="center">
+                        {row.itemCount}
+                        {!!row.bomCount && <Typography variant="caption" display="block" color="text.secondary">
+                          {row.bomCount} BOM refs
+                        </Typography>}
+                      </TableCell>
                       <TableCell align="center">{row.rateCardCount}</TableCell>
                       <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                         {!row.managed ? (
@@ -176,12 +181,12 @@ export default function RateCategoryManager({ open, onClose, onChanged }) {
                                 </IconButton>
                               </span>
                             </Tooltip>
-                            <Tooltip title={row.itemCount || row.rateCardCount || row.childCount
+                            <Tooltip title={row.itemCount || row.rateCardCount || row.childCount || row.bomCount
                               ? 'In use: move linked entries before deleting'
                               : 'Delete unused category'}>
                               <span>
                                 <IconButton size="small" color="error"
-                                  disabled={busy || !!editingUuid || !!(row.itemCount || row.rateCardCount || row.childCount)}
+                                  disabled={busy || !!editingUuid || !!(row.itemCount || row.rateCardCount || row.childCount || row.bomCount)}
                                   onClick={() => remove(row)}>
                                   <DeleteRoundedIcon fontSize="small" />
                                 </IconButton>
